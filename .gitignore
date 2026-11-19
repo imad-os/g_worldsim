@@ -9,3 +9,4 @@ packages/client/www/*.js
 packages/client/www/*.js.map
 packages/panel/www/*.js
 packages/panel/www/*.js.map
+worldsim.config.json
