@@ -17,7 +17,7 @@
     "build": "tsc -b packages/protocol packages/server && node tools/build-client.mjs",
     "start": "node --disable-warning=ExperimentalWarning packages/server/dist/main.js",
     "dev": "npm run build && npm start -- --speed 1",
-    "test": "npm run build && node --disable-warning=ExperimentalWarning --test 'packages/server/dist/test/*.test.js'",
+    "test": "npm run build && node tools/test.mjs",
     "bench": "npm run build && node --disable-warning=ExperimentalWarning packages/server/dist/bench.js"
   },
   "devDependencies": {
