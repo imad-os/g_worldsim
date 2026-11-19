@@ -1,0 +1,11 @@
+node_modules/
+packages/*/dist/
+*.tsbuildinfo
+data/
+.env
+*.log
+out/
+packages/client/www/*.js
+packages/client/www/*.js.map
+packages/panel/www/*.js
+packages/panel/www/*.js.map

@@ -1,0 +1,14 @@
+{
+  "scenario": "post-apocalypse",
+  "worldId": "main",
+  "host": "127.0.0.1",
+  "port": 8787,
+  "tickRate": 20,
+  "clockScale": 10,
+  "speed": 1,
+  "lowSpec": false,
+  "snapshotEverySec": 30,
+  "netHz": 10,
+  "cloud": { "enabled": false, "projectId": "", "everySec": 300, "maxWritesPerDay": 15000 },
+  "tunnel": { "provider": "none" }
+}

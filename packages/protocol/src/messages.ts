@@ -1,0 +1,92 @@
+import type { Msg } from './constants.js';
+
+export type Role = 'viewer' | 'admin';
+
+/** Client -> server: first message. `resume` = the session id of a previous connection, to keep its interest state. */
+export interface Hello { t: typeof Msg.Hello; v: number; token: string; name?: string; resume?: string }
+
+/** Client -> server: the area the client wants to see (a map plus a centre and a radius in metres). */
+export interface View { t: typeof Msg.View; map: string; x: number; y: number; r: number }
+
+export interface Ping { t: typeof Msg.Ping; c: number }
+
+/** Admin commands (control panel). Every field is validated server side. */
+export type AdminCmd =
+  | { cmd: 'speed'; speed: number }
+  | { cmd: 'pause'; paused: boolean }
+  | { cmd: 'snapshot' }
+  | { cmd: 'stats' }
+  | { cmd: 'spawn'; map: string; x: number; y: number; kind?: number }
+  | { cmd: 'remove'; id: number }
+  | { cmd: 'shoot'; map: string; x: number; y: number; dx: number; dy: number }
+  | { cmd: 'damageTile'; map: string; tx: number; ty: number; amount: number };
+
+export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
+
+export interface MapInfo { id: string; name: string; w: number; h: number; tileSize: number; chunkTiles: number }
+export interface PortalInfo { id: string; map: string; x: number; y: number; to: string; toX: number; toY: number; travel: number }
+export interface TileTypeInfo { id: number; name: string; solid: boolean; color: number }
+
+export interface Welcome {
+  t: typeof Msg.Welcome;
+  v: number;
+  session: string;
+  role: Role;
+  scenario: string;
+  maps: MapInfo[];
+  portals: PortalInfo[];
+  tiles: TileTypeInfo[];
+  clock: ClockInfo;
+}
+
+export interface ClockInfo {
+  tick: number;
+  /** Game time in game seconds since the world started. */
+  gameSec: number;
+  speed: number;
+  paused: boolean;
+  /** Game seconds per simulated second (1 real minute = 10 game minutes -> 10). */
+  clockScale: number;
+  tickRate: number;
+}
+
+export interface ErrorMsg { t: typeof Msg.Error; code: string; msg?: string }
+
+/** A chunk's tiles (CHUNK_TILES^2 bytes, row major) and its version (bumped on every change). */
+export interface Chunk { t: typeof Msg.Chunk; map: string; cx: number; cy: number; ver: number; tiles: Uint8Array }
+export interface ChunkDrop { t: typeof Msg.ChunkDrop; map: string; keys: number[] }
+
+/**
+ * Entity frame (10-20 Hz). `upd` = packed Int32 records ENT_REC long:
+ *   [id, kind | flags << 8, x (cm), y (cm), angle (1e-4 rad), vx (cm/s), vy (cm/s)]
+ * `del` = ids that left the view or died. A client interpolates between frames using `tick`.
+ */
+export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[] }
+export const ENT_REC = 7;
+
+export interface Stats { t: typeof Msg.Stats; s: ServerStats }
+export interface ServerStats {
+  tick: number;
+  speed: number;
+  paused: boolean;
+  /** Effective simulated seconds per real second (may be below `speed` when the machine can not keep up). */
+  effSpeed: number;
+  tps: number;
+  tickMsAvg: number;
+  tickMsP95: number;
+  tickMsMax: number;
+  rssMb: number;
+  heapMb: number;
+  cpuPct: number;
+  entities: number;
+  agents: number;
+  clients: number;
+  lastSnapshotAt: number;
+  uptimeSec: number;
+}
+
+export interface Pong { t: typeof Msg.Pong; c: number; s: number }
+export interface AdminResult { t: typeof Msg.AdminResult; id: number; ok: boolean; data?: unknown; err?: string }
+
+export type ClientMsg = Hello | View | Ping | Admin;
+export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult;
