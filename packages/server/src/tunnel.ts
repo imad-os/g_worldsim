@@ -57,7 +57,8 @@ abstract class ProcTunnel implements Tunnel {
     this.spawn();
     const t0 = Date.now();
     while (Date.now() - t0 < 45000) {
-      if (!this.url) { const u = await this.pollUrl().catch(() => null); if (u) this.url = u; }
+      // Only ask the local API once our own process runs (another ngrok on this PC answers on the same port).
+      if (!this.url && this.proc?.pid) { const u = await this.pollUrl().catch(() => null); if (u) this.url = u; }
       if (this.url) { this.state = 'up'; this.error = ''; return; }
       if (this.state === 'error' && !this.proc) throw new Error(this.error || `${this.name} stopped`);
       await sleep(500);
