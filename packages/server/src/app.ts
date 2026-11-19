@@ -33,6 +33,7 @@ export class App {
   lastSnapshotAt = 0;
   private timers: NodeJS.Timeout[] = [];
   private stopping = false;
+  onStopRequest: () => void = () => {};
 
   constructor(readonly cfg: Config, readonly secrets: Secrets, log?: Logger) {
     this.log = log ?? new Logger(cfg.logLevel, join(resolve(cfg.dataDir), 'server.log'));
@@ -87,6 +88,7 @@ export class App {
     this.net.clockInfo = () => this.clock();
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
     this.net.admin = (cmd, who) => this.adminCmd(cmd, who);
+    this.net.onStop = () => this.onStopRequest();
     await this.net.listen();
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));

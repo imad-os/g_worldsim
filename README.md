@@ -24,6 +24,7 @@ npm start                     # or: npm start -- --speed 10 --low-spec
 - Debug view: `http://127.0.0.1:8787/debug.html?token=<viewer token>` (arrows move, + / - zoom, M next map).
 - Benchmark: `npm run bench -- 20 100` (ms per tick, the highest speed this PC can run, RAM, snapshot size).
 - Tests: `npm test`.
+- Stop cleanly (snapshot first, works on Windows too): `node tools/stop.mjs`.
 
 The server listens on 127.0.0.1 only. From the internet it is reached through an **outbound tunnel** (no router
 port): `tunnel.provider` in `worldsim.config.json` or `--tunnel` = `ngrok` (set `tunnel.ngrokDomain` to your free

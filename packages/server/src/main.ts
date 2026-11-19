@@ -17,4 +17,5 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK', 'SIGHUP'] as const) process.
 process.on('uncaughtException', (err) => { app.log.error('uncaught', { err: String(err?.stack ?? err) }); stop('crash'); });
 process.on('unhandledRejection', (err) => app.log.error('unhandled rejection', { err: String(err) }));
 
+app.onStopRequest = () => stop('api');
 app.start().catch((err) => { console.error(err); process.exit(1); });

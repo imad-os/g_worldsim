@@ -79,6 +79,7 @@ export class NetServer {
   health: () => Record<string, unknown> = () => ({ ok: true });
   admin: AdminHandler = () => { throw new Error('no admin handler'); };
   welcomeExtra: () => Record<string, unknown> = () => ({});
+  onStop: () => void = () => {};
   clockInfo!: () => import('@worldsim/protocol').ClockInfo;
 
   constructor(private readonly world: World, private readonly o: NetOptions, private readonly log: Logger) {
@@ -157,6 +158,16 @@ export class NetServer {
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
       res.end(JSON.stringify(this.health()));
+      return;
+    }
+    if (url.pathname === '/api/stop' && req.method === 'POST') {
+      // Clean stop (snapshot first). Only from this PC: Windows has no SIGTERM for a hidden process.
+      const auth = req.headers.authorization ?? '';
+      const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '') && !req.headers['x-forwarded-for'] && !req.headers['cf-connecting-ip'];
+      if (!local || !this.o.adminToken || !safeEq(auth, `Bearer ${this.o.adminToken}`)) { res.writeHead(403); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true}');
+      setTimeout(() => this.onStop(), 50);
       return;
     }
     if (url.pathname === '/api/stats') {

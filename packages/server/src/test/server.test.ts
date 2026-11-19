@@ -180,6 +180,7 @@ test('pairing: a TV gets a code, the admin approves it, the TV keeps its own tok
     // Switching to a tunnel that can not start keeps the old one.
     await assert.rejects(app.tunnel.switchTo('ngrok' as never).catch((e) => { throw e; }));
     assert.equal(app.tunnel.status().provider, 'none');
+    await app.stop(); // close SQLite before the folder goes (Windows keeps open files)
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
