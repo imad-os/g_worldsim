@@ -14,11 +14,12 @@ import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
 import { Ai, type AiSettings } from './ai/llm.js';
+import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
-const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner']);
+const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
 export class App {
@@ -33,6 +34,7 @@ export class App {
   players!: Players;
   tunnel!: TunnelManager;
   ai!: Ai;
+  planner!: Planner;
   readonly monitor = new Monitor();
   lastSnapshotAt = 0;
   private timers: NodeJS.Timeout[] = [];
@@ -82,9 +84,17 @@ export class App {
     }
     const diff = Number(this.db.getMeta('difficulty'));
     if (diff > 0) this.world.brain.life.difficulty = diff;
-    const savedAi = this.db.getMeta('ai');
-    this.ai = new Ai(c.ai, { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey }, this.log,
-      savedAi ? (JSON.parse(savedAi) as Partial<AiSettings>) : undefined);
+    let savedAi = this.db.getMeta('ai') ? (JSON.parse(this.db.getMeta('ai')!) as Partial<AiSettings>) : undefined;
+    // Owner request 2026-11-19: the default AI is now imad's Ollama server with the fastest model. Once, a world still on
+    // the old defaults (off, or the local address) takes the new ones; choices made after that are kept.
+    if (this.db.getMeta('ai_defaults') !== '2') {
+      if (savedAi && (savedAi.provider === 'none' || savedAi.ollamaUrl === 'http://127.0.0.1:11434')) savedAi = undefined;
+      else if (savedAi?.provider === 'ollama') savedAi = { ...savedAi, model: '' }; // the fastest one, picked by the server
+      this.db.setMeta('ai_defaults', '2');
+    }
+    this.ai = new Ai(c.ai, { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey }, this.log, savedAi);
+    const savedPlanner = this.db.getMeta('planner');
+    this.planner = new Planner(this.world, this.ai, this.log, savedPlanner ? (JSON.parse(savedPlanner) as Partial<PlannerConfig>) : undefined);
     this.world.listeners.push((ev: WorldEvent) => { if (LOGGED.has(ev.kind)) this.events.add(ev.tick, ev.gameSec, ev.kind, ev.data); });
     this.snapshot();
 
@@ -109,6 +119,9 @@ export class App {
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
     this.net.admin = (cmd, who) => this.adminCmd(cmd, who);
     this.net.onStop = () => this.onStopRequest();
+    // A player pressed A next to someone: they stop, face the player and answer.
+    this.net.onTalk = (name, player, i) => { void this.planner.chat(i, name, null, player).catch(() => {}); };
+    this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     this.net.avatarStore = {
       get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },
       set: (name, p) => this.db.setMeta('pos:' + name, JSON.stringify(p)),
@@ -116,6 +129,7 @@ export class App {
     await this.net.listen();
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
+    this.timers.push(setInterval(() => { void this.planner.tick(this.loop.paused).catch((err) => this.log.warn('planner', { err: String(err) })); }, 2000));
     this.timers.push(setInterval(() => { try { this.events.flush(); } catch (err) { this.log.error('event flush', { err: String(err) }); } }, 1000));
     if (c.cloud.enabled) {
       this.timers.push(setInterval(() => { this.cloud.collect(w); void this.cloud.flush(); }, c.cloud.everySec * 1000));
@@ -157,7 +171,7 @@ export class App {
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
       travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty,
-      ai: (({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()),
+      ai: { ...(({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()), plans: this.planner.counts.plans, chats: this.planner.counts.chats, failures: this.planner.counts.failures },
     };
   }
 
@@ -266,7 +280,7 @@ export class App {
           .filter((r) => { try { const d = JSON.parse(r.data) as Record<string, unknown>; return d.id === id || d.a === id || d.b === id; } catch { return false; } })
           .map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
         const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner ? this.nameOf(p.partner) : null };
-        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec), family, events };
+        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec), family, events, now: w.gameSec };
       }
       case 'agentSet': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
@@ -316,6 +330,28 @@ export class App {
         const lim = c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 100;
         this.events.flush();
         return this.events.recent(lim).map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
+      }
+      case 'planner': {
+        const r = this.planner.set({ on: c.on, everyGameHours: c.everyGameHours, batch: c.batch, minGapSec: c.minGapSec });
+        this.db.setMeta('planner', JSON.stringify(r));
+        return this.planner.status();
+      }
+      case 'aiLog': return { ai: this.ai.status(), planner: this.planner.status(), log: [...this.planner.log].reverse() };
+      case 'planNow': {
+        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i < 0 || w.e.kind[i] !== Kind.Agent || w.e.map[i] === NO_MAP) throw new Error('no such person here');
+        if (!this.ai.status().ready) throw new Error('AI is off: choose Gemini or Ollama in the AI brain card');
+        const n = await this.planner.plan([i]);
+        const ex = this.planner.log[this.planner.log.length - 1];
+        if (!n) throw new Error(ex?.err ?? 'no plan');
+        return { plan: w.profiles.get(w.e.id(i))?.mind?.plan, mind: w.profiles.get(w.e.id(i))?.mind };
+      }
+      case 'chat': {
+        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        const text = typeof c.text === 'string' ? c.text.trim().slice(0, 300) : '';
+        if (!text) throw new Error('say something');
+        return this.planner.chat(i, 'owner', text);
       }
       default: throw new Error('unknown command');
     }

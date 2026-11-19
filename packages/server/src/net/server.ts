@@ -34,6 +34,8 @@ interface Session {
   view: { map: number; x: number; y: number; r: number } | null;
   chunks: Map<number, number>; // key -> version sent
   chunkMap: number;
+  /** Last time this viewer talked to someone (A next to a person). */
+  talkAt?: number;
   known: Int32Array; // slot -> id + 1 (0 = not known)
   q: Int32Array;     // slot -> last sent x, y, angle (quantized)
   list: Int32Array;  // slots known after the last frame
@@ -83,6 +85,8 @@ export class NetServer {
   admin: AdminHandler = () => { throw new Error('no admin handler'); };
   welcomeExtra: () => Record<string, unknown> = () => ({});
   onStop: () => void = () => {};
+  /** A viewer pressed A next to a person (viewer name, their character's slot, the person's slot). */
+  onTalk: (name: string, player: number, agent: number) => void = () => {};
   clockInfo!: () => import('@worldsim/protocol').ClockInfo;
 
   constructor(private readonly world: World, private readonly o: NetOptions, private readonly log: Logger) {
@@ -362,6 +366,13 @@ export class NetServer {
     this.log.info('pairing requested', { name: p.name, dev: p.dev, ip });
   }
 
+  /** Someone said something on map m: viewers looking at that map and every admin hear it. */
+  say(m: number, data: { id: number; name: string; text: string }): void {
+    for (const s of this.sessions.values()) {
+      if (s.role === 'admin' || (s.view && s.view.map === m)) this.send(s, { t: Msg.Notice, kind: 'say', data });
+    }
+  }
+
   notifyAdmins(kind: string, data?: unknown): void {
     for (const s of this.sessions.values()) if (s.role === 'admin') this.send(s, { t: Msg.Notice, kind, data });
   }
@@ -411,6 +422,8 @@ export class NetServer {
         if (m.act === true) {
           const j = this.world.nearest(s.avatar, 2.5);
           this.send(s, { t: Msg.Notice, kind: 'interact', data: j >= 0 ? { id: this.world.e.id(j), kind: this.world.e.kind[j] } : null });
+          // Talking to a person: at most one answer per 4 s per viewer.
+          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && Date.now() - (s.talkAt ?? 0) > 4000) { s.talkAt = Date.now(); this.onTalk(s.name, s.avatar, j); }
         }
         return;
       }

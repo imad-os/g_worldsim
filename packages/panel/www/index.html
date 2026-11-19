@@ -47,6 +47,9 @@ a{color:var(--acc);word-break:break-all}
   <div class="card" id="personCard" hidden><h3 id="pName">-</h3><p id="pSum" class="dim"></p>
     <div class="grid2" id="pEdit"></div>
     <button id="pSave" class="primary">Save changes</button><button id="pMove">Move to the map centre</button><button id="pKill">Kill</button><button id="pClose">Close</button>
+    <h3 style="margin-top:12px">Mind</h3><div id="pMind" class="dim"></div>
+    <div class="row"><input id="pSay" placeholder="Say something to them..." style="flex:1;min-width:0" maxlength="300"> <span><button id="pTalk" class="primary">Talk</button> <button id="pPlan">Plan now</button></span></div>
+    <div id="pChat"></div>
     <h3 style="margin-top:12px">Family</h3><p id="pFam" class="dim"></p>
     <h3>Recent events</h3><div id="pEv"></div></div>
   <div class="card"><h3>World</h3>
@@ -57,11 +60,18 @@ a{color:var(--acc);word-break:break-all}
     <button id="travelBtn">-</button></div>
   <div class="card"><h3>AI brain</h3><p id="aiState" class="dim">-</p>
     <div class="row"><label for="aiProv">Provider</label><select id="aiProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option></select></div>
-    <div class="row" id="aiUrlRow"><label for="aiUrl">Ollama address</label><span><input id="aiUrl" placeholder="http://127.0.0.1:11434" style="width:220px"> <button id="aiHelpBtn" aria-label="Help">?</button></span></div>
+    <div class="row" id="aiUrlRow"><label for="aiUrl">Ollama address</label><span><input id="aiUrl" placeholder="https://ollama-cpu.chtipol.xyz" style="width:220px"> <button id="aiHelpBtn" aria-label="Help">?</button></span></div>
     <div id="aiHelp" class="dim" hidden></div>
-    <div class="row"><label for="aiModel">Model</label><span><input id="aiModel" list="aiModelList" placeholder="default" style="width:200px"><datalist id="aiModelList"></datalist> <button id="aiList">List models</button></span></div>
+    <div class="row"><label for="aiModel">Model</label><span><input id="aiModel" list="aiModelList" placeholder="fastest (automatic)" style="width:200px"><datalist id="aiModelList"></datalist> <button id="aiList">List models</button></span></div>
     <button id="aiSave" class="primary">Save</button><button id="aiTest">Test</button>
-    <pre id="aiOut"></pre></div>
+    <pre id="aiOut"></pre>
+    <h3 style="margin-top:12px">Planner</h3><p id="plState" class="dim">-</p>
+    <div class="row"><label for="plOn">Let the AI plan what people want</label><input id="plOn" type="checkbox"></div>
+    <div class="row"><label for="plEvery">Plan each person every (game hours)</label><input id="plEvery" type="number" min="0.25" max="48" step="0.25" style="width:80px"></div>
+    <div class="row"><label for="plBatch">People per request</label><input id="plBatch" type="number" min="1" max="10" step="1" style="width:80px"></div>
+    <div class="row"><label for="plGap">Real seconds between requests</label><input id="plGap" type="number" min="2" max="3600" step="1" style="width:80px"></div>
+    <button id="plSave">Save planner</button><button id="plLog">Show requests and answers</button>
+    <div id="plOut"></div></div>
   <div class="card"><h3>Players</h3><div id="players"></div></div>
   <div class="card"><h3>Internet link</h3><div id="url">-</div><p class="dim" id="tunnelState"></p>
     <select id="provider" aria-label="Tunnel">

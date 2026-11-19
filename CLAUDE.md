@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3 and 5 done 2026-11-19 (4 first version); next 6 (LLM planner), 7, 8.
+simulator" (milestones 1-8). Milestones 1-3, 5, 6 done 2026-11-19 (4 first version); next 7 (genetics, babies, aging), 8.
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -36,7 +36,16 @@ simulator" (milestones 1-8). Milestones 1-3 and 5 done 2026-11-19 (4 first versi
   Players always can.
 - **AI providers** (`packages/server/src/ai/llm.ts`): none / Gemini (`GEMINI_API_KEY`) / Ollama (address, optional
   `OLLAMA_API_KEY` for ollama.com). Switch in the panel's AI brain card (meta `ai`); `Ai.generate` with an hourly budget,
-  2 at once. Planner code must only use `Ai`, never a provider directly.
+  2 at once. Planner code must only use `Ai`, never a provider directly. **Default (imad 2026-11-19): Ollama at
+  https://ollama-cpu.chtipol.xyz, no model = the smallest installed one (fastest)**; meta `ai_defaults` = 2 moved old
+  worlds once. Ollama calls send `think: false` (qwen3 spent the whole answer on thinking) and strip `<think>`.
+- **Planner** (milestone 6, `ai/planner.ts`): every `everyGameHours` (3) a person is due; one request plans up to `batch`
+  (5) people of one map, at most one request at a time, `minGapSec` (20) apart, stops at 80 % of the hourly budget
+  (rest for chats). Answer = per person goal / with / why / say / mood / memory -> `Brain.wish` (+0.32 on that action's
+  score, desperate needs still win). Memory in `Profile.mind` (notes 12, summary 400 chars, mood, rel, plan), saved in
+  snapshots. Chat: panel person card (`chat`), TV A next to someone (`NetServer.onTalk`, they stop and face you); built-in
+  lines without AI. Lines = event `say` -> Notice `say` to viewers of that map + admins. Panel: Planner settings, requests
+  and answers (`aiLog`), Plan now (`planNow`).
 
 ## Agents (milestone 3, `sim/brain.ts`, `sim/pathfind.ts`)
 - Needs stored as a lack (0 fine .. 100 desperate: hunger, thirst, tired, lonely) so zeros from old snapshots are healthy.

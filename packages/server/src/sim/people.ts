@@ -25,6 +25,26 @@ export interface Profile {
   /** Game seconds of death, and why (kept for family trees). */
   died?: number;
   cause?: string;
+  /** What the AI planner keeps for this person (memory, mood, plan); absent until the planner first runs. */
+  mind?: Mind;
+}
+
+/** A person's mind for the LLM planner (milestone 6). Times are game seconds. */
+export interface Mind {
+  /** Short-term memory, newest last (at most 12). */
+  notes: { at: number; text: string }[];
+  /** Long-term memory, rewritten by the model (at most 400 characters). */
+  summary: string;
+  mood: string;
+  /** Feelings about others, -5..5: '#<entity id>' for people of the world, '@<name>' for players. */
+  rel: Record<string, number>;
+  /** The current wish: an action name, maybe a person, until when. */
+  plan?: { act: string; with?: number; why: string; until: number };
+  /** When the planner last thought for this person. */
+  lastPlan: number;
+  /** Something big happened: plan again soon. */
+  urgent?: boolean;
+  said?: { at: number; text: string };
 }
 
 export const TRAIT_KEYS = ['strength', 'speed', 'intelligence', 'courage', 'empathy', 'metabolism'] as const;

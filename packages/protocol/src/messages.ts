@@ -56,7 +56,12 @@ export type AdminCmd =
   /** World: drop food, difficulty (0.25 easy .. 3 hard), recent events. */
   | { cmd: 'supply'; map: string; x?: number; y?: number; n?: number }
   | { cmd: 'difficulty'; value: number }
-  | { cmd: 'timeline'; limit?: number };
+  | { cmd: 'timeline'; limit?: number }
+  /** AI planner (milestone 6): settings, the last requests and answers, plan someone now, talk to someone. */
+  | { cmd: 'planner'; on?: boolean; everyGameHours?: number; batch?: number; minGapSec?: number }
+  | { cmd: 'aiLog' }
+  | { cmd: 'planNow'; id: number }
+  | { cmd: 'chat'; id: number; text: string };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
 
@@ -127,7 +132,7 @@ export interface ServerStats {
   pairings?: number;
   travelOpen?: boolean;
   difficulty?: number;
-  ai?: { provider: string; model: string; ready: boolean; why?: string };
+  ai?: { provider: string; model: string; ready: boolean; why?: string; plans?: number; chats?: number; failures?: number };
 }
 
 export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number }

@@ -57,7 +57,9 @@ type Person = { id: number; alive: boolean; name: string; sex?: string; age: num
   hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; talkingTo: string | null };
 const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away'];
 const names = new Map<number, string>();
-let openId = 0;
+let openId = -1; // -1 = nobody open (0 is a real id)
+let lastChatId = -1;
+type Mind = { notes: { at: number; text: string }[]; summary: string; mood: string; plan?: { act: string; with?: number; why: string; until: number }; said?: { text: string } };
 const bar = (lack: number, good = false) => {
   const v = good ? lack : 100 - lack; // bars show how fine they are
   const col = v > 60 ? 'var(--ok)' : v > 30 ? 'var(--warn)' : 'var(--bad)';
@@ -75,7 +77,7 @@ async function refreshPeople(): Promise<void> {
 async function openPerson(id: number): Promise<void> {
   openId = id;
   try {
-    const d = (await cmd({ cmd: 'agent', id })) as Person & { profile: { traits: Record<string, number>; personality: string[]; generation: number }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
+    const d = (await cmd({ cmd: 'agent', id })) as Person & { now: number; profile: { traits: Record<string, number>; personality: string[]; generation: number }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
     $('personCard').hidden = false;
     $('pName').textContent = d.name;
     $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
@@ -83,6 +85,14 @@ async function openPerson(id: number): Promise<void> {
     $('pEdit').innerHTML = d.alive ? [f('name', d.name), f('personality', d.profile.personality.join(', ')),
       f('hunger', d.hunger), f('thirst', d.thirst), f('tired', d.tired), f('lonely', d.lonely), f('hp', d.hp), f('carry', d.carry),
       ...Object.entries(d.profile.traits).map(([k, v]) => f(k, Math.round(v * 100) / 100, k === 'lifespan' ? '1' : '0.05'))].join('') : '';
+    const mind = (d.profile as { mind?: Mind }).mind;
+    $('pMind').innerHTML = !mind ? 'The AI has not thought for them yet (turn on an AI provider below).' : [
+      `<div>Mood: <b>${esc(mind.mood)}</b>${mind.plan && mind.plan.until > d.now ? ` · Wants to <b>${esc(mind.plan.act)}${mind.plan.with ? ' with ' + esc(who(mind.plan.with)) : ''}</b>${mind.plan.why ? ' (' + esc(mind.plan.why) + ')' : ''}` : ''}</div>`,
+      mind.said ? `<div>Last said: “${esc(mind.said.text)}”</div>` : '',
+      `<div>Memory: ${esc(mind.summary || 'nothing yet')}</div>`,
+      mind.notes.length ? `<div>Recent: ${mind.notes.slice(-6).reverse().map((n) => `${gameTime(n.at)} ${esc(n.text)}`).join(' · ')}</div>` : '',
+    ].join('');
+    if (openId !== lastChatId) { $('pChat').innerHTML = ''; lastChatId = openId; }
     $('pFam').textContent = `Partner: ${d.family.partner ?? 'none'} · Parents: ${d.family.parents.join(', ') || 'unknown (first survivors)'} · Children: ${d.family.children.join(', ') || 'none'} · Generation ${d.profile.generation}`;
     $('pEv').innerHTML = d.events.map((e) => `<div class="ev">${gameTime(e.at)} · ${esc(describe(e))}</div>`).join('') || '<p class="dim">Nothing yet.</p>';
     $('personCard').scrollIntoView({ behavior: 'smooth' });
@@ -103,6 +113,7 @@ function describe(e: { kind: string; data: Record<string, unknown> }): string {
     case 'birth': return `${who(d.id)} was born (${who(d.mother)} and ${who(d.father)})`;
     case 'partner': return `${who(d.a)} and ${who(d.b)} became partners`;
     case 'admin': return `Panel: ${d.cmd}`;
+    case 'say': return `${who(d.id)}: “${d.text}”`;
     default: return `${e.kind} ${JSON.stringify(d)}`;
   }
 }
@@ -121,18 +132,39 @@ function showTravel(open: boolean): void {
   $('travelBtn').textContent = open ? 'Close travel' : 'Open travel';
 }
 
-type AiStatus = { provider: string; model: string; ollamaUrl: string; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string };
+type AiStatus = { provider: string; model: string; auto?: boolean; ollamaUrl: string; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string };
 function showAi(s: AiStatus, fill: boolean): void {
   $('aiState').textContent = s.provider === 'none' ? 'Off: people use the built-in brain.'
-    : `${s.provider} · ${s.model} · ${s.ready ? 'ready' : s.why ?? 'not ready'} · ${s.callsLastHour}/${s.maxCallsPerHour} calls this hour${s.lastError ? ' · last error: ' + s.lastError : ''}`;
+    : `${s.provider} · ${s.model}${s.auto ? ' (fastest, picked automatically)' : ''} · ${s.ready ? 'ready' : s.why ?? 'not ready'} · ${s.callsLastHour}/${s.maxCallsPerHour} calls this hour${s.lastError ? ' · last error: ' + s.lastError : ''}`;
   if (fill) {
     ($('aiProv') as HTMLSelectElement).value = s.provider;
     ($('aiUrl') as HTMLInputElement).value = s.ollamaUrl;
-    ($('aiModel') as HTMLInputElement).value = s.provider === 'none' ? '' : s.model;
+    ($('aiModel') as HTMLInputElement).value = s.provider === 'none' || s.auto ? '' : s.model;
   }
   $('aiUrlRow').hidden = ($('aiProv') as HTMLSelectElement).value !== 'ollama';
 }
-async function refreshAi(): Promise<void> { try { showAi((await cmd({ cmd: 'ai' })) as AiStatus, true); } catch (e) { log(String(e)); } }
+async function refreshAi(): Promise<void> { try { showAi((await cmd({ cmd: 'ai' })) as AiStatus, true); void refreshPlanner(true); } catch (e) { log(String(e)); } }
+
+type PlannerStatus = { on: boolean; everyGameHours: number; batch: number; minGapSec: number; busy: boolean; counts: { batches: number; plans: number; chats: number; failures: number; builtIn: number } };
+function showPlanner(p: PlannerStatus, fill: boolean): void {
+  $('plState').textContent = `${p.on ? 'On' : 'Off'}${p.busy ? ' · thinking now' : ''} · ${p.counts.batches} requests, ${p.counts.plans} plans, ${p.counts.chats} chats (${p.counts.builtIn} without AI), ${p.counts.failures} failures`;
+  if (fill) {
+    ($('plOn') as HTMLInputElement).checked = p.on;
+    ($('plEvery') as HTMLInputElement).value = String(p.everyGameHours);
+    ($('plBatch') as HTMLInputElement).value = String(p.batch);
+    ($('plGap') as HTMLInputElement).value = String(p.minGapSec);
+  }
+}
+async function refreshPlanner(fill = false): Promise<void> {
+  try { const r = (await cmd({ cmd: 'aiLog' })) as { planner: PlannerStatus }; showPlanner(r.planner, fill); } catch (e) { log(String(e)); }
+}
+function addChat(name: string, text: string): void {
+  const div = document.createElement('div');
+  div.className = 'ev';
+  div.innerHTML = `<b>${esc(name)}</b>: ${esc(text)}`;
+  $('pChat').appendChild(div);
+  while ($('pChat').children.length > 12) $('pChat').firstElementChild!.remove();
+}
 
 async function refreshPlayers(): Promise<void> {
   const list = (await cmd({ cmd: 'players' })) as { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean }[];
@@ -168,6 +200,7 @@ function connect(token: string): void {
       case Msg.Notice:
         if (m.kind === 'pairing') { log('A TV wants to watch: approve it below'); void refreshPairings(); try { navigator.vibrate?.(200); } catch { /* */ } }
         if (m.kind === 'paired') void refreshPlayers();
+        if (m.kind === 'say') { const d = m.data as { id: number; name: string; text: string }; log(`${d.name}: “${d.text}”`); if (d.id === openId) addChat(d.name, d.text); }
         if (m.kind === 'url') log(`Internet link changed: ${(m.data as { url: string }).url}`);
         break;
       case Msg.AdminResult: {
@@ -186,7 +219,7 @@ function connect(token: string): void {
           `snapshot ${s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-'} · up ${Math.round(s.uptimeSec / 60)} min`,
         ].join('\n');
         if (s.difficulty !== undefined && document.activeElement !== $('diff')) { ($('diff') as HTMLInputElement).value = String(s.difficulty); $('diffV').textContent = String(s.difficulty); }
-        if (++statsN % 3 === 0) { void refreshPeople(); if (statsN % 15 === 0) void refreshTimeline(); }
+        if (++statsN % 3 === 0) { void refreshPeople(); if (statsN % 15 === 0) { void refreshTimeline(); void refreshPlanner(); } }
         if (s.travelOpen !== undefined && s.travelOpen !== travelOpen) showTravel(s.travelOpen);
         else if ($('travelBtn').textContent === '-') showTravel(!!s.travelOpen);
         const t = s.tunnel;
@@ -247,7 +280,7 @@ function helpText(): void {
     talk: <code>POST ${esc(base)}/api/chat</code> with <code>{"model": "${esc(model)}", "messages": [...], "stream": false}</code></p>
     <p>So the address must work from the PC that runs the server. <code>127.0.0.1</code> means that PC itself.
     If your Ollama needs a key (ollama.com or a proxy), put <code>OLLAMA_API_KEY=...</code> in the server's .env: it is sent as <code>Authorization: Bearer</code>.</p>
-    <p><b>Model</b> = a name from "List models", for example <code>llama3.2:3b</code> or <code>qwen3:4b</code>.</p>`;
+    <p><b>Model</b> = a name from "List models", for example <code>qwen3:1.7b</code>. Leave it empty and the server uses the smallest installed model, the fastest.</p>`;
 }
 $('aiHelpBtn').onclick = () => { helpText(); $('aiHelp').hidden = !$('aiHelp').hidden; };
 ($('aiUrl') as HTMLInputElement).oninput = () => { if (!$('aiHelp').hidden) helpText(); };
@@ -267,7 +300,37 @@ $('aiTest').onclick = async () => {
   try { const r = (await cmd({ cmd: 'aiTest' })) as { text: string; ms: number; model: string }; $('aiOut').textContent = `${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`; } catch (e) { $('aiOut').textContent = String(e); }
   void refreshAi();
 };
-$('pClose').onclick = () => { $('personCard').hidden = true; openId = 0; };
+$('pTalk').onclick = async () => {
+  const inp = $('pSay') as HTMLInputElement, text = inp.value.trim();
+  if (!text || openId < 0) return;
+  inp.value = '';
+  addChat('You', text);
+  const b = $('pTalk') as HTMLButtonElement;
+  b.disabled = true;
+  try { const r = (await cmd({ cmd: 'chat', id: openId, text })) as { reply: string; ai: boolean }; if (!r.ai) addChat('', '(answered without AI: turn on Gemini or Ollama in the AI brain card)'); void openPerson(openId); } catch (e) { addChat('', String(e)); }
+  b.disabled = false;
+};
+($('pSay') as HTMLInputElement).onkeydown = (e) => { if (e.key === 'Enter') $('pTalk').click(); };
+$('pPlan').onclick = async () => {
+  const b = $('pPlan') as HTMLButtonElement;
+  b.disabled = true; b.textContent = 'Thinking...';
+  try { await cmd({ cmd: 'planNow', id: openId }); void openPerson(openId); } catch (e) { addChat('', String(e)); }
+  b.disabled = false; b.textContent = 'Plan now';
+};
+$('plSave').onclick = async () => {
+  try {
+    const r = (await cmd({ cmd: 'planner', on: ($('plOn') as HTMLInputElement).checked, everyGameHours: Number(($('plEvery') as HTMLInputElement).value), batch: Number(($('plBatch') as HTMLInputElement).value), minGapSec: Number(($('plGap') as HTMLInputElement).value) })) as PlannerStatus;
+    showPlanner(r, true); log('planner saved');
+  } catch (e) { log(String(e)); }
+};
+$('plLog').onclick = async () => {
+  try {
+    const r = (await cmd({ cmd: 'aiLog' })) as { planner: PlannerStatus; log: { at: number; kind: string; who: string; prompt: string; reply: string; ms: number; err?: string }[] };
+    showPlanner(r.planner, false);
+    $('plOut').innerHTML = r.log.length ? r.log.map((x) => `<details class="ev"><summary>${new Date(x.at).toLocaleTimeString()} · ${x.kind} · ${esc(x.who)} · ${x.err ? '<span style="color:var(--bad)">' + esc(x.err) + '</span>' : (x.ms / 1000).toFixed(1) + ' s'}</summary><b>Asked</b><pre>${esc(x.prompt)}</pre><b>Answer</b><pre>${esc(x.reply || '-')}</pre></details>`).join('') : '<p class="dim">No request yet.</p>';
+  } catch (e) { log(String(e)); }
+};
+$('pClose').onclick = () => { $('personCard').hidden = true; openId = -1; };
 $('pSave').onclick = async () => {
   const set: Record<string, number | string> = {};
   for (const i of $('pEdit').querySelectorAll<HTMLInputElement>('input')) set[i.dataset.k!] = i.type === 'number' ? Number(i.value) : i.value;

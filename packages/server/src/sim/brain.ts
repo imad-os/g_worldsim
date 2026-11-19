@@ -45,6 +45,10 @@ export class Brain {
   private readonly shelterSpots: Int32Array[];
   private readonly itemDef = new Map<number, ItemDef>();
   private nextSpawn = 0;
+  /** The planner's wish per agent: an action (-1 none), maybe with whom (entity id), until when (game seconds). */
+  private readonly wishAct: Int8Array;
+  private readonly wishWith: Int32Array;
+  private readonly wishUntil: Float64Array;
   /** Path searches this second (stats). */
   searches = 0;
 
@@ -54,6 +58,7 @@ export class Brain {
     this.paths = w.maps.map((m) => new Pathfinder(m.tiles));
     this.pbuf = new Int32Array(cap * PMAX); this.pN = new Uint8Array(cap); this.pK = new Uint8Array(cap);
     this.gx = new Float32Array(cap); this.gy = new Float32Array(cap); this.replans = new Uint8Array(cap);
+    this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap); this.wishUntil = new Float64Array(cap);
     const idsOf = (names: string[]) => new Set(w.sc.tiles.filter((t) => names.includes(t.name)).map((t) => t.id));
     const water = idsOf(life.water), shelter = idsOf(life.shelter);
     this.drinkSpots = []; this.shelterSpots = [];
@@ -116,6 +121,25 @@ export class Brain {
     e.speed[i] = (run ? w.sc.agents.run : w.sc.agents.walk) * (pr ? 0.85 + pr.traits.speed * 0.3 : 1);
     e.stuck[i] = 0;
     return true;
+  }
+
+  /** The planner's wish (hybrid AI): a bonus for that action until `until` (game seconds). Needs that are desperate still win. */
+  wish(i: number, act: number, withId: number, until: number): void {
+    const e = this.w.e;
+    this.wishAct[i] = act; this.wishWith[i] = withId; this.wishUntil[i] = until;
+    // Reconsider soon when only passing time (not asleep, eating or in a conversation).
+    const a = e.act[i]!;
+    if (a === Act.Wander || a === Act.Rest || a === Act.Idle) e.nextThink[i] = Math.min(e.nextThink[i]!, this.w.tick + 1);
+  }
+  wishOf(i: number): number { return this.wishUntil[i]! > this.w.gameSec ? this.wishAct[i]! : -1; }
+
+  /** Stop and talk to someone who came up to this person (a player): face them for `secs` seconds. */
+  listen(i: number, j: number, secs: number): void {
+    const e = this.w.e;
+    if (e.act[i] === Act.Sleep) return;
+    this.stop(i); this.setAct(i, Act.Talk, secs); e.target[i] = e.id(j); e.goal[i] = -2;
+    e.angle[i] = Math.atan2(e.y[j]! - e.y[i]!, e.x[j]! - e.x[i]!);
+    this.schedule(i, 0);
   }
 
   stop(i: number): void { const e = this.w.e; this.pN[i] = 0; e.tx[i] = e.x[i]!; e.ty[i] = e.y[i]!; e.speed[i] = 0; }
@@ -191,8 +215,10 @@ export class Brain {
     const sTravel = w.travelOpen && !night ? 0.08 : 0;
     const scores = [sDrink, sEat, sForage, sSleep, sTalk, sWander, sRest, sTravel];
     const acts = [Act.Drink, Act.Eat, Act.Forage, Act.Sleep, Act.Talk, Act.Wander, Act.Rest, Act.Travel];
+    const wish = this.wishOf(i);
     let best = -1, bs = -1;
     for (let k = 0; k < scores.length; k++) {
+      if (acts[k] === wish && !(wish === Act.Travel && !w.travelOpen) && !(wish === Act.Eat && e.carry[i]! <= 0)) scores[k]! += 0.32;
       const s = scores[k]! + (acts[k] === e.act[i] ? 0.08 : 0) + jitter * 0.04 * ((k * 7 + 3) % 5) / 5;
       if (s > bs) { bs = s; best = k; }
     }
@@ -234,7 +260,12 @@ export class Brain {
         return true;
       }
       case Act.Talk: {
-        const j = this.nearestAgent(i, 60);
+        let j = -1;
+        if (this.wishOf(i) === Act.Talk && this.wishWith[i]) { // the planner named someone
+          const k = e.slot(this.wishWith[i]!);
+          if (k >= 0 && k !== i && e.kind[k] === Kind.Agent && e.map[k] === m && e.act[k] !== Act.Sleep && Math.hypot(e.x[k]! - e.x[i]!, e.y[k]! - e.y[i]!) < 150) j = k;
+        }
+        if (j < 0) j = this.nearestAgent(i, 60);
         if (j < 0) return false;
         if (!this.goTo(i, e.x[j]!, e.y[j]!)) return false;
         this.setAct(i, Act.Talk); e.target[i] = e.id(j); this.schedule(i, 1); return true;

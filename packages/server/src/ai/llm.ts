@@ -1,7 +1,8 @@
 /**
  * Language models behind one small interface, so the planner never cares which one answers:
  *  - Gemini (Google's API, key GEMINI_API_KEY in .env),
- *  - Ollama (any local or LAN model: http://127.0.0.1:11434 by default; OLLAMA_API_KEY only for ollama.com's hosted models),
+ *  - Ollama (any Ollama server: imad's https://ollama-cpu.chtipol.xyz by default; OLLAMA_API_KEY only for ollama.com's hosted models;
+ *    no model chosen = the smallest installed one, the fastest on a CPU server),
  *  - none (agents keep their built-in brain).
  * The owner switches provider / model / address in the control panel; the choice is kept in the database.
  * Keys never leave the server. A budget caps calls per hour; at most 2 requests run at once.
@@ -28,8 +29,10 @@ export interface AiConfig extends AiSettings {
   /** Tests only: another address for Google's API. */
   geminiBase?: string;
 }
+/** imad's Ollama server (owner request 2026-11-19): the default AI. */
+export const DEFAULT_OLLAMA_URL = 'https://ollama-cpu.chtipol.xyz';
 export const AI_DEFAULTS: AiConfig = {
-  provider: 'none', model: '', ollamaUrl: 'http://127.0.0.1:11434', maxCallsPerHour: 600, timeoutMs: 120_000,
+  provider: 'ollama', model: '', ollamaUrl: DEFAULT_OLLAMA_URL, maxCallsPerHour: 600, timeoutMs: 120_000,
 };
 export const DEFAULT_MODEL: Record<Provider, string> = { none: '', gemini: 'gemini-2.5-flash', ollama: 'llama3.2' };
 
@@ -47,10 +50,23 @@ export class Ai {
   constructor(private cfg: AiConfig, private keys: { gemini?: string; ollama?: string }, private log: Logger, saved?: Partial<AiSettings>) {
     this.s = { provider: cfg.provider, model: cfg.model, ollamaUrl: cfg.ollamaUrl };
     if (saved) this.apply(saved);
+    void this.pickAuto();
   }
 
   get settings(): AiSettings { return { ...this.s }; }
-  get model(): string { return this.s.model || DEFAULT_MODEL[this.s.provider]; }
+  get model(): string { return this.s.model || (this.s.provider === 'ollama' && this.autoModel) || DEFAULT_MODEL[this.s.provider]; }
+  /** No model chosen on Ollama: the smallest installed model (the fastest), looked up again every 30 min. */
+  private autoModel = '';
+  private autoAt = 0;
+  get auto(): boolean { return this.s.provider === 'ollama' && !this.s.model; }
+  private async pickAuto(): Promise<void> {
+    if (!this.auto || (this.autoModel && Date.now() - this.autoAt < 30 * 60_000)) return;
+    try {
+      const j = await this.http(`${this.s.ollamaUrl}/api/tags`, undefined, this.ollamaHeaders(), 15000) as { models?: { name: string; size?: number }[] };
+      const list = (j.models ?? []).filter((m) => !/embed/i.test(m.name)).sort((a, b) => (a.size ?? Infinity) - (b.size ?? Infinity));
+      if (list[0]) { this.autoModel = list[0].name; this.autoAt = Date.now(); this.log.info('ai model picked', { model: this.autoModel, size: list[0].size }); }
+    } catch (err) { this.log.warn('ai model lookup failed', { err: String(err) }); }
+  }
   get enabled(): boolean { return this.s.provider !== 'none'; }
 
   /** Change provider / model / Ollama address (validated). */
@@ -62,15 +78,17 @@ export class Ai {
     let url = p.ollamaUrl !== undefined ? normalizeOllamaUrl(String(p.ollamaUrl)) : this.s.ollamaUrl;
     if (!/^https?:\/\/[^\s/]+(\/[^\s]*)?$/i.test(url)) throw new AiError('bad-url', 'the Ollama address must start with http:// or https://');
     if (provider === 'none') model = '';
+    if (provider !== this.s.provider || url !== this.s.ollamaUrl) { this.autoModel = ''; this.autoAt = 0; }
     this.s = { provider, model, ollamaUrl: url };
+    void this.pickAuto();
     return this.settings;
   }
 
-  status(): { provider: Provider; model: string; ollamaUrl: string; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string } {
+  status(): { provider: Provider; model: string; auto: boolean; ollamaUrl: string; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string } {
     const why = this.s.provider === 'gemini' && !this.keys.gemini ? 'GEMINI_API_KEY is missing in .env' : undefined;
     this.trim();
     return {
-      provider: this.s.provider, model: this.model, ollamaUrl: this.s.ollamaUrl, ready: this.enabled && !why, why,
+      provider: this.s.provider, model: this.model, auto: this.auto, ollamaUrl: this.s.ollamaUrl, ready: this.enabled && !why, why,
       callsLastHour: this.calls.length, maxCallsPerHour: this.cfg.maxCallsPerHour, lastMs: this.lastMs, lastError: this.lastError,
     };
   }
@@ -79,7 +97,7 @@ export class Ai {
   async models(): Promise<string[]> {
     if (this.s.provider === 'ollama') {
       const j = await this.http(`${this.s.ollamaUrl}/api/tags`, undefined, this.ollamaHeaders(), 15000) as { models?: { name: string }[] };
-      return (j.models ?? []).map((m) => m.name).sort();
+      return (j.models ?? []).map((m) => m.name).filter((n) => !/embed/i.test(n)).sort(); // embedding models can't chat
     }
     if (this.s.provider === 'gemini') {
       if (!this.keys.gemini) throw new AiError('no-key', 'GEMINI_API_KEY is missing in .env');
@@ -96,6 +114,7 @@ export class Ai {
     this.trim();
     if (this.calls.length >= this.cfg.maxCallsPerHour) throw new AiError('budget', 'hourly AI budget used up');
     this.calls.push(Date.now());
+    await this.pickAuto();
     await this.slot();
     const t0 = Date.now(), provider = this.s.provider, model = this.model;
     try {

@@ -198,7 +198,11 @@ function onMsg(m: ServerMsg): void {
       if (m.kind === 'interact') {
         const d = m.data as { id: number; kind: number } | null;
         const js = d ? slotOf.get(d.id) : undefined;
-        note(!d ? t('nobody') : d.kind === Kind.Player ? t('metPlayer') : `${actName(js !== undefined ? sub[js]! : 0)}. ${t('metAgent')}`);
+        note(!d ? t('nobody') : d.kind === Kind.Player ? t('metPlayer') : `${actName(js !== undefined ? sub[js]! : 0)}...`);
+      }
+      if (m.kind === 'say') { // someone near you (or the one you follow) said something
+        const d = m.data as { id: number; name: string; text: string };
+        note(`${d.name}: “${d.text}”`, 7000);
       }
       break;
     case Msg.Pong: rtt = rtt * 0.7 + (performance.now() - m.c) * 0.3; break;

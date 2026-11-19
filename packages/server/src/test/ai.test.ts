@@ -12,7 +12,7 @@ const fake = createServer((req, res) => {
   req.on('end', () => {
     seen.push({ url: req.url!, headers: req.headers, body: b ? JSON.parse(b) : null });
     res.setHeader('content-type', 'application/json');
-    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:4b' }, { name: 'llama3.2:latest' }] }));
+    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:4b', size: 2.5e9 }, { name: 'nomic-embed-text', size: 2.7e8 }, { name: 'llama3.2:latest', size: 2.0e9 }] }));
     if (req.url === '/think/api/chat') return res.end(JSON.stringify({ message: { role: 'assistant', content: '<think>let me see</think>\n\nHello!' } }));
     if (req.url === '/old/api/chat') {
       const j = JSON.parse(b);
@@ -34,7 +34,7 @@ after(() => fake.close());
 const log = new Logger('error');
 
 test('ai: Ollama models and chat (system + user, JSON format), switch to Gemini, key in a header only', async () => {
-  const ai = new Ai({ ...AI_DEFAULTS, geminiBase: base }, { gemini: 'gkey' }, log);
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none', geminiBase: base }, { gemini: 'gkey' }, log);
   await assert.rejects(ai.generate({ prompt: 'x' }), /off/);
   ai.apply({ provider: 'ollama', ollamaUrl: base + '/', model: 'qwen3:4b' });
   assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b']);
@@ -60,7 +60,7 @@ test('ai: Ollama models and chat (system + user, JSON format), switch to Gemini,
 });
 
 test('ai: bad settings refused, missing key reported, budget enforced, unreachable server is a clear error', async () => {
-  const ai = new Ai({ ...AI_DEFAULTS, maxCallsPerHour: 1 }, {}, log);
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none', maxCallsPerHour: 1 }, {}, log);
   assert.throws(() => ai.apply({ provider: 'nope' as never }), /unknown provider/);
   assert.throws(() => ai.apply({ provider: 'ollama', ollamaUrl: 'file:///etc' }), /http/);
   ai.apply({ provider: 'gemini' });
@@ -69,13 +69,24 @@ test('ai: bad settings refused, missing key reported, budget enforced, unreachab
   ai.apply({ provider: 'ollama', ollamaUrl: base });
   await ai.generate({ prompt: 'one' });
   await assert.rejects(ai.generate({ prompt: 'two' }), /budget/);
-  const off = new Ai({ ...AI_DEFAULTS, timeoutMs: 2000 }, {}, log, { provider: 'ollama', ollamaUrl: 'http://127.0.0.1:9' });
+  const off = new Ai({ ...AI_DEFAULTS, provider: 'none', timeoutMs: 2000 }, {}, log, { provider: 'ollama', ollamaUrl: 'http://127.0.0.1:9' });
   await assert.rejects(off.generate({ prompt: 'x' }), /can't reach/);
   assert.deepEqual(parseJsonReply('```json\n{"a":1}\n```'), { a: 1 });
 });
 
+test('ai: no model chosen on Ollama = the smallest installed one (fastest), embedding models skipped', async () => {
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none' }, {}, log, { provider: 'ollama', ollamaUrl: base });
+  assert.equal(ai.status().auto, true);
+  const r = await ai.generate({ prompt: 'hi' });
+  assert.equal(r.model, 'llama3.2:latest');
+  assert.equal(ai.status().model, 'llama3.2:latest');
+  ai.apply({ model: 'qwen3:4b' });
+  assert.equal(ai.status().auto, false);
+  assert.equal((await ai.generate({ prompt: 'hi' })).model, 'qwen3:4b');
+});
+
 test('ai: thinking models (qwen3) give their answer without the <think> part; an older Ollama without "think" still works', async () => {
-  const ai = new Ai({ ...AI_DEFAULTS }, {}, log, { provider: 'ollama', ollamaUrl: base + '/think' });
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none' }, {}, log, { provider: 'ollama', ollamaUrl: base + '/think' });
   assert.equal((await ai.generate({ prompt: 'hi' })).text, 'Hello!');
   ai.apply({ ollamaUrl: base + '/old' });
   assert.equal((await ai.generate({ prompt: 'hi' })).text, 'old ollama ok');
@@ -87,7 +98,7 @@ test('ai: any pasted Ollama address works (API paths and missing http:// are fix
   assert.equal(normalizeOllamaUrl('https://dom.com/api/tags'), 'https://dom.com');
   assert.equal(normalizeOllamaUrl('dom.com:11434/api'), 'http://dom.com:11434');
   assert.equal(normalizeOllamaUrl('http://h/ollama/api/chat'), 'http://h/ollama');
-  const ai = new Ai({ ...AI_DEFAULTS }, {}, log);
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none' }, {}, log);
   ai.apply({ provider: 'ollama', ollamaUrl: base + '/api/tags' });
   assert.equal(ai.settings.ollamaUrl, base);
   assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b']);

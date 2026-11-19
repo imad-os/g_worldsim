@@ -15,6 +15,7 @@ const VIEW1 = 'viewer-token-imad-1234', VIEW2 = 'viewer-token-guest-5678';
 function makeApp(dataDir: string, extra: Partial<Config> = {}): App {
   const cfg: Config = { ...structuredClone(DEFAULTS), dataDir, port: 0, snapshotEverySec: 1, ...extra };
   cfg.tunnel = { provider: 'none', bin: { ngrok: '/nonexistent/ngrok' } };
+  cfg.ai = { ...cfg.ai, provider: 'none' }; // tests never reach a real AI
   return new App(cfg, { adminToken: ADMIN, viewers: new Map([['imad', VIEW1], ['guest', VIEW2]]) }, new Logger('error', undefined, true));
 }
 
@@ -219,6 +220,18 @@ test('players: join puts my character in the world, input moves it, leaving keep
     await c.wait((m) => m.t === Msg.Frame && unpackI32((m as { upd: Uint8Array }).upd).some((v, k) => k % ENT_REC === 0 && v === you.id));
     // Bad input is ignored, not a crash.
     c.send({ t: Msg.Input, mx: 1e9, my: Number.NaN as unknown as number });
+    // A next to a person: they stop, face me and answer (built-in line: the AI is off), and everyone looking hears it.
+    let ag = -1;
+    for (let k = 0; k < e.hi; k++) if (e.kind[k] === 1) { ag = k; break; }
+    app.world.place(ag, 0, e.x[i]! + 1.2, e.y[i]!);
+    app.world.brain.stop(ag); e.nextThink[ag] = app.world.tick + 2000; // stand still here
+    await new Promise((r) => setTimeout(r, 150)); // the spatial grid catches up on the next tick
+    c.send({ t: Msg.View, map: 'town', x: e.x[i]!, y: e.y[i]!, r: 30 });
+    c.send({ t: Msg.Input, mx: 0, my: 0, act: true });
+    const said = await c.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'say') as { data: { id: number; name: string; text: string } };
+    assert.equal(said.data.id, e.id(ag));
+    assert.ok(said.data.text.length > 2);
+    assert.equal(e.act[ag], 6, 'they talk with me');
     // Leave: the character goes, its place is kept.
     const xs = e.x[i]!, ys = e.y[i]!;
     c.ws.close();
