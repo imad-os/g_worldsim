@@ -54,8 +54,11 @@ export class App {
       maxWritesPerDay: c.cloud.maxWritesPerDay, credentials: this.secrets.firebase,
     }, this.log);
 
-    const loaded = this.snaps.loadLatest(this.world, (id, err) => this.log.warn('snapshot skipped', { id, err: String(err) }));
+    const loadedSnap = this.snaps.loadLatest(this.world, (id, err) => this.log.warn('snapshot skipped', { id, err: String(err) }));
+    const loaded = loadedSnap;
     if (loaded) {
+      // Characters belong to connected people: nobody is connected after a restart.
+      for (let i = 0; i < this.world.e.hi; i++) if (this.world.e.kind[i] === Kind.Player) this.world.remove(i, 'restart');
       this.log.info('resumed from snapshot', { id: loaded.id, tick: loaded.tick, agents: this.world.e.countKind(Kind.Agent) });
     } else if (await this.cloud.restoreInto(this.world).catch((err) => { this.log.warn('cloud restore failed', { err: String(err) }); return false; })) {
       this.log.info('restored from the cloud backup', { tick: this.world.tick });
@@ -89,6 +92,10 @@ export class App {
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
     this.net.admin = (cmd, who) => this.adminCmd(cmd, who);
     this.net.onStop = () => this.onStopRequest();
+    this.net.avatarStore = {
+      get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },
+      set: (name, p) => this.db.setMeta('pos:' + name, JSON.stringify(p)),
+    };
     await this.net.listen();
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
@@ -115,6 +122,7 @@ export class App {
 
   snapshot(): void {
     try {
+      this.net?.saveAvatars();
       const r = this.snaps.save(this.world);
       this.lastSnapshotAt = Date.now();
       this.log.debug('snapshot', { ...r, tick: this.world.tick });

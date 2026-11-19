@@ -19,6 +19,7 @@ export const Kind = {
   Item: 3,
   Prop: 4,
   Threat: 5,
+  Player: 6, // a person's avatar, driven by their controller
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
@@ -39,6 +40,8 @@ export const Msg = {
   Ping: 'ping',
   Admin: 'adm',
   Pair: 'pair', // ask to pair this device (no token yet)
+  Join: 'join', // put my character in the world
+  Input: 'in',  // my character's controls
   // server -> client
   Welcome: 'wel',
   Error: 'err',
@@ -50,5 +53,6 @@ export const Msg = {
   AdminResult: 'admr',
   PairCode: 'pairc', // the code to show on the TV
   Paired: 'paired',  // approved: the device's own token
-  Notice: 'note',    // something to tell admins live (a TV waiting to be paired...)
+  Notice: 'note',
+  You: 'you',       // your character: entity id and map (sent on join and when it changes map)    // something to tell admins live (a TV waiting to be paired...)
 } as const;

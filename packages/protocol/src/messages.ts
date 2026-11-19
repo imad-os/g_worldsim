@@ -11,6 +11,14 @@ export interface View { t: typeof Msg.View; map: string; x: number; y: number; r
 /** Client -> server, instead of Hello when the device has no token: start a pairing. */
 export interface Pair { t: typeof Msg.Pair; v: number; name: string; dev?: string }
 
+/** Client -> server: spawn (or take back) my character. */
+export interface Join { t: typeof Msg.Join }
+/**
+ * Client -> server: my controls, sent on change and at least every 250 ms while held.
+ * mx, my = stick -1..1 (screen up = -y), run, act = interact pressed (edge), seq = counter.
+ */
+export interface Input { t: typeof Msg.Input; mx: number; my: number; run?: boolean; act?: boolean; seq?: number }
+
 export interface Ping { t: typeof Msg.Ping; c: number }
 
 /** Admin commands (control panel). Every field is validated server side. */
@@ -97,6 +105,8 @@ export interface ServerStats {
   pairings?: number;
 }
 
+export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number }
+
 export interface PairCode { t: typeof Msg.PairCode; code: string; exp: number }
 export interface Paired { t: typeof Msg.Paired; token: string; name: string }
 export interface Notice { t: typeof Msg.Notice; kind: string; data?: unknown }
@@ -104,5 +114,5 @@ export interface Notice { t: typeof Msg.Notice; kind: string; data?: unknown }
 export interface Pong { t: typeof Msg.Pong; c: number; s: number }
 export interface AdminResult { t: typeof Msg.AdminResult; id: number; ok: boolean; data?: unknown; err?: string }
 
-export type ClientMsg = Hello | Pair | View | Ping | Admin;
-export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult | PairCode | Paired | Notice;
+export type ClientMsg = Hello | Pair | Join | Input | View | Ping | Admin;
+export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult | PairCode | Paired | Notice | You;

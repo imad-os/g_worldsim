@@ -42,6 +42,9 @@ export class Entities {
   readonly goal: Int16Array;
   /** Thinks in a row without real progress (stuck detection). */
   readonly stuck: Uint8Array;
+  /** Player controls (-1..1). */
+  readonly inX: Float32Array;
+  readonly inY: Float32Array;
 
   private readonly free: Int32Array;
   private freeTop = 0;
@@ -75,6 +78,8 @@ export class Entities {
     this.nextThink = new Float64Array(cap);
     this.goal = new Int16Array(cap);
     this.stuck = new Uint8Array(cap);
+    this.inX = new Float32Array(cap);
+    this.inY = new Float32Array(cap);
     this.free = new Int32Array(cap);
     for (let i = cap - 1; i >= 0; i--) this.free[this.freeTop++] = i;
   }
@@ -103,7 +108,7 @@ export class Entities {
     this.tx[i] = x; this.ty[i] = y; this.speed[i] = 0;
     this.owner[i] = -1; this.life[i] = 0;
     this.toMap[i] = 0; this.arrive[i] = 0; this.ax[i] = 0; this.ay[i] = 0;
-    this.lod[i] = 0; this.nextThink[i] = 0; this.goal[i] = -1; this.stuck[i] = 0;
+    this.lod[i] = 0; this.nextThink[i] = 0; this.goal[i] = -1; this.stuck[i] = 0; this.inX[i] = 0; this.inY[i] = 0;
     if (i >= this.hi) this.hi = i + 1;
     this.count++;
     return i;
@@ -131,7 +136,7 @@ export class Entities {
       vx: this.vx, vy: this.vy, angle: this.angle, radius: this.radius, hp: this.hp,
       tx: this.tx, ty: this.ty, speed: this.speed, owner: this.owner, life: this.life,
       toMap: this.toMap, arrive: this.arrive, ax: this.ax, ay: this.ay, lod: this.lod, nextThink: this.nextThink,
-      goal: this.goal, stuck: this.stuck,
+      goal: this.goal, stuck: this.stuck, inX: this.inX, inY: this.inY,
     };
   }
 

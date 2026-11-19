@@ -185,3 +185,51 @@ test('pairing: a TV gets a code, the admin approves it, the TV keeps its own tok
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('players: join puts my character in the world, input moves it, leaving keeps its place', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws-'));
+  try {
+    const app = makeApp(dir);
+    await app.start();
+    after(() => app.stop());
+    const url = app.net.address().replace('http', 'ws') + '/ws';
+    const c = await connect(url, VIEW1);
+    await c.wait((m) => m.t === Msg.Welcome);
+    c.send({ t: Msg.Join });
+    const you = await c.wait((m) => m.t === Msg.You) as { id: number; map: string; transit: boolean };
+    assert.equal(you.map, 'town');
+    assert.equal(you.transit, false);
+    const e = app.world.e, i = e.slot(you.id);
+    assert.equal(e.kind[i], 6);
+    const x0 = e.x[i]!, y0 = e.y[i]!;
+    // Hold a direction for a second (re-sent like a real client).
+    for (let k = 0; k < 5; k++) { c.send({ t: Msg.Input, mx: 0.7, my: 0.7, run: true }); await new Promise((r) => setTimeout(r, 200)); }
+    c.send({ t: Msg.Input, mx: 0, my: 0 });
+    const moved = Math.hypot(e.x[i]! - x0, e.y[i]! - y0);
+    assert.ok(moved > 0.5, `moved ${moved.toFixed(2)} m`);
+    // Our own character appears in our frames.
+    await c.wait((m) => m.t === Msg.Frame && unpackI32((m as { upd: Uint8Array }).upd).some((v, k) => k % ENT_REC === 0 && v === you.id));
+    // Bad input is ignored, not a crash.
+    c.send({ t: Msg.Input, mx: 1e9, my: Number.NaN as unknown as number });
+    // Leave: the character goes, its place is kept.
+    const xs = e.x[i]!, ys = e.y[i]!;
+    c.ws.close();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(e.slot(you.id), -1, 'character removed when the player leaves');
+    const c2 = await connect(url, VIEW1);
+    await c2.wait((m) => m.t === Msg.Welcome);
+    c2.send({ t: Msg.Join });
+    const you2 = await c2.wait((m) => m.t === Msg.You) as { id: number };
+    const j = e.slot(you2.id);
+    assert.ok(Math.hypot(e.x[j]! - xs, e.y[j]! - ys) < 1.5, `back where it left: ${xs},${ys} -> ${e.x[j]},${e.y[j]} saved ${app.db.getMeta('pos:imad')}`);
+    // Admins have no character.
+    const adm = await connect(url, ADMIN);
+    await adm.wait((m) => m.t === Msg.Welcome);
+    adm.send({ t: Msg.Join });
+    assert.equal(((await adm.wait((m) => m.t === Msg.Error)) as { code: string }).code, 'forbidden');
+    c2.ws.close(); adm.ws.close();
+    await app.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

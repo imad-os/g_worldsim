@@ -91,7 +91,8 @@ export class World {
   freeSpot(map: number, x: number, y: number, tries = 30): { x: number; y: number } | null {
     const t = this.maps[map]!.tiles, r = this.agentR + 0.05;
     for (let k = 0; k < tries; k++) {
-      const px = k === 0 ? x : x + this.rng.range(-k, k), py = k === 0 ? y : y + this.rng.range(-k, k);
+      const d = k * 0.35; // search outward from the wanted point
+      const px = k === 0 ? x : x + this.rng.range(-d, d), py = k === 0 ? y : y + this.rng.range(-d, d);
       if (!t.isSolidAt(px - r, py - r) && !t.isSolidAt(px + r, py - r) && !t.isSolidAt(px - r, py + r) && !t.isSolidAt(px + r, py + r)) {
         return { x: px, y: py };
       }
@@ -108,6 +109,42 @@ export class World {
     this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, x, y, this.agentR);
     this.emit('spawn', { id: e.id(i), map: this.maps[map]!.def.id, x, y });
     return i;
+  }
+
+  /** A person's character. Same body as an agent; moved by their controls, never by the AI. */
+  spawnPlayer(map: number, x: number, y: number): number {
+    const s = this.freeSpot(map, x, y, 60) ?? this.freeSpot(map, this.maps[map]!.def.w / 2, this.maps[map]!.def.h / 2, 200);
+    if (!s) return -1;
+    const e = this.e;
+    const i = e.create(Kind.Player, map, s.x, s.y, this.agentR);
+    if (i < 0) return -1;
+    e.hp[i] = this.sc.agents.hp;
+    this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, s.x, s.y, this.agentR);
+    return i;
+  }
+
+  setInput(i: number, mx: number, my: number, run: boolean): void {
+    const e = this.e;
+    if (e.kind[i] !== Kind.Player) return;
+    const len = Math.hypot(mx, my);
+    const k = len > 1 ? 1 / len : 1;
+    e.inX[i] = mx * k; e.inY[i] = my * k;
+    e.speed[i] = run ? this.sc.agents.run : this.sc.agents.walk;
+  }
+
+  /** Nearest agent or player within r metres of slot i (for "interact"), or -1. */
+  nearest(i: number, r: number): number {
+    const e = this.e, m = this.maps[e.map[i]!];
+    if (!m) return -1;
+    const n = m.grid.queryCircle(e, e.x[i]!, e.y[i]!, r, this.scratch);
+    let best = -1, bd = Infinity;
+    for (let k = 0; k < n; k++) {
+      const j = this.scratch[k]!;
+      if (j === i || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
+      const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
+      if (d < bd) { bd = d; best = j; }
+    }
+    return best;
   }
 
   remove(i: number, cause = 'removed'): void {
@@ -173,12 +210,14 @@ export class World {
         if (e.life[i]! <= 0) this.remove(i, 'expired');
         continue;
       }
-      if (k !== Kind.Agent || e.map[i] === NO_MAP) continue;
+      if ((k !== Kind.Agent && k !== Kind.Player) || e.map[i] === NO_MAP) continue;
       const b = this.bodies[i]!;
       const dx = e.tx[i]! - e.x[i]!, dy = e.ty[i]! - e.y[i]!;
       const d = Math.hypot(dx, dy);
       let wx = 0, wy = 0;
-      if (d > 0.15) {
+      if (k === Kind.Player) {
+        wx = e.inX[i]! * e.speed[i]!; wy = e.inY[i]! * e.speed[i]!;
+      } else if (d > 0.15) {
         const s = Math.min(e.speed[i]!, d * 2); // slow down on arrival
         wx = (dx / d) * s; wy = (dy / d) * s;
       }
@@ -241,9 +280,23 @@ export class World {
   private portalsAndTransit(): void {
     const e = this.e;
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Agent) continue;
+      const k = e.kind[i];
+      if (k !== Kind.Agent && k !== Kind.Player) continue;
       if (e.map[i] === NO_MAP) {
         if (this.gameSec >= e.arrive[i]!) this.arriveAt(i);
+        continue;
+      }
+      if (k === Kind.Player) {
+        // People walk into a portal to take it (after first stepping out of the one they arrived by).
+        let inside = -1;
+        for (let pi = 0; pi < this.portals.length; pi++) {
+          const p = this.portals[pi]!;
+          if (p.from !== e.map[i]) continue;
+          const r = (p.r ?? 1.5) + (e.stuck[i] ? 1 : 0), dx = e.x[i]! - p.x, dy = e.y[i]! - p.y;
+          if (dx * dx + dy * dy <= r * r) { inside = pi; break; }
+        }
+        if (inside < 0) e.stuck[i] = 0;
+        else if (!e.stuck[i]) this.enterPortal(i, inside);
         continue;
       }
       const g = e.goal[i]!;
@@ -264,7 +317,7 @@ export class World {
     e.toMap[i] = p.dest;
     e.arrive[i] = this.gameSec + p.travel;
     e.ax[i] = p.toX; e.ay[i] = p.toY;
-    e.vx[i] = 0; e.vy[i] = 0;
+    e.vx[i] = 0; e.vy[i] = 0; e.inX[i] = 0; e.inY[i] = 0;
     e.goal[i] = -1;
     this.emit('travel', { id: e.id(i), from: p.map, to: p.to, arrive: e.arrive[i] });
   }
@@ -275,6 +328,7 @@ export class World {
     e.map[i] = m;
     e.x[i] = spot.x; e.y[i] = spot.y; e.tx[i] = spot.x; e.ty[i] = spot.y;
     e.flags[i] = e.flags[i]! & ~EFlag.Transit;
+    e.stuck[i] = e.kind[i] === Kind.Player ? 1 : 0;
     this.bodies[i] = this.maps[m]!.phys.createAgentBody(i, spot.x, spot.y, e.radius[i]!);
     e.nextThink[i] = this.tick + 1;
     this.emit('arrive', { id: e.id(i), map: this.maps[m]!.def.id, x: spot.x, y: spot.y });
@@ -326,7 +380,7 @@ export class World {
     for (let i = 0; i < e.hi; i++) {
       if (!e.alive(i) || e.map[i] === NO_MAP) continue;
       const ph = this.maps[e.map[i]!]!.phys;
-      if (e.kind[i] === Kind.Agent) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
+      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
       else if (e.kind[i] === Kind.Projectile) this.bodies[i] = ph.createProjectileBody(i, e.owner[i]!, e.x[i]!, e.y[i]!, e.radius[i]!);
       const b = this.bodies[i];
       if (b) { this.vel.x = e.vx[i]!; this.vel.y = e.vy[i]!; b.setLinearVelocity(this.vel); }

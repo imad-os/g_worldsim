@@ -165,3 +165,31 @@ test('maps: agents travel between maps through portals', () => {
   assert.equal(w.e.map[i], 1, 'arrived in the woods');
   assert.ok(Math.hypot(w.e.x[i]! - p.toX, w.e.y[i]! - p.toY) < 6);
 });
+
+test('players: controls move the character, walls stop it, portals take it to the other map once', () => {
+  const w = newWorld();
+  const p = w.portals[0]!;
+  const i = w.spawnPlayer(0, p.x - 6, p.y);
+  assert.ok(i >= 0);
+  assert.equal(w.e.kind[i], Kind.Player);
+  const x0 = w.e.x[i]!;
+  w.setInput(i, 0, 0, false);
+  for (let k = 0; k < 20; k++) w.step();
+  assert.ok(Math.abs(w.e.x[i]! - x0) < 0.05, 'no input, no move (the AI never moves a player)');
+  w.setInput(i, 5, 0, true); // clamped to length 1
+  for (let k = 0; k < 20 * 4 && w.e.map[i] !== NO_MAP; k++) w.step();
+  assert.equal(w.e.map[i], NO_MAP, 'walked into the portal');
+  for (let k = 0; k < 20 * 61; k++) w.step();
+  assert.equal(w.e.map[i], 1, 'arrived in the woods');
+  // Standing at the arrival point (inside the woods portal's reach) must not send it straight back.
+  w.setInput(i, 0, 0, false);
+  for (let k = 0; k < 40; k++) w.step();
+  assert.equal(w.e.map[i], 1, 'no ping-pong');
+  // Speed: walking 1.4 m/s, running 3.5 m/s.
+  const s = w.freeSpot(1, 100, 100, 300)!;
+  const j = w.spawnPlayer(1, s.x, s.y);
+  w.setInput(j, 0, 1, true);
+  for (let k = 0; k < 20; k++) w.step();
+  const v = Math.hypot(w.e.vx[j]!, w.e.vy[j]!);
+  assert.ok(v > 2.5 && v <= 3.6 || w.maps[1]!.tiles.isSolidAt(w.e.x[j]!, w.e.y[j]! + 0.5), `running speed ${v}`);
+});

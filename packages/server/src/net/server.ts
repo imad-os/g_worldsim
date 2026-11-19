@@ -41,6 +41,9 @@ interface Session {
   // rate limit (token bucket, messages)
   tokens: number;
   tokensAt: number;
+  avatar: number; // entity slot of this player's character, -1 none
+  avatarId: number;
+  lastMap: number;
   goneAt: number;
 }
 
@@ -111,7 +114,9 @@ export class NetServer {
     return typeof a === 'object' && a ? `http://${a.address}:${a.port}` : '';
   }
 
+  private closing = false;
   async close(): Promise<void> {
+    this.closing = true;
     if (this.timer) clearInterval(this.timer);
     if (this.statsTimer) clearInterval(this.statsTimer);
     for (const s of this.sessions.values()) s.ws?.close(1001, 'server stopping');
@@ -226,7 +231,7 @@ export class NetServer {
     });
     ws.on('close', () => {
       clearTimeout(helloTimer);
-      if (session && session.ws === ws) { session.ws = null; session.goneAt = Date.now(); }
+      if (session && session.ws === ws) { session.ws = null; session.goneAt = Date.now(); this.leave(session); }
       this.log.info('client left', { name: session?.name, role: session?.role });
     });
     ws.on('error', () => ws.terminate());
@@ -261,7 +266,7 @@ export class NetServer {
       s = {
         id: randomBytes(12).toString('base64url'), ws, role, name, ip, view: null,
         chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 3), list: new Int32Array(cap), listN: 0,
-        tokens: 60, tokensAt: Date.now(), goneAt: 0,
+        tokens: 60, tokensAt: Date.now(), goneAt: 0, avatar: -1, avatarId: 0, lastMap: -2,
       };
       this.sessions.set(s.id, s);
     } else {
@@ -277,6 +282,64 @@ export class NetServer {
     });
     this.log.info('client joined', { name, role, resumed: !!(m as { resume?: string }).resume });
     return s;
+  }
+
+  /** Player characters: positions kept per player name between visits. */
+  avatarStore: { get(name: string): { map: string; x: number; y: number } | null; set(name: string, p: { map: string; x: number; y: number }): void } = { get: () => null, set: () => {} };
+
+  private ownsAvatar(s: Session): boolean {
+    return s.avatar >= 0 && this.world.e.id(s.avatar) === s.avatarId && this.world.e.alive(s.avatar);
+  }
+
+  private join(s: Session): void {
+    const w = this.world;
+    if (!this.ownsAvatar(s)) {
+      // One character per player name, even with two TVs.
+      for (const o of this.sessions.values()) if (o !== s && o.name === s.name && this.ownsAvatar(o)) { s.avatar = o.avatar; s.avatarId = o.avatarId; o.avatar = -1; }
+    }
+    if (!this.ownsAvatar(s)) {
+      const p = this.avatarStore.get(s.name);
+      const mi = p ? w.mapIndex.get(p.map) ?? 0 : 0;
+      const def = w.maps[mi]!.def;
+      const slot = w.spawnPlayer(mi, p?.x ?? def.w / 2, p?.y ?? def.h / 2);
+      if (slot < 0) { this.send(s, { t: Msg.Error, code: 'full' }); return; }
+      s.avatar = slot; s.avatarId = w.e.id(slot);
+      this.log.info('player joined the world', { name: s.name, map: w.maps[mi]!.def.id });
+    }
+    s.lastMap = -2;
+    this.sendYou(s);
+  }
+
+  private sendYou(s: Session): void {
+    const e = this.world.e, i = s.avatar;
+    const m = e.map[i]!, transit = m === NO_MAP;
+    const mi = transit ? e.toMap[i]! : m;
+    s.lastMap = m;
+    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined });
+    if (!transit) s.view = { map: m, x: e.x[i]!, y: e.y[i]!, r: s.view?.r ?? 40 };
+  }
+
+  /** The player left: keep where they were, take the character out of the world. */
+  private leave(s: Session): void {
+    if (this.closing) return; // the final snapshot saves every character's place
+    if (!this.ownsAvatar(s)) { s.avatar = -1; return; }
+    const w = this.world, e = w.e, i = s.avatar;
+    const mi = e.map[i] === NO_MAP ? e.toMap[i]! : e.map[i]!;
+    const x = e.map[i] === NO_MAP ? e.ax[i]! : e.x[i]!, y = e.map[i] === NO_MAP ? e.ay[i]! : e.y[i]!;
+    this.avatarStore.set(s.name, { map: w.maps[mi]!.def.id, x, y });
+    w.remove(i, 'left');
+    s.avatar = -1;
+  }
+
+  /** Save every connected character's position (snapshots, shutdown). */
+  saveAvatars(): void {
+    const w = this.world, e = w.e;
+    for (const s of this.sessions.values()) {
+      if (!this.ownsAvatar(s)) continue;
+      const i = s.avatar;
+      if (e.map[i] === NO_MAP) this.avatarStore.set(s.name, { map: w.maps[e.toMap[i]!]!.def.id, x: e.ax[i]!, y: e.ay[i]! });
+      else this.avatarStore.set(s.name, { map: w.maps[e.map[i]!]!.def.id, x: e.x[i]!, y: e.y[i]! });
+    }
   }
 
   /** A device without a token asks to pair: it gets a code, the socket waits (10 min) for an admin to approve it. */
@@ -325,6 +388,21 @@ export class NetServer {
       case Msg.Ping:
         if (isNum(m.c)) this.send(s, { t: Msg.Pong, c: m.c, s: Date.now() });
         return;
+      case Msg.Join: {
+        if (s.role !== 'viewer') { this.send(s, { t: Msg.Error, code: 'forbidden' }); return; }
+        this.join(s);
+        return;
+      }
+      case Msg.Input: {
+        if (s.avatar < 0 || !this.ownsAvatar(s)) return;
+        const mx = isNum(m.mx, -1, 1) ? m.mx : 0, my = isNum(m.my, -1, 1) ? m.my : 0;
+        this.world.setInput(s.avatar, mx, my, m.run === true);
+        if (m.act === true) {
+          const j = this.world.nearest(s.avatar, 2.5);
+          this.send(s, { t: Msg.Notice, kind: 'interact', data: j >= 0 ? { id: this.world.e.id(j), kind: this.world.e.kind[j] } : null });
+        }
+        return;
+      }
       case Msg.View: {
         const mi = this.world.mapIndex.get(String(m.map));
         if (mi === undefined || !isNum(m.x, -1e5, 1e5) || !isNum(m.y, -1e5, 1e5) || !isNum(m.r, 1, 1e5)) {
@@ -354,6 +432,7 @@ export class NetServer {
 
   private broadcastFrames(): void {
     for (const s of this.sessions.values()) {
+      if (s.ws && s.avatar >= 0 && this.ownsAvatar(s) && this.world.e.map[s.avatar] !== s.lastMap) this.sendYou(s);
       if (!s.ws || !s.view || s.ws.readyState !== 1) continue;
       if (s.ws.bufferedAmount > 512 * 1024) continue; // slow link: skip this frame
       this.sendChunks(s);
