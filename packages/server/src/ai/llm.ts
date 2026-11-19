@@ -29,7 +29,7 @@ export interface AiConfig extends AiSettings {
   geminiBase?: string;
 }
 export const AI_DEFAULTS: AiConfig = {
-  provider: 'none', model: '', ollamaUrl: 'http://127.0.0.1:11434', maxCallsPerHour: 600, timeoutMs: 60_000,
+  provider: 'none', model: '', ollamaUrl: 'http://127.0.0.1:11434', maxCallsPerHour: 600, timeoutMs: 120_000,
 };
 export const DEFAULT_MODEL: Record<Provider, string> = { none: '', gemini: 'gemini-2.5-flash', ollama: 'llama3.2' };
 
@@ -78,7 +78,7 @@ export class Ai {
   /** Models the current provider offers (Ollama: installed models; Gemini: models that can generate text). */
   async models(): Promise<string[]> {
     if (this.s.provider === 'ollama') {
-      const j = await this.http(`${this.s.ollamaUrl}/api/tags`, undefined, this.ollamaHeaders(), 8000) as { models?: { name: string }[] };
+      const j = await this.http(`${this.s.ollamaUrl}/api/tags`, undefined, this.ollamaHeaders(), 15000) as { models?: { name: string }[] };
       return (j.models ?? []).map((m) => m.name).sort();
     }
     if (this.s.provider === 'gemini') {
@@ -124,7 +124,7 @@ export class Ai {
     };
     const j = await this.http(`${this.geminiBase()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, body,
       { 'x-goog-api-key': this.keys.gemini }, this.cfg.timeoutMs) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    const text = (j.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('');
+    const text = stripThinking((j.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join(''));
     if (!text) throw new AiError('bad-reply', 'empty answer from Gemini');
     return text;
   }
@@ -132,13 +132,23 @@ export class Ai {
   private async ollama(r: LlmRequest, model: string): Promise<string> {
     const body = {
       model, stream: false,
+      // Thinking models (qwen3, deepseek-r1...): no hidden thinking, it would eat the whole answer budget.
+      think: false,
       messages: [...(r.system ? [{ role: 'system', content: r.system }] : []), { role: 'user', content: r.prompt }],
       ...(r.json ? { format: 'json' } : {}),
       options: { num_predict: r.maxTokens ?? 512, temperature: r.temperature ?? 0.8 },
     };
-    const j = await this.http(`${this.s.ollamaUrl}/api/chat`, body, this.ollamaHeaders(), this.cfg.timeoutMs) as { message?: { content?: string } };
-    const text = j.message?.content ?? '';
-    if (!text) throw new AiError('bad-reply', 'empty answer from Ollama');
+    let j: { message?: { content?: string; thinking?: string } };
+    try {
+      j = await this.http(`${this.s.ollamaUrl}/api/chat`, body, this.ollamaHeaders(), this.cfg.timeoutMs) as typeof j;
+    } catch (err) {
+      // Ollama before 0.9 (or a model without thinking) may refuse "think": ask again without it.
+      if (!(err instanceof AiError) || err.code !== 'http' || !/think/i.test(err.message)) throw err;
+      const { think: _t, ...plain } = body;
+      j = await this.http(`${this.s.ollamaUrl}/api/chat`, plain, this.ollamaHeaders(), this.cfg.timeoutMs) as typeof j;
+    }
+    const text = stripThinking(j.message?.content ?? '');
+    if (!text) throw new AiError('bad-reply', j.message?.thinking ? 'the model only thought and gave no answer (raise its answer length or pick a non-thinking model)' : 'empty answer from Ollama');
     return text;
   }
 
@@ -176,6 +186,11 @@ export class Ai {
     if (this.running < 2) { this.running++; return Promise.resolve(); }
     return new Promise((ok) => this.queue.push(() => { this.running++; ok(); }));
   }
+}
+
+/** A reply without <think>...</think> blocks (thinking models write them into the answer). */
+export function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^[\s\S]*<\/think>/i, '').trim();
 }
 
 /** The first JSON object in a model's answer (models sometimes wrap it in text or ``` fences). */

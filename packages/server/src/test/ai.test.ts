@@ -13,6 +13,12 @@ const fake = createServer((req, res) => {
     seen.push({ url: req.url!, headers: req.headers, body: b ? JSON.parse(b) : null });
     res.setHeader('content-type', 'application/json');
     if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:4b' }, { name: 'llama3.2:latest' }] }));
+    if (req.url === '/think/api/chat') return res.end(JSON.stringify({ message: { role: 'assistant', content: '<think>let me see</think>\n\nHello!' } }));
+    if (req.url === '/old/api/chat') {
+      const j = JSON.parse(b);
+      if ('think' in j) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'json: unknown field "think"' })); }
+      return res.end(JSON.stringify({ message: { content: 'old ollama ok' } }));
+    }
     if (req.url === '/api/chat') return res.end(JSON.stringify({ message: { role: 'assistant', content: '{"say":"hi from ollama"}' } }));
     if (req.url!.startsWith('/v1beta/models?')) return res.end(JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/embed', supportedGenerationMethods: ['embedContent'] }] }));
     if (req.url!.includes(':generateContent')) {
@@ -38,6 +44,7 @@ test('ai: Ollama models and chat (system + user, JSON format), switch to Gemini,
   assert.equal(chat.body.model, 'qwen3:4b');
   assert.equal(chat.body.format, 'json');
   assert.equal(chat.body.stream, false);
+  assert.equal(chat.body.think, false, 'thinking models answer straight away');
   assert.deepEqual(chat.body.messages.map((m: any) => m.role), ['system', 'user']);
   assert.equal(chat.body.options.num_predict, 50);
 
@@ -65,6 +72,13 @@ test('ai: bad settings refused, missing key reported, budget enforced, unreachab
   const off = new Ai({ ...AI_DEFAULTS, timeoutMs: 2000 }, {}, log, { provider: 'ollama', ollamaUrl: 'http://127.0.0.1:9' });
   await assert.rejects(off.generate({ prompt: 'x' }), /can't reach/);
   assert.deepEqual(parseJsonReply('```json\n{"a":1}\n```'), { a: 1 });
+});
+
+test('ai: thinking models (qwen3) give their answer without the <think> part; an older Ollama without "think" still works', async () => {
+  const ai = new Ai({ ...AI_DEFAULTS }, {}, log, { provider: 'ollama', ollamaUrl: base + '/think' });
+  assert.equal((await ai.generate({ prompt: 'hi' })).text, 'Hello!');
+  ai.apply({ ollamaUrl: base + '/old' });
+  assert.equal((await ai.generate({ prompt: 'hi' })).text, 'old ollama ok');
 });
 
 test('ai: any pasted Ollama address works (API paths and missing http:// are fixed), errors say which address failed', async () => {
