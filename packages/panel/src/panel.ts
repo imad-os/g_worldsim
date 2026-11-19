@@ -52,7 +52,69 @@ async function refreshPairings(): Promise<void> {
   for (const b of el.querySelectorAll<HTMLButtonElement>('[data-no]')) b.onclick = async () => { await cmd({ cmd: 'deny', code: b.dataset.no! }); void refreshPairings(); };
 }
 
+// ------------------------------------------------------------ people (milestone 5)
+type Person = { id: number; alive: boolean; name: string; sex?: string; age: number; map: string | null; x: number; y: number; act: number;
+  hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; talkingTo: string | null };
+const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away'];
+const names = new Map<number, string>();
+let openId = 0;
+const bar = (lack: number, good = false) => {
+  const v = good ? lack : 100 - lack; // bars show how fine they are
+  const col = v > 60 ? 'var(--ok)' : v > 30 ? 'var(--warn)' : 'var(--bad)';
+  return `<span class="bar" title="${Math.round(v)}%"><i style="width:${Math.max(3, v)}%;background:${col}"></i></span>`;
+};
+async function refreshPeople(): Promise<void> {
+  try {
+    const list = (await cmd({ cmd: 'agents' })) as Person[];
+    for (const p of list) names.set(p.id, p.name);
+    $('people').innerHTML = list.length ? list.map((p) => `<div class="row person" data-id="${p.id}"><div><b>${esc(p.name)}</b> <span class="dim">${p.sex === 'f' ? '♀' : '♂'} ${p.age} · ${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''} · ${esc(p.map ?? 'on the road')}</span></div>
+      <div class="dim">food ${bar(p.hunger)} water ${bar(p.thirst)} rest ${bar(p.tired)} hp ${bar(p.hp, true)}</div></div>`).join('') : '<p class="dim">Nobody is alive.</p>';
+    for (const r of $('people').querySelectorAll<HTMLElement>('[data-id]')) r.onclick = () => void openPerson(Number(r.dataset.id));
+  } catch (e) { log(String(e)); }
+}
+async function openPerson(id: number): Promise<void> {
+  openId = id;
+  try {
+    const d = (await cmd({ cmd: 'agent', id })) as Person & { profile: { traits: Record<string, number>; personality: string[]; generation: number }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
+    $('personCard').hidden = false;
+    $('pName').textContent = d.name;
+    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
+    const f = (k: string, v: number | string, step = '1') => `<label>${k}<input data-k="${k}" value="${v}" ${typeof v === 'number' ? `type="number" step="${step}"` : ''}></label>`;
+    $('pEdit').innerHTML = d.alive ? [f('name', d.name), f('personality', d.profile.personality.join(', ')),
+      f('hunger', d.hunger), f('thirst', d.thirst), f('tired', d.tired), f('lonely', d.lonely), f('hp', d.hp), f('carry', d.carry),
+      ...Object.entries(d.profile.traits).map(([k, v]) => f(k, Math.round(v * 100) / 100, k === 'lifespan' ? '1' : '0.05'))].join('') : '';
+    $('pFam').textContent = `Partner: ${d.family.partner ?? 'none'} · Parents: ${d.family.parents.join(', ') || 'unknown (first survivors)'} · Children: ${d.family.children.join(', ') || 'none'} · Generation ${d.profile.generation}`;
+    $('pEv').innerHTML = d.events.map((e) => `<div class="ev">${gameTime(e.at)} · ${esc(describe(e))}</div>`).join('') || '<p class="dim">Nothing yet.</p>';
+    $('personCard').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) { log(String(e)); }
+}
+const gameTime = (s: number) => { const h = s / 3600 + 8; return `day ${Math.floor(h / 24) + 1} ${String(Math.floor(h % 24)).padStart(2, '0')}:${String(Math.floor((s / 60) % 60)).padStart(2, '0')}`; };
+const who = (id: unknown) => names.get(Number(id)) ?? `#${Number(id) & 0xffff}`;
+function describe(e: { kind: string; data: Record<string, unknown> }): string {
+  const d = e.data;
+  switch (e.kind) {
+    case 'talk': return `${who(d.a)} talked with ${who(d.b)}`;
+    case 'death': return `${who(d.id)} died (${d.cause})`;
+    case 'spawn': return `${who(d.id)} arrived in ${d.map}`;
+    case 'remove': return `${who(d.id)} left the world (${d.cause})`;
+    case 'travel': return `${who(d.id)} set off from ${d.from} to ${d.to}`;
+    case 'arrive': return `${who(d.id)} arrived in ${d.map}`;
+    case 'supply': return `Supply drop: ${d.n} food in ${d.map}`;
+    case 'birth': return `${who(d.id)} was born (${who(d.mother)} and ${who(d.father)})`;
+    case 'partner': return `${who(d.a)} and ${who(d.b)} became partners`;
+    case 'admin': return `Panel: ${d.cmd}`;
+    default: return `${e.kind} ${JSON.stringify(d)}`;
+  }
+}
+async function refreshTimeline(): Promise<void> {
+  try {
+    const list = (await cmd({ cmd: 'timeline', limit: 60 })) as { at: number; kind: string; data: Record<string, unknown> }[];
+    $('timeline').innerHTML = list.filter((e) => e.kind !== 'admin').slice(0, 30).map((e) => `<div class="ev">${gameTime(e.at)} · ${esc(describe(e))}</div>`).join('') || '<p class="dim">Nothing yet.</p>';
+  } catch (e) { log(String(e)); }
+}
+
 let travelOpen = false;
+let statsN = 0;
 function showTravel(open: boolean): void {
   travelOpen = open;
   $('travelState').textContent = open ? 'Open: people may go to every map.' : 'Closed: people stay on the map they are on (players can still travel).';
@@ -97,7 +159,7 @@ function connect(token: string): void {
         if (m.role !== 'admin') { log('That is a viewer token, not the admin token.'); conn?.close(); store(null); showLogin(); return; }
         store(token);
         $('login').hidden = true; $('main').hidden = false;
-        void refreshPairings(); void refreshPlayers(); void refreshAi();
+        void refreshPairings(); void refreshPlayers(); void refreshAi(); void refreshPeople().then(refreshTimeline);
         break;
       case Msg.Error:
         if (m.code === 'auth' || m.code === 'locked') { store(null); showLogin(m.code === 'locked' ? 'Too many wrong tokens: wait 10 minutes.' : 'Wrong token.'); }
@@ -123,6 +185,8 @@ function connect(token: string): void {
           `agents ${s.agents} · entities ${s.entities} · viewers ${s.clients - 1}`,
           `snapshot ${s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-'} · up ${Math.round(s.uptimeSec / 60)} min`,
         ].join('\n');
+        if (s.difficulty !== undefined && document.activeElement !== $('diff')) { ($('diff') as HTMLInputElement).value = String(s.difficulty); $('diffV').textContent = String(s.difficulty); }
+        if (++statsN % 3 === 0) { void refreshPeople(); if (statsN % 15 === 0) void refreshTimeline(); }
         if (s.travelOpen !== undefined && s.travelOpen !== travelOpen) showTravel(s.travelOpen);
         else if ($('travelBtn').textContent === '-') showTravel(!!s.travelOpen);
         const t = s.tunnel;
@@ -203,6 +267,24 @@ $('aiTest').onclick = async () => {
   try { const r = (await cmd({ cmd: 'aiTest' })) as { text: string; ms: number; model: string }; $('aiOut').textContent = `${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`; } catch (e) { $('aiOut').textContent = String(e); }
   void refreshAi();
 };
+$('pClose').onclick = () => { $('personCard').hidden = true; openId = 0; };
+$('pSave').onclick = async () => {
+  const set: Record<string, number | string> = {};
+  for (const i of $('pEdit').querySelectorAll<HTMLInputElement>('input')) set[i.dataset.k!] = i.type === 'number' ? Number(i.value) : i.value;
+  try { await cmd({ cmd: 'agentSet', id: openId, set }); log('saved'); void openPerson(openId); void refreshPeople(); } catch (e) { log(String(e)); }
+};
+$('pMove').onclick = async () => { try { await cmd({ cmd: 'agentMove', id: openId, map: 'town' }); void openPerson(openId); } catch (e) { log(String(e)); } };
+$('pKill').onclick = async () => {
+  if (!confirm(`Kill ${$('pName').textContent}? This can't be undone.`)) return;
+  try { await cmd({ cmd: 'kill', id: openId }); log(`${$('pName').textContent} was killed`); $('personCard').hidden = true; void refreshPeople(); } catch (e) { log(String(e)); }
+};
+$('addPerson').onclick = async () => {
+  try { await cmd({ cmd: 'spawn', map: 'town', x: 128, y: 128 }); log('a new person arrived in Old Town'); void refreshPeople(); } catch (e) { log(String(e)); }
+};
+($('diff') as HTMLInputElement).oninput = () => { $('diffV').textContent = ($('diff') as HTMLInputElement).value; };
+($('diff') as HTMLInputElement).onchange = async () => { try { await cmd({ cmd: 'difficulty', value: Number(($('diff') as HTMLInputElement).value) }); log('difficulty changed'); } catch (e) { log(String(e)); } };
+$('supply').onclick = async () => { try { const r = (await cmd({ cmd: 'supply', map: ($('supMap') as HTMLSelectElement).value })) as { n: number }; log(`supply drop: ${r.n} food`); void refreshTimeline(); } catch (e) { log(String(e)); } };
+$('tlMore').onclick = () => void refreshTimeline();
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-speed]')) b.onclick = () => void cmd({ cmd: 'speed', speed: Number(b.dataset.speed) });
 const saved = stored();
 if (saved) connect(saved); else showLogin();

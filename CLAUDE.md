@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3 done 2026-11-19 (4 first version, 5 partly); next 5 (panel inspector), 6 (LLM planner), 7, 8.
+simulator" (milestones 1-8). Milestones 1-3 and 5 done 2026-11-19 (4 first version); next 6 (LLM planner), 7, 8.
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
