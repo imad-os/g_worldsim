@@ -38,6 +38,7 @@ export const Msg = {
   View: 'view', // interest area
   Ping: 'ping',
   Admin: 'adm',
+  Pair: 'pair', // ask to pair this device (no token yet)
   // server -> client
   Welcome: 'wel',
   Error: 'err',
@@ -47,4 +48,7 @@ export const Msg = {
   Stats: 'sts',
   Pong: 'pong',
   AdminResult: 'admr',
+  PairCode: 'pairc', // the code to show on the TV
+  Paired: 'paired',  // approved: the device's own token
+  Notice: 'note',    // something to tell admins live (a TV waiting to be paired...)
 } as const;

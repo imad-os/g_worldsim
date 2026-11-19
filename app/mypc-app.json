@@ -1,0 +1,12 @@
+{
+  "mypc": 1,
+  "id": "worldsim",
+  "name": "World",
+  "description": "Watch a living world of people who survive, build and travel on their own",
+  "type": "game",
+  "entry": "index.html",
+  "icon": "icon.svg",
+  "version": "0.2.0",
+  "scores": false,
+  "config": { "server": "" }
+}

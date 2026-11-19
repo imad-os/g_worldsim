@@ -1,40 +1,136 @@
 import { Msg, type ServerMsg, type AdminCmd } from '@worldsim/protocol';
 import { Conn } from '../../client/src/conn.js';
 
-/** Control panel, first version (milestone 5 extends it): login, time speed, pause, snapshot, live stats. */
+/**
+ * Control panel (first version; milestone 5 adds the rest): login once (kept on this device), approve TVs that
+ * want to watch, players, internet link, time speed, live server stats. Works on a phone.
+ */
 const $ = (id: string) => document.getElementById(id)!;
+const KEY = 'worldsim_admin';
 let conn: Conn | null = null;
 let nextId = 1;
+let providerShown = false;
+const waiting = new Map<number, (ok: boolean, data: unknown, err?: string) => void>();
 
-function log(s: string): void { const el = $('log'); el.textContent = s + '\n' + el.textContent!.slice(0, 4000); }
+function store(v: string | null): void {
+  try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch { /* private mode */ }
+}
+function stored(): string { try { return localStorage.getItem(KEY) ?? ''; } catch { return ''; } }
 
-function cmd(c: AdminCmd): void { conn?.send({ t: Msg.Admin, id: nextId++, c }); }
+function log(s: string): void {
+  const el = $('log');
+  el.textContent = `${new Date().toLocaleTimeString()}  ${s}\n${el.textContent!.slice(0, 4000)}`;
+}
+
+function cmd(c: AdminCmd): Promise<unknown> {
+  return new Promise((ok, fail) => {
+    const id = nextId++;
+    waiting.set(id, (good, data, err) => (good ? ok(data) : fail(new Error(err))));
+    conn?.send({ t: Msg.Admin, id, c });
+  });
+}
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const ago = (t: number) => {
+  if (!t) return '-';
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(t).toLocaleDateString();
+};
+
+async function refreshPairings(): Promise<void> {
+  const list = (await cmd({ cmd: 'pairings' })) as { code: string; name: string; dev: string; at: number }[];
+  const el = $('pairs');
+  $('pairsCard').classList.toggle('alert', list.length > 0);
+  if (!list.length) { el.innerHTML = '<p class="dim">No TV is waiting. Open the app on a TV: it shows a 6-digit code here.</p>'; return; }
+  el.innerHTML = list.map((p) => `<div class="row"><div><b class="code">${esc(p.code)}</b><br><span class="dim">${esc(p.name)} · ${esc(p.dev || 'device')} · ${ago(p.at)}</span></div>
+    <div><input data-name="${p.code}" value="${esc(p.name)}" aria-label="Player name"><button data-ok="${p.code}" class="primary">Approve</button><button data-no="${p.code}">Deny</button></div></div>`).join('');
+  for (const b of el.querySelectorAll<HTMLButtonElement>('[data-ok]')) b.onclick = async () => {
+    const name = (el.querySelector(`[data-name="${b.dataset.ok}"]`) as HTMLInputElement).value;
+    try { const r = (await cmd({ cmd: 'approve', code: b.dataset.ok!, name })) as { name: string }; log(`TV approved as ${r.name}`); } catch (e) { log(String(e)); }
+    void refreshPairings(); void refreshPlayers();
+  };
+  for (const b of el.querySelectorAll<HTMLButtonElement>('[data-no]')) b.onclick = async () => { await cmd({ cmd: 'deny', code: b.dataset.no! }); void refreshPairings(); };
+}
+
+async function refreshPlayers(): Promise<void> {
+  const list = (await cmd({ cmd: 'players' })) as { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean }[];
+  $('players').innerHTML = list.length ? list.map((p) => `<div class="row"><div><b>${esc(p.name)}</b><br><span class="dim">${esc(p.dev)} · last seen ${ago(p.lastSeen)}</span></div>
+    <div>${p.fromEnv ? '<span class="dim">.env</span>' : `<button data-rm="${esc(p.name)}">Remove</button>`}</div></div>`).join('') : '<p class="dim">No players yet.</p>';
+  for (const b of $('players').querySelectorAll<HTMLButtonElement>('[data-rm]')) b.onclick = async () => {
+    if (!confirm(`Remove ${b.dataset.rm}? That TV will have to pair again.`)) return;
+    try { await cmd({ cmd: 'revoke', name: b.dataset.rm! }); log(`removed ${b.dataset.rm}`); } catch (e) { log(String(e)); }
+    void refreshPlayers();
+  };
+}
 
 function connect(token: string): void {
+  conn?.close();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   conn = new Conn(`${proto}//${location.host}/ws`, token, 'panel');
-  conn.onState = (s, why) => { $('state').textContent = s + (why ? ` (${why})` : ''); };
+  conn.onState = (s, why) => {
+    $('state').textContent = s === 'open' ? 'connected' : s + (why ? ` (${why})` : '');
+    $('state').className = s === 'open' ? 'ok' : 'bad';
+  };
   conn.onMsg = (m: ServerMsg) => {
-    if (m.t === Msg.Welcome) { $('login').hidden = true; $('main').hidden = false; if (m.role !== 'admin') log('This token is a viewer token, not the admin token.'); }
-    if (m.t === Msg.Stats) {
-      const s = m.s;
-      $('stats').textContent = [
-        `tick ${s.tick}   ${s.paused ? 'PAUSED' : `speed x${s.speed} (effective x${s.effSpeed.toFixed(1)})`}   ${s.tps.toFixed(0)} ticks/s`,
-        `tick time avg ${s.tickMsAvg.toFixed(3)} ms, p95 ${s.tickMsP95.toFixed(3)} ms, max ${s.tickMsMax.toFixed(2)} ms`,
-        `RAM ${s.rssMb.toFixed(0)} MB (heap ${s.heapMb.toFixed(0)} MB)   CPU ${s.cpuPct.toFixed(0)} %`,
-        `agents ${s.agents}   entities ${s.entities}   clients ${s.clients}   uptime ${s.uptimeSec} s`,
-        `last snapshot ${s.lastSnapshotAt ? new Date(s.lastSnapshotAt).toLocaleTimeString() : '-'}`,
-      ].join('\n');
+    switch (m.t) {
+      case Msg.Welcome:
+        if (m.role !== 'admin') { log('That is a viewer token, not the admin token.'); conn?.close(); store(null); showLogin(); return; }
+        store(token);
+        $('login').hidden = true; $('main').hidden = false;
+        void refreshPairings(); void refreshPlayers();
+        break;
+      case Msg.Error:
+        if (m.code === 'auth' || m.code === 'locked') { store(null); showLogin(m.code === 'locked' ? 'Too many wrong tokens: wait 10 minutes.' : 'Wrong token.'); }
+        else log('error ' + m.code);
+        break;
+      case Msg.Notice:
+        if (m.kind === 'pairing') { log('A TV wants to watch: approve it below'); void refreshPairings(); try { navigator.vibrate?.(200); } catch { /* */ } }
+        if (m.kind === 'paired') void refreshPlayers();
+        if (m.kind === 'url') log(`Internet link changed: ${(m.data as { url: string }).url}`);
+        break;
+      case Msg.AdminResult: {
+        const w = waiting.get(m.id);
+        if (w) { waiting.delete(m.id); w(m.ok, m.data, m.err); }
+        break;
+      }
+      case Msg.Stats: {
+        const s = m.s;
+        $('time').textContent = s.paused ? 'Paused' : `Speed x${s.speed}${s.effSpeed && Math.abs(s.effSpeed - s.speed) > 0.5 ? ` (running x${s.effSpeed.toFixed(1)})` : ''}`;
+        $('stats').textContent = [
+          `tick ${s.tick} · ${s.tps.toFixed(0)} ticks/s`,
+          `tick time ${s.tickMsAvg.toFixed(2)} ms (p95 ${s.tickMsP95.toFixed(2)}, max ${s.tickMsMax.toFixed(1)})`,
+          `RAM ${s.rssMb.toFixed(0)} MB · CPU ${s.cpuPct.toFixed(0)} %`,
+          `agents ${s.agents} · entities ${s.entities} · viewers ${s.clients - 1}`,
+          `snapshot ${s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-'} · up ${Math.round(s.uptimeSec / 60)} min`,
+        ].join('\n');
+        const t = s.tunnel;
+        if (t) {
+          $('url').innerHTML = t.url ? `<a href="${esc(t.url)}/panel/">${esc(t.url)}</a>` : `<span class="dim">${t.provider === 'none' ? 'Only on this PC (no tunnel)' : esc(t.state + (t.error ? ': ' + t.error : ''))}</span>`;
+          $('tunnelState').textContent = `${t.provider} · ${t.state}`;
+          if (!providerShown) { (document.getElementById('provider') as HTMLSelectElement).value = t.provider; providerShown = true; }
+        }
+        break;
+      }
     }
-    if (m.t === Msg.AdminResult) log(`${m.ok ? 'ok' : 'error'} ${m.ok ? JSON.stringify(m.data) : m.err}`);
-    if (m.t === Msg.Error) log('error ' + m.code);
   };
   conn.open();
 }
 
-$('go').onclick = () => { const t = ($('token') as HTMLInputElement).value.trim(); try { sessionStorage.setItem('tok', t); } catch { /* private mode */ } connect(t); };
-$('pause').onclick = () => cmd({ cmd: 'pause', paused: true });
-$('resume').onclick = () => cmd({ cmd: 'pause', paused: false });
-$('snap').onclick = () => cmd({ cmd: 'snapshot' });
-for (const b of document.querySelectorAll<HTMLButtonElement>('[data-speed]')) b.onclick = () => cmd({ cmd: 'speed', speed: Number(b.dataset.speed) });
-try { const t = sessionStorage.getItem('tok'); if (t) connect(t); } catch { /* none */ }
+function showLogin(msg = ''): void {
+  $('login').hidden = false; $('main').hidden = true; $('loginMsg').textContent = msg;
+}
+
+$('go').onclick = () => { const t = ($('token') as HTMLInputElement).value.trim(); if (t) connect(t); };
+($('token') as HTMLInputElement).onkeydown = (e) => { if (e.key === 'Enter') $('go').click(); };
+$('logout').onclick = () => { store(null); conn?.close(); showLogin(); };
+$('pause').onclick = () => void cmd({ cmd: 'pause', paused: true });
+$('resume').onclick = () => void cmd({ cmd: 'pause', paused: false });
+$('snap').onclick = async () => { await cmd({ cmd: 'snapshot' }); log('snapshot saved'); };
+$('switch').onclick = async () => {
+  const p = ($('provider') as HTMLSelectElement).value as 'ngrok';
+  log(`switching the internet link to ${p}...`);
+  try { const st = (await cmd({ cmd: 'tunnelSwitch', provider: p })) as { url: string }; log(`link: ${st.url || 'off'}`); } catch (e) { log(String(e)); }
+};
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-speed]')) b.onclick = () => void cmd({ cmd: 'speed', speed: Number(b.dataset.speed) });
+const saved = stored();
+if (saved) connect(saved); else showLogin();

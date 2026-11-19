@@ -8,9 +8,11 @@ import { Monitor } from './monitor.js';
 import { Db } from './persist/db.js';
 import { Snapshots, EventLog } from './persist/snapshot.js';
 import { CloudSync } from './persist/cloud.js';
+import { Players } from './persist/players.js';
 import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
+import { TunnelManager } from './tunnel.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin']);
@@ -25,6 +27,8 @@ export class App {
   snaps!: Snapshots;
   events!: EventLog;
   cloud!: CloudSync;
+  players!: Players;
+  tunnel!: TunnelManager;
   readonly monitor = new Monitor();
   lastSnapshotAt = 0;
   private timers: NodeJS.Timeout[] = [];
@@ -40,6 +44,7 @@ export class App {
     this.db = new Db(join(dataDir, `${c.worldId}.sqlite`));
     this.snaps = new Snapshots(this.db, c.snapshotsKept);
     this.events = new EventLog(this.db);
+    this.players = new Players(this.db, this.secrets.viewers);
     const sc = loadScenario(resolve(ROOT, c.scenariosDir, c.scenario));
     const seed = this.db.getMeta('seed') ?? String(sc.seed);
     this.world = new World(sc, { tickRate: c.tickRate, clockScale: c.clockScale, capacity: c.capacity, seed });
@@ -71,9 +76,10 @@ export class App {
 
     this.net = new NetServer(w, {
       host: c.host, port: c.port, netHz: c.netHz, maxViewRadius: c.maxViewRadius, maxClients: c.maxClients,
-      adminToken: this.secrets.adminToken, viewers: this.secrets.viewers,
+      adminToken: this.secrets.adminToken, players: this.players,
       staticDirs: [
         { prefix: '/panel/', dir: join(ROOT, 'packages/panel/www') },
+        { prefix: '/app/', dir: join(ROOT, 'app') },
         { prefix: '/', dir: join(ROOT, 'packages/client/www') },
       ],
     }, this.log);
@@ -88,6 +94,15 @@ export class App {
     if (c.cloud.enabled) {
       this.timers.push(setInterval(() => { this.cloud.collect(w); void this.cloud.flush(); }, c.cloud.everySec * 1000));
     }
+    this.tunnel = new TunnelManager({
+      port: (this.net.http.address() as { port: number }).port, bin: c.tunnel.bin, ngrokDomain: c.tunnel.ngrokDomain,
+      cloudflareHostname: c.tunnel.cloudflareHostname, cloudflareToken: this.secrets.cloudflareToken,
+    }, this.log, (this.db.getMeta('tunnel_provider') as Config['tunnel']['provider'] | undefined) ?? c.tunnel.provider);
+    this.tunnel.onUrl = (url, old) => {
+      this.db.setMeta('public_url', url);
+      this.net.notifyAdmins('url', { url, old });
+    };
+    void this.tunnel.start();
     this.loop.start();
     this.log.info('server up', { url: this.net.address(), tickRate: c.tickRate, speed: c.speed, lowSpec: c.lowSpec });
   }
@@ -113,6 +128,7 @@ export class App {
       tickMsAvg: m.avg, tickMsP95: m.p95, tickMsMax: m.max, rssMb: m.rssMb, heapMb: m.heapMb, cpuPct: m.cpuPct,
       entities: w.e.count, agents: w.e.countKind(Kind.Agent), clients: this.net.clientCount(),
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
+      tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
     };
   }
 
@@ -154,6 +170,26 @@ export class App {
         const broke = t.damage(num(c.tx, 0, t.w - 1, 'tx') | 0, num(c.ty, 0, t.h - 1, 'ty') | 0, num(c.amount, 0, 255, 'amount'));
         return { broke };
       }
+      case 'pairings': return this.players.pendingList();
+      case 'approve': {
+        if (typeof c.code !== 'string' || !/^\d{6}$/.test(c.code)) throw new Error('bad code');
+        return this.players.approve(c.code, typeof c.name === 'string' ? c.name : undefined);
+      }
+      case 'deny': this.players.deny(String(c.code)); return { ok: true };
+      case 'players': return this.players.list();
+      case 'revoke': {
+        const ok = this.players.revoke(String(c.name));
+        if (!ok) throw new Error('no such player (players from .env are removed there)');
+        return { kicked: this.net.kick(String(c.name)) };
+      }
+      case 'tunnel': return this.tunnel.status();
+      case 'tunnelSwitch': {
+        const ok = ['ngrok', 'tailscale', 'cloudflare', 'cloudflare-quick', 'none'];
+        if (!ok.includes(String(c.provider))) throw new Error('bad provider');
+        const st = await this.tunnel.switchTo(c.provider);
+        this.db.setMeta('tunnel_provider', c.provider);
+        return st;
+      }
       default: throw new Error('unknown command');
     }
   }
@@ -163,6 +199,7 @@ export class App {
     this.stopping = true;
     this.loop?.stop();
     for (const t of this.timers) clearInterval(t);
+    await this.tunnel?.stop().catch(() => {});
     await this.net?.close();
     if (this.world) this.snapshot();
     try { this.events?.flush(); } catch { /* closing */ }

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; color: #eef1f4; font-family: system-ui, "Segoe UI", sans-serif; }
+  canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 8vw; }
+  #screen h1 { font-size: 3.2vw; font-weight: 600; margin: 0 0 2vw; }
+  #screen p { font-size: 2vw; margin: 0.6vw 0; }
+  #screen .dim { color: #9aa3ad; font-size: 1.6vw; }
+  #screen .key { margin-top: 2.5vw; color: #ffd166; }
+  #screen .code { font: 700 9vw ui-monospace, "Consolas", monospace; letter-spacing: 0.08em; color: #ffd166; margin: 1vw 0 2vw; }
+  .bar { position: fixed; left: 2vw; right: 2vw; font-size: 1.5vw; padding: 0.6vw 1.2vw; background: rgba(8, 10, 14, 0.62); border-radius: 0.8vw; width: max-content; max-width: 96vw; }
+  #top { top: 2vw; }
+  #hint { bottom: 2vw; color: #c9d1d9; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="screen"></div>
+<div id="top" class="bar" hidden></div>
+<div id="hint" class="bar" hidden></div>
+<script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
+<script type="module" src="game.js?v=0.2.0"></script>
+</body>
+</html>

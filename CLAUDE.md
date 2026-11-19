@@ -14,6 +14,13 @@ simulator" (milestones 1-8). Milestones 1-2 done 2026-11-19; next is 3 (needs, u
 - fps / GPU tests run on imad's PC (i5-6600, HD 530), headless; the cloud container has no GPU.
 - Firestore: free tier only, never per-tick writes, batched outbox with a daily cap.
 
+## Viewer app and access (2026-11-19)
+- `app/` = My PC app (built by `npm run build`, committed; Pages main / root -> https://imad-os.github.io/g_worldsim/app/).
+  Config `server` = the public link. Pairing: TV shows a code, panel approves, token per My PC profile (`MyPC.save('auth')`),
+  server keeps a SHA-256 in SQLite `players`. Never a login form of our own (GUIDE: My PC owns accounts).
+- Tunnel adapters in `packages/server/src/tunnel.ts` (ngrok / tailscale / cloudflare / cloudflare-quick / none).
+- On imad's PC: `D:\frb\g_worldsim`, portable Node 22 in `.node\` (system Node is 20), started hidden in the background.
+
 ## Commands
 `npm install`, `npm run build`, `npm test` (node:test: sim, persistence with a fake Firestore, server end to end),
 `npm run bench -- 20 100`, `npm start -- --speed 5`. Docs: README.md, docs/ARCHITECTURE.md.

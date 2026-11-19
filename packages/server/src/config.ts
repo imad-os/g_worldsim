@@ -22,7 +22,12 @@ export interface Config {
   maxClients: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   cloud: { enabled: boolean; projectId: string; everySec: number; maxWritesPerDay: number };
-  tunnel: { provider: 'tailscale' | 'cloudflare' | 'none' };
+  tunnel: {
+    provider: 'ngrok' | 'tailscale' | 'cloudflare' | 'cloudflare-quick' | 'none';
+    ngrokDomain?: string;
+    cloudflareHostname?: string;
+    bin?: { ngrok?: string; cloudflared?: string; tailscale?: string };
+  };
 }
 
 export interface Secrets {
@@ -30,6 +35,7 @@ export interface Secrets {
   /** name -> token */
   viewers: Map<string, string>;
   firebase?: { client_email: string; private_key: string; project_id?: string };
+  cloudflareToken?: string;
 }
 
 export const DEFAULTS: Config = {
@@ -123,5 +129,6 @@ export function loadConfig(argv: string[], cwd = process.cwd()): { cfg: Config; 
     if (!cfg.cloud.projectId && firebase?.project_id) cfg.cloud.projectId = firebase.project_id;
   }
   if (cfg.cloud.enabled && (!firebase || !cfg.cloud.projectId)) throw new Error('cloud.enabled needs FIREBASE_SERVICE_ACCOUNT in .env');
-  return { cfg, secrets: { adminToken, viewers, firebase } };
+  if (typeof args.tunnel === 'string') cfg.tunnel.provider = args.tunnel as Config['tunnel']['provider'];
+  return { cfg, secrets: { adminToken, viewers, firebase, cloudflareToken: env.CLOUDFLARE_TUNNEL_TOKEN } };
 }

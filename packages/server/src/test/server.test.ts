@@ -14,6 +14,7 @@ const VIEW1 = 'viewer-token-imad-1234', VIEW2 = 'viewer-token-guest-5678';
 
 function makeApp(dataDir: string, extra: Partial<Config> = {}): App {
   const cfg: Config = { ...structuredClone(DEFAULTS), dataDir, port: 0, snapshotEverySec: 1, ...extra };
+  cfg.tunnel = { provider: 'none', bin: { ngrok: '/nonexistent/ngrok' } };
   return new App(cfg, { adminToken: ADMIN, viewers: new Map([['imad', VIEW1], ['guest', VIEW2]]) }, new Logger('error', undefined, true));
 }
 
@@ -135,6 +136,50 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     assert.equal(app2.world.tick, tickAtStop);
     assert.equal(app2.world.hash(), hashAtStop);
     await app2.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('pairing: a TV gets a code, the admin approves it, the TV keeps its own token; revoke kicks it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws-'));
+  try {
+    const app = makeApp(dir);
+    await app.start();
+    after(() => app.stop());
+    const url = app.net.address().replace('http', 'ws') + '/ws';
+    const adm = await connect(url, ADMIN);
+    await adm.wait((m) => m.t === Msg.Welcome);
+    const tv = new Client(url);
+    await tv.opened();
+    tv.send({ t: Msg.Pair, v: PROTOCOL_VERSION, name: 'Imad', dev: 'Samsung TV' });
+    const pc = await tv.wait((m) => m.t === Msg.PairCode) as { code: string };
+    assert.match(pc.code, /^\d{6}$/);
+    const note = await adm.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'pairing') as { data: { code: string } };
+    assert.equal(note.data.code, pc.code);
+    adm.send({ t: Msg.Admin, id: 1, c: { cmd: 'approve', code: pc.code, name: 'imad tv' } });
+    const ok = await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 1) as { ok: boolean; data: { name: string } };
+    assert.equal(ok.ok, true);
+    const paired = await tv.wait((m) => m.t === Msg.Paired) as { token: string; name: string };
+    assert.equal(paired.name, 'imad tv');
+    assert.ok(paired.token.length >= 24);
+    // A wrong code is refused.
+    adm.send({ t: Msg.Admin, id: 2, c: { cmd: 'approve', code: '000000' } });
+    assert.equal(((await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 2)) as { ok: boolean }).ok, false);
+    // The token works as a viewer, also after a server restart (stored hashed in SQLite).
+    const v = await connect(url, paired.token);
+    assert.equal(((await v.wait((m) => m.t === Msg.Welcome)) as { role: string }).role, 'viewer');
+    const raw = JSON.stringify(app.db.sql.prepare('SELECT * FROM players').all());
+    assert.ok(!raw.includes(paired.token), 'only a hash is stored');
+    adm.send({ t: Msg.Admin, id: 3, c: { cmd: 'revoke', name: 'imad tv' } });
+    await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 3);
+    assert.equal(await v.closed(), 4004, 'revoked viewer is disconnected');
+    const again = await connect(url, paired.token);
+    assert.equal(((await again.wait((m) => m.t === Msg.Error)) as { code: string }).code, 'auth');
+    adm.ws.close();
+    // Switching to a tunnel that can not start keeps the old one.
+    await assert.rejects(app.tunnel.switchTo('ngrok' as never).catch((e) => { throw e; }));
+    assert.equal(app.tunnel.status().provider, 'none');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

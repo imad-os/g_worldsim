@@ -8,6 +8,9 @@ export interface Hello { t: typeof Msg.Hello; v: number; token: string; name?: s
 /** Client -> server: the area the client wants to see (a map plus a centre and a radius in metres). */
 export interface View { t: typeof Msg.View; map: string; x: number; y: number; r: number }
 
+/** Client -> server, instead of Hello when the device has no token: start a pairing. */
+export interface Pair { t: typeof Msg.Pair; v: number; name: string; dev?: string }
+
 export interface Ping { t: typeof Msg.Ping; c: number }
 
 /** Admin commands (control panel). Every field is validated server side. */
@@ -19,7 +22,14 @@ export type AdminCmd =
   | { cmd: 'spawn'; map: string; x: number; y: number; kind?: number }
   | { cmd: 'remove'; id: number }
   | { cmd: 'shoot'; map: string; x: number; y: number; dx: number; dy: number }
-  | { cmd: 'damageTile'; map: string; tx: number; ty: number; amount: number };
+  | { cmd: 'damageTile'; map: string; tx: number; ty: number; amount: number }
+  | { cmd: 'pairings' }
+  | { cmd: 'approve'; code: string; name?: string }
+  | { cmd: 'deny'; code: string }
+  | { cmd: 'players' }
+  | { cmd: 'revoke'; name: string }
+  | { cmd: 'tunnel' }
+  | { cmd: 'tunnelSwitch'; provider: 'ngrok' | 'tailscale' | 'cloudflare' | 'cloudflare-quick' | 'none' };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
 
@@ -83,10 +93,16 @@ export interface ServerStats {
   clients: number;
   lastSnapshotAt: number;
   uptimeSec: number;
+  tunnel?: { provider: string; state: string; url: string; error?: string };
+  pairings?: number;
 }
+
+export interface PairCode { t: typeof Msg.PairCode; code: string; exp: number }
+export interface Paired { t: typeof Msg.Paired; token: string; name: string }
+export interface Notice { t: typeof Msg.Notice; kind: string; data?: unknown }
 
 export interface Pong { t: typeof Msg.Pong; c: number; s: number }
 export interface AdminResult { t: typeof Msg.AdminResult; id: number; ok: boolean; data?: unknown; err?: string }
 
-export type ClientMsg = Hello | View | Ping | Admin;
-export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult;
+export type ClientMsg = Hello | Pair | View | Ping | Admin;
+export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult | PairCode | Paired | Notice;

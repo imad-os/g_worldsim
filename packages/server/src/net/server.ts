@@ -10,6 +10,7 @@ import {
 import type { World } from '../sim/world.js';
 import type { Logger } from '../log.js';
 import { NO_MAP } from '../sim/entities.js';
+import type { Players } from '../persist/players.js';
 
 export interface NetOptions {
   host: string;
@@ -18,7 +19,7 @@ export interface NetOptions {
   maxViewRadius: number;
   maxClients: number;
   adminToken: string;
-  viewers: Map<string, string>;
+  players: Players;
   staticDirs: { prefix: string; dir: string }[];
 }
 
@@ -73,6 +74,7 @@ export class NetServer {
   private readonly chunkBuf = new Uint8Array(CHUNK_TILES * CHUNK_TILES);
   private readonly ipConn = new Map<string, { n: number; at: number }>();
   private readonly ipFail = new Map<string, { n: number; at: number }>();
+  private readonly ipPair = new Map<string, { n: number; at: number }>();
   stats: () => ServerStats = () => { throw new Error('stats not set'); };
   health: () => Record<string, unknown> = () => ({ ok: true });
   admin: AdminHandler = () => { throw new Error('no admin handler'); };
@@ -202,6 +204,7 @@ export class NetServer {
         if (!m || typeof m !== 'object' || typeof (m as { t?: unknown }).t !== 'string') throw new Error('shape');
       } catch { ws.close(4002, 'bad message'); return; }
       if (!session) {
+        if (m.t === Msg.Pair) { this.pair(ws, ip, m); return; }
         if (m.t !== Msg.Hello) { ws.close(4003, 'hello first'); return; }
         clearTimeout(helloTimer);
         session = this.hello(ws, ip, m);
@@ -235,7 +238,7 @@ export class NetServer {
     const token = typeof m.token === 'string' ? m.token : '';
     let role: Role | null = null, name = '';
     if (this.o.adminToken && safeEq(token, this.o.adminToken)) { role = 'admin'; name = 'admin'; }
-    else for (const [n, t] of this.o.viewers) if (safeEq(token, t)) { role = 'viewer'; name = n; }
+    else { const n = this.o.players.check(token); if (n) { role = 'viewer'; name = n; } }
     if (!role) { this.authFailed(ip); this.log.warn('auth failed', { ip }); return fail('auth'); }
     this.pruneSessions();
     if (this.clientCount() >= this.o.maxClients) return fail('full');
@@ -263,6 +266,40 @@ export class NetServer {
     });
     this.log.info('client joined', { name, role, resumed: !!(m as { resume?: string }).resume });
     return s;
+  }
+
+  /** A device without a token asks to pair: it gets a code, the socket waits (10 min) for an admin to approve it. */
+  private pairing = new WeakMap<WebSocket, string>();
+  private pair(ws: WebSocket, ip: string, m: ClientMsg): void {
+    if (m.t !== Msg.Pair) return;
+    if (m.v !== PROTOCOL_VERSION) { this.sendRaw(ws, { t: Msg.Error, code: 'version' }); ws.close(4004, 'version'); return; }
+    if (this.pairing.has(ws)) return;
+    const now = Date.now(), r = this.ipPair.get(ip);
+    if (!r || now - r.at > 600_000) this.ipPair.set(ip, { n: 1, at: now });
+    else if (++r.n > 6) { this.sendRaw(ws, { t: Msg.Error, code: 'slow-down' }); ws.close(4008, 'slow down'); return; }
+    const p = this.o.players.request(String(m.name ?? ''), String(m.dev ?? ''), ip,
+      (token, name) => { this.sendRaw(ws, { t: Msg.Paired, token, name }); this.notifyAdmins('paired', { name }); },
+      (why) => { this.sendRaw(ws, { t: Msg.Error, code: why }); ws.close(4005, why); });
+    this.pairing.set(ws, p.code);
+    ws.on('close', () => this.o.players.cancel(p.code));
+    this.sendRaw(ws, { t: Msg.PairCode, code: p.code, exp: p.at + 600_000 });
+    this.notifyAdmins('pairing', { code: p.code, name: p.name, dev: p.dev });
+    this.log.info('pairing requested', { name: p.name, dev: p.dev, ip });
+  }
+
+  notifyAdmins(kind: string, data?: unknown): void {
+    for (const s of this.sessions.values()) if (s.role === 'admin') this.send(s, { t: Msg.Notice, kind, data });
+  }
+
+  /** Close every connection of a player (after its token was revoked). */
+  kick(name: string): number {
+    let n = 0;
+    for (const [id, s] of this.sessions) {
+      if (s.role !== 'viewer' || s.name !== name) continue;
+      if (s.ws) { this.send(s, { t: Msg.Error, code: 'auth' }); s.ws.close(4004, 'revoked'); n++; }
+      this.sessions.delete(id);
+    }
+    return n;
   }
 
   private sendRaw(ws: WebSocket, m: ServerMsg): void { if (ws.readyState === 1) ws.send(encode(m)); }

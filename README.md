@@ -25,8 +25,19 @@ npm start                     # or: npm start -- --speed 10 --low-spec
 - Benchmark: `npm run bench -- 20 100` (ms per tick, the highest speed this PC can run, RAM, snapshot size).
 - Tests: `npm test`.
 
-The server listens on 127.0.0.1 only. Reaching it from the internet goes through an outbound tunnel
-(Tailscale Funnel or Cloudflare Tunnel, no router ports): that adapter comes with the networking work.
+The server listens on 127.0.0.1 only. From the internet it is reached through an **outbound tunnel** (no router
+port): `tunnel.provider` in `worldsim.config.json` or `--tunnel` = `ngrok` (set `tunnel.ngrokDomain` to your free
+static domain), `tailscale` (Funnel), `cloudflare` (named tunnel: `CLOUDFLARE_TUNNEL_TOKEN` in `.env` +
+`tunnel.cloudflareHostname`), `cloudflare-quick` (random trycloudflare.com link) or `none`. The panel shows the
+public link and switches providers live (the new one must answer before the old one stops).
+
+## The TV app (My PC)
+
+`app/` is the viewer as a My PC app (GitHub Pages: `https://imad-os.github.io/g_worldsim/app/`, also served by the
+server at `/app/`). Add it in the App Store Manager and set its config `server` to the public link. The first time,
+the TV shows a 6-digit code: approve it in the panel (TVs waiting). The TV keeps its own token per My PC profile, so it
+never asks again; Players in the panel removes a TV. Several players can pair. `npm run build` rebuilds `app/game.js`;
+bump `version` in `app/mypc-app.json` for each release.
 
 ## Layout
 
