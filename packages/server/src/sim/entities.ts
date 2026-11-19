@@ -45,6 +45,19 @@ export class Entities {
   /** Player controls (-1..1). */
   readonly inX: Float32Array;
   readonly inY: Float32Array;
+  /** Needs, as a lack: 0 = fine .. 100 = desperate (zeros = a healthy person, also for old snapshots). */
+  readonly hunger: Float32Array;
+  readonly thirst: Float32Array;
+  readonly tired: Float32Array;
+  readonly lonely: Float32Array;
+  /** Current action (Act), its timer (sim s), its target (entity slot / tile index / -1) and the last think tick. */
+  readonly act: Uint8Array;
+  readonly actT: Float32Array;
+  readonly target: Int32Array;
+  readonly lastThink: Float64Array;
+  /** Food carried (portions). Items: item type. */
+  readonly carry: Uint8Array;
+  readonly sub: Uint8Array;
 
   private readonly free: Int32Array;
   private freeTop = 0;
@@ -80,6 +93,9 @@ export class Entities {
     this.stuck = new Uint8Array(cap);
     this.inX = new Float32Array(cap);
     this.inY = new Float32Array(cap);
+    this.hunger = new Float32Array(cap); this.thirst = new Float32Array(cap); this.tired = new Float32Array(cap); this.lonely = new Float32Array(cap);
+    this.act = new Uint8Array(cap); this.actT = new Float32Array(cap); this.target = new Int32Array(cap); this.lastThink = new Float64Array(cap);
+    this.carry = new Uint8Array(cap); this.sub = new Uint8Array(cap);
     this.free = new Int32Array(cap);
     for (let i = cap - 1; i >= 0; i--) this.free[this.freeTop++] = i;
   }
@@ -109,6 +125,8 @@ export class Entities {
     this.owner[i] = -1; this.life[i] = 0;
     this.toMap[i] = 0; this.arrive[i] = 0; this.ax[i] = 0; this.ay[i] = 0;
     this.lod[i] = 0; this.nextThink[i] = 0; this.goal[i] = -1; this.stuck[i] = 0; this.inX[i] = 0; this.inY[i] = 0;
+    this.hunger[i] = 0; this.thirst[i] = 0; this.tired[i] = 0; this.lonely[i] = 0;
+    this.act[i] = 0; this.actT[i] = 0; this.target[i] = -1; this.lastThink[i] = 0; this.carry[i] = 0; this.sub[i] = 0;
     if (i >= this.hi) this.hi = i + 1;
     this.count++;
     return i;
@@ -137,6 +155,8 @@ export class Entities {
       tx: this.tx, ty: this.ty, speed: this.speed, owner: this.owner, life: this.life,
       toMap: this.toMap, arrive: this.arrive, ax: this.ax, ay: this.ay, lod: this.lod, nextThink: this.nextThink,
       goal: this.goal, stuck: this.stuck, inX: this.inX, inY: this.inY,
+      hunger: this.hunger, thirst: this.thirst, tired: this.tired, lonely: this.lonely,
+      act: this.act, actT: this.actT, target: this.target, lastThink: this.lastThink, carry: this.carry, sub: this.sub,
     };
   }
 

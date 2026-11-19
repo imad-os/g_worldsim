@@ -52,7 +52,7 @@ let body = { radius: 0.3, walk: 1.4, run: 3.5 };
 
 const CAP = 4096;
 const eid = new Int32Array(CAP).fill(-1);
-const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP);
+const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP); // sub: item type / agent action
 const px = new Float32Array(CAP), py = new Float32Array(CAP), nx = new Float32Array(CAP), ny = new Float32Array(CAP);
 const vx = new Float32Array(CAP), vy = new Float32Array(CAP), ang = new Float32Array(CAP);
 const face = new Float32Array(CAP), phase = new Float32Array(CAP), spd = new Float32Array(CAP), lastX = new Float32Array(CAP), lastY = new Float32Array(CAP);
@@ -60,6 +60,7 @@ const lookOf: PersonLook[] = [];
 const slotOf = new Map<number, number>();
 let frameAt = 0, frameGap = 100;
 let follow = -1; // entity id (watch)
+let followSeen = 0;
 
 // Me (play).
 let meId = -1, meTransit = false, meArrive = 0, meTo = '';
@@ -193,9 +194,11 @@ function onMsg(m: ServerMsg): void {
       break;
     }
     case Msg.Notice:
+      if (m.kind === 'people') flyToSomeone(m.data as number[][]);
       if (m.kind === 'interact') {
         const d = m.data as { id: number; kind: number } | null;
-        note(!d ? t('nobody') : d.kind === Kind.Player ? t('metPlayer') : t('metAgent'));
+        const js = d ? slotOf.get(d.id) : undefined;
+        note(!d ? t('nobody') : d.kind === Kind.Player ? t('metPlayer') : `${actName(js !== undefined ? sub[js]! : 0)}. ${t('metAgent')}`);
       }
       break;
     case Msg.Pong: rtt = rtt * 0.7 + (performance.now() - m.c) * 0.3; break;
@@ -226,7 +229,7 @@ function onMsg(m: ServerMsg): void {
         const s = slotFor(r[o]!);
         if (s < 0) continue;
         const fresh = kind[s] === 0;
-        kind[s] = r[o + 1]! & 255; flags[s] = r[o + 1]! >> 8;
+        kind[s] = r[o + 1]! & 255; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255;
         nx[s] = r[o + 2]! / POS_Q; ny[s] = r[o + 3]! / POS_Q; ang[s] = r[o + 4]! / ANG_Q;
         vx[s] = r[o + 5]! / POS_Q; vy[s] = r[o + 6]! / POS_Q;
         if (fresh) {
@@ -253,6 +256,7 @@ function slotFor(id: number): number {
   return -1;
 }
 function clearEntities(): void { eid.fill(-1); kind.fill(0); slotOf.clear(); follow = -1; }
+const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee'] as const)[a] ?? 'actIdle');
 const mapName = (id: string) => welcome?.maps.find((x) => x.id === id)?.name ?? id;
 
 // ------------------------------------------------------------ chunks
@@ -382,7 +386,18 @@ function followNext(): void {
     if (d > curD && d < afterD) { afterD = d; after = i; }
   }
   const pick = cur >= 0 && after >= 0 ? after : best;
-  if (pick >= 0) { follow = eid[pick]!; MyPC.announce?.(`${t('following')} #${follow & 0xffff}`); }
+  if (pick >= 0 && (cur < 0 || after >= 0)) { follow = eid[pick]!; MyPC.announce?.(`${t('following')} #${follow & 0xffff}`); return; }
+  // Nobody new in view: ask the server where everyone is and fly to the next one.
+  send({ t: Msg.Who, map });
+}
+let whoTurn = 0;
+function flyToSomeone(list: number[][]): void {
+  const people = list.filter((p) => p[0] !== meId);
+  if (!people.length) { note(t('nobody')); return; }
+  const p = people[whoTurn++ % people.length]!;
+  camX = p[1]!; camY = p[2]!; follow = p[0]!; followSeen = performance.now(); snapCam = true;
+  sendView();
+  MyPC.announce?.(`${t('following')} #${follow & 0xffff}`);
 }
 
 function updateWatch(): void {
@@ -394,8 +409,8 @@ function updateWatch(): void {
   }
   if (follow >= 0) {
     const s = slotOf.get(follow);
-    if (s === undefined) follow = -1;
-    else { camX = nx[s]!; camY = ny[s]!; }
+    if (s !== undefined) { camX = nx[s]!; camY = ny[s]!; followSeen = performance.now(); }
+    else if (performance.now() - followSeen > 4000) follow = -1; // just flew there: give the frames a moment
   }
 }
 
@@ -459,13 +474,14 @@ function draw(now: number, dt: number): void {
   const a = Math.min(1.25, (now - frameAt) / frameGap);
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
   const r = g3.dist * 1.6 + 8;
-  P.begin(); g3.beginShots();
+  P.begin(); g3.beginShots(); g3.beginItems();
   for (let i = 0; i < CAP; i++) {
     if (eid[i] === -1) continue;
     let x = px[i]! + (nx[i]! - px[i]!) * a, y = py[i]! + (ny[i]! - py[i]!) * a;
     if (i === me) { x = predX; y = predY; }
     if (Math.abs(x - fx) > r || Math.abs(y - fy) > r) continue;
     if (kind[i] === Kind.Projectile) { g3.shot(x, y); continue; }
+    if (kind[i] === Kind.Item) { g3.item(x, y, sub[i]!, eid[i]!); continue; }
     if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player) continue;
     // Walk cycle from the distance really covered on screen.
     const ddx = x - lastX[i]!, ddy = y - lastY[i]!, moved = Math.hypot(ddx, ddy);
@@ -485,7 +501,7 @@ function draw(now: number, dt: number): void {
     if (kind[i] === Kind.Player) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
-  P.end(); g3.endShots();
+  P.end(); g3.endShots(); g3.endItems();
   g3.render();
 }
 
@@ -505,7 +521,8 @@ let hudText = '';
 function updateHud(now: number): void {
   const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed;
   const day = Math.floor((gs / 3600 + 8) / 24) + 1, h = Math.floor((gs / 3600 + 8) % 24), mi = Math.floor((gs / 60) % 60);
-  const who = how === 'play' ? profileName() : follow >= 0 ? `${t('following')} #${follow & 0xffff}` : t('free');
+  const fs = follow >= 0 ? slotOf.get(follow) : undefined;
+  const who = how === 'play' ? profileName() : follow >= 0 ? `${t('following')} #${follow & 0xffff}${fs !== undefined ? ' · ' + actName(sub[fs]!) : ''}` : t('free');
   const txt = `${mapName(map)} · ${t('day')} ${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')} · ${agentsTotal} ${t('agents')} · ${who}`;
   if (txt !== hudText) { hudText = txt; hudTop.textContent = txt; }
   if (meTransit && how === 'play') {

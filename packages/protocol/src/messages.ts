@@ -19,6 +19,9 @@ export interface Join { t: typeof Msg.Join }
  */
 export interface Input { t: typeof Msg.Input; mx: number; my: number; run?: boolean; act?: boolean; seq?: number }
 
+/** Client -> server: list the people of a map (answer: Notice kind 'people', data [id, x, y, act][]). */
+export interface Who { t: typeof Msg.Who; map: string }
+
 export interface Ping { t: typeof Msg.Ping; c: number }
 
 /** Admin commands (control panel). Every field is validated server side. */
@@ -84,7 +87,8 @@ export interface ChunkDrop { t: typeof Msg.ChunkDrop; map: string; keys: number[
 
 /**
  * Entity frame (10-20 Hz). `upd` = packed Int32 records ENT_REC long:
- *   [id, kind | flags << 8, x (cm), y (cm), angle (1e-4 rad), vx (cm/s), vy (cm/s)]
+ *   [id, kind | flags << 8 | sub << 16, x (cm), y (cm), angle (1e-4 rad), vx (cm/s), vy (cm/s)]
+ * sub = item type for items, the current action (Act) for agents.
  * `del` = ids that left the view or died. A client interpolates between frames using `tick`.
  */
 export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[] }
@@ -124,5 +128,5 @@ export interface Notice { t: typeof Msg.Notice; kind: string; data?: unknown }
 export interface Pong { t: typeof Msg.Pong; c: number; s: number }
 export interface AdminResult { t: typeof Msg.AdminResult; id: number; ok: boolean; data?: unknown; err?: string }
 
-export type ClientMsg = Hello | Pair | Join | Input | View | Ping | Admin;
+export type ClientMsg = Hello | Pair | Join | Input | View | Ping | Admin | Who;
 export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult | PairCode | Paired | Notice | You;

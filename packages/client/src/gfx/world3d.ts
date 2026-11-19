@@ -1,7 +1,7 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Color, Fog, Mesh, Group,
   PlaneGeometry, MeshLambertMaterial, MeshPhongMaterial, MeshBasicMaterial, TorusGeometry, CircleGeometry, SphereGeometry,
-  InstancedMesh, Matrix4, Vector3, PCFSoftShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
+  InstancedMesh, Matrix4, Vector3, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
   type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
@@ -31,6 +31,10 @@ export class World3D {
   private portals = new Group();
   private shots: InstancedMesh;
   private nShots = 0;
+  // Items: canned food (1), berry bush (2), anything else = a small crate.
+  private cans: InstancedMesh; private bushes: InstancedMesh; private berries: InstancedMesh; private crates: InstancedMesh;
+  private nCan = 0; private nBush = 0; private nCrate = 0;
+  private q = new Quaternion(); private eu = new Euler(); private v3 = new Vector3(); private s3 = new Vector3();
   private groundMat = new MeshLambertMaterial({ vertexColors: true });
   private propMat = new MeshLambertMaterial({ vertexColors: true });
   readonly target = new Vector3();
@@ -75,6 +79,36 @@ export class World3D {
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
     this.scene.add(this.shots);
+    const inst = (g: BufferGeometry, color: number, n: number) => {
+      const m = new InstancedMesh(g, new Lam({ color, flatShading: true }), n);
+      m.instanceMatrix.setUsage(DynamicDrawUsage); m.count = 0; m.frustumCulled = false; m.castShadow = shadows;
+      this.scene.add(m); return m;
+    };
+    this.cans = inst(new CylinderGeometry(0.09, 0.09, 0.17, 10).translate(0, 0.085, 0), 0xc4523f, 256);
+    this.bushes = inst(new IcosahedronGeometry(0.34, 0).scale(1, 0.75, 1).translate(0, 0.24, 0), 0x3f7f37, 256);
+    this.berries = inst(new IcosahedronGeometry(0.055, 0), 0xd7263d, 256 * 4);
+    this.crates = inst(new CylinderGeometry(0.2, 0.2, 0.3, 4).rotateY(Math.PI / 4).translate(0, 0.15, 0), 0x9a7448, 128);
+  }
+
+  beginItems(): void { this.nCan = this.nBush = this.nCrate = 0; }
+  item(x: number, z: number, type: number, id: number): void {
+    const r = ((id * 2654435761) >>> 0) / 4294967296;
+    this.m.compose(this.v3.set(x, 0, z), this.q.setFromEuler(this.eu.set(0, r * 6.28, 0)), this.s3.set(1, 1, 1));
+    if (type === 1 && this.nCan < 256) {
+      this.cans.setMatrixAt(this.nCan++, this.m);
+    } else if (type === 2 && this.nBush < 256) {
+      const b = this.nBush++;
+      this.bushes.setMatrixAt(b, this.m);
+      for (let k = 0; k < 4; k++) {
+        const a = r * 6.28 + k * 1.57;
+        this.m.makeTranslation(x + Math.cos(a) * 0.27, 0.28 + (k & 1) * 0.12, z + Math.sin(a) * 0.27);
+        this.berries.setMatrixAt(b * 4 + k, this.m);
+      }
+    } else if (this.nCrate < 128) this.crates.setMatrixAt(this.nCrate++, this.m);
+  }
+  endItems(): void {
+    this.cans.count = this.nCan; this.bushes.count = this.nBush; this.berries.count = this.nBush * 4; this.crates.count = this.nCrate;
+    for (const m of [this.cans, this.bushes, this.berries, this.crates]) m.instanceMatrix.needsUpdate = true;
   }
 
   /** A new map: water covers it, old chunks and portals go. */

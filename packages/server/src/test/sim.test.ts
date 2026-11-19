@@ -6,7 +6,8 @@ import { Entities, NO_MAP } from '../sim/entities.js';
 import { SpatialGrid } from '../sim/spatial.js';
 import { serialize, restore } from '../persist/snapshot.js';
 
-import { newWorld } from './helpers.js';
+import { newWorld, scenario } from './helpers.js';
+import { World } from '../sim/world.js';
 
 test('rng: same seed same numbers, state round trip', () => {
   const a = new Rng('x'), b = new Rng('x');
@@ -220,4 +221,57 @@ test('population: 5 people start in Old Town; travel stays closed until the owne
   for (let k = 0; k < 3; k++) w2.spawnAgent(1, 30 + k * 5, 96);
   assert.equal(w2.fitPopulation(5).moved, 3, 'strays moved to the town while travel is closed');
   for (let j = 0; j < w2.e.hi; j++) if (w2.e.kind[j] === Kind.Agent) assert.equal(w2.e.map[j], 0);
+});
+
+test('life: in one game day 5 people drink, find food, sleep and talk; nobody dies or ends up in a wall', () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'life-test' });
+  w.populate();
+  const ev: Record<string, number> = {};
+  w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; });
+  const ticks = (24 * 3600) / 30 * 20;
+  for (let k = 0; k < ticks; k++) w.step();
+  assert.equal(ev.death ?? 0, 0, `deaths ${JSON.stringify(ev)}`);
+  assert.ok((ev.drink ?? 0) >= 4, `drinks ${ev.drink}`);
+  assert.ok((ev.pickup ?? 0) >= 3, `food found ${ev.pickup}`);
+  assert.ok((ev.sleep ?? 0) >= 3 && (ev.wake ?? 0) >= 1, `sleep ${ev.sleep} wake ${ev.wake}`);
+  assert.ok((ev.talk ?? 0) >= 1, `talks ${ev.talk}`);
+  const e = w.e;
+  for (let i = 0; i < e.hi; i++) {
+    if (e.kind[i] !== Kind.Agent) continue;
+    assert.ok(e.hunger[i]! < 100 && e.thirst[i]! < 100, 'needs met');
+    const t = w.maps[e.map[i]!]!.tiles;
+    assert.ok(!t.isSolidAt(e.x[i]!, e.y[i]!) || t.get(Math.floor(e.x[i]!), Math.floor(e.y[i]!)) === 6, 'not inside a wall');
+  }
+  let items = 0;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Item) items++;
+  assert.ok(items > 10 && items <= 84, `food on the maps ${items}`);
+});
+
+test('pathfinding: around walls, through the door, straight lines kept, unreachable = closest point', () => {
+  const w = newWorld();
+  const pf = w.brain.paths[0]!, t = w.maps[0]!.tiles;
+  // Find two open points 30+ m apart and check the path never crosses a solid tile.
+  let ok = 0;
+  for (let k = 0; k < 40 && ok < 5; k++) {
+    const a = w.freeSpot(0, w.rng.range(10, 240), w.rng.range(10, 240), 20), b = w.freeSpot(0, w.rng.range(10, 240), w.rng.range(10, 240), 20);
+    if (!a || !b || Math.hypot(a.x - b.x, a.y - b.y) < 30) continue;
+    const r = pf.find(a.x, a.y, b.x, b.y);
+    if (r === 'none') continue;
+    assert.ok(pf.outN >= 1 && pf.outN <= 64);
+    let px = a.x, py = a.y;
+    for (let n = 0; n < pf.outN; n++) {
+      const c = pf.out[n]!, x = (c % t.w) + 0.5, y = Math.floor(c / t.w) + 0.5;
+      assert.ok(pf.clear(px, py, x, y) || n === 0, 'each leg is a clear straight line');
+      px = x; py = y;
+    }
+    ok++;
+  }
+  assert.ok(ok >= 3, `paths checked ${ok}`);
+  // Into the middle of the pond (water is solid): a partial path to the shore.
+  let water = -1;
+  for (let k = 0; k < t.tiles.length && water < 0; k++) if (t.tiles[k] === 7 && t.tiles[k + 1] === 7 && t.tiles[k + 2] === 7 && t.tiles[k + t.w] === 7 && t.tiles[k - t.w] === 7) water = k + 1;
+  if (water >= 0) {
+    const s = w.freeSpot(0, (water % t.w) + 20, Math.floor(water / t.w), 60)!;
+    assert.notEqual(pf.find(s.x, s.y, (water % t.w) + 0.5, Math.floor(water / t.w) + 0.5), 'full');
+  }
 });

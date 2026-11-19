@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-2 done 2026-11-19; next is 3 (needs, utility AI, A*, LOD).
+simulator" (milestones 1-8). Milestones 1-3 done 2026-11-19 (4 first version, 5 partly); next 5 (panel inspector), 6 (LLM planner), 7, 8.
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -37,6 +37,16 @@ simulator" (milestones 1-8). Milestones 1-2 done 2026-11-19; next is 3 (needs, u
 - **AI providers** (`packages/server/src/ai/llm.ts`): none / Gemini (`GEMINI_API_KEY`) / Ollama (address, optional
   `OLLAMA_API_KEY` for ollama.com). Switch in the panel's AI brain card (meta `ai`); `Ai.generate` with an hourly budget,
   2 at once. Planner code must only use `Ai`, never a provider directly.
+
+## Agents (milestone 3, `sim/brain.ts`, `sim/pathfind.ts`)
+- Needs stored as a lack (0 fine .. 100 desperate: hunger, thirst, tired, lonely) so zeros from old snapshots are healthy.
+  Rates per game hour in scenario `life.needs` x `life.difficulty`; starving / parched costs hp, death at 0.
+- Utility choice: Drink, Eat (carried food), Forage (food items: scenario `life.items`, spawned per game hour), Sleep
+  (shelter tiles preferred, longer at night), Talk (goal -2 marks a conversation), Wander, Rest, Travel (only if open).
+- A* per map (8 dirs, tile costs, no corner cutting, 6000 node budget, string pulling, 64 waypoints); paths are not in
+  snapshots (walkers decide again). LOD by activity only: talk 0, walk 1, busy 2, asleep 3 (`THINK_EVERY`).
+- Frames carry `sub` (bits 16-23): item type / agent action; viewers show "Following #3 · Getting water".
+- `node /tmp/...life.mjs`-style check = test "life" (1 game day at clockScale 30: drink, food, sleep, talk, no deaths).
 
 ## Commands
 `npm install`, `npm run build`, `npm test` (node:test: sim, persistence with a fake Firestore, server end to end),

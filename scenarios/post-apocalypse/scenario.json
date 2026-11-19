@@ -3,24 +3,178 @@
   "name": "After the Fall",
   "seed": "fall-1",
   "tiles": [
-    { "id": 1, "name": "grass",  "solid": false, "color": 4882234 },
-    { "id": 2, "name": "dirt",   "solid": false, "cost": 1, "color": 7559226 },
-    { "id": 3, "name": "road",   "solid": false, "cost": 0.8, "color": 4210752 },
-    { "id": 4, "name": "floor",  "solid": false, "color": 8017737 },
-    { "id": 5, "name": "wall",   "solid": true, "hp": 120, "breaksTo": 8, "color": 9474192 },
-    { "id": 6, "name": "tree",   "solid": true, "shape": "circle", "hp": 60, "breaksTo": 2, "color": 2972455 },
-    { "id": 7, "name": "water",  "solid": true, "color": 3036339 },
-    { "id": 8, "name": "rubble", "solid": false, "cost": 2, "color": 7368816 },
-    { "id": 9, "name": "sand",   "solid": false, "cost": 1.3, "color": 13421670 }
+    {
+      "id": 1,
+      "name": "grass",
+      "solid": false,
+      "color": 4882234
+    },
+    {
+      "id": 2,
+      "name": "dirt",
+      "solid": false,
+      "cost": 1,
+      "color": 7559226
+    },
+    {
+      "id": 3,
+      "name": "road",
+      "solid": false,
+      "cost": 0.8,
+      "color": 4210752
+    },
+    {
+      "id": 4,
+      "name": "floor",
+      "solid": false,
+      "color": 8017737
+    },
+    {
+      "id": 5,
+      "name": "wall",
+      "solid": true,
+      "hp": 120,
+      "breaksTo": 8,
+      "color": 9474192
+    },
+    {
+      "id": 6,
+      "name": "tree",
+      "solid": true,
+      "shape": "circle",
+      "hp": 60,
+      "breaksTo": 2,
+      "color": 2972455
+    },
+    {
+      "id": 7,
+      "name": "water",
+      "solid": true,
+      "color": 3036339
+    },
+    {
+      "id": 8,
+      "name": "rubble",
+      "solid": false,
+      "cost": 2,
+      "color": 7368816
+    },
+    {
+      "id": 9,
+      "name": "sand",
+      "solid": false,
+      "cost": 1.3,
+      "color": 13421670
+    }
   ],
   "maps": [
-    { "id": "town",  "name": "Old Town",   "w": 256, "h": 256, "gen": { "type": "town", "block": 28, "road": 4, "ruin": 0.15 } },
-    { "id": "woods", "name": "Pine Woods", "w": 192, "h": 192, "gen": { "type": "wilds", "forest": 0.5 } }
+    {
+      "id": "town",
+      "name": "Old Town",
+      "w": 256,
+      "h": 256,
+      "gen": {
+        "type": "town",
+        "block": 28,
+        "road": 4,
+        "ruin": 0.15
+      }
+    },
+    {
+      "id": "woods",
+      "name": "Pine Woods",
+      "w": 192,
+      "h": 192,
+      "gen": {
+        "type": "wilds",
+        "forest": 0.5
+      }
+    }
   ],
   "portals": [
-    { "id": "town-east",  "map": "town",  "x": 252, "y": 130, "to": "woods", "toX": 5,   "toY": 96,  "travel": 600, "r": 2 },
-    { "id": "woods-west", "map": "woods", "x": 3,   "y": 96,  "to": "town",  "toX": 248, "toY": 130, "travel": 600, "r": 2 }
+    {
+      "id": "town-east",
+      "map": "town",
+      "x": 252,
+      "y": 130,
+      "to": "woods",
+      "toX": 5,
+      "toY": 96,
+      "travel": 600,
+      "r": 2
+    },
+    {
+      "id": "woods-west",
+      "map": "woods",
+      "x": 3,
+      "y": 96,
+      "to": "town",
+      "toX": 248,
+      "toY": 130,
+      "travel": 600,
+      "r": 2
+    }
   ],
-  "agents": { "count": 5, "startMap": "town", "radius": 0.3, "walk": 1.4, "run": 3.5, "hp": 100 },
-  "projectile": { "radius": 0.05, "speed": 60, "damage": 40, "ttl": 2 }
+  "agents": {
+    "count": 5,
+    "startMap": "town",
+    "radius": 0.3,
+    "walk": 1.4,
+    "run": 3.5,
+    "hp": 100
+  },
+  "projectile": {
+    "radius": 0.05,
+    "speed": 60,
+    "damage": 40,
+    "ttl": 2
+  },
+  "life": {
+    "needs": {
+      "hunger": 2,
+      "thirst": 4,
+      "tired": 5.5,
+      "lonely": 2.5,
+      "sleepRecover": 13
+    },
+    "water": [
+      "water"
+    ],
+    "shelter": [
+      "floor"
+    ],
+    "difficulty": 1,
+    "items": [
+      {
+        "id": 1,
+        "name": "canned food",
+        "food": 45,
+        "spawn": {
+          "maps": [
+            "town"
+          ],
+          "on": [
+            "floor",
+            "rubble"
+          ],
+          "max": 24,
+          "perHour": 3
+        }
+      },
+      {
+        "id": 2,
+        "name": "berries",
+        "food": 22,
+        "spawn": {
+          "maps": [
+            "town",
+            "woods"
+          ],
+          "near": "tree",
+          "max": 30,
+          "perHour": 5
+        }
+      }
+    ]
+  }
 }

@@ -38,6 +38,8 @@ export const Msg = {
   Hello: 'hi',
   View: 'view', // interest area
   Ping: 'ping',
+  /** Where is everyone on a map (watch mode: fly to a person). Answered with Notice 'people'. */
+  Who: 'who',
   Admin: 'adm',
   Pair: 'pair', // ask to pair this device (no token yet)
   Join: 'join', // put my character in the world
@@ -56,3 +58,9 @@ export const Msg = {
   Notice: 'note',
   You: 'you',       // your character: entity id and map (sent on join and when it changes map)    // something to tell admins live (a TV waiting to be paired...)
 } as const;
+
+/** What an agent is doing (sent in frames, shown by viewers). Scenario actions map onto these. */
+export const Act = {
+  Idle: 0, Wander: 1, Drink: 2, Eat: 3, Forage: 4, Sleep: 5, Talk: 6, Travel: 7, Rest: 8, Flee: 9,
+} as const;
+export type ActId = (typeof Act)[keyof typeof Act];

@@ -5,6 +5,7 @@ import { MapPhysics, BOUNDS, type PBody } from './physics.js';
 import { Rng } from './rng.js';
 import type { MapDef, PortalDef, Scenario } from './scenario.js';
 import { SpatialGrid } from './spatial.js';
+import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -25,7 +26,6 @@ export interface WorldOptions {
 }
 
 /** Think intervals (ticks) per LOD level: 0 = busy / in danger ... 3 = asleep. */
-const THINK_EVERY = [2, 10, 40, 120];
 
 /**
  * The authoritative world: maps (tiles + physics + spatial grid), entities, portals between maps,
@@ -51,6 +51,8 @@ export class World {
   private readonly vel = { x: 0, y: 0 };
   private readonly pos = { x: 0, y: 0 };
   private readonly agentR: number;
+  /** Needs, choices, paths and actions of every agent. */
+  readonly brain: Brain;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -70,6 +72,9 @@ export class World {
       this.mapIndex.set(def.id, index);
     });
     this.portals = sc.portals.map((p) => ({ ...p, from: this.mapIndex.get(p.map)!, dest: this.mapIndex.get(p.to)! }));
+    const L = sc.life ?? {};
+    const life: LifeDef = { ...LIFE_DEFAULTS, ...L, needs: { ...LIFE_DEFAULTS.needs, ...L.needs } };
+    this.brain = new Brain(this, life);
   }
 
   emit(kind: string, data: Record<string, unknown>): void {
@@ -83,8 +88,13 @@ export class World {
     for (let k = 0; k < n; k++) {
       const m = this.maps[start >= 0 ? start : k % this.maps.length]!;
       const spot = this.freeSpot(m.index, this.rng.range(8, m.def.w - 8), this.rng.range(8, m.def.h - 8), 40);
-      if (spot) this.spawnAgent(m.index, spot.x, spot.y);
+      if (spot) {
+        const i = this.spawnAgent(m.index, spot.x, spot.y);
+        // Not everyone hungry at the same moment.
+        if (i >= 0) { this.e.hunger[i] = this.rng.range(0, 40); this.e.thirst[i] = this.rng.range(0, 40); this.e.tired[i] = this.rng.range(0, 50); this.e.lonely[i] = this.rng.range(0, 50); }
+      }
     }
+    this.brain.spawnItems(true);
   }
 
   /** The scenario's start map index, or -1 (spread over every map). */
@@ -237,7 +247,7 @@ export class World {
 
   step(): void {
     const e = this.e, dt = this.dt;
-    this.think();
+    this.brain.think();
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
       const k = e.kind[i]!;
@@ -276,9 +286,8 @@ export class World {
       if (!b) continue;
       const p = b.getPosition(), v = b.getLinearVelocity();
       e.x[i] = p.x; e.y[i] = p.y; e.vx[i] = v.x; e.vy[i] = v.y;
-      let fl = e.flags[i]! & ~(EFlag.Moving | EFlag.Sleeping);
+      let fl = e.flags[i]! & ~EFlag.Moving; // Sleeping = asleep (set by the brain), not a resting physics body
       if (v.x * v.x + v.y * v.y > 0.01) { fl |= EFlag.Moving; e.angle[i] = Math.atan2(v.y, v.x); }
-      if (!b.isAwake()) fl |= EFlag.Sleeping;
       e.flags[i] = fl;
     }
     this.portalsAndTransit();
@@ -371,46 +380,6 @@ export class World {
     this.emit('arrive', { id: e.id(i), map: this.maps[m]!.def.id, x: spot.x, y: spot.y });
   }
 
-  /**
-   * Placeholder behaviour until the AI milestone: wander to random reachable-looking spots and
-   * sometimes travel to another map through a portal. Runs per agent on its LOD schedule.
-   */
-  private think(): void {
-    const e = this.e, rng = this.rng, A = this.sc.agents;
-    for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP || e.nextThink[i]! > this.tick) continue;
-      const m = this.maps[e.map[i]!]!;
-      const dx = e.tx[i]! - e.x[i]!, dy = e.ty[i]! - e.y[i]!;
-      const far = dx * dx + dy * dy > 0.5;
-      const slow = e.vx[i]! * e.vx[i]! + e.vy[i]! * e.vy[i]! < 0.04;
-      e.stuck[i] = far && slow ? Math.min(255, e.stuck[i]! + 1) : 0;
-      if (!far || e.stuck[i]! >= 3) {
-        e.stuck[i] = 0;
-        e.goal[i] = -1;
-        if (rng.chance(0.25)) {
-          e.speed[i] = 0; e.tx[i] = e.x[i]!; e.ty[i] = e.y[i]!; e.lod[i] = 2; // rest a while
-        } else if (this.travelOpen && rng.chance(0.01)) {
-          // Head for a portal of this map (agents know every map and how they connect).
-          let best = -1, bd = Infinity;
-          for (let pi = 0; pi < this.portals.length; pi++) {
-            const p = this.portals[pi]!;
-            if (p.from !== m.index) continue;
-            const d = Math.hypot(p.x - e.x[i]!, p.y - e.y[i]!) + rng.next() * 40;
-            if (d < bd) { bd = d; best = pi; }
-          }
-          if (best >= 0) {
-            const p = this.portals[best]!;
-            e.goal[i] = best; e.tx[i] = p.x; e.ty[i] = p.y; e.speed[i] = A.walk; e.lod[i] = 1;
-          }
-        } else {
-          const s = this.freeSpot(m.index, e.x[i]! + rng.range(-20, 20), e.y[i]! + rng.range(-20, 20), 8);
-          if (s) { e.tx[i] = s.x; e.ty[i] = s.y; e.speed[i] = rng.chance(0.1) ? A.run : A.walk; e.lod[i] = 1; }
-        }
-      }
-      e.nextThink[i] = this.tick + THINK_EVERY[e.lod[i]!]! + rng.int(4);
-    }
-  }
-
   /** Recreate physics bodies from the entity columns (after loading a snapshot). */
   rebuildBodies(): void {
     const e = this.e;
@@ -423,6 +392,7 @@ export class World {
       if (b) { this.vel.x = e.vx[i]!; this.vel.y = e.vy[i]!; b.setLinearVelocity(this.vel); }
     }
     for (const m of this.maps) { m.phys.rebuildDirty(); m.grid.rebuild(e, m.index); }
+    this.brain.reset();
   }
 
   /** FNV-1a hash of the simulation state (determinism checks). */

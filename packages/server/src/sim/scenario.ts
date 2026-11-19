@@ -50,6 +50,8 @@ export interface Scenario {
   /** count = people in a new world; startMap = where they all start (default: spread over every map). */
   agents: { count: number; radius: number; walk: number; run: number; hp: number; startMap?: string };
   projectile: { radius: number; speed: number; damage: number; ttl: number };
+  /** Needs, food items, water / shelter tiles (see sim/brain.ts LIFE_DEFAULTS). */
+  life?: Partial<Omit<import('./brain.js').LifeDef, 'needs'>> & { needs?: Partial<import('./brain.js').NeedsDef> };
 }
 
 export function loadScenario(dir: string): Scenario {

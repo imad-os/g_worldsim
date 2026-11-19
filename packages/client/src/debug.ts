@@ -69,7 +69,7 @@ function onMsg(m: ServerMsg): void {
         const s = slotFor(r[o]!);
         if (s < 0) continue;
         const fresh = kind[s] === 0;
-        kind[s] = r[o + 1]! & 255; flags[s] = r[o + 1]! >> 8;
+        kind[s] = r[o + 1]! & 255; flags[s] = (r[o + 1]! >> 8) & 255;
         nx[s] = r[o + 2]! / POS_Q; ny[s] = r[o + 3]! / POS_Q; ang[s] = r[o + 4]! / ANG_Q;
         if (fresh) { px[s] = nx[s]!; py[s] = ny[s]!; }
       }

@@ -4,7 +4,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
-  Msg, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
+  Msg, Kind, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
   type AdminCmd, type ClientMsg, type Role, type ServerMsg, type ServerStats,
 } from '@worldsim/protocol';
 import type { World } from '../sim/world.js';
@@ -265,7 +265,7 @@ export class NetServer {
       const cap = this.world.e.cap;
       s = {
         id: randomBytes(12).toString('base64url'), ws, role, name, ip, view: null,
-        chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 3), list: new Int32Array(cap), listN: 0,
+        chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 4), list: new Int32Array(cap), listN: 0,
         tokens: 60, tokensAt: Date.now(), goneAt: 0, avatar: -1, avatarId: 0, lastMap: -2,
       };
       this.sessions.set(s.id, s);
@@ -386,6 +386,16 @@ export class NetServer {
 
   private async onMessage(s: Session, m: ClientMsg): Promise<void> {
     switch (m.t) {
+      case Msg.Who: {
+        const mi = this.world.mapIndex.get(String(m.map));
+        if (mi === undefined) return;
+        const e = this.world.e, out: number[][] = [];
+        for (let i = 0; i < e.hi && out.length < 200; i++) {
+          if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && e.map[i] === mi) out.push([e.id(i), Math.round(e.x[i]! * 10) / 10, Math.round(e.y[i]! * 10) / 10, e.act[i]!]);
+        }
+        this.send(s, { t: Msg.Notice, kind: 'people', data: out });
+        return;
+      }
       case Msg.Ping:
         if (isNum(m.c)) this.send(s, { t: Msg.Pong, c: m.c, s: Date.now() });
         return;
@@ -492,14 +502,16 @@ export class NetServer {
       const i = this.scratch[k]!;
       const id = e.id(i);
       const qx = Math.round(e.x[i]! * POS_Q), qy = Math.round(e.y[i]! * POS_Q), qa = Math.round(e.angle[i]! * ANG_Q);
+      // kind | flags << 8 | sub << 16 (items: item type; agents: current action).
+      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16);
       const was = s.known[i]!;
       if (was > 0 && was !== id + 1) (delEarly ??= []).push(was - 1); // slot reused by a new entity
-      const changed = was !== id + 1 || s.q[i * 3] !== qx || s.q[i * 3 + 1] !== qy || s.q[i * 3 + 2] !== qa;
+      const changed = was !== id + 1 || s.q[i * 4] !== qx || s.q[i * 4 + 1] !== qy || s.q[i * 4 + 2] !== qa || s.q[i * 4 + 3] !== kf;
       s.known[i] = -(id + 1);
       if (!changed) continue;
-      s.q[i * 3] = qx; s.q[i * 3 + 1] = qy; s.q[i * 3 + 2] = qa;
+      s.q[i * 4] = qx; s.q[i * 4 + 1] = qy; s.q[i * 4 + 2] = qa; s.q[i * 4 + 3] = kf;
       const o = rn * ENT_REC;
-      rec[o] = id; rec[o + 1] = e.kind[i]! | (e.flags[i]! << 8); rec[o + 2] = qx; rec[o + 3] = qy; rec[o + 4] = qa;
+      rec[o] = id; rec[o + 1] = kf; rec[o + 2] = qx; rec[o + 3] = qy; rec[o + 4] = qa;
       rec[o + 5] = Math.round(e.vx[i]! * POS_Q); rec[o + 6] = Math.round(e.vy[i]! * POS_Q);
       rn++;
     }
