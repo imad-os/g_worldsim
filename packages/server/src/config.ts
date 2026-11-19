@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { AI_DEFAULTS, type AiConfig } from './ai/llm.js';
 
 export interface Config {
   scenario: string;
@@ -28,6 +29,8 @@ export interface Config {
     cloudflareHostname?: string;
     bin?: { ngrok?: string; cloudflared?: string; tailscale?: string };
   };
+  /** Language model for the planner (switchable in the panel; the panel's choice wins once made). */
+  ai: AiConfig;
 }
 
 export interface Secrets {
@@ -36,6 +39,8 @@ export interface Secrets {
   viewers: Map<string, string>;
   firebase?: { client_email: string; private_key: string; project_id?: string };
   cloudflareToken?: string;
+  geminiKey?: string;
+  ollamaKey?: string;
 }
 
 export const DEFAULTS: Config = {
@@ -59,6 +64,7 @@ export const DEFAULTS: Config = {
   logLevel: 'info',
   cloud: { enabled: false, projectId: '', everySec: 300, maxWritesPerDay: 15000 },
   tunnel: { provider: 'none' },
+  ai: { ...AI_DEFAULTS },
 };
 
 /** Low-spec mode: fewer ticks and network frames, smaller pools, rarer snapshots. */
@@ -97,7 +103,7 @@ export function loadConfig(argv: string[], cwd = process.cwd()): { cfg: Config; 
   let cfg: Config = structuredClone(DEFAULTS);
   if (existsSync(file)) {
     const j = JSON.parse(readFileSync(file, 'utf8')) as Partial<Config>;
-    cfg = { ...cfg, ...j, cloud: { ...cfg.cloud, ...j.cloud }, tunnel: { ...cfg.tunnel, ...j.tunnel } };
+    cfg = { ...cfg, ...j, cloud: { ...cfg.cloud, ...j.cloud }, tunnel: { ...cfg.tunnel, ...j.tunnel }, ai: { ...cfg.ai, ...j.ai } };
   }
   if (args['low-spec'] || cfg.lowSpec) cfg = { ...cfg, ...LOW_SPEC, lowSpec: true };
   const num = (k: string) => (args[k] !== undefined ? Number(args[k]) : undefined);
@@ -130,5 +136,5 @@ export function loadConfig(argv: string[], cwd = process.cwd()): { cfg: Config; 
   }
   if (cfg.cloud.enabled && (!firebase || !cfg.cloud.projectId)) throw new Error('cloud.enabled needs FIREBASE_SERVICE_ACCOUNT in .env');
   if (typeof args.tunnel === 'string') cfg.tunnel.provider = args.tunnel as Config['tunnel']['provider'];
-  return { cfg, secrets: { adminToken, viewers, firebase, cloudflareToken: env.CLOUDFLARE_TUNNEL_TOKEN } };
+  return { cfg, secrets: { adminToken, viewers, firebase, cloudflareToken: env.CLOUDFLARE_TUNNEL_TOKEN, geminiKey: env.GEMINI_API_KEY || undefined, ollamaKey: env.OLLAMA_API_KEY || undefined } };
 }

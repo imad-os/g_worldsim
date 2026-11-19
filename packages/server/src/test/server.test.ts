@@ -79,6 +79,8 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     // Watch where agents are.
     const e = app.world.e;
     const inMap = (mi: number) => { for (let i = 0; i < e.hi; i++) if (e.kind[i] === 1 && e.map[i] === mi) return i; return -1; };
+    // Everyone starts in the town now: put one person in the woods for the second viewer.
+    if (inMap(1) < 0) { const s = app.world.freeSpot(1, 96, 96, 80)!; app.world.spawnAgent(1, s.x, s.y); }
     const ia = inMap(0), ib = inMap(1);
     a.send({ t: Msg.View, map: 'town', x: e.x[ia]!, y: e.y[ia]!, r: 40 });
     b.send({ t: Msg.View, map: 'woods', x: e.x[ib]!, y: e.y[ib]!, r: 40 });
@@ -118,6 +120,11 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     adm.send({ t: Msg.Admin, id: 10, c: { cmd: 'pause', paused: false } });
     await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 10);
 
+    // Travel between maps: closed by default, kept across restarts once opened.
+    assert.equal(app.stats().travelOpen, false);
+    adm.send({ t: Msg.Admin, id: 11, c: { cmd: 'travel', open: true } });
+    assert.deepEqual(((await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 11)) as { data: unknown }).data, { open: true });
+
     // Junk is refused.
     const junk = await connect(url, VIEW1);
     await junk.wait((m) => m.t === Msg.Welcome);
@@ -135,6 +142,7 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     after(() => app2.stop());
     assert.equal(app2.world.tick, tickAtStop);
     assert.equal(app2.world.hash(), hashAtStop);
+    assert.equal(app2.world.travelOpen, true);
     await app2.stop();
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

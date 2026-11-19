@@ -37,7 +37,13 @@ export type AdminCmd =
   | { cmd: 'players' }
   | { cmd: 'revoke'; name: string }
   | { cmd: 'tunnel' }
-  | { cmd: 'tunnelSwitch'; provider: 'ngrok' | 'tailscale' | 'cloudflare' | 'cloudflare-quick' | 'none' };
+  | { cmd: 'tunnelSwitch'; provider: 'ngrok' | 'tailscale' | 'cloudflare' | 'cloudflare-quick' | 'none' }
+  /** Let agents take portals to other maps (players always can). */
+  | { cmd: 'travel'; open: boolean }
+  | { cmd: 'ai' }
+  | { cmd: 'aiModels' }
+  | { cmd: 'aiSet'; provider: 'none' | 'gemini' | 'ollama'; model?: string; ollamaUrl?: string }
+  | { cmd: 'aiTest'; prompt?: string };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
 
@@ -105,6 +111,8 @@ export interface ServerStats {
   uptimeSec: number;
   tunnel?: { provider: string; state: string; url: string; error?: string };
   pairings?: number;
+  travelOpen?: boolean;
+  ai?: { provider: string; model: string; ready: boolean; why?: string };
 }
 
 export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number }

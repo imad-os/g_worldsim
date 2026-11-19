@@ -35,6 +35,14 @@ a{color:var(--acc);word-break:break-all}
     <button id="pause">Pause</button><button id="resume">Resume</button>
     <button data-speed="1">x1</button><button data-speed="2">x2</button><button data-speed="5">x5</button>
     <button data-speed="10">x10</button><button data-speed="25">x25</button><button data-speed="100">x100</button></div>
+  <div class="card"><h3>Travel between maps</h3><p id="travelState" class="dim">-</p>
+    <button id="travelBtn">-</button></div>
+  <div class="card"><h3>AI brain</h3><p id="aiState" class="dim">-</p>
+    <div class="row"><label for="aiProv">Provider</label><select id="aiProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option></select></div>
+    <div class="row" id="aiUrlRow"><label for="aiUrl">Ollama address</label><input id="aiUrl" placeholder="http://127.0.0.1:11434" style="width:240px"></div>
+    <div class="row"><label for="aiModel">Model</label><span><input id="aiModel" list="aiModelList" placeholder="default" style="width:200px"><datalist id="aiModelList"></datalist> <button id="aiList">List models</button></span></div>
+    <button id="aiSave" class="primary">Save</button><button id="aiTest">Test</button>
+    <pre id="aiOut"></pre></div>
   <div class="card"><h3>Players</h3><div id="players"></div></div>
   <div class="card"><h3>Internet link</h3><div id="url">-</div><p class="dim" id="tunnelState"></p>
     <select id="provider" aria-label="Tunnel">

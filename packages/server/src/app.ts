@@ -13,6 +13,7 @@ import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
+import { Ai, type AiSettings } from './ai/llm.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin']);
@@ -29,6 +30,7 @@ export class App {
   cloud!: CloudSync;
   players!: Players;
   tunnel!: TunnelManager;
+  ai!: Ai;
   readonly monitor = new Monitor();
   lastSnapshotAt = 0;
   private timers: NodeJS.Timeout[] = [];
@@ -68,6 +70,17 @@ export class App {
       this.world.populate();
       this.log.info('new world', { scenario: sc.id, seed, agents: this.world.e.countKind(Kind.Agent) });
     }
+    // Owner settings kept in the database: travel between maps, and the population size of the scenario.
+    this.world.travelOpen = this.db.getMeta('travel_open') === '1';
+    const want = sc.agents.count;
+    if (this.db.getMeta('agents_count') !== String(want) || !this.world.travelOpen) {
+      const r = this.world.fitPopulation(this.db.getMeta('agents_count') !== String(want) ? want : 1e9);
+      this.db.setMeta('agents_count', String(want));
+      if (r.removed || r.moved) this.log.info('population fitted', { ...r, agents: this.world.e.countKind(Kind.Agent) });
+    }
+    const savedAi = this.db.getMeta('ai');
+    this.ai = new Ai(c.ai, { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey }, this.log,
+      savedAi ? (JSON.parse(savedAi) as Partial<AiSettings>) : undefined);
     this.world.listeners.push((ev: WorldEvent) => { if (LOGGED.has(ev.kind)) this.events.add(ev.tick, ev.gameSec, ev.kind, ev.data); });
     this.snapshot();
 
@@ -139,6 +152,8 @@ export class App {
       entities: w.e.count, agents: w.e.countKind(Kind.Agent), clients: this.net.clientCount(),
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
+      travelOpen: w.travelOpen,
+      ai: (({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()),
     };
   }
 
@@ -199,6 +214,25 @@ export class App {
         const st = await this.tunnel.switchTo(c.provider);
         this.db.setMeta('tunnel_provider', c.provider);
         return st;
+      }
+      case 'travel': {
+        w.travelOpen = c.open === true;
+        this.db.setMeta('travel_open', w.travelOpen ? '1' : '0');
+        this.log.info(w.travelOpen ? 'travel opened' : 'travel closed', { who });
+        return { open: w.travelOpen };
+      }
+      case 'ai': return this.ai.status();
+      case 'aiModels': return this.ai.models();
+      case 'aiSet': {
+        const s = this.ai.apply({ provider: c.provider, model: c.model, ollamaUrl: c.ollamaUrl });
+        this.db.setMeta('ai', JSON.stringify(s));
+        this.log.info('ai changed', { who, provider: s.provider, model: this.ai.model });
+        return this.ai.status();
+      }
+      case 'aiTest': {
+        const prompt = typeof c.prompt === 'string' && c.prompt.trim() ? c.prompt.slice(0, 500) : 'In one short sentence, say hello as a survivor in a ruined town.';
+        const r = await this.ai.generate({ system: 'You are a person living in a post-apocalyptic world. Answer briefly.', prompt, maxTokens: 120 });
+        return { text: r.text.slice(0, 1000), ms: r.ms, provider: r.provider, model: r.model };
       }
       default: throw new Error('unknown command');
     }

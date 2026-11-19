@@ -29,6 +29,15 @@ simulator" (milestones 1-8). Milestones 1-2 done 2026-11-19; next is 3 (needs, u
   in My PC's menu. Proof: `node tools/view-proof.mjs <server> <sdk.js> <outdir>` (ADMIN_TOKEN set; pairs, walks, screenshots;
   the cloud has software GL only, ~7 fps: fps proof belongs on imad's PC).
 
+## Population, travel, AI (imad 2026-11-19)
+- 5 people (scenario `agents.count`, `startMap: "town"`). On start, `World.fitPopulation` trims to the count once per
+  change of it (meta `agents_count`) and, while travel is closed, moves every stray to the start map.
+- **Travel lock**: agents never take portals until imad opens travel in the panel (meta `travel_open`, admin `travel`).
+  Players always can.
+- **AI providers** (`packages/server/src/ai/llm.ts`): none / Gemini (`GEMINI_API_KEY`) / Ollama (address, optional
+  `OLLAMA_API_KEY` for ollama.com). Switch in the panel's AI brain card (meta `ai`); `Ai.generate` with an hourly budget,
+  2 at once. Planner code must only use `Ai`, never a provider directly.
+
 ## Commands
 `npm install`, `npm run build`, `npm test` (node:test: sim, persistence with a fake Firestore, server end to end),
 `npm run bench -- 20 100`, `npm start -- --speed 5`. Docs: README.md, docs/ARCHITECTURE.md.

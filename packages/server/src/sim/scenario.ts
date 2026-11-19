@@ -47,7 +47,8 @@ export interface Scenario {
   tiles: TileType[];
   maps: MapDef[];
   portals: PortalDef[];
-  agents: { count: number; radius: number; walk: number; run: number; hp: number };
+  /** count = people in a new world; startMap = where they all start (default: spread over every map). */
+  agents: { count: number; radius: number; walk: number; run: number; hp: number; startMap?: string };
   projectile: { radius: number; speed: number; damage: number; ttl: number };
 }
 

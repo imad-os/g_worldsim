@@ -63,7 +63,9 @@ test('maps: generated, merged colliders, portals walkable', () => {
 test('physics: after 10 simulated minutes no agent is inside a wall or outside its map', () => {
   const w = newWorld();
   w.populate();
-  assert.equal(w.e.countKind(Kind.Agent), 20);
+  assert.equal(w.e.countKind(Kind.Agent), 5);
+  for (let k = 0; k < 15; k++) { const s = w.freeSpot(1, 20 + k * 10, 96, 60); if (s) w.spawnAgent(1, s.x, s.y); }
+  w.travelOpen = true;
   for (let k = 0; k < 20 * 600; k++) w.step();
   let moved = 0;
   for (let i = 0; i < w.e.hi; i++) {
@@ -149,6 +151,7 @@ test('projectiles: a shot hurts an agent, not its shooter', () => {
 
 test('maps: agents travel between maps through portals', () => {
   const w = newWorld();
+  w.travelOpen = true;
   assert.deepEqual(w.routeMaps(0, 1)!.map((p) => w.portals[p]!.id), ['town-east']);
   assert.deepEqual(w.routeMaps(1, 0)!.map((p) => w.portals[p]!.id), ['woods-west']);
   const p = w.portals[0]!;
@@ -192,4 +195,29 @@ test('players: controls move the character, walls stop it, portals take it to th
   for (let k = 0; k < 20; k++) w.step();
   const v = Math.hypot(w.e.vx[j]!, w.e.vy[j]!);
   assert.ok(v > 2.5 && v <= 3.6 || w.maps[1]!.tiles.isSolidAt(w.e.x[j]!, w.e.y[j]! + 0.5), `running speed ${v}`);
+});
+
+test('population: 5 people start in Old Town; travel stays closed until the owner opens it', () => {
+  const w = newWorld();
+  w.populate();
+  assert.equal(w.e.countKind(Kind.Agent), 5);
+  for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent) assert.equal(w.e.map[i], w.mapIndex.get('town'));
+  // An agent sent to the portal while travel is closed does not leave.
+  const p = w.portals[0]!;
+  const s = w.freeSpot(0, p.x - 3, p.y, 50)!;
+  const i = w.spawnAgent(0, s.x, s.y);
+  w.e.goal[i] = 0; w.e.tx[i] = p.x; w.e.ty[i] = p.y; w.e.speed[i] = 1.4;
+  for (let k = 0; k < 20 * 120; k++) w.step();
+  for (let j = 0; j < w.e.hi; j++) if (w.e.kind[j] === Kind.Agent) assert.equal(w.e.map[j], 0, 'nobody left the town');
+  // Fitting an old world of 7 (2 in the woods) to 5: extras go first, then the rest moves to the town.
+  const a = w.spawnAgent(1, 30, 96), b = w.spawnAgent(1, 40, 96);
+  assert.ok(a >= 0 && b >= 0);
+  const r = w.fitPopulation(5);
+  assert.equal(w.e.countKind(Kind.Agent), 5);
+  assert.equal(r.removed, 3);
+  for (let j = 0; j < w.e.hi; j++) if (w.e.kind[j] === Kind.Agent) assert.equal(w.e.map[j], 0);
+  const w2 = newWorld();
+  for (let k = 0; k < 3; k++) w2.spawnAgent(1, 30 + k * 5, 96);
+  assert.equal(w2.fitPopulation(5).moved, 3, 'strays moved to the town while travel is closed');
+  for (let j = 0; j < w2.e.hi; j++) if (w2.e.kind[j] === Kind.Agent) assert.equal(w2.e.map[j], 0);
 });

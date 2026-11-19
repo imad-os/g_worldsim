@@ -79,12 +79,48 @@ export class World {
 
   /** Initial population, spread over the maps (only for a brand new world). */
   populate(): void {
-    const n = this.sc.agents.count;
+    const n = this.sc.agents.count, start = this.startMap();
     for (let k = 0; k < n; k++) {
-      const m = this.maps[k % this.maps.length]!;
+      const m = this.maps[start >= 0 ? start : k % this.maps.length]!;
       const spot = this.freeSpot(m.index, this.rng.range(8, m.def.w - 8), this.rng.range(8, m.def.h - 8), 40);
       if (spot) this.spawnAgent(m.index, spot.x, spot.y);
     }
+  }
+
+  /** The scenario's start map index, or -1 (spread over every map). */
+  startMap(): number { const id = this.sc.agents.startMap; return id ? this.mapIndex.get(id) ?? -1 : -1; }
+
+  /**
+   * Agents may take portals only while travel is open (the owner opens the other maps when ready).
+   * Players always can.
+   */
+  travelOpen = false;
+
+  /**
+   * Bring the population to the owner's setting: keep at most `max` agents (those already on the start map first)
+   * and, while travel is closed, move every agent that is elsewhere (or on the road) to the start map.
+   */
+  fitPopulation(max: number): { removed: number; moved: number } {
+    const e = this.e, start = this.startMap();
+    let removed = 0, moved = 0;
+    const list: number[] = [];
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) list.push(i);
+    list.sort((a, b) => Number(e.map[b] === start) - Number(e.map[a] === start));
+    for (let k = max; k < list.length; k++) { this.remove(list[k]!, 'population'); removed++; }
+    if (start >= 0 && !this.travelOpen) {
+      const def = this.maps[start]!.def;
+      for (let k = 0; k < Math.min(max, list.length); k++) {
+        const i = list[k]!;
+        if (e.map[i] === start) continue;
+        if (e.map[i] !== NO_MAP) this.dropBody(i);
+        e.map[i] = NO_MAP; e.toMap[i] = start;
+        e.ax[i] = this.rng.range(def.w * 0.3, def.w * 0.7); e.ay[i] = this.rng.range(def.h * 0.3, def.h * 0.7);
+        e.goal[i] = -1;
+        this.arriveAt(i);
+        moved++;
+      }
+    }
+    return { removed, moved };
   }
 
   /** A walkable point near (x, y) with room for an agent, or null. */
@@ -301,6 +337,7 @@ export class World {
       }
       const g = e.goal[i]!;
       if (g < 0) continue;
+      if (!this.travelOpen) { e.goal[i] = -1; continue; }
       const p = this.portals[g]!;
       if (p.from !== e.map[i]) { e.goal[i] = -1; continue; }
       const r = p.r ?? 1.5;
@@ -352,7 +389,7 @@ export class World {
         e.goal[i] = -1;
         if (rng.chance(0.25)) {
           e.speed[i] = 0; e.tx[i] = e.x[i]!; e.ty[i] = e.y[i]!; e.lod[i] = 2; // rest a while
-        } else if (rng.chance(0.01)) {
+        } else if (this.travelOpen && rng.chance(0.01)) {
           // Head for a portal of this map (agents know every map and how they connect).
           let best = -1, bd = Infinity;
           for (let pi = 0; pi < this.portals.length; pi++) {

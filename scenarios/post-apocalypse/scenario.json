@@ -21,6 +21,6 @@
     { "id": "town-east",  "map": "town",  "x": 252, "y": 130, "to": "woods", "toX": 5,   "toY": 96,  "travel": 600, "r": 2 },
     { "id": "woods-west", "map": "woods", "x": 3,   "y": 96,  "to": "town",  "toX": 248, "toY": 130, "travel": 600, "r": 2 }
   ],
-  "agents": { "count": 20, "radius": 0.3, "walk": 1.4, "run": 3.5, "hp": 100 },
+  "agents": { "count": 5, "startMap": "town", "radius": 0.3, "walk": 1.4, "run": 3.5, "hp": 100 },
   "projectile": { "radius": 0.05, "speed": 60, "damage": 40, "ttl": 2 }
 }

@@ -52,6 +52,26 @@ async function refreshPairings(): Promise<void> {
   for (const b of el.querySelectorAll<HTMLButtonElement>('[data-no]')) b.onclick = async () => { await cmd({ cmd: 'deny', code: b.dataset.no! }); void refreshPairings(); };
 }
 
+let travelOpen = false;
+function showTravel(open: boolean): void {
+  travelOpen = open;
+  $('travelState').textContent = open ? 'Open: people may go to every map.' : 'Closed: people stay on the map they are on (players can still travel).';
+  $('travelBtn').textContent = open ? 'Close travel' : 'Open travel';
+}
+
+type AiStatus = { provider: string; model: string; ollamaUrl: string; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string };
+function showAi(s: AiStatus, fill: boolean): void {
+  $('aiState').textContent = s.provider === 'none' ? 'Off: people use the built-in brain.'
+    : `${s.provider} · ${s.model} · ${s.ready ? 'ready' : s.why ?? 'not ready'} · ${s.callsLastHour}/${s.maxCallsPerHour} calls this hour${s.lastError ? ' · last error: ' + s.lastError : ''}`;
+  if (fill) {
+    ($('aiProv') as HTMLSelectElement).value = s.provider;
+    ($('aiUrl') as HTMLInputElement).value = s.ollamaUrl;
+    ($('aiModel') as HTMLInputElement).value = s.provider === 'none' ? '' : s.model;
+  }
+  $('aiUrlRow').hidden = ($('aiProv') as HTMLSelectElement).value !== 'ollama';
+}
+async function refreshAi(): Promise<void> { try { showAi((await cmd({ cmd: 'ai' })) as AiStatus, true); } catch (e) { log(String(e)); } }
+
 async function refreshPlayers(): Promise<void> {
   const list = (await cmd({ cmd: 'players' })) as { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean }[];
   $('players').innerHTML = list.length ? list.map((p) => `<div class="row"><div><b>${esc(p.name)}</b><br><span class="dim">${esc(p.dev)} · last seen ${ago(p.lastSeen)}</span></div>
@@ -77,7 +97,7 @@ function connect(token: string): void {
         if (m.role !== 'admin') { log('That is a viewer token, not the admin token.'); conn?.close(); store(null); showLogin(); return; }
         store(token);
         $('login').hidden = true; $('main').hidden = false;
-        void refreshPairings(); void refreshPlayers();
+        void refreshPairings(); void refreshPlayers(); void refreshAi();
         break;
       case Msg.Error:
         if (m.code === 'auth' || m.code === 'locked') { store(null); showLogin(m.code === 'locked' ? 'Too many wrong tokens: wait 10 minutes.' : 'Wrong token.'); }
@@ -103,6 +123,8 @@ function connect(token: string): void {
           `agents ${s.agents} · entities ${s.entities} · viewers ${s.clients - 1}`,
           `snapshot ${s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-'} · up ${Math.round(s.uptimeSec / 60)} min`,
         ].join('\n');
+        if (s.travelOpen !== undefined && s.travelOpen !== travelOpen) showTravel(s.travelOpen);
+        else if ($('travelBtn').textContent === '-') showTravel(!!s.travelOpen);
         const t = s.tunnel;
         if (t) {
           $('url').innerHTML = t.url ? `<a href="${esc(t.url)}/panel/">${esc(t.url)}</a>` : `<span class="dim">${t.provider === 'none' ? 'Only on this PC (no tunnel)' : esc(t.state + (t.error ? ': ' + t.error : ''))}</span>`;
@@ -130,6 +152,32 @@ $('switch').onclick = async () => {
   const p = ($('provider') as HTMLSelectElement).value as 'ngrok';
   log(`switching the internet link to ${p}...`);
   try { const st = (await cmd({ cmd: 'tunnelSwitch', provider: p })) as { url: string }; log(`link: ${st.url || 'off'}`); } catch (e) { log(String(e)); }
+};
+$('travelBtn').onclick = async () => {
+  const open = !travelOpen;
+  if (open && !confirm('Open travel? People may walk to the other maps.')) return;
+  try { const r = (await cmd({ cmd: 'travel', open })) as { open: boolean }; showTravel(r.open); log(r.open ? 'travel opened' : 'travel closed'); } catch (e) { log(String(e)); }
+};
+($('aiProv') as HTMLSelectElement).onchange = () => { $('aiUrlRow').hidden = ($('aiProv') as HTMLSelectElement).value !== 'ollama'; ($('aiModel') as HTMLInputElement).value = ''; };
+$('aiSave').onclick = async () => {
+  const provider = ($('aiProv') as HTMLSelectElement).value as 'none';
+  try {
+    const s = (await cmd({ cmd: 'aiSet', provider, model: ($('aiModel') as HTMLInputElement).value.trim(), ollamaUrl: ($('aiUrl') as HTMLInputElement).value.trim() || undefined })) as AiStatus;
+    showAi(s, true); log(`AI: ${s.provider} ${s.model}`);
+  } catch (e) { log(String(e)); $('aiOut').textContent = String(e); }
+};
+$('aiList').onclick = async () => {
+  $('aiOut').textContent = 'Asking for the models (save the provider first)...';
+  try {
+    const list = (await cmd({ cmd: 'aiModels' })) as string[];
+    $('aiModelList').innerHTML = list.map((m) => `<option value="${esc(m)}">`).join('');
+    $('aiOut').textContent = list.length ? `Models: ${list.join(', ')}` : 'No models found.';
+  } catch (e) { $('aiOut').textContent = String(e); }
+};
+$('aiTest').onclick = async () => {
+  $('aiOut').textContent = 'Asking the model...';
+  try { const r = (await cmd({ cmd: 'aiTest' })) as { text: string; ms: number; model: string }; $('aiOut').textContent = `${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`; } catch (e) { $('aiOut').textContent = String(e); }
+  void refreshAi();
 };
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-speed]')) b.onclick = () => void cmd({ cmd: 'speed', speed: Number(b.dataset.speed) });
 const saved = stored();
