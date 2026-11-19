@@ -377,7 +377,9 @@ MyPC.init({
     const cfg = (MyPC.app_config ?? {}) as { server?: string };
     const q = new URLSearchParams(location.search);
     auth = MyPC.load('auth', null);
-    server = String(q.get('server') || cfg.server || MyPC.load('server', '') || auth?.server || '');
+    // Served by the world server itself (through its tunnel): that is the server.
+    const own = /github\.io$/i.test(location.hostname) ? '' : location.origin;
+    server = String(q.get('server') || cfg.server || MyPC.load('server', '') || auth?.server || own);
     zoom = Number(MyPC.load('zoom', 14)) || 14;
     resize();
     window.addEventListener('resize', resize);
