@@ -14,9 +14,11 @@ import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
 import { Ai, type AiSettings } from './ai/llm.js';
+import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
+import { NO_MAP } from './sim/entities.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
-const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin']);
+const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
 export class App {
@@ -78,6 +80,8 @@ export class App {
       this.db.setMeta('agents_count', String(want));
       if (r.removed || r.moved) this.log.info('population fitted', { ...r, agents: this.world.e.countKind(Kind.Agent) });
     }
+    const diff = Number(this.db.getMeta('difficulty'));
+    if (diff > 0) this.world.brain.life.difficulty = diff;
     const savedAi = this.db.getMeta('ai');
     this.ai = new Ai(c.ai, { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey }, this.log,
       savedAi ? (JSON.parse(savedAi) as Partial<AiSettings>) : undefined);
@@ -152,8 +156,22 @@ export class App {
       entities: w.e.count, agents: w.e.countKind(Kind.Agent), clients: this.net.clientCount(),
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
-      travelOpen: w.travelOpen,
+      travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty,
       ai: (({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()),
+    };
+  }
+
+  private nameOf(id: number): string { return this.world.profiles.get(id)?.name ?? `#${id & 0xffff}`; }
+
+  /** A person's live state for the panel. */
+  agentInfo(i: number): Record<string, unknown> {
+    const w = this.world, e = w.e, p = w.profileOf(i) as Profile | undefined, id = e.id(i);
+    const r1 = (v: number) => Math.round(v * 10) / 10;
+    return {
+      id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec)) : 0,
+      map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
+      hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
+      carry: e.carry[i], lod: e.lod[i], talkingTo: e.act[i] === 6 && e.target[i]! > 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
 
@@ -233,6 +251,71 @@ export class App {
         const prompt = typeof c.prompt === 'string' && c.prompt.trim() ? c.prompt.slice(0, 500) : 'In one short sentence, say hello as a survivor in a ruined town.';
         const r = await this.ai.generate({ system: 'You are a person living in a post-apocalyptic world. Answer briefly.', prompt, maxTokens: 120 });
         return { text: r.text.slice(0, 1000), ms: r.ms, provider: r.provider, model: r.model };
+      }
+      case 'agents': {
+        const out = [];
+        for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent) out.push(this.agentInfo(i));
+        return out;
+      }
+      case 'agent': {
+        const id = num(c.id, 0, 2 ** 31, 'id'), i = w.e.slot(id);
+        const p = w.profiles.get(id);
+        if (!p) throw new Error('no such person');
+        const like = `%${id}%`;
+        const events = (this.db.sql.prepare('SELECT tick, game_sec, kind, data FROM events WHERE data LIKE ? ORDER BY id DESC LIMIT 40').all(like) as { game_sec: number; kind: string; data: string }[])
+          .filter((r) => { try { const d = JSON.parse(r.data) as Record<string, unknown>; return d.id === id || d.a === id || d.b === id; } catch { return false; } })
+          .map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
+        const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner ? this.nameOf(p.partner) : null };
+        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec), family, events };
+      }
+      case 'agentSet': {
+        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        const p = w.profileOf(i)!, e = w.e;
+        for (const [k, v] of Object.entries(c.set ?? {})) {
+          if (k === 'name') { const n = String(v).trim().slice(0, 30); if (!n) throw new Error('bad name'); p.name = n; continue; }
+          if (k === 'personality') { p.personality = String(v).split(',').map((s) => s.trim()).filter(Boolean).slice(0, 5); continue; }
+          if (k === 'hunger' || k === 'thirst' || k === 'tired' || k === 'lonely') { e[k][i] = num(v, 0, 100, k); continue; }
+          if (k === 'hp') { e.hp[i] = num(v, 1, w.sc.agents.hp, k); continue; }
+          if (k === 'carry') { e.carry[i] = num(v, 0, 20, k); continue; }
+          if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k); continue; }
+          if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
+          throw new Error(`can't change ${k}`);
+        }
+        e.nextThink[i] = w.tick; // decide again with the new values
+        return this.agentInfo(i);
+      }
+      case 'agentMove': {
+        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        const m = mapOf(c.map), def = w.maps[m]!.def;
+        w.place(i, m, c.x !== undefined ? num(c.x, 0, def.w, 'x') : def.w / 2, c.y !== undefined ? num(c.y, 0, def.h, 'y') : def.h / 2);
+        return this.agentInfo(i);
+      }
+      case 'kill': {
+        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        w.emit('death', { id: w.e.id(i), cause: 'killed by the owner', map: w.e.map[i] === NO_MAP ? '' : w.maps[w.e.map[i]!]!.def.id, x: w.e.x[i], y: w.e.y[i] });
+        w.remove(i, 'killed by the owner');
+        return { ok: true };
+      }
+      case 'supply': {
+        const m = mapOf(c.map), def = w.maps[m]!.def;
+        const x = c.x !== undefined ? num(c.x, 0, def.w, 'x') : w.rng.range(def.w * 0.3, def.w * 0.7);
+        const y = c.y !== undefined ? num(c.y, 0, def.h, 'y') : w.rng.range(def.h * 0.3, def.h * 0.7);
+        const n = w.brain.drop(m, x, y, c.n !== undefined ? num(c.n, 1, 30, 'n') : 8);
+        w.emit('supply', { map: def.id, x, y, n });
+        return { x, y, n };
+      }
+      case 'difficulty': {
+        w.brain.life.difficulty = num(c.value, 0.25, 3, 'difficulty');
+        this.db.setMeta('difficulty', String(w.brain.life.difficulty));
+        return { value: w.brain.life.difficulty };
+      }
+      case 'timeline': {
+        const lim = c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 100;
+        this.events.flush();
+        return this.events.recent(lim).map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
       }
       default: throw new Error('unknown command');
     }

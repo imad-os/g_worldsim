@@ -46,7 +46,17 @@ export type AdminCmd =
   | { cmd: 'ai' }
   | { cmd: 'aiModels' }
   | { cmd: 'aiSet'; provider: 'none' | 'gemini' | 'ollama'; model?: string; ollamaUrl?: string }
-  | { cmd: 'aiTest'; prompt?: string };
+  | { cmd: 'aiTest'; prompt?: string }
+  /** People: list, one in detail, change values, move, kill. */
+  | { cmd: 'agents' }
+  | { cmd: 'agent'; id: number }
+  | { cmd: 'agentSet'; id: number; set: Record<string, number | string> }
+  | { cmd: 'agentMove'; id: number; map: string; x?: number; y?: number }
+  | { cmd: 'kill'; id: number }
+  /** World: drop food, difficulty (0.25 easy .. 3 hard), recent events. */
+  | { cmd: 'supply'; map: string; x?: number; y?: number; n?: number }
+  | { cmd: 'difficulty'; value: number }
+  | { cmd: 'timeline'; limit?: number };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
 
@@ -116,6 +126,7 @@ export interface ServerStats {
   tunnel?: { provider: string; state: string; url: string; error?: string };
   pairings?: number;
   travelOpen?: boolean;
+  difficulty?: number;
   ai?: { provider: string; model: string; ready: boolean; why?: string };
 }
 

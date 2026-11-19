@@ -39,7 +39,8 @@ a{color:var(--acc);word-break:break-all}
     <button id="travelBtn">-</button></div>
   <div class="card"><h3>AI brain</h3><p id="aiState" class="dim">-</p>
     <div class="row"><label for="aiProv">Provider</label><select id="aiProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option></select></div>
-    <div class="row" id="aiUrlRow"><label for="aiUrl">Ollama address</label><input id="aiUrl" placeholder="http://127.0.0.1:11434" style="width:240px"></div>
+    <div class="row" id="aiUrlRow"><label for="aiUrl">Ollama address</label><span><input id="aiUrl" placeholder="http://127.0.0.1:11434" style="width:220px"> <button id="aiHelpBtn" aria-label="Help">?</button></span></div>
+    <div id="aiHelp" class="dim" hidden></div>
     <div class="row"><label for="aiModel">Model</label><span><input id="aiModel" list="aiModelList" placeholder="default" style="width:200px"><datalist id="aiModelList"></datalist> <button id="aiList">List models</button></span></div>
     <button id="aiSave" class="primary">Save</button><button id="aiTest">Test</button>
     <pre id="aiOut"></pre></div>

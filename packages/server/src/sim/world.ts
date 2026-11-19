@@ -6,6 +6,7 @@ import { Rng } from './rng.js';
 import type { MapDef, PortalDef, Scenario } from './scenario.js';
 import { SpatialGrid } from './spatial.js';
 import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
+import { randomProfile, type Profile } from './people.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -53,6 +54,8 @@ export class World {
   private readonly agentR: number;
   /** Needs, choices, paths and actions of every agent. */
   readonly brain: Brain;
+  /** Who every agent is (also the dead, for family trees), by entity id. */
+  readonly profiles = new Map<number, Profile>();
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -122,15 +125,19 @@ export class World {
       for (let k = 0; k < Math.min(max, list.length); k++) {
         const i = list[k]!;
         if (e.map[i] === start) continue;
-        if (e.map[i] !== NO_MAP) this.dropBody(i);
-        e.map[i] = NO_MAP; e.toMap[i] = start;
-        e.ax[i] = this.rng.range(def.w * 0.3, def.w * 0.7); e.ay[i] = this.rng.range(def.h * 0.3, def.h * 0.7);
-        e.goal[i] = -1;
-        this.arriveAt(i);
+        this.place(i, start, this.rng.range(def.w * 0.3, def.w * 0.7), this.rng.range(def.h * 0.3, def.h * 0.7));
         moved++;
       }
     }
     return { removed, moved };
+  }
+
+  /** Put an agent or player at a free spot near (x, y) on a map, now (no travel). */
+  place(i: number, map: number, x: number, y: number): void {
+    const e = this.e;
+    if (e.map[i] !== NO_MAP) this.dropBody(i);
+    e.map[i] = NO_MAP; e.toMap[i] = map; e.ax[i] = x; e.ay[i] = y; e.goal[i] = -1;
+    this.arriveAt(i);
   }
 
   /** A walkable point near (x, y) with room for an agent, or null. */
@@ -146,10 +153,11 @@ export class World {
     return null;
   }
 
-  spawnAgent(map: number, x: number, y: number): number {
+  spawnAgent(map: number, x: number, y: number, profile?: Profile): number {
     const e = this.e;
     const i = e.create(Kind.Agent, map, x, y, this.agentR);
     if (i < 0) return -1;
+    this.profiles.set(e.id(i), profile ?? randomProfile(this.rng, this.gameSec, this.livingNames()));
     e.hp[i] = this.sc.agents.hp;
     e.nextThink[i] = this.tick + this.rng.int(THINK_EVERY[1]!);
     this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, x, y, this.agentR);
@@ -193,9 +201,19 @@ export class World {
     return best;
   }
 
+  /** Names in use by the living (new names never repeat one). */
+  livingNames(): Set<string> {
+    const s = new Set<string>();
+    for (const [id, p] of this.profiles) if (p.died === undefined && this.e.slot(id) >= 0) s.add(p.name);
+    return s;
+  }
+  profileOf(i: number): Profile | undefined { return this.profiles.get(this.e.id(i)); }
+
   remove(i: number, cause = 'removed'): void {
     const e = this.e;
     if (!e.alive(i)) return;
+    const p = e.kind[i] === Kind.Agent ? this.profiles.get(e.id(i)) : undefined;
+    if (p) { p.died = this.gameSec; p.cause = cause; if (cause === 'population' || cause === 'admin-remove') this.profiles.delete(e.id(i)); }
     if (e.kind[i] === Kind.Agent) this.emit('remove', { id: e.id(i), cause });
     this.dropBody(i);
     e.destroy(i);

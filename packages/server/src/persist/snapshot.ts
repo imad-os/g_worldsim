@@ -2,6 +2,8 @@ import { encode, decode } from '@msgpack/msgpack';
 import { copyBytes } from '@worldsim/protocol';
 import type { Db } from './db.js';
 import type { World } from '../sim/world.js';
+import { Kind } from '@worldsim/protocol';
+import { randomProfile } from '../sim/people.js';
 
 export const SNAPSHOT_VERSION = 1;
 
@@ -23,6 +25,7 @@ export function serialize(w: World, withTiles = true): Uint8Array {
     rng: w.rng.getState(),
     hi: n,
     cols,
+    profiles: [...w.profiles],
     maps: !withTiles ? [] : w.maps.map((m) => ({ id: m.def.id, w: m.tiles.w, h: m.tiles.h, tiles: m.tiles.tiles, hp: m.tiles.hp, ver: new Uint8Array(m.tiles.chunkVer.buffer.slice(0)) })),
   });
 }
@@ -30,6 +33,7 @@ export function serialize(w: World, withTiles = true): Uint8Array {
 interface SnapData {
   v: number; scenario: string; seed: string; tick: number; gameSec: number; rng: number[]; hi: number;
   cols: Record<string, Uint8Array>;
+  profiles?: [number, import('../sim/people.js').Profile][];
   maps: { id: string; w: number; h: number; tiles: Uint8Array; hp: Uint8Array; ver: Uint8Array }[];
 }
 
@@ -68,6 +72,10 @@ export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => v
   // Bodies of the world built before the restore belong to nobody now.
   for (let i = 0; i < w.bodies.length; i++) { const b = w.bodies[i]; if (b) { b.getWorld().destroyBody(b); w.bodies[i] = null; } }
   w.rebuildBodies();
+  w.profiles.clear();
+  for (const [id, p] of s.profiles ?? []) w.profiles.set(id, p);
+  // Worlds from before profiles: give every agent one.
+  for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent && !w.profiles.has(w.e.id(i))) w.profiles.set(w.e.id(i), randomProfile(w.rng, w.gameSec, w.livingNames()));
 }
 
 /** Snapshots in SQLite: write in one transaction, keep the newest `keep`. */

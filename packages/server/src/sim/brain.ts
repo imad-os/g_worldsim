@@ -32,7 +32,7 @@ export const LIFE_DEFAULTS: LifeDef = {
 
 export class Brain {
   private readonly w: World;
-  private readonly life: LifeDef;
+  readonly life: LifeDef;
   readonly paths: Pathfinder[];
   private readonly pbuf: Int32Array;
   private readonly pN: Uint8Array;
@@ -112,7 +112,8 @@ export class Brain {
     this.pN[i] = n; this.pK[i] = 0;
     const W = w.maps[e.map[i]!]!.tiles.w, endT = pf.out[n - 1]!;
     if (r === 'full') { this.gx[i] = x; this.gy[i] = y; } else { this.gx[i] = (endT % W) + 0.5; this.gy[i] = ((endT / W) | 0) + 0.5; }
-    e.speed[i] = run ? w.sc.agents.run : w.sc.agents.walk;
+    const pr = w.profileOf(i);
+    e.speed[i] = (run ? w.sc.agents.run : w.sc.agents.walk) * (pr ? 0.85 + pr.traits.speed * 0.3 : 1);
     e.stuck[i] = 0;
     return true;
   }
@@ -126,8 +127,9 @@ export class Brain {
     const since = Math.min(0.5 * HOUR, (w.tick - e.lastThink[i]!) * w.dt * w.opt.clockScale) / HOUR; // game hours
     e.lastThink[i] = w.tick;
     const asleep = e.act[i] === Act.Sleep && !this.walking(i);
+    const pr = w.profileOf(i), met = pr ? 0.8 + pr.traits.metabolism * 0.4 : 1;
     const k = this.life.difficulty;
-    e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * since * (asleep ? 0.5 : 1));
+    e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * met * since * (asleep ? 0.5 : 1));
     e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * since * (asleep ? 0.5 : 1));
     e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
     e.lonely[i] = Math.min(100, e.lonely[i]! + N.lonely * k * since);
@@ -182,7 +184,8 @@ export class Brain {
     const sEat = e.carry[i]! > 0 ? sFood * 1.1 : 0;
     const sForage = (e.carry[i]! > 0 ? sFood * 0.4 : sFood) + (e.carry[i]! < 2 && !night ? 0.14 : 0);
     const sSleep = curve(e.tired[i]!, 35, 1.2) * 1.1 + (night && e.tired[i]! > 30 ? 0.35 : 0);
-    const sTalk = night ? 0 : curve(e.lonely[i]!, 20, 1.1) * 1.05;
+    const emp = w.profileOf(i)?.traits.empathy ?? 0.5;
+    const sTalk = night ? 0 : curve(e.lonely[i]!, 20, 1.1) * (0.8 + emp * 0.5);
     const sWander = night ? 0.05 : 0.18;
     const sRest = 0.1;
     const sTravel = w.travelOpen && !night ? 0.08 : 0;
@@ -409,6 +412,20 @@ export class Brain {
         }
       }
     }
+  }
+
+  /** A supply drop: n portions of the first food item scattered around (x, y). Returns how many landed. */
+  drop(m: number, x: number, y: number, n: number): number {
+    const w = this.w, e = w.e, t = w.maps[m]!.tiles, it = this.life.items[0];
+    let k = 0;
+    for (let tries = 0; k < n && tries < n * 20; tries++) {
+      const px = x + w.rng.range(-4, 4), py = y + w.rng.range(-4, 4);
+      if (t.isSolidAt(px, py)) continue;
+      const j = e.create(Kind.Item, m, px, py, 0.2);
+      if (j < 0) break;
+      e.sub[j] = it?.id ?? 1; k++;
+    }
+    return k;
   }
 
   /** After loading a snapshot: paths are not saved, walkers decide again. */

@@ -66,3 +66,17 @@ test('ai: bad settings refused, missing key reported, budget enforced, unreachab
   await assert.rejects(off.generate({ prompt: 'x' }), /can't reach/);
   assert.deepEqual(parseJsonReply('```json\n{"a":1}\n```'), { a: 1 });
 });
+
+test('ai: any pasted Ollama address works (API paths and missing http:// are fixed), errors say which address failed', async () => {
+  const { normalizeOllamaUrl } = await import('../ai/llm.js');
+  assert.equal(normalizeOllamaUrl('http://dom.com/'), 'http://dom.com');
+  assert.equal(normalizeOllamaUrl('https://dom.com/api/tags'), 'https://dom.com');
+  assert.equal(normalizeOllamaUrl('dom.com:11434/api'), 'http://dom.com:11434');
+  assert.equal(normalizeOllamaUrl('http://h/ollama/api/chat'), 'http://h/ollama');
+  const ai = new Ai({ ...AI_DEFAULTS }, {}, log);
+  ai.apply({ provider: 'ollama', ollamaUrl: base + '/api/tags' });
+  assert.equal(ai.settings.ollamaUrl, base);
+  assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b']);
+  ai.apply({ ollamaUrl: base + '/nothing' });
+  await assert.rejects(ai.models(), (e: Error) => e.message.includes(`${base}/nothing/api/tags`) && /404/.test(e.message));
+});

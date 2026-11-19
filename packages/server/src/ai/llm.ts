@@ -59,7 +59,7 @@ export class Ai {
     if (!PROVIDERS.includes(provider)) throw new AiError('bad-provider', 'unknown provider');
     let model = p.model !== undefined ? String(p.model).trim() : provider === this.s.provider ? this.s.model : '';
     if (model.length > 120 || /[\s"'<>]/.test(model)) throw new AiError('bad-model', 'bad model name');
-    let url = p.ollamaUrl !== undefined ? String(p.ollamaUrl).trim().replace(/\/+$/, '') : this.s.ollamaUrl;
+    let url = p.ollamaUrl !== undefined ? normalizeOllamaUrl(String(p.ollamaUrl)) : this.s.ollamaUrl;
     if (!/^https?:\/\/[^\s/]+(\/[^\s]*)?$/i.test(url)) throw new AiError('bad-url', 'the Ollama address must start with http:// or https://');
     if (provider === 'none') model = '';
     this.s = { provider, model, ollamaUrl: url };
@@ -158,13 +158,14 @@ export class Ai {
       if (!res.ok) {
         let msg = txt.slice(0, 200);
         try { const e = JSON.parse(txt) as { error?: string | { message?: string } }; msg = typeof e.error === 'string' ? e.error : e.error?.message ?? msg; } catch { /* text */ }
-        throw new AiError('http', `HTTP ${res.status}: ${msg}`);
+        throw new AiError('http', `${shown(url)} answered HTTP ${res.status}: ${msg}`);
       }
-      return JSON.parse(txt);
+      try { return JSON.parse(txt); } catch { throw new AiError('bad-reply', `${shown(url)} did not answer JSON (is it an Ollama API address?): ${txt.slice(0, 80)}`); }
     } catch (err) {
       if (err instanceof AiError) throw err;
-      if ((err as Error).name === 'AbortError') throw new AiError('timeout', `no answer within ${Math.round(timeoutMs / 1000)} s`);
-      throw new AiError('http', `can't reach ${new URL(url).host}: ${(err as Error).message}`);
+      if ((err as Error).name === 'AbortError') throw new AiError('timeout', `${shown(url)}: no answer within ${Math.round(timeoutMs / 1000)} s`);
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      throw new AiError('http', `can't reach ${shown(url)}: ${cause?.code ?? cause?.message ?? (err as Error).message}`);
     } finally {
       clearTimeout(timer);
     }
@@ -182,4 +183,18 @@ export function parseJsonReply<T = unknown>(text: string): T | null {
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
   if (a < 0 || b <= a) return null;
   try { return JSON.parse(text.slice(a, b + 1)) as T; } catch { return null; }
+}
+
+/** The address as shown in errors (no query string, where a key could be). */
+function shown(url: string): string { return url.split('?')[0]!; }
+
+/**
+ * The base address of an Ollama server, whatever the owner pasted: trailing slashes and API paths are dropped
+ * (http://host:11434/api/tags -> http://host:11434), "http://" is added when missing.
+ */
+export function normalizeOllamaUrl(raw: string): string {
+  let u = raw.trim();
+  if (u && !/^[a-z]+:\/\//i.test(u)) u = 'http://' + u;
+  u = u.replace(/\/+$/, '').replace(/\/(api\/(tags|chat|generate|version)|api|v1)$/i, '').replace(/\/+$/, '');
+  return u;
 }

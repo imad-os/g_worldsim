@@ -166,8 +166,31 @@ $('aiSave').onclick = async () => {
     showAi(s, true); log(`AI: ${s.provider} ${s.model}`);
   } catch (e) { log(String(e)); $('aiOut').textContent = String(e); }
 };
+/** List and Test use what is typed in the form: save it first. */
+async function saveForm(): Promise<boolean> {
+  const provider = ($('aiProv') as HTMLSelectElement).value as 'none';
+  try {
+    const s = (await cmd({ cmd: 'aiSet', provider, model: ($('aiModel') as HTMLInputElement).value.trim(), ollamaUrl: ($('aiUrl') as HTMLInputElement).value.trim() || undefined })) as AiStatus;
+    showAi(s, false); ($('aiUrl') as HTMLInputElement).value = s.ollamaUrl; return true;
+  } catch (e) { $('aiOut').textContent = String(e); return false; }
+}
+function helpText(): void {
+  const base = (($('aiUrl') as HTMLInputElement).value.trim() || 'http://127.0.0.1:11434').replace(/\/+$/, '').replace(/\/(api\/(tags|chat|generate)|api|v1)$/i, '');
+  const model = ($('aiModel') as HTMLInputElement).value.trim() || 'llama3.2';
+  $('aiHelp').innerHTML = `<p><b>Ollama address</b> = the base address only, without /api. Examples: <code>http://192.168.1.20:11434</code>, <code>https://dom.com</code>.</p>
+    <p>The <b>world server</b> (your PC), not this phone, calls:<br>
+    list models: <code>GET ${esc(base)}/api/tags</code><br>
+    talk: <code>POST ${esc(base)}/api/chat</code> with <code>{"model": "${esc(model)}", "messages": [...], "stream": false}</code></p>
+    <p>So the address must work from the PC that runs the server. <code>127.0.0.1</code> means that PC itself.
+    If your Ollama needs a key (ollama.com or a proxy), put <code>OLLAMA_API_KEY=...</code> in the server's .env: it is sent as <code>Authorization: Bearer</code>.</p>
+    <p><b>Model</b> = a name from "List models", for example <code>llama3.2:3b</code> or <code>qwen3:4b</code>.</p>`;
+}
+$('aiHelpBtn').onclick = () => { helpText(); $('aiHelp').hidden = !$('aiHelp').hidden; };
+($('aiUrl') as HTMLInputElement).oninput = () => { if (!$('aiHelp').hidden) helpText(); };
+($('aiModel') as HTMLInputElement).oninput = () => { if (!$('aiHelp').hidden) helpText(); };
 $('aiList').onclick = async () => {
-  $('aiOut').textContent = 'Asking for the models (save the provider first)...';
+  $('aiOut').textContent = 'Asking for the models...';
+  if (!(await saveForm())) return;
   try {
     const list = (await cmd({ cmd: 'aiModels' })) as string[];
     $('aiModelList').innerHTML = list.map((m) => `<option value="${esc(m)}">`).join('');
@@ -176,6 +199,7 @@ $('aiList').onclick = async () => {
 };
 $('aiTest').onclick = async () => {
   $('aiOut').textContent = 'Asking the model...';
+  if (!(await saveForm())) return;
   try { const r = (await cmd({ cmd: 'aiTest' })) as { text: string; ms: number; model: string }; $('aiOut').textContent = `${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`; } catch (e) { $('aiOut').textContent = String(e); }
   void refreshAi();
 };
