@@ -137,7 +137,7 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     assert.equal(app2.world.hash(), hashAtStop);
     await app2.stop();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -182,7 +182,7 @@ test('pairing: a TV gets a code, the admin approves it, the TV keeps its own tok
     assert.equal(app.tunnel.status().provider, 'none');
     await app.stop(); // close SQLite before the folder goes (Windows keeps open files)
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -230,6 +230,6 @@ test('players: join puts my character in the world, input moves it, leaving keep
     c2.ws.close(); adm.ws.close();
     await app.stop();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
