@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@worldsim/protocol": "0.1.0"
+    "@worldsim/protocol": "0.1.0",
+    "three": "^0.170.0"
   }
 }

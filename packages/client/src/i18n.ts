@@ -18,6 +18,15 @@ const T = {
     day: 'Day',
     agents: 'people',
     menuMap: 'Next map', menuZoomIn: 'Zoom in', menuZoomOut: 'Zoom out', menuServer: 'Change server address', menuUnpair: 'Unpair this TV',
+    hintsPlay: 'Move: stick · B: run · A: talk · L / R: zoom · +: menu',
+    hintsPlayRemote: 'Move: arrows · OK: talk · CH + / −: zoom · Back: menu',
+    menuPlay: 'Play', menuWatch: 'Watch the world',
+    travelling: 'Travelling to {0}…',
+    nobody: 'Nobody close by.',
+    metAgent: 'They look at you. People will talk once the AI key is added.',
+    metPlayer: 'Another player is here.',
+    worldFull: 'The world is full right now.',
+    noGl: 'This screen can’t draw 3D.',
     inTransit: 'travelling',
   },
   fr: {
@@ -38,6 +47,15 @@ const T = {
     day: 'Jour',
     agents: 'personnes',
     menuMap: 'Carte suivante', menuZoomIn: 'Zoom avant', menuZoomOut: 'Zoom arrière', menuServer: 'Changer l’adresse du serveur', menuUnpair: 'Dissocier cette TV',
+    hintsPlay: 'Bouger : stick · B : courir · A : parler · L / R : zoom · + : menu',
+    hintsPlayRemote: 'Bouger : flèches · OK : parler · CH + / − : zoom · Retour : menu',
+    menuPlay: 'Jouer', menuWatch: 'Regarder le monde',
+    travelling: 'En route vers {0}…',
+    nobody: 'Personne à côté.',
+    metAgent: 'On vous regarde. Les gens parleront quand la clé IA sera ajoutée.',
+    metPlayer: 'Un autre joueur est là.',
+    worldFull: 'Le monde est plein pour le moment.',
+    noGl: 'Cet écran ne peut pas afficher la 3D.',
     inTransit: 'en voyage',
   },
   es: {
@@ -58,6 +76,15 @@ const T = {
     day: 'Día',
     agents: 'personas',
     menuMap: 'Mapa siguiente', menuZoomIn: 'Acercar', menuZoomOut: 'Alejar', menuServer: 'Cambiar la dirección del servidor', menuUnpair: 'Desvincular este televisor',
+    hintsPlay: 'Mover: stick · B: correr · A: hablar · L / R: zoom · +: menú',
+    hintsPlayRemote: 'Mover: flechas · OK: hablar · CH + / −: zoom · Atrás: menú',
+    menuPlay: 'Jugar', menuWatch: 'Mirar el mundo',
+    travelling: 'Viajando a {0}…',
+    nobody: 'No hay nadie cerca.',
+    metAgent: 'Te miran. La gente hablará cuando se añada la clave de IA.',
+    metPlayer: 'Hay otro jugador aquí.',
+    worldFull: 'El mundo está lleno ahora mismo.',
+    noGl: 'Esta pantalla no puede mostrar 3D.',
     inTransit: 'de viaje',
   },
   ar: {
@@ -78,6 +105,15 @@ const T = {
     day: 'اليوم',
     agents: 'أشخاص',
     menuMap: 'الخريطة التالية', menuZoomIn: 'تكبير', menuZoomOut: 'تصغير', menuServer: 'تغيير عنوان الخادم', menuUnpair: 'إلغاء ربط هذا التلفاز',
+    hintsPlay: 'التحريك: العصا · B: الجري · A: التحدث · L / R: تكبير · +: القائمة',
+    hintsPlayRemote: 'التحريك: الأسهم · OK: التحدث · CH + / −: تكبير · رجوع: القائمة',
+    menuPlay: 'العب', menuWatch: 'شاهد العالم',
+    travelling: 'في الطريق إلى {0}…',
+    nobody: 'لا أحد بالقرب.',
+    metAgent: 'ينظرون إليك. سيتحدث الناس عند إضافة مفتاح الذكاء الاصطناعي.',
+    metPlayer: 'لاعب آخر هنا.',
+    worldFull: 'العالم ممتلئ الآن.',
+    noGl: 'هذه الشاشة لا تستطيع عرض ثلاثي الأبعاد.',
     inTransit: 'في سفر',
   },
 } as const;
@@ -86,3 +122,5 @@ export type Key = keyof typeof T.en;
 let lang: keyof typeof T = 'en';
 export function setLang(l: string): void { lang = (l in T ? l : 'en') as keyof typeof T; }
 export function t(k: Key): string { return T[lang][k] ?? T.en[k]; }
+
+export function tf(k: Key, ...a: string[]): string { return t(k).replace(/\{(\d)\}/g, (_, i) => a[Number(i)] ?? ''); }

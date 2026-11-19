@@ -21,6 +21,14 @@ simulator" (milestones 1-8). Milestones 1-2 done 2026-11-19; next is 3 (needs, u
 - Tunnel adapters in `packages/server/src/tunnel.ts` (ngrok / tailscale / cloudflare / cloudflare-quick / none).
 - On imad's PC: `D:\frb\g_worldsim`, portable Node 22 in `.node\` (system Node is 20), started hidden in the background.
 
+## Viewer look (imad 2026-11-19: "2.5D like the 3DS Zelda games, refined, not pixelated")
+- three.js low-poly 3D, camera tilted 58 degrees looking north (`packages/client/src/gfx/`): smooth half-tile ground with
+  soft blends, ruined walls, low-poly trees, rocks, grass; people = instanced body / head / hair / legs / arms with a walk
+  cycle; sun / moon follow the game clock; shadows on mid / high tiers, round blob shadows on low.
+- Play mode (default): your own character (Join / Input), predicted locally and corrected towards the server. Watch mode
+  in My PC's menu. Proof: `node tools/view-proof.mjs <server> <sdk.js> <outdir>` (ADMIN_TOKEN set; pairs, walks, screenshots;
+  the cloud has software GL only, ~7 fps: fps proof belongs on imad's PC).
+
 ## Commands
 `npm install`, `npm run build`, `npm test` (node:test: sim, persistence with a fake Firestore, server end to end),
 `npm run bench -- 20 100`, `npm start -- --speed 5`. Docs: README.md, docs/ARCHITECTURE.md.

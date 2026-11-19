@@ -55,6 +55,8 @@ export interface Welcome {
   portals: PortalInfo[];
   tiles: TileTypeInfo[];
   clock: ClockInfo;
+  /** People's body: radius and walk / run speeds (m/s), so a player's own client can predict its moves. */
+  body?: { radius: number; walk: number; run: number };
 }
 
 export interface ClockInfo {

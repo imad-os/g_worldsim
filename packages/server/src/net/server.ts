@@ -279,6 +279,7 @@ export class NetServer {
       portals: w.portals.map((p) => ({ id: p.id, map: p.map, x: p.x, y: p.y, to: p.to, toX: p.toX, toY: p.toY, travel: p.travel })),
       tiles: w.sc.tiles.map((t) => ({ id: t.id, name: t.name, solid: t.solid, color: t.color })),
       clock: this.clockInfo(),
+      body: { radius: w.sc.agents.radius, walk: w.sc.agents.walk, run: w.sc.agents.run },
     });
     this.log.info('client joined', { name, role, resumed: !!(m as { resume?: string }).resume });
     return s;
