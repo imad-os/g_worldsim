@@ -126,3 +126,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   group): A pause, left / right 5 s, up / down speed 0.5-4x, B / Back = back to the list. Proof script idea: spawn zombies near a
   name, speed 3, wait for timeline event `replay`, then open it on the TV.
 - imad 2026-11-20: "every time you update server dont wait for me": every push to main is deployed on his PC without asking.
+- **Talk by voice (imad 2026-11-20, app 0.7.6, My PC API 24 `MyPC.stt`, GUIDE section 23)**: the talk action next to someone checks
+  `MyPC.stt.enabled()` EVERY time: on = `listen({ maxSeconds: 10, hint: names })` (A again = stop early; 'nothing' / 'cancelled' = say
+  nothing; other errors = keyboard), off / older My PC = `MyPC.text.keyboard` as before. `stt.on('text')` = the phone's mic button
+  talks to the person next to me (push to talk); a result arriving both ways is sent once (`sendSpoken`). No mic / AI code in the app.

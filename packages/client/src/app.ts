@@ -562,25 +562,71 @@ function doAction(a: ActionId, pressed: boolean): void {
   if (!playing()) return;
   if (a === 'use') {
     if (nearestPerson(2.8) < 0) { send({ t: Msg.Do, a: 'use' }); return; }
-    // Next to someone: type what to say (My PC's keyboard); empty = just say hello. They may do what you ask.
-    if (!MyPC.text?.keyboard) { send({ t: Msg.Do, a: 'talk' }); return; }
-    send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I type
+    // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
+    // empty = just say hello. They may do what you ask.
+    send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I talk / type
     held.left = held.right = held.up = held.down = false; runHeld = false;
-    void (MyPC.text.keyboard({ value: '', kind: 'text', label: t('sayLabel'), ok: 'OK' }) as Promise<string | null>).then((v) => {
-      send(v && v.trim() ? { t: Msg.Do, a: 'talk', text: v.trim().slice(0, 300) } : { t: Msg.Do, a: 'talk' });
-    });
+    if (sttOn()) { talkBySpeech(); return; }
+    talkByKeyboard();
     return;
   }
   send({ t: Msg.Do, a }); // drink, eat, pickup, sleep
 }
 
 const ITEM_NAMES: Record<string, string> = {};
+// ------------------------------------------------------------ talking: speech (My PC API 24) or the keyboard
+let sttBusy = false;
+function sttOn(): boolean { try { return (MyPC.apiLevel ?? 0) >= 24 && !!MyPC.stt?.enabled?.(); } catch { return false; } }
+/** The last words sent from speech (a result comes both from listen() and the 'text' listener: send it once). */
+let saidText = '', saidAt = 0;
+function sendSpoken(text: string): void {
+  const v = (text ?? '').trim(), now = performance.now();
+  if (v && v === saidText && now - saidAt < 3000) return;
+  saidText = v; saidAt = now;
+  sendTalk(v);
+}
+function sendTalk(text: string | null | undefined): void {
+  const v = (text ?? '').trim();
+  send(v ? { t: Msg.Do, a: 'talk', text: v.slice(0, 300) } : { t: Msg.Do, a: 'talk' });
+}
+function talkByKeyboard(): void {
+  if (!MyPC.text?.keyboard) { sendTalk(''); return; }
+  void (MyPC.text.keyboard({ value: '', kind: 'text', label: t('sayLabel'), ok: 'OK' }) as Promise<string | null>).then((v) => sendTalk(v));
+}
+/** Names that may be said (helps the speech service write them right): the person in front of me, everyone I can go to. */
+function sttHints(): string[] {
+  const h = new Set<string>();
+  if (info?.name) h.add(info.name);
+  for (const [, n] of roster ?? []) h.add(n);
+  return [...h].slice(0, 30);
+}
+function talkBySpeech(): void {
+  if (sttBusy) { MyPC.stt.stop?.(); return; } // pressed again: that's all I said
+  sttBusy = true;
+  note(t('listening'), 0);
+  (MyPC.stt.listen({ maxSeconds: 10, hint: sttHints() }) as Promise<{ text: string }>)
+    .then((r) => { noteEl.hidden = true; sendSpoken(r.text); })
+    .catch((e: { code?: string }) => {
+      noteEl.hidden = true;
+      if (e?.code === 'nothing' || e?.code === 'cancelled') return;
+      talkByKeyboard(); // speech failed (no phone, no service, denied...): type it instead
+    })
+    .finally(() => { sttBusy = false; });
+}
+/** Push-to-talk: the phone's mic button (or the remote's Record key) while I stand next to someone. */
+function onSttText(e: { text: string }): void {
+  if (sttBusy) { sendSpoken(e.text); return; } // my own listen()'s words: sent once
+  if (mode !== 'world' || !playing() || rp || nearestPerson(2.8) < 0) { note(`“${e.text}”`, 2500); return; }
+  send({ t: Msg.Do, a: 'hold' });
+  sendSpoken(e.text);
+}
+
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
   if (d.code === 'replays') { past = d.list as never; if (menu.page === 'past') menu.refresh(); return; }
   if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }
   if (d.code === 'noReplay') { note(t('pastNone'), 2500); return; }
   if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
-  if (d.code === 'tp') { predX = d.x ?? predX; predY = d.y ?? predY; snapCam = true; note(tf('dTp', d.name ?? ''), 3000); return; }
+  if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); note(tf('dTp', d.name ?? ''), 3000); return; }
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code), 1800); return; }
   const map: Record<string, Parameters<typeof t>[0]> = {
     drank: 'dDrank', picked: 'dPicked', ate: 'dAte', sleep: 'dSleep', wake: 'dWake', noWater: 'dNoWater', nothing: 'dNothing',
@@ -928,7 +974,8 @@ MyPC.init({
       MyPC.gamepad.on('button', (i: number, pressed: boolean) => onPad(i, pressed));
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map], look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
+    if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map], dbg: () => ({ how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
     MyPC.ready();
   },
   onStart() {
