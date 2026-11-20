@@ -45,6 +45,13 @@ export class World3D {
   readonly target = new Vector3();
   private look = new Vector3();
   dist = 24;
+  /** 'top' = the tilted view from above; 'third' = behind my character; 'first' = through their eyes. */
+  view: 'top' | 'third' | 'first' = 'top';
+  /** Where 'third' / 'first' look (radians, 0 = north, clockwise). */
+  yaw = 0;
+  /** Distance behind the character in 'third'. */
+  back = 7;
+  private viewSet = '';
   private tier: Tier;
   private m = new Matrix4();
   private shadowR = 30;
@@ -169,15 +176,42 @@ export class World3D {
     return true;
   }
 
+  /** How far a person sees in 'third' / 'first' (fog hides the rest: fewer chunks and shadows to draw). */
+  get sight(): number { return this.tier === 'low' ? 42 : this.tier === 'mid' ? 52 : 64; }
+
   /** Camera follows target (x, z) smoothly; `snap` jumps there. */
   follow(x: number, z: number, dt: number, snap: boolean): void {
     this.target.set(x, 0, z);
-    const k = snap ? 1 : 1 - Math.exp(-dt * 6);
+    const k = snap ? 1 : 1 - Math.exp(-dt * (this.view === 'top' ? 6 : 14));
     this.look.x += (x - this.look.x) * k; this.look.z += (z - this.look.z) * k;
-    const d = this.dist;
-    this.camera.position.set(this.look.x, Math.sin(PITCH) * d, this.look.z + Math.cos(PITCH) * d);
-    this.camera.lookAt(this.look.x, 0, this.look.z);
-    this.fog.near = d * 1.6; this.fog.far = d * 3.6;
+    let d = this.dist;
+    if (this.view !== this.viewSet) {
+      this.viewSet = this.view;
+      const cam = this.camera;
+      if (this.view === 'top') { cam.fov = 30; cam.near = 1; cam.far = 400; } else { cam.fov = this.view === 'first' ? 62 : 55; cam.near = 0.12; cam.far = this.sight + 6; }
+      cam.updateProjectionMatrix();
+    }
+    let sx0 = this.look.x, sz0 = this.look.z;
+    if (this.view === 'top') {
+      this.camera.position.set(this.look.x, Math.sin(PITCH) * d, this.look.z + Math.cos(PITCH) * d);
+      this.camera.lookAt(this.look.x, 0, this.look.z);
+      this.fog.near = d * 1.6; this.fog.far = d * 3.6;
+    } else {
+      // Forward on the ground: yaw 0 = north (-z).
+      const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      if (this.view === 'third') {
+        const b = this.back;
+        this.camera.position.set(this.look.x - fx * b, 1.4 + b * 0.42, this.look.z - fz * b);
+        this.camera.lookAt(this.look.x + fx * 3, 1.1, this.look.z + fz * 3);
+      } else {
+        this.camera.position.set(this.look.x + fx * 0.18, 1.55, this.look.z + fz * 0.18);
+        this.camera.lookAt(this.look.x + fx * 10, 0.9, this.look.z + fz * 10);
+      }
+      this.fog.near = this.sight * 0.35; this.fog.far = this.sight;
+      d = this.sight * 0.4;
+      // Shadows where the eye is: a box ahead of the character.
+      sx0 = this.look.x + fx * d * 0.8; sz0 = this.look.z + fz * d * 0.8;
+    }
     // The shadow box moves with the camera (in whole texels, so shadows don't shimmer).
     if (this.sun.castShadow) {
       const r = (this.shadowR = Math.min(60, d * 1.15 + 6));
@@ -185,7 +219,7 @@ export class World3D {
       if (cam.right !== r) { cam.left = -r; cam.right = r; cam.top = r; cam.bottom = -r; cam.updateProjectionMatrix(); }
     }
     const step = (this.shadowR * 2) / this.sun.shadow.mapSize.x;
-    const sx = Math.round(this.look.x / step) * step, sz = Math.round(this.look.z / step) * step;
+    const sx = Math.round(sx0 / step) * step, sz = Math.round(sz0 / step) * step;
     this.sun.target.position.set(sx, 0, sz);
     this.sun.position.set(sx + this.sunDir.x * 50, this.sunDir.y * 50, sz + this.sunDir.z * 50);
     this.lamp.position.set(x, 2.2, z);
@@ -205,7 +239,8 @@ export class World3D {
     else this.sunDir.set(0.3, 0.8, 0.4).normalize(); // moon
     this.sun.intensity = day > 0 ? 0.5 + 2.0 * day : 0.45;
     this.sun.color.setHex(0x8ea8ff).lerp(this.c1.setHex(0xfff1d6), day).lerp(this.c2.setHex(0xffa060), warm * 0.7);
-    this.hemi.intensity = 0.35 + 0.8 * day;
+    // Seen from the side (third / first person) walls in their own shade show too: more sky light there.
+    this.hemi.intensity = (0.35 + 0.8 * day) * (this.view === 'top' ? 1 : 1.5);
     this.hemi.color.setHex(0x30406a).lerp(this.c1.setHex(0xcfe3ff), day);
     this.hemi.groundColor.setHex(0x1c1a22).lerp(this.c1.setHex(0x5d4c3a), day);
     this.bg.setHex(0x0b1426).lerp(this.c1.setHex(0x9cc7e8), day).lerp(this.c2.setHex(0xe79a6a), warm * 0.6);

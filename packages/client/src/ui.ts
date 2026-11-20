@@ -8,19 +8,19 @@
 import { t, tf, type Key } from './i18n.js';
 
 // ------------------------------------------------------------ actions and buttons
-export const ACTIONS = ['use', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu'] as const;
+export const ACTIONS = ['use', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel'] as const;
 export type ActionId = (typeof ACTIONS)[number];
 const ACTION_KEY: Record<ActionId, Key> = {
   use: 'aUse', run: 'aRun', eat: 'aEat', drink: 'aDrink', pickup: 'aPickup', sleep: 'aSleep', zoomIn: 'aZoomIn', zoomOut: 'aZoomOut',
-  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu',
+  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel',
 };
 export const actionLabel = (a: ActionId) => t(ACTION_KEY[a]);
 
 export interface Binds { pad: Partial<Record<ActionId, number>>; remote: Partial<Record<ActionId, string>> }
-/** Defaults: A use, B run, X eat, Y sleep, L / R zoom, − thoughts, + menu; remote: OK use, colour keys, CH + / −, Info. */
+/** Defaults: A use, B run, X eat, Y sleep, L / R zoom, ZR quick actions (hold), − thoughts, + menu, R3 camera; remote: OK use, colour keys, CH + / −, Info, ⏯ quick actions. */
 export const DEFAULT_BINDS: Binds = {
-  pad: { use: 0, run: 1, eat: 2, sleep: 3, zoomIn: 4, zoomOut: 5, thoughts: 8, menu: 9 },
-  remote: { use: 'ok', eat: 'red', sleep: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info' },
+  pad: { use: 0, run: 1, eat: 2, sleep: 3, zoomIn: 4, zoomOut: 5, wheel: 7, thoughts: 8, menu: 9, camera: 11 },
+  remote: { use: 'ok', eat: 'red', sleep: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause' },
 };
 export function cloneBinds(b: Binds): Binds { return { pad: { ...b.pad }, remote: { ...b.remote } }; }
 /** The action on pad button i / remote button name (undefined = none). */

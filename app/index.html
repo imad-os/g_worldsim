@@ -67,6 +67,12 @@
   .bub:after { content: ''; position: absolute; left: 50%; bottom: -0.6vw; margin-left: -0.5vw; border: 0.5vw solid transparent; border-top-color: rgba(255, 255, 255, 0.92); border-bottom: 0; }
   .bub .ba { font-weight: 600; }
   .bub .bb { color: #4a5059; font-style: italic; }
+  #wheel { position: fixed; left: 50%; top: 50%; width: 34vw; height: 34vw; margin: -17vw 0 0 -17vw; border-radius: 50%; background: radial-gradient(circle, rgba(8, 10, 14, 0.55) 0 22%, rgba(8, 10, 14, 0.82) 23% 70%, rgba(8, 10, 14, 0) 71%); z-index: 6; }
+  #wheel .wh-s { position: absolute; width: 8.4vw; margin: -3.6vw 0 0 -4.2vw; display: flex; flex-direction: column; align-items: center; gap: 0.2vw; padding: 0.6vw 0; border-radius: 1vw; color: #e6eaee; font-size: 1.05vw; text-align: center; }
+  #wheel .wh-s b { font-size: 2.4vw; line-height: 1; }
+  #wheel .wh-s.on { background: #ffd166; color: #14161a; }
+  #wheel .wh-mid { position: absolute; left: 25%; right: 25%; top: 50%; transform: translateY(-50%); text-align: center; font-size: 1.5vw; font-weight: 600; color: #ffd166; }
+  #wheel .wh-help { position: absolute; left: -10vw; right: -10vw; bottom: -3.2vw; text-align: center; font-size: 1.15vw; color: #c9d1d9; }
 </style>
 </head>
 <body>
@@ -76,7 +82,8 @@
 <div id="hint" class="bar" hidden></div>
 <div id="note" class="bar" hidden></div>
 <div id="card" hidden></div>
+<div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.8.0"></script>
+<script type="module" src="game.js?v=0.9.0"></script>
 </body>
 </html>

@@ -14,6 +14,7 @@ import {
   ACTIONS, DEFAULT_BINDS, cloneBinds, padAction, remoteAction, remoteName, actionLabel, Menu, Bubbles, bar, personHtml,
   type ActionId, type Binds, type Page, type Row, type PersonInfo,
 } from './ui.js';
+import { Wheel, type WheelItem } from './wheel.js';
 
 /**
  * The world, as a My PC app. 3D low-poly with a tilted camera. Two ways to be there:
@@ -81,6 +82,10 @@ const held = { left: false, right: false, up: false, down: false };
 let binds: Binds = cloneBinds(DEFAULT_BINDS);
 let capture: ActionId | null = null;
 let thoughtsOn = true;
+/** Camera in play: from above (the tilted view), behind my character or through their eyes; and where those two look. */
+type CamView = 'top' | 'third' | 'first';
+const CAM_VIEWS: CamView[] = ['top', 'third', 'first'];
+let camView: CamView = 'top', yaw = 0;
 let seer = false, mindsAt = 0;
 let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string } | null = null;
 /** The craft screen: the category open and what is put in. */
@@ -346,7 +351,7 @@ function setMap(id: string): void {
   sendView();
 }
 
-function viewRadius(): number { return Math.min(96, (g3?.dist ?? 24) * 1.2 + 14); }
+function viewRadius(): number { return g3 && g3.view !== 'top' ? Math.min(96, g3.sight + 10) : Math.min(96, (g3?.dist ?? 24) * 1.2 + 14); }
 function sendView(): void { if (welcome) send({ t: Msg.View, map, x: focusX(), y: focusY(), r: viewRadius() }); }
 
 // ------------------------------------------------------------ play: my character
@@ -391,7 +396,7 @@ function blocked(x: number, y: number): boolean {
 }
 
 function stick(): [number, number] {
-  if (menu.open) { STICK0[0] = STICK0[1] = 0; return STICK0; }
+  if (menu.open || wheel.open) { STICK0[0] = STICK0[1] = 0; return STICK0; }
   let ax = MyPC.gamepad ? MyPC.gamepad.axis(0) : 0, ay = MyPC.gamepad ? MyPC.gamepad.axis(1) : 0;
   if (Math.hypot(ax, ay) < 0.18) { ax = 0; ay = 0; }
   if (held.left) ax = -1; if (held.right) ax = 1; if (held.up) ay = -1; if (held.down) ay = 1;
@@ -402,13 +407,82 @@ function stick(): [number, number] {
 const STICK: [number, number] = [0, 0];
 const STICK0: [number, number] = [0, 0];
 
+/** Third / first person: the stick moves along where I look (left / right = side steps), the right stick or ◀ ▶ turn. */
+function viewStick(dt: number): [number, number] {
+  if (menu.open || wheel.open) { STICK0[0] = STICK0[1] = 0; return STICK0; }
+  const gp = MyPC.gamepad;
+  let ax = gp ? gp.axis(0) : 0, ay = gp ? gp.axis(1) : 0, rx = gp ? gp.axis(2) : 0;
+  if (Math.hypot(ax, ay) < 0.18) { ax = 0; ay = 0; }
+  if (Math.abs(rx) < 0.2) rx = 0;
+  const turn = rx * Math.abs(rx) + (held.right ? 1 : 0) - (held.left ? 1 : 0);
+  yaw += turn * 2.4 * dt;
+  const fwd = -ay + (held.up ? 1 : 0) - (held.down ? 1 : 0), side = ax;
+  const fx = Math.sin(yaw), fy = -Math.cos(yaw);
+  let mx = fx * fwd - fy * side, my = fy * fwd + fx * side;
+  const l = Math.hypot(mx, my);
+  if (l > 1) { mx /= l; my /= l; }
+  VSTICK[0] = mx; VSTICK[1] = my;
+  return VSTICK;
+}
+const VSTICK: [number, number] = [0, 0];
+
+// ------------------------------------------------------------ quick action wheel
+const wheel = new Wheel(document.getElementById('wheel')!);
+const WHEEL_IDS = ['use', 'eat', 'drink', 'sleep', 'pickup', 'place', 'bag', 'camera'] as const;
+const WHEEL_ICON: Record<string, string> = { use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', pickup: '🧺', place: '🧱', bag: '🎒', camera: '🎥' };
+const WHEEL_KEY: Record<string, Key> = { use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', pickup: 'qPickup', place: 'qPlace', bag: 'qBag', camera: 'qCamera' };
+/** The wheel's button: held on a controller (let go = do it), pressed once on the remote (arrows + OK). */
+function wheelButton(pressed: boolean, pad: boolean): void {
+  if (mode !== 'world' || menu.open || rp) return;
+  if (pressed) {
+    if (wheel.open) { if (!pad) wheel.close(); return; }
+    if (how !== 'play' || !playing()) return;
+    held.left = held.right = held.up = held.down = false; runHeld = false;
+    const items: WheelItem[] = WHEEL_IDS.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : t(WHEEL_KEY[id]!) }));
+    wheel.show(items, pad, t(pad ? 'wheelHelp' : 'wheelRemote'));
+    return;
+  }
+  if (!pad || !wheel.hold) return;
+  // A short press with nothing chosen keeps it open (pick with the D-pad, A to do it).
+  if (wheel.sel < 0 && performance.now() - wheel.openedAt < 350) { wheel.hold = false; return; }
+  runQuick(wheel.close());
+}
+/** What "Put down" would put down: the first thing in the bag that can be placed. */
+function placeable(): string | null {
+  const inv = meNeeds?.inv ?? {};
+  for (const p of PLACEABLE) if ((inv[p] ?? 0) > 0) return p;
+  return null;
+}
+function placeLabel(): string { const p = placeable(); return p ? tf('cPut', thing(p)) : t('qPlace'); }
+function runQuick(id: string | null): void {
+  if (!id) return;
+  if (id === 'camera') { nextCamera(); return; }
+  if (id === 'bag') { openMenu('bag'); return; }
+  if (id === 'place') { const p = placeable(); if (p) send({ t: Msg.Do, a: 'place', text: p }); else note(t('qNothing'), 2000); return; }
+  doAction(id as ActionId, true);
+}
+
+/** Next camera (from above -> third person -> first person). */
+function nextCamera(to?: CamView): void {
+  camView = to ?? CAM_VIEWS[(CAM_VIEWS.indexOf(camView) + 1) % CAM_VIEWS.length]!;
+  MyPC.save('cam', camView);
+  // Look the way my character faces.
+  const s = meSlot();
+  if (camView !== 'top' && s >= 0) yaw = Math.PI - face[s]!;
+  if (g3) g3.yaw = yaw;
+  snapCam = true;
+  note(`${t('sCamera')}: ${camName(camView)}`, 1500);
+  updateHints(); sendView();
+}
+function camName(v: CamView): string { return t(v === 'top' ? 'camTop' : v === 'third' ? 'camThird' : 'camFirst'); }
+
 function updatePlay(dt: number, now: number): void {
-  const [mx, my] = stick();
+  const [mx, my] = g3 && g3.view !== 'top' ? viewStick(dt) : stick();
   STICK[0] = mx; STICK[1] = my;
   const run = runHeld && !menu.open;
   // Send controls on change, and every 200 ms while held.
   const qx = Math.round(mx * 50) / 50, qy = Math.round(my * 50) / 50;
-  if (qx !== sentMx || qy !== sentMy || run !== sentRun || ((qx || qy) && now - sentAt > 200)) {
+  if (((qx !== sentMx || qy !== sentMy) && (now - sentAt > 50 || (!qx && !qy) || (!sentMx && !sentMy))) || run !== sentRun || ((qx || qy) && now - sentAt > 200)) {
     sentMx = qx; sentMy = qy; sentRun = run; sentAt = now;
     send({ t: Msg.Input, mx: qx, my: qy, run, seq: ++seq });
   }
@@ -441,6 +515,8 @@ function nextMap(): void {
 }
 function zoomBy(f: number): void {
   if (!g3) return;
+  if (g3.view === 'third') { g3.back = Math.max(3.5, Math.min(14, g3.back * f)); MyPC.save('back', g3.back); return; }
+  if (g3.view === 'first') return;
   g3.dist = Math.max(12, Math.min(70, g3.dist * f));
   MyPC.save('dist', g3.dist);
 }
@@ -522,9 +598,10 @@ function updateHints(): void {
     const r = binds.remote[a]; return r ? remoteName(r) : '';
   };
   const part = (a: ActionId, label: string) => { const b = k(a); return b ? `${b}: ${label}` : ''; };
-  const move = `${t('hMove')}: ${pads ? 'stick' : '← ↑ → ↓'}`;
+  const view = how === 'play' && camView !== 'top';
+  const move = view ? `${t('hMove')}: ${pads ? 'stick' : '↑ ↓'} · ${t('hTurn')}: ${pads ? 'R stick' : '← →'}` : `${t('hMove')}: ${pads ? 'stick' : '← ↑ → ↓'}`;
   const list = how === 'play'
-    ? [move, part('use', actionLabel('use')), part('run', actionLabel('run')), part('eat', actionLabel('eat')), part('sleep', actionLabel('sleep')), part('menu', actionLabel('menu'))]
+    ? [move, part('use', actionLabel('use')), part('run', actionLabel('run')), part('eat', actionLabel('eat')), part('sleep', actionLabel('sleep')), part('wheel', t('aWheel').replace(/ \(.*\)$/, '')), part('menu', actionLabel('menu'))]
     : [move, part('use', t('wFollow')), part('eat', t('wMap')), part('sleep', t('wCard')), part('menu', actionLabel('menu'))];
   if (!pads) list.push(t('hintMenu'));
   hudHint.textContent = list.filter(Boolean).join(' · ');
@@ -557,6 +634,8 @@ function doAction(a: ActionId, pressed: boolean): void {
       note(`${t('sThoughts')}: ${t(thoughtsOn ? 'on' : 'off')}`, 1500);
       return;
     case 'person': openMenu('person'); return;
+    case 'camera': if (how === 'play') nextCamera(); return;
+    case 'wheel': wheelButton(true, false); return;
   }
   if (how === 'watch') {
     if (a === 'use') followNext();
@@ -757,6 +836,7 @@ function buildPage(id: string): Page {
     }
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
+      if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
     case 'controls':
@@ -816,6 +896,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
+    else if (row === 'cam') { nextCamera(); menu.refresh(); }
     else if (row === 'zin') zoomBy(1 / 1.2);
     else if (row === 'zout') zoomBy(1.2);
     else if (row === 'server') { menu.close(); void askServer(); }
@@ -832,6 +913,7 @@ const bubbles = new Bubbles(8);
 
 function openMenu(page = 'root'): void {
   if (mode !== 'world') return;
+  wheel.close();
   held.left = held.right = held.up = held.down = false; runHeld = false;
   if (page === 'person') {
     const id = personTarget();
@@ -873,6 +955,7 @@ let snapCam = true;
 function update(now: number): void {
   if (mode !== 'world') return;
   if (rp) { rp.update(STEP / 1000); return; }
+  if (wheel.open && wheel.hold && MyPC.gamepad) wheel.aim(MyPC.gamepad.axis(0), MyPC.gamepad.axis(1));
   if (how === 'play') updatePlay(STEP / 1000, now); else updateWatch();
 }
 
@@ -880,13 +963,15 @@ function draw(now: number, dt: number): void {
   if (mode !== 'world' || !g3) return;
   buildOne();
   const fx = focusX(), fy = focusY();
+  g3.view = rp || !playing() || !predOk ? 'top' : camView;
+  g3.yaw = yaw;
   g3.follow(fx, fy, dt, snapCam);
   snapCam = false;
   const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed;
   g3.setHour(((gs / 3600 + 8) % 24 + 24) % 24, now / 1000);
   const a = Math.min(1.25, (now - frameAt) / frameGap);
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
-  const r = g3.dist * 1.6 + 8;
+  const r = g3.view === 'top' ? g3.dist * 1.6 + 8 : g3.sight + 4, eyes = g3.view === 'first';
   frameNo++;
   P.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin();
   if (rp) { // a past event: only the recorded people and zombies
@@ -917,11 +1002,12 @@ function draw(now: number, dt: number): void {
     phase[i] = (phase[i]! + moved * 4.2) % (Math.PI * 2);
     drawnX[i] = x; drawnY[i] = y; drawnF[i] = frameNo;
     if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
+    if (eyes && i === me) continue;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const zed = kind[i] === Kind.Threat;
     const look = zed ? ZOMBIE : i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1, zed);
-    if (kind[i] === Kind.Player) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
+    if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
   P.end(); g3.endShots(); g3.endItems(); g3.animals.end();
@@ -989,6 +1075,7 @@ const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
 function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean): void {
   if (rp && !menu.open) { if (pressed) { if (d === 'left' || d === 'right') rp.seek(d === 'left' ? -5 : 5); else if (!repeat) rp.faster(d === 'up'); } return; }
   if (menu.open) { if (pressed && (d === 'up' || d === 'down')) menu.input(d); return; }
+  if (wheel.open) { if (pressed && !repeat) wheel.step(d); return; }
   if (!repeat) held[d] = pressed;
 }
 
@@ -1011,6 +1098,13 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
     return;
   }
   const a = remoteAction(binds, name);
+  if (wheel.open) {
+    if (!pressed || repeat) return;
+    if (name === 'ok') runQuick(wheel.close());
+    else if (a === 'wheel' || a === 'menu') wheel.close();
+    return;
+  }
+  if (a === 'wheel') { if (!repeat) wheelButton(pressed, false); return; }
   if (a && !repeat) doAction(a, pressed);
 }
 
@@ -1028,6 +1122,13 @@ function onPad(i: number, pressed: boolean): void {
     return;
   }
   const a = padAction(binds, i);
+  if (a === 'wheel') { wheelButton(pressed, true); return; }
+  if (wheel.open) {
+    if (!pressed) return;
+    if (i === 0) runQuick(wheel.close());
+    else if (i === 1 || a === 'menu') wheel.close();
+    return;
+  }
   if (a) doAction(a, pressed);
 }
 
@@ -1050,7 +1151,17 @@ MyPC.init({
     how = MyPC.load('how', 'play') === 'watch' ? 'watch' : 'play';
     if (q.get('watch') !== null) how = 'watch';
     const b = MyPC.load('binds', null) as Binds | null;
-    if (b && b.pad && b.remote) binds = { pad: { ...b.pad }, remote: { ...b.remote } };
+    if (b && b.pad && b.remote) {
+      binds = { pad: { ...b.pad }, remote: { ...b.remote } };
+      // Actions added since: their default button, when the player has not used it for something else.
+      for (const a of ACTIONS) {
+        const dp = DEFAULT_BINDS.pad[a], dr = DEFAULT_BINDS.remote[a];
+        if (!(a in b.pad) && dp !== undefined && padAction(binds, dp) === undefined) binds.pad[a] = dp;
+        if (!(a in b.remote) && dr !== undefined && remoteAction(binds, dr) === undefined) binds.remote[a] = dr;
+      }
+    }
+    const cv = MyPC.load('cam', 'top');
+    camView = CAM_VIEWS.includes(cv) ? cv : 'top';
     thoughtsOn = MyPC.load('thoughts', true) !== false;
     window.addEventListener('resize', resize);
     setMenu();
@@ -1064,9 +1175,9 @@ MyPC.init({
     MyPC.ready();
   },
   onStart() {
-    const d = Number(MyPC.load('dist', 24)) || 24;
+    const d = Number(MyPC.load('dist', 24)) || 24, bk = Number(MyPC.load('back', 7)) || 7;
     connect(); startLoop();
-    queueMicrotask(() => { if (g3) g3.dist = d; });
+    queueMicrotask(() => { if (g3) { g3.dist = d; g3.back = bk; } });
     startDist = d;
   },
   onPause: stopLoop,
@@ -1087,6 +1198,7 @@ MyPC.init({
     if (action === 'cancel') {
       if (!pressed) return pad ? true : undefined;
       if (capture) { capture = null; note(t('mControls'), 800); return true; }
+      if (wheel.open) { wheel.close(); return true; }
       if (menu.open) { menu.input('back'); return true; }
       if (rp && !pad) { stopReplay(); return true; }
       if (pad) return true; // a controller's B is the player's own button (Run by default)
@@ -1102,6 +1214,7 @@ MyPC.init({
       if (!pressed) return;
       if (mode !== 'world') { screenOk(); return; }
       if (menu.open) { menu.input('ok'); return; }
+      if (wheel.open) { runQuick(wheel.close()); return; }
       if (rp) { rp.toggle(); return; }
       doAction(dev === 'touch' ? 'use' : remoteAction(binds, 'ok') ?? 'use', true);
       return;

@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules + animals / crafting done, app 0.8.0; next camera modes + quick-action wheel; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
+simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules + animals / crafting, camera views, quick wheel done, app 0.9.0; next weather, polish; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -149,3 +149,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   animals are put back in `World.step`), window, bed (shelter, rest x2), lamp (glow + soft light pool at night, zombies back off 3 m).
 - Server frames: a quiet view still gets one frame a second (the clock moves on, `Session.idle`).
 - Test `craft.test.ts`; proof script idea: pair a TV in-process, hunt with A, craft through the menu, place blocks, night shot.
+
+## Camera views and the quick action wheel (imad 2026-11-20, app 0.9.0)
+- Play mode camera (`World3D.view`: top / third / first, `yaw`, `back`; saved `MyPC.save('cam')` / `'back'`): Settings > Camera,
+  the action `camera` (R3 by default) or the wheel. Third / first: stick = forward / side steps along `yaw`, right stick or remote
+  ◀ ▶ turn; fov 55 / 62, sight (fog + camera far) 42 / 52 / 64 m by tier, entity / view radius from it, shadow box ahead, sky light
+  x1.5 so shaded walls read. First person hides my own body. Watch mode and replays stay top.
+- Quick action wheel (`wheel.ts`, `#wheel`): action `wheel` (ZR / RT by default, remote ⏯): hold, point the left stick, let go;
+  a short press keeps it open (D-pad / arrows round it, A / OK do it, B / Back close). Items: use, eat, drink, sleep, pick up, put
+  down (first placeable in the bag), bag, camera. Saved binds get new actions' default buttons when free.
+- Strings `i18n4.ts` (T4). Proof idea: fake pad with `__axis`, R3 x2 for the views, hold button 7 + axis for the wheel.
