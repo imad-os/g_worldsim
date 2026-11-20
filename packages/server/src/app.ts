@@ -72,7 +72,7 @@ export class App {
     this.events = new EventLog(this.db);
     this.players = new Players(this.db, this.secrets.viewers);
     this.accounts = new Accounts(this.db);
-    this.auth = new FirebaseAuth(c.auth.projectId || firebaseProject(), this.authFetch);
+    this.auth = new FirebaseAuth(c.auth.projectId === 'none' ? '' : c.auth.projectId || firebaseProject(), this.authFetch); // 'none' = sign-in off
     const sc = loadScenario(resolve(ROOT, c.scenariosDir, c.scenario));
     const seed = this.db.getMeta('seed') ?? String(sc.seed);
     this.world = new World(sc, { tickRate: c.tickRate, clockScale: c.clockScale, capacity: c.capacity, seed });

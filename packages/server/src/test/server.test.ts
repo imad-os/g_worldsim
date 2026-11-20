@@ -13,7 +13,7 @@ const ADMIN = 'admin-token-0123456789abcdef';
 const VIEW1 = 'viewer-token-imad-1234', VIEW2 = 'viewer-token-guest-5678';
 
 function makeApp(dataDir: string, extra: Partial<Config> = {}): App {
-  const cfg: Config = { ...structuredClone(DEFAULTS), dataDir, port: 0, snapshotEverySec: 1, ...extra };
+  const cfg: Config = { ...structuredClone(DEFAULTS), dataDir, port: 0, snapshotEverySec: 1, auth: { projectId: 'none' }, ...extra };
   cfg.tunnel = { provider: 'none', bin: { ngrok: '/nonexistent/ngrok' } };
   cfg.ai = { ...cfg.ai, provider: 'none' }; // tests never reach a real AI
   return new App(cfg, { adminToken: ADMIN, viewers: new Map([['imad', VIEW1], ['guest', VIEW2]]) }, new Logger('error', undefined, true));

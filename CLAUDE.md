@@ -175,7 +175,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `PANEL=<page url>` opens a copy from another origin, `DARK=1`).
 
 ## Accounts: Firebase sign-in, roles, players (imad 2026-11-20)
-- Panel sign-in: Google or email / password (Firebase Auth, SDK from gstatic loaded only when `docs/panel/firebase.json` has the
+- Firebase project **worldsim-2fe1e** (imad 2026-11-20). Panel sign-in: Google or email / password (Firebase Auth 13.4.0, SDK from gstatic loaded only when `docs/panel/firebase.json` has the
   project's public web config; `{}` = sign-in off, admin token only, and in-game admin tools stay open to every player as before).
   The admin token stays as the PC's own way in (fold-out on the sign-in card).
 - Roles: Firestore `roles/<uid>` { role owner | admin | player, email, name, at }; no document = player. `players/<uid>` { name, email, at }
@@ -184,7 +184,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   for the owner's verified email, else 'player'). Only the owner changes roles (Users & roles page, Firestore REST PATCH).
 - Server (`auth/firebase.ts`, no service account): Hello token `fb:<ID token>` -> RS256 check against Google's public keys (aud /
   iss = project from `docs/panel/firebase.json` or config `auth.projectId`) -> role read from Firestore with THAT person's token
-  (cached 30 s) -> SQLite `accounts` (uid, name, email, role). owner / admin = session role 'admin'; player = role 'player', only
+  (cached 30 s; config `auth.projectId` 'none' = off, the tests use it) -> SQLite `accounts` (uid, name, email, role). owner / admin = session role 'admin'; player = role 'player', only
   `PLAYER_CMDS` (me, joinWorld, approveMine = link their own TV under their name, revokeMine). In-game admin tools (Go to someone /
   `tp`) = `App.isStaff(name)`. A role change counts from that person's next sign-in.
 - Tests: `auth.test.ts` (fake Google key + Firestore). Proof: `node tools/auth-proof.mjs <outdir>` (fake SDK + Firestore, real server

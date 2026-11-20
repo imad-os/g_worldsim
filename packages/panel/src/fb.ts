@@ -7,7 +7,8 @@
 interface FbConfig { apiKey: string; authDomain: string; projectId: string; appId?: string }
 export interface FbUserInfo { uid: string; email: string; name: string; photo: string; verified: boolean }
 
-const V = '10.12.2';
+/** Firebase JS SDK from gstatic: the newest release (npm firebase 13.4.0, 2026-11-16, imad: "latest, not outdated"). */
+const V = '13.4.0';
 let cfg: FbConfig | null | undefined;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let A: any = null, auth: any = null;

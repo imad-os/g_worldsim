@@ -29,7 +29,7 @@ export interface Config {
     cloudflareHostname?: string;
     bin?: { ngrok?: string; cloudflared?: string; tailscale?: string };
   };
-  /** Firebase sign-in for the panel: project id (empty = from docs/panel/firebase.json). */
+  /** Firebase sign-in for the panel: project id (empty = from docs/panel/firebase.json, 'none' = off). */
   auth: { projectId: string };
   /** Language model for the planner (switchable in the panel; the panel's choice wins once made). */
   ai: AiConfig;
