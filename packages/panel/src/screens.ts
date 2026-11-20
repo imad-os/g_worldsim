@@ -184,7 +184,7 @@ export const ai: Screen = {
       ${row('Type', `<select id="aProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option><option value="openai">OpenAI-compatible</option></select>`)}
       <div id="aUrlRow">${row('Address', `<input id="aUrl" placeholder="https://your-ollama-server">`, help('aiUrl'))}</div>
       <div id="aModelRow">${row('Model', `<input id="aModel" list="aModels" placeholder="fastest (automatic)"><datalist id="aModels"></datalist>`, help('aiModel'))}</div>
-      <div id="aKeyRow">${row('API key', `<input id="aKey" type="password" autocomplete="off" placeholder="optional"><label class="small dim" id="aKeyRmL" hidden><input type="checkbox" id="aKeyRm"> remove the saved key</label>`, help('aiKey'))}</div>
+      <div id="aKeyRow">${row('API keys', `<div id="aKeys" class="keys"></div><div class="row"><input id="aKey" type="password" autocomplete="off" placeholder="Paste a key" aria-label="New API key"><button class="btn sm" id="aKeyAdd">${icon('plus')} Add key</button></div><small class="dim" id="aKeyNote"></small>`, help('aiKey'))}</div>
       <div class="row wrap"><button class="btn primary" id="aSave">Save</button><button class="btn" id="aUse">Save and use</button><button class="btn" id="aList">List models</button><button class="btn" id="aTest">Test</button></div><pre id="aOut" class="out"></pre>`, { help: help('ai') })}
     ${card('Planner', `<div id="plState" class="dim"></div>
       ${row('Plans on', `<label class="switch"><input type="checkbox" id="plOn"><i></i></label>`)}
@@ -199,6 +199,7 @@ export const ai: Screen = {
     on('#aProv', 'change', () => { provRows(); (document.getElementById('aModel') as HTMLInputElement).value = ''; });
     on('#bAdd', 'click', () => edit(null));
     on('#aSave', 'click', () => void saveBrain(false));
+    on('#aKeyAdd', 'click', () => { if (!val('aKey')) { toast('Paste a key first', 'err'); return; } void saveBrain(false); });
     on('#aUse', 'click', () => void saveBrain(true));
     on('#aList', 'click', async () => { setHtml('aOut', 'Asking for the models…'); try { const l = await cmd<string[]>({ cmd: 'brainModels', ...form() }, 60000); setHtml('aModels', l.map((m) => `<option value="${esc(m)}">`).join('')); setHtml('aOut', l.length ? esc(`Models: ${l.join(', ')}`) : 'No models found.'); } catch (e) { setHtml('aOut', esc(String(e))); } });
     on('#aTest', 'click', async () => { setHtml('aOut', 'Asking the model…'); try { const r = await cmd<{ text: string; ms: number; model: string }>({ cmd: 'brainTest', ...form() }, 120000); setHtml('aOut', esc(`${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`)); } catch (e) { setHtml('aOut', esc(String(e))); } });
@@ -216,7 +217,7 @@ export const ai: Screen = {
   },
 };
 // Saved brains: the list, and the editor (the brain being edited, or null = a new one).
-type BrainV = { id: string; name: string; provider: string; url: string; model: string; keys: number; keyEnd: string; active: boolean };
+type BrainV = { id: string; name: string; provider: string; url: string; model: string; keys: number; keyEnd: string; keyEnds?: string[]; active: boolean };
 type BrainsAns = { active: string; list: BrainV[]; envKeys?: { gemini: number } };
 const PROV_NAMES: Record<string, string> = { none: 'Built-in', gemini: 'Gemini', ollama: 'Ollama', openai: 'OpenAI-compatible' };
 let brains: BrainsAns = { active: '', list: [] };
@@ -228,9 +229,14 @@ function provRows(): void {
   document.getElementById('aKeyRow')!.hidden = p === 'none';
   (document.getElementById('aUrl') as HTMLInputElement).placeholder = p === 'openai' ? 'https://api.openai.com/v1' : 'https://your-ollama-server';
   (document.getElementById('aModel') as HTMLInputElement).placeholder = p === 'ollama' ? 'fastest (automatic)' : p === 'gemini' ? 'gemini-flash-latest (newest Flash)' : 'gpt-4o-mini';
-  const k = document.getElementById('aKey') as HTMLInputElement, env = brains.envKeys?.gemini ?? 0;
-  k.placeholder = editing?.keys ? `saved (…${editing.keyEnd}): leave empty to keep it` : p === 'gemini' && env ? `empty = the ${env} keys in .env, taking turns` : 'optional';
-  document.getElementById('aKeyRmL')!.hidden = !editing?.keys;
+  const env = brains.envKeys?.gemini ?? 0, n = editing?.keys ?? 0;
+  setHtml('aKeys', (editing?.keyEnds ?? []).map((e, i) => `<span class="tag keytag">Key ${i + 1} …${esc(e)} <button class="iconbtn sm" data-krm="${i}" aria-label="Remove key ${i + 1}">${icon('x')}</button></span>`).join(''));
+  setHtml('aKeyNote', n > 1 ? `${n} keys take turns: one per request, and a busy key hands over to the next.` : n === 1 ? 'Add more keys to take turns between them.'
+    : p === 'gemini' && env ? `No key here: the ${env} keys in the server .env are used, taking turns.` : p === 'ollama' ? 'Your own Ollama needs no key (ollama.com does).' : 'Paste a key, then Add key (or Save).');
+  on('[data-krm]', 'click', async (b) => {
+    if (!editing || !confirm(`Remove key ${Number(b.dataset.krm) + 1} (…${editing.keyEnds?.[Number(b.dataset.krm)]})?`)) return;
+    try { const r = await cmd<BrainsAns & { saved: string }>({ cmd: 'brainSave', id: editing.id, removeKey: Number(b.dataset.krm) }); brains = r; renderBrains(); editing = brains.list.find((x) => x.id === r.saved) ?? null; provRows(); toast('Key removed', 'ok'); } catch (e) { err(e); }
+  });
 }
 function edit(b: BrainV | null): void {
   editing = b;
@@ -240,15 +246,14 @@ function edit(b: BrainV | null): void {
   (document.getElementById('aUrl') as HTMLInputElement).value = b?.url && (b.provider === 'ollama' || b.provider === 'openai') ? b.url : '';
   (document.getElementById('aModel') as HTMLInputElement).value = b?.model ?? '';
   (document.getElementById('aKey') as HTMLInputElement).value = '';
-  (document.getElementById('aKeyRm') as HTMLInputElement).checked = false;
   setHtml('aOut', ''); setHtml('aModels', '');
   provRows();
   if (!b) document.getElementById('aName')?.focus();
 }
 /** The editor's values; the key only when typed (or removed), so a saved key stays on the server. */
-function form(): { id?: string; name: string; provider: string; url: string; model: string; key?: string } {
-  const key = val('aKey'), rm = (document.getElementById('aKeyRm') as HTMLInputElement).checked;
-  return { ...(editing ? { id: editing.id } : {}), name: val('aName'), provider: val('aProv'), url: val('aUrl'), model: val('aModel'), ...(key ? { key } : rm ? { key: '' } : {}) };
+function form(): { id?: string; name: string; provider: string; url: string; model: string; addKey?: string } {
+  const add = val('aKey');
+  return { ...(editing ? { id: editing.id } : {}), name: val('aName'), provider: val('aProv'), url: val('aUrl'), model: val('aModel'), ...(add ? { addKey: add } : {}) };
 }
 async function saveBrain(use: boolean): Promise<void> {
   try {

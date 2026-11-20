@@ -63,7 +63,7 @@ export type AdminCmd =
   | { cmd: 'aiSet'; provider: 'none' | 'gemini' | 'ollama' | 'openai'; model?: string; ollamaUrl?: string }
   /** Saved brains (provider + address + model + key); keys are never sent back, only how many and their last 4 characters. */
   | { cmd: 'brains' }
-  | { cmd: 'brainSave'; id?: string; name?: string; provider?: string; url?: string; model?: string; key?: string }
+  | { cmd: 'brainSave'; id?: string; name?: string; provider?: string; url?: string; model?: string; key?: string; addKey?: string; removeKey?: number }
   | { cmd: 'brainUse'; id: string }
   | { cmd: 'brainDelete'; id: string }
   | { cmd: 'brainModels' | 'brainTest'; id?: string; provider?: string; url?: string; model?: string; key?: string }

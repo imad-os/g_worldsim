@@ -148,6 +148,11 @@ test('brains: saved, switched, keys kept server side (only the last 4 shown), th
   assert.equal(v.keys, 1); assert.equal(v.keyEnd, 'sk-1'.slice(-4));
   assert.ok(!JSON.stringify(br.view()).includes('"key"'), 'no key field in what clients get');
   br.put({ id: 'b3', name: 'Groq fast' }, (s) => ai.check(s));
+  br.put({ id: 'b2', addKey: 'AIzaKEY1xxxx' }, (s) => ai.check(s));
+  br.put({ id: 'b2', addKey: 'AIzaKEY2yyyy, AIzaKEY1xxxx' }, (s) => ai.check(s));
+  assert.deepEqual(br.view().list.find((x) => x.id === 'b2')!.keyEnds, ['xxxx', 'yyyy'], 'keys added one by one, no repeats');
+  br.put({ id: 'b2', removeKey: 0 }, (s) => ai.check(s));
+  assert.equal(br.get('b2')!.key, 'AIzaKEY2yyyy');
   assert.equal(br.get('b3')!.key, 'sk-1', 'key kept when not sent');
   assert.throws(() => br.put({ id: 'b3', url: 'file:///etc' }, (s) => ai.check(s)), /http/);
   ai.apply(br.settingsOf(br.use('b3')));

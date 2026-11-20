@@ -6,7 +6,7 @@
 import { keyList, PROVIDERS, type AiSettings, type Provider } from './llm.js';
 
 export interface Brain { id: string; name: string; provider: Provider; url: string; model: string; key: string }
-export interface BrainView { id: string; name: string; provider: Provider; url: string; model: string; keys: number; keyEnd: string; active: boolean }
+export interface BrainView { id: string; name: string; provider: Provider; url: string; model: string; keys: number; keyEnd: string; keyEnds: string[]; active: boolean }
 interface Store { active: string; list: Brain[] }
 
 const MAX = 20;
@@ -46,18 +46,23 @@ export class Brains {
   view(): { active: string; list: BrainView[] } {
     return {
       active: this.s.active,
-      list: this.s.list.map((b) => { const ks = keyList(b.key); return { id: b.id, name: b.name, provider: b.provider, url: b.url, model: b.model, keys: ks.length, keyEnd: ks.map((k) => k.slice(-4)).join(', '), active: b.id === this.s.active }; }),
+      list: this.s.list.map((b) => { const ks = keyList(b.key); return { id: b.id, name: b.name, provider: b.provider, url: b.url, model: b.model, keys: ks.length, keyEnd: ks.map((k) => k.slice(-4)).join(', '), keyEnds: ks.map((k) => k.slice(-4)), active: b.id === this.s.active }; }),
     };
   }
 
   /** Add (no id) or change a brain. `key`: undefined = keep the saved one, '' = remove it. Returns the saved brain. */
-  put(p: { id?: string; name?: string; provider?: Provider; url?: string; model?: string; key?: string }, check: (s: AiSettings) => AiSettings): Brain {
+  /** `addKey`: one or more keys added to the saved ones (they take turns); `removeKey`: the index of a saved key to drop. */
+  put(p: { id?: string; name?: string; provider?: Provider; url?: string; model?: string; key?: string; addKey?: string; removeKey?: number }, check: (s: AiSettings) => AiSettings): Brain {
     const old = p.id ? this.get(p.id) : undefined;
     if (p.id && !old) throw new Error('no such brain');
     if (!old && this.s.list.length >= MAX) throw new Error(`at most ${MAX} brains`);
     let id = old?.id;
     if (!id) { let n = this.s.list.length + 1; while (this.get(`b${n}`)) n++; id = `b${n}`; }
-    const b = this.make({ ...old, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)), id, key: p.key !== undefined ? p.key : old?.key ?? '' });
+    let keys = keyList(p.key !== undefined ? p.key : old?.key ?? '');
+    if (typeof p.removeKey === 'number') { if (!keys[p.removeKey]) throw new Error('no such key'); keys = keys.filter((_, i) => i !== p.removeKey); }
+    if (p.addKey) { const add = keyList(p.addKey); if (keys.length + add.length > 20) throw new Error('at most 20 keys'); keys = keyList([...keys, ...add]); }
+    const { addKey: _a, removeKey: _r, ...fields } = p;
+    const b = this.make({ ...old, ...Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)), id, key: keys.join(',') });
     // Same checks as the AI itself (address, model name, key), and the address as it will be used.
     const s = check(this.settingsOf(b));
     b.url = s.ollamaUrl; b.model = s.model;

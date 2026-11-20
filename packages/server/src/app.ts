@@ -583,7 +583,7 @@ export class App {
       }
       case 'brains': return this.brainsView();
       case 'brainSave': {
-        const b = this.brains.put({ id: c.id, name: c.name, provider: c.provider as Provider, url: c.url, model: c.model, key: c.key }, (s) => this.ai.check(s));
+        const b = this.brains.put({ id: c.id, name: c.name, provider: c.provider as Provider, url: c.url, model: c.model, key: c.key, addKey: c.addKey, removeKey: c.removeKey }, (s) => this.ai.check(s));
         if (b.id === this.brains.active.id) this.useBrain(b.id, who);
         this.log.info('brain saved', { who, id: b.id, name: b.name, provider: b.provider });
         return { ...this.brainsView(), saved: b.id };
