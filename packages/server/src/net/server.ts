@@ -87,6 +87,16 @@ export class NetServer {
   onStop: () => void = () => {};
   /** A viewer pressed A next to a person (viewer name, their character's slot, the person's slot). */
   onTalk: (name: string, player: number, agent: number) => void = () => {};
+  /** A viewer's character does something (see Msg.Do). */
+  onDo: (name: string, player: number, a: string) => Record<string, unknown> = () => ({ ok: false });
+  /** About one person; `seer` adds their thoughts and memory. */
+  info: (id: number, seer: boolean) => unknown = () => null;
+  /** Who may see thoughts (the owner's choice). */
+  isSeer: (name: string) => boolean = () => false;
+  /** Thoughts of the people around (x, y) on map m, within r. */
+  minds: (m: number, x: number, y: number, r: number) => unknown[] = () => [];
+  /** My character's needs. */
+  me: (slot: number) => unknown = () => null;
   clockInfo!: () => import('@worldsim/protocol').ClockInfo;
 
   constructor(private readonly world: World, private readonly o: NetOptions, private readonly log: Logger) {
@@ -284,6 +294,7 @@ export class NetServer {
       tiles: w.sc.tiles.map((t) => ({ id: t.id, name: t.name, solid: t.solid, color: t.color })),
       clock: this.clockInfo(),
       body: { radius: w.sc.agents.radius, walk: w.sc.agents.walk, run: w.sc.agents.run },
+      seer: role === 'viewer' && this.isSeer(name),
     });
     this.log.info('client joined', { name, role, resumed: !!(m as { resume?: string }).resume });
     return s;
@@ -427,6 +438,23 @@ export class NetServer {
         }
         return;
       }
+      case Msg.Do: {
+        if (s.avatar < 0 || !this.ownsAvatar(s) || typeof m.a !== 'string' || m.a.length > 12) return;
+        if (m.a === 'talk') {
+          const j = this.world.nearest(s.avatar, 2.5);
+          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && Date.now() - (s.talkAt ?? 0) > 4000) { s.talkAt = Date.now(); this.onTalk(s.name, s.avatar, j); }
+          this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
+          return;
+        }
+        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a) } });
+        this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
+        return;
+      }
+      case Msg.Info: {
+        if (!isNum(m.id, 0, 2 ** 31)) return;
+        this.send(s, { t: Msg.Notice, kind: 'info', data: this.info(m.id, s.role === 'admin' || this.isSeer(s.name)) });
+        return;
+      }
       case Msg.View: {
         const mi = this.world.mapIndex.get(String(m.map));
         if (mi === undefined || !isNum(m.x, -1e5, 1e5) || !isNum(m.y, -1e5, 1e5) || !isNum(m.r, 1, 1e5)) {
@@ -545,6 +573,9 @@ export class NetServer {
       if (!s.ws || s.ws.readyState !== 1) continue;
       st ??= this.stats();
       this.send(s, { t: Msg.Stats, s: st });
+      if (s.role !== 'viewer') continue;
+      if (s.avatar >= 0 && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
+      if (s.view && this.isSeer(s.name)) this.send(s, { t: Msg.Notice, kind: 'minds', data: this.minds(s.view.map, s.view.x, s.view.y, s.view.r) });
     }
   }
 

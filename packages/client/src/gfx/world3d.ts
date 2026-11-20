@@ -152,6 +152,15 @@ export class World3D {
     this.camera.updateProjectionMatrix();
   }
 
+  private readonly pv = new Vector3();
+  /** Where world point (x, height h, z) is on the screen, in CSS pixels of the full-window canvas. False when off screen. */
+  project(x: number, h: number, z: number, out: { x: number; y: number }): boolean {
+    const v = this.pv.set(x, h, z).project(this.camera);
+    if (v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) return false;
+    out.x = (v.x + 1) / 2 * innerWidth; out.y = (1 - v.y) / 2 * innerHeight;
+    return true;
+  }
+
   /** Camera follows target (x, z) smoothly; `snap` jumps there. */
   follow(x: number, z: number, dt: number, snap: boolean): void {
     this.target.set(x, 0, z);

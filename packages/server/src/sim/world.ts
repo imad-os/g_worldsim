@@ -1,4 +1,4 @@
-import { EFlag, Kind } from '@worldsim/protocol';
+import { Act, EFlag, Kind } from '@worldsim/protocol';
 import { Entities, NO_MAP } from './entities.js';
 import { generateMap } from './mapgen.js';
 import { MapPhysics, BOUNDS, type PBody } from './physics.js';
@@ -186,6 +186,10 @@ export class World {
   setInput(i: number, mx: number, my: number, run: boolean): void {
     const e = this.e;
     if (e.kind[i] !== Kind.Player) return;
+    if (e.flags[i]! & EFlag.Sleeping) { // asleep: a move wakes the player up
+      if (Math.abs(mx) + Math.abs(my) < 0.3) { e.inX[i] = e.inY[i] = 0; return; }
+      e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle;
+    }
     const len = Math.hypot(mx, my);
     const k = len > 1 ? 1 / len : 1;
     e.inX[i] = mx * k; e.inY[i] = my * k;

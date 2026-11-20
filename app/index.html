@@ -17,6 +17,41 @@
   #top { top: 2vw; }
   #hint { bottom: 2vw; color: #c9d1d9; }
   #note { top: 6vw; left: 50%; right: auto; transform: translateX(-50%); font-size: 1.8vw; color: #ffe7a3; text-align: center; }
+  #card { position: fixed; top: 6vw; right: 2vw; width: 22vw; padding: 1vw 1.2vw; background: rgba(8, 10, 14, 0.72); border-radius: 1vw; font-size: 1.25vw; line-height: 1.45; }
+  [dir="rtl"] #card { right: auto; left: 2vw; }
+  .pn { font-size: 1.7vw; font-weight: 600; }
+  .ps, .pm { color: #c9d1d9; }
+  .pa { color: #ffd166; margin: 0.3vw 0; }
+  .pm b { color: #fff; }
+  .pbars { display: flex; flex-direction: column; gap: 0.35vw; margin: 0.5vw 0; }
+  .nb { display: flex; align-items: center; gap: 0.6vw; }
+  .nl { width: 6.5vw; color: #9aa3ad; font-size: 1.1vw; }
+  .nt { flex: 1; height: 0.7vw; background: rgba(255, 255, 255, 0.12); border-radius: 0.4vw; overflow: hidden; }
+  .nt i { display: block; height: 100%; border-radius: 0.4vw; }
+  #gmenu { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 46vw; max-height: 84vh; display: flex; flex-direction: column;
+    background: rgba(12, 15, 20, 0.94); border: 0.15vw solid rgba(255, 209, 102, 0.35); border-radius: 1.4vw; padding: 1.6vw 1.8vw; box-shadow: 0 1vw 3vw rgba(0, 0, 0, 0.5); }
+  #gmenu[hidden], #card[hidden], .bub[hidden], .bub .bb[hidden] { display: none; }
+  #gmenu.wide { width: 72vw; }
+  #gmenu.wide .mx { max-height: 62vh; font-size: 1.2vw; }
+  #gmenu .pn { display: none; }
+  #gmenu .pbars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 2.5vw; }
+  #gmenu .pm { margin-top: 0.35vw; }
+  #gmenu .mt { font-size: 2.3vw; font-weight: 600; margin-bottom: 0.8vw; color: #ffd166; }
+  #gmenu .mx { font-size: 1.3vw; color: #c9d1d9; margin-bottom: 1vw; line-height: 1.5; max-height: 40vh; overflow: hidden; }
+  #note { z-index: 5; }
+  .menu-open #note { top: auto; bottom: 1.2vw; background: rgba(8, 10, 14, 0.92); }
+  #gmenu .ml { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 0.3vw; }
+  #gmenu .mr { display: flex; justify-content: space-between; gap: 2vw; font-size: 1.65vw; padding: 0.6vw 1vw; border-radius: 0.7vw; flex: none; }
+  #gmenu .mr.on { background: #ffd166; color: #14161a; }
+  #gmenu .mr.dim { opacity: 0.55; }
+  #gmenu .mv { color: #9aa3ad; max-width: 22vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #gmenu .mr.on .mv { color: #3a3320; }
+  #bubbles { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .bub { position: absolute; left: 0; top: 0; max-width: 24vw; padding: 0.45vw 0.8vw; background: rgba(255, 255, 255, 0.92); color: #1a1d22; border-radius: 0.9vw;
+    font-size: 1.05vw; line-height: 1.35; text-align: center; will-change: transform; }
+  .bub:after { content: ''; position: absolute; left: 50%; bottom: -0.6vw; margin-left: -0.5vw; border: 0.5vw solid transparent; border-top-color: rgba(255, 255, 255, 0.92); border-bottom: 0; }
+  .bub .ba { font-weight: 600; }
+  .bub .bb { color: #4a5059; font-style: italic; }
 </style>
 </head>
 <body>
@@ -25,7 +60,8 @@
 <div id="top" class="bar" hidden></div>
 <div id="hint" class="bar" hidden></div>
 <div id="note" class="bar" hidden></div>
+<div id="card" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.6.0"></script>
+<script type="module" src="game.js?v=0.7.0"></script>
 </body>
 </html>

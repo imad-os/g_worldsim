@@ -1,3 +1,4 @@
+import { T2 } from './i18n2.js';
 /** Texts in the 4 My PC languages (fall back to English). */
 const T = {
   en: {
@@ -118,9 +119,13 @@ const T = {
   },
 } as const;
 
-export type Key = keyof typeof T.en;
+export type Key = keyof typeof T.en | keyof typeof T2.en;
 let lang: keyof typeof T = 'en';
 export function setLang(l: string): void { lang = (l in T ? l : 'en') as keyof typeof T; }
-export function t(k: Key): string { return T[lang][k] ?? T.en[k]; }
+export function getLang(): string { return lang; }
+export function t(k: Key): string {
+  const a = T[lang] as Record<string, string>, b = T2[lang] as Record<string, string>;
+  return a[k] ?? b[k] ?? (T.en as Record<string, string>)[k] ?? (T2.en as Record<string, string>)[k] ?? k;
+}
 
 export function tf(k: Key, ...a: string[]): string { return t(k).replace(/\{(\d)\}/g, (_, i) => a[Number(i)] ?? ''); }

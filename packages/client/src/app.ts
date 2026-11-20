@@ -8,6 +8,10 @@ import { World3D, type Tier } from './gfx/world3d.js';
 import { buildChunk } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
 import type { PersonLook } from './gfx/people.js';
+import {
+  ACTIONS, DEFAULT_BINDS, cloneBinds, padAction, remoteAction, remoteName, actionLabel, Menu, Bubbles, bar, personHtml,
+  type ActionId, type Binds, type Page, type Row, type PersonInfo,
+} from './ui.js';
 
 /**
  * The world, as a My PC app. 3D low-poly with a tilted camera. Two ways to be there:
@@ -24,6 +28,7 @@ const screenEl = document.getElementById('screen')!;
 const hudTop = document.getElementById('top')!;
 const hudHint = document.getElementById('hint')!;
 const noteEl = document.getElementById('note')!;
+const cardEl = document.getElementById('card')!;
 
 // ------------------------------------------------------------ state
 type Auth = { token: string; name: string; server: string };
@@ -70,6 +75,17 @@ let sentMx = 0, sentMy = 0, sentRun = false, sentAt = 0, seq = 0;
 let runHeld = false;
 const held = { left: false, right: false, up: false, down: false };
 
+// Game menu, buttons, thoughts, person card.
+let binds: Binds = cloneBinds(DEFAULT_BINDS);
+let capture: ActionId | null = null;
+let thoughtsOn = true;
+let seer = false, mindsAt = 0;
+let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean } | null = null;
+let info: PersonInfo | null = null, infoFor = -1, infoAt = 0;
+const drawnX = new Float32Array(CAP), drawnY = new Float32Array(CAP), drawnF = new Uint32Array(CAP);
+let frameNo = 0;
+let pads = 0;
+
 // ------------------------------------------------------------ people palette (post-apocalypse: worn, muted)
 const C = (h: number) => new Color(h);
 const TUNICS = [0x8b5a3c, 0x6b7d4a, 0x5a6f86, 0x9a7b4f, 0x7a4b4b, 0x5e5e6e, 0xa0683a, 0x4f6b5e, 0x8a7f6a].map(C);
@@ -90,7 +106,7 @@ function show(m: typeof mode, extra = ''): void {
   mode = m;
   canvas.style.visibility = m === 'world' ? 'visible' : 'hidden';
   hudTop.hidden = hudHint.hidden = m !== 'world';
-  if (m !== 'world') noteEl.hidden = true;
+  if (m !== 'world') { noteEl.hidden = true; cardEl.hidden = true; cardHtml = ''; if (menu?.open) menu.close(); bubbles?.hide(); }
   screenEl.hidden = m === 'world';
   let html = '';
   switch (m) {
@@ -168,6 +184,7 @@ function onMsg(m: ServerMsg): void {
       break;
     case Msg.Welcome: {
       welcome = m;
+      seer = !!m.seer;
       looks = looksFor(m.tiles);
       solid.fill(0);
       for (const x of m.tiles) if (x.solid) solid[x.id] = 1;
@@ -204,6 +221,13 @@ function onMsg(m: ServerMsg): void {
         const d = m.data as { id: number; name: string; text: string };
         note(`${d.name}: “${d.text}”`, 7000);
       }
+      if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
+      if (m.kind === 'me') { meNeeds = m.data as typeof meNeeds; drawCard(); }
+      if (m.kind === 'info') {
+        const d = m.data as PersonInfo | null;
+        if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
+      }
+      if (m.kind === 'minds') { seer = true; mindsAt = performance.now(); bubbles.set(m.data as unknown[], actName); }
       break;
     case Msg.Pong: rtt = rtt * 0.7 + (performance.now() - m.c) * 0.3; break;
     case Msg.Chunk: {
@@ -327,6 +351,7 @@ function blocked(x: number, y: number): boolean {
 }
 
 function stick(): [number, number] {
+  if (menu.open) { STICK0[0] = STICK0[1] = 0; return STICK0; }
   let ax = MyPC.gamepad ? MyPC.gamepad.axis(0) : 0, ay = MyPC.gamepad ? MyPC.gamepad.axis(1) : 0;
   if (Math.hypot(ax, ay) < 0.18) { ax = 0; ay = 0; }
   if (held.left) ax = -1; if (held.right) ax = 1; if (held.up) ay = -1; if (held.down) ay = 1;
@@ -335,11 +360,12 @@ function stick(): [number, number] {
   return [ax, ay];
 }
 const STICK: [number, number] = [0, 0];
+const STICK0: [number, number] = [0, 0];
 
 function updatePlay(dt: number, now: number): void {
   const [mx, my] = stick();
   STICK[0] = mx; STICK[1] = my;
-  const run = runHeld || (!!MyPC.gamepad && (MyPC.gamepad.pressed(1) || MyPC.gamepad.pressed(2) || MyPC.gamepad.pressed(3)));
+  const run = runHeld && !menu.open;
   // Send controls on change, and every 200 ms while held.
   const qx = Math.round(mx * 50) / 50, qy = Math.round(my * 50) / 50;
   if (qx !== sentMx || qy !== sentMy || run !== sentRun || ((qx || qy) && now - sentAt > 200)) {
@@ -384,7 +410,7 @@ function followNext(): void {
   const cur = follow >= 0 ? slotOf.get(follow) ?? -1 : -1;
   const curD = cur >= 0 ? Math.hypot(nx[cur]! - camX, ny[cur]! - camY) : -1;
   for (let i = 0; i < CAP; i++) {
-    if (eid[i] === -1 || (kind[i] !== Kind.Agent && kind[i] !== Kind.Player) || i === cur) continue;
+    if (eid[i] === -1 || (kind[i] !== Kind.Agent && kind[i] !== Kind.Player) || i === cur || eid[i] === meId) continue;
     const d = Math.hypot(nx[i]! - camX, ny[i]! - camY);
     if (d < bestD) { bestD = d; best = i; }
     if (d > curD && d < afterD) { afterD = d; after = i; }
@@ -444,17 +470,196 @@ async function askServer(): Promise<void> {
 
 function unpair(): void { auth = null; MyPC.save('auth', null); retry = 0; connect(); }
 
+/** My PC's menu stays short: everything else is in the game's own menu. */
 function setMenu(): void {
-  MyPC.setMenu([
-    { id: 'how', label: t(how === 'play' ? 'menuWatch' : 'menuPlay') },
-    ...(how === 'watch' ? [{ id: 'map', label: t('menuMap') }] : []),
-    { id: 'zin', label: t('menuZoomIn') }, { id: 'zout', label: t('menuZoomOut') },
-    { id: 'server', label: t('menuServer') }, { id: 'unpair', label: t('menuUnpair') },
-  ]);
+  MyPC.setMenu([{ id: 'game', label: t('gameMenuItem') }, { id: 'server', label: t('menuServer') }]);
 }
 
+/** Hints from the player's own buttons (the controller's printed names when one is connected, else the remote's). */
 function updateHints(): void {
-  hudHint.textContent = t(how === 'play' ? (remoteOnly ? 'hintsPlayRemote' : 'hintsPlay') : (remoteOnly ? 'hintsRemote' : 'hints'));
+  const k = (a: ActionId) => {
+    if (pads) { const i = binds.pad[a]; return i === undefined ? '' : String(MyPC.gamepad?.label?.(i) ?? MyPC.gamepad?.name?.(i) ?? i); }
+    const r = binds.remote[a]; return r ? remoteName(r) : '';
+  };
+  const part = (a: ActionId, label: string) => { const b = k(a); return b ? `${b}: ${label}` : ''; };
+  const move = `${t('hMove')}: ${pads ? 'stick' : '← ↑ → ↓'}`;
+  const list = how === 'play'
+    ? [move, part('use', actionLabel('use')), part('run', actionLabel('run')), part('eat', actionLabel('eat')), part('sleep', actionLabel('sleep')), part('menu', actionLabel('menu'))]
+    : [move, part('use', t('wFollow')), part('eat', t('wMap')), part('sleep', t('wCard')), part('menu', actionLabel('menu'))];
+  if (!pads) list.push(t('hintMenu'));
+  hudHint.textContent = list.filter(Boolean).join(' · ');
+}
+
+// ------------------------------------------------------------ actions
+/** Nearest person (agent) to my character within r metres, or -1 (entity id). */
+function nearestPerson(r: number): number {
+  const x = focusX(), y = focusY();
+  let best = -1, bd = r;
+  for (let i = 0; i < CAP; i++) {
+    if (eid[i] === -1 || kind[i] !== Kind.Agent) continue;
+    const d = Math.hypot(nx[i]! - x, ny[i]! - y);
+    if (d < bd) { bd = d; best = eid[i]!; }
+  }
+  return best;
+}
+
+/** One of the player's actions, from any button. */
+function doAction(a: ActionId, pressed: boolean): void {
+  if (a === 'run') { runHeld = pressed; return; }
+  if (!pressed || mode !== 'world') return;
+  switch (a) {
+    case 'menu': openMenu(); return;
+    case 'zoomIn': zoomBy(1 / 1.2); return;
+    case 'zoomOut': zoomBy(1.2); return;
+    case 'thoughts':
+      thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn);
+      if (!thoughtsOn) bubbles.hide();
+      note(`${t('sThoughts')}: ${t(thoughtsOn ? 'on' : 'off')}`, 1500);
+      return;
+    case 'person': openMenu('person'); return;
+  }
+  if (how === 'watch') {
+    if (a === 'use') followNext();
+    else if (a === 'eat') nextMap();
+    else if (a === 'sleep') openMenu('person');
+    return;
+  }
+  if (!playing()) return;
+  if (a === 'use') { send({ t: Msg.Do, a: nearestPerson(2.5) >= 0 ? 'talk' : 'use' }); return; }
+  send({ t: Msg.Do, a }); // drink, eat, pickup, sleep
+}
+
+const ITEM_NAMES: Record<string, string> = {};
+function onDid(d: { a: string; ok: boolean; code: string; item?: string }): void {
+  const map: Record<string, Parameters<typeof t>[0]> = {
+    drank: 'dDrank', picked: 'dPicked', ate: 'dAte', sleep: 'dSleep', wake: 'dWake', noWater: 'dNoWater', nothing: 'dNothing',
+    noFood: 'dNoFood', full: 'dFull', talk: 'dTalk', nobody: 'dNobody',
+  };
+  const k = map[d.code];
+  if (!k) return;
+  note(k === 'dPicked' ? tf('dPicked', ITEM_NAMES[d.item ?? ''] ?? d.item ?? '') : t(k), 2500);
+}
+
+// ------------------------------------------------------------ side card: my needs (play), the followed person (watch)
+let cardHtml = '';
+function drawCard(): void {
+  let html = '';
+  if (mode === 'world' && !menu.open) {
+    if (how === 'play' && meNeeds) {
+      html = `<div class="pn">${esc(profileName())}</div><div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>`
+        + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry)) : ''}</div>`;
+    } else if (how === 'watch' && follow >= 0 && info && info.id === follow) html = personHtml(info, actName, false);
+  }
+  if (html === cardHtml) return;
+  cardHtml = html;
+  cardEl.innerHTML = html;
+  cardEl.hidden = !html;
+}
+
+/** Who "This person" means: the one I follow (watch), or the nearest (play). */
+function personTarget(): number { return how === 'watch' ? follow : nearestPerson(10); }
+
+// ------------------------------------------------------------ the game's own menu
+function onOff(v: boolean): string { return t(v ? 'on' : 'off'); }
+function bindText(a: ActionId): string {
+  const i = binds.pad[a], r = binds.remote[a];
+  const p = i === undefined ? t('cNone') : String(MyPC.gamepad?.label?.(i) ?? MyPC.gamepad?.name?.(i) ?? i);
+  return `${p} · ${r ? remoteName(r) : t('cNone')}`;
+}
+
+function buildPage(id: string): Page {
+  const rows: Row[] = [];
+  switch (id) {
+    case 'root': {
+      rows.push({ id: 'resume', label: t('mResume') });
+      if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true });
+      if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
+      if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
+      rows.push({ id: 'how', label: t(how === 'play' ? 'mWatch' : 'mPlay') });
+      rows.push({ id: 'settings', label: t('mSettings'), sub: true }, { id: 'controls', label: t('mControls'), sub: true });
+      return { id, title: t('mTitle'), rows };
+    }
+    case 'actions':
+      for (const a of ['use', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
+      return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
+    case 'person': {
+      rows.push({ id: 'back', label: t('mBack') });
+      if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') });
+      return { id, title: info?.name ?? t('mPerson'), rows, wide: true, html: info && info.id === infoFor ? personHtml(info, actName, true) : '…' };
+    }
+    case 'settings':
+      if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
+      rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
+      return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
+    case 'controls':
+      for (const a of ACTIONS) rows.push({ id: a, label: actionLabel(a), value: bindText(a) });
+      rows.push({ id: 'reset', label: t('cReset') });
+      return { id, title: t('mControls'), rows, text: `${t('cHelp')} ${t('cWatchNote')}` };
+  }
+  return { id, title: '', rows };
+}
+
+function pickRow(page: string, row: string): void {
+  if (page === 'root') {
+    if (row === 'resume') menu.close();
+    else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
+    else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
+    else if (row === 'next') { menu.close(); followNext(); }
+    else if (row === 'map') { menu.close(); nextMap(); }
+    else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
+  } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
+  else if (page === 'person') {
+    if (row === 'back') menu.back();
+    else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
+  } else if (page === 'settings') {
+    if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
+    else if (row === 'zin') zoomBy(1 / 1.2);
+    else if (row === 'zout') zoomBy(1.2);
+    else if (row === 'server') { menu.close(); void askServer(); }
+    else if (row === 'unpair') { menu.close(); unpair(); }
+  } else if (page === 'controls') {
+    if (row === 'reset') { binds = cloneBinds(DEFAULT_BINDS); MyPC.save('binds', binds); menu.refresh(); updateHints(); return; }
+    capture = row as ActionId;
+    note(tf('cPress', actionLabel(capture)), 0);
+  }
+}
+
+const menu = new Menu(buildPage, pickRow, () => { capture = null; noteEl.hidden = true; drawCard(); MyPC.back?.(false); });
+const bubbles = new Bubbles(8);
+
+function openMenu(page = 'root'): void {
+  if (mode !== 'world') return;
+  held.left = held.right = held.up = held.down = false; runHeld = false;
+  if (page === 'person') {
+    const id = personTarget();
+    if (id < 0) { note(t('nobody'), 2000); return; }
+    askInfo(id, true);
+  }
+  menu.show('root');
+  if (page !== 'root') menu.push(page);
+  MyPC.back?.(true);
+  drawCard();
+}
+
+function askInfo(id: number, now = false): void {
+  if (id < 0) return;
+  if (id !== infoFor) { infoFor = id; info = null; }
+  if (now || performance.now() - infoAt > 1000) { infoAt = performance.now(); send({ t: Msg.Info, id }); }
+}
+
+/** A button the player pressed while choosing one for an action. */
+function captured(kindOf: 'pad' | 'remote', b: number | string): void {
+  const a = capture!;
+  capture = null;
+  const side = kindOf === 'pad' ? binds.pad : binds.remote;
+  // One button = one action: take it from the action that had it.
+  for (const o of ACTIONS) if ((side as Record<string, unknown>)[o] === b) delete (side as Record<string, unknown>)[o];
+  (side as Record<string, unknown>)[a] = b;
+  MyPC.save('binds', binds);
+  const name = kindOf === 'pad' ? String(MyPC.gamepad?.label?.(b as number) ?? b) : remoteName(b as string);
+  note(tf('cSet', actionLabel(a), name), 2500);
+  menu.refresh();
+  updateHints();
 }
 
 // ------------------------------------------------------------ loop
@@ -478,6 +683,7 @@ function draw(now: number, dt: number): void {
   const a = Math.min(1.25, (now - frameAt) / frameGap);
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
   const r = g3.dist * 1.6 + 8;
+  frameNo++;
   P.begin(); g3.beginShots(); g3.beginItems();
   for (let i = 0; i < CAP; i++) {
     if (eid[i] === -1) continue;
@@ -499,6 +705,7 @@ function draw(now: number, dt: number): void {
       face[i] = face[i]! + d * Math.min(1, dt * 12);
     }
     phase[i] = (phase[i]! + moved * 4.2) % (Math.PI * 2);
+    drawnX[i] = x; drawnY[i] = y; drawnF[i] = frameNo;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const look = i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / 2.2), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1);
@@ -507,7 +714,17 @@ function draw(now: number, dt: number): void {
   }
   P.end(); g3.endShots(); g3.endItems();
   g3.render();
+  // Thoughts over heads: only for players the owner allows (the server sends them to nobody else).
+  if (seer && thoughtsOn && !menu.open && now - mindsAt < 4000) bubbles.draw(bubblePos, bubbleProject, fx, fy, actName);
+  else bubbles.hide();
 }
+function bubblePos(id: number, out: { x: number; y: number }): boolean {
+  const s = slotOf.get(id);
+  if (s === undefined || drawnF[s] !== frameNo) return false;
+  out.x = drawnX[s]!; out.y = drawnY[s]!;
+  return true;
+}
+const bubbleProject = (x: number, z: number, out: { x: number; y: number }) => !!g3 && g3.project(x, 2.2, z, out);
 
 function frame(ts: number): void {
   raf = requestAnimationFrame(frame);
@@ -518,7 +735,11 @@ function frame(ts: number): void {
   draw(ts, dt);
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
   if (ts - pingAt > 3000) { pingAt = ts; send({ t: Msg.Ping, c: ts }); }
-  if (ts - hudAt > 500 && mode === 'world') { hudAt = ts; updateHud(ts); }
+  if (ts - hudAt > 500 && mode === 'world') {
+    hudAt = ts; updateHud(ts);
+    if (how === 'watch' && follow >= 0) askInfo(follow); else if (menu.open && menu.page === 'person') askInfo(infoFor);
+    drawCard();
+  }
 }
 
 let hudText = '';
@@ -550,12 +771,59 @@ function stopLoop(): void {
   sentMx = sentMy = 0;
 }
 
+// ------------------------------------------------------------ input
+const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
+/** Arrows / D-pad / stick as directions: the menu when it is open, else moving. */
+function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean): void {
+  if (menu.open) { if (pressed && (d === 'up' || d === 'down')) menu.input(d); return; }
+  if (!repeat) held[d] = pressed;
+}
+
+/** OK on the screens before the world (server address, pairing failed). */
+function screenOk(): void {
+  if (mode === 'noserver' || mode === 'offline') void askServer();
+  else if (mode === 'pairfail') { retry = 0; mode = 'connect'; connect(); }
+}
+
+/** Every remote button by name (API 19): OK and the arrows keep their jobs, the rest is the player's map. */
+function onRemote(name: string, pressed: boolean, repeat: boolean): void {
+  if (name in DIRS) { direction(name as keyof typeof DIRS, pressed, repeat); return; }
+  if (capture) { if (pressed && !repeat) captured('remote', name); return; }
+  if (mode !== 'world') { if (pressed && name === 'ok') screenOk(); return; }
+  if (menu.open) {
+    if (!pressed || repeat) return;
+    if (name === 'ok') menu.input('ok');
+    else if (remoteAction(binds, name) === 'menu') menu.close();
+    return;
+  }
+  const a = remoteAction(binds, name);
+  if (a && !repeat) doAction(a, pressed);
+}
+
+/** Controller buttons (by letter: 0 = A). The D-pad and the stick come through onInput as directions. */
+function onPad(i: number, pressed: boolean): void {
+  if (i >= 12 && i <= 16) return; // D-pad (directions) and Home (My PC's)
+  if (capture) { if (pressed) captured('pad', i); return; }
+  if (mode !== 'world') { if (pressed && i === 0) screenOk(); return; }
+  if (menu.open) {
+    if (!pressed) return;
+    if (i === 0) menu.input('ok');
+    else if (i === 1) menu.input('back');
+    else if (padAction(binds, i) === 'menu') menu.close();
+    return;
+  }
+  const a = padAction(binds, i);
+  if (a) doAction(a, pressed);
+}
+
 // ------------------------------------------------------------ My PC
 MyPC.init({
-  keys: ['channel'],
+  keys: ['channel', 'buttons'],
+  ownMenu: true,
   onInit(info: { lang: string; quality?: { tier: Tier } }) {
     setLang(info.lang);
     document.documentElement.lang = info.lang;
+    document.documentElement.dir = info.lang === 'ar' ? 'rtl' : 'ltr';
     tier = info.quality?.tier ?? 'mid';
     const q = new URLSearchParams(location.search);
     if (q.get('tier') === 'low' || q.get('tier') === 'mid' || q.get('tier') === 'high') tier = q.get('tier') as Tier;
@@ -566,17 +834,17 @@ MyPC.init({
     server = String(q.get('server') || cfg.server || MyPC.load('server', '') || auth?.server || own);
     how = MyPC.load('how', 'play') === 'watch' ? 'watch' : 'play';
     if (q.get('watch') !== null) how = 'watch';
+    const b = MyPC.load('binds', null) as Binds | null;
+    if (b && b.pad && b.remote) binds = { pad: { ...b.pad }, remote: { ...b.remote } };
+    thoughtsOn = MyPC.load('thoughts', true) !== false;
     window.addEventListener('resize', resize);
     setMenu();
     if (MyPC.gamepad) {
-      MyPC.gamepad.on('pads', (list: unknown[]) => { remoteOnly = !list.length; updateHints(); });
-      MyPC.gamepad.on('button', (i: number, pressed: boolean) => {
-        if (!pressed || mode !== 'world') return;
-        if (i === 2 && how === 'watch') nextMap();
-        else if (i === 4) zoomBy(1.15);
-        else if (i === 5) zoomBy(1 / 1.15);
-      });
+      MyPC.gamepad.on('pads', (list: unknown[]) => { pads = list.length; remoteOnly = !list.length; updateHints(); });
+      MyPC.gamepad.on('button', (i: number, pressed: boolean) => onPad(i, pressed));
     }
+    MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map] };
     MyPC.ready();
   },
   onStart() {
@@ -594,30 +862,37 @@ MyPC.init({
     g3?.dispose(); g3 = null;
   },
   onMenu(id: string) {
-    if (id === 'how') setHow(how === 'play' ? 'watch' : 'play');
-    else if (id === 'map') nextMap();
-    else if (id === 'zin') zoomBy(1 / 1.3);
-    else if (id === 'zout') zoomBy(1.3);
+    if (id === 'game') setTimeout(() => openMenu(), 50);
     else if (id === 'server') void askServer();
-    else if (id === 'unpair') unpair();
   },
-  onInput(action: string, pressed: boolean, _repeat?: boolean, dev?: string): boolean | void {
-    if (action in held) { held[action as keyof typeof held] = pressed; return; }
-    if (action === 'run') { runHeld = pressed; return; }
-    if (!pressed) return action === 'cancel' && isPad(dev) ? true : undefined;
-    if (mode === 'noserver' || mode === 'offline') { if (action === 'confirm') void askServer(); return action === 'cancel' ? false : undefined; }
-    if (mode === 'pairfail') { if (action === 'confirm') { retry = 0; mode = 'connect'; connect(); } return action === 'cancel' ? false : undefined; }
-    if (mode !== 'world') return action === 'cancel' ? false : undefined;
-    if (action === 'pageUp') { zoomBy(1 / 1.2); return; }
-    if (action === 'pageDown') { zoomBy(1.2); return; }
-    if (how === 'play') {
-      if (action === 'confirm' && playing()) send({ t: Msg.Input, mx: sentMx, my: sentMy, run: sentRun, act: true, seq: ++seq });
-      // B on a controller runs (held); the remote's Back has nothing to close here: My PC's menu.
-      if (action === 'cancel') return isPad(dev) ? true : false;
+  onInput(action: string, pressed: boolean, repeat?: boolean, dev?: string): boolean | void {
+    if (action in DIRS) { direction(action as keyof typeof DIRS, pressed, repeat); return; }
+    const pad = !!dev && /^pad/.test(dev);
+    if (action === 'cancel') {
+      if (!pressed) return pad ? true : undefined;
+      if (capture) { capture = null; note(t('mControls'), 800); return true; }
+      if (menu.open) { menu.input('back'); return true; }
+      if (pad) return true; // a controller's B is the player's own button (Run by default)
+      if (mode !== 'world') return false; // nothing to close: My PC's menu
+      openMenu(); // the remote's Back: the game menu (twice quickly = My PC's menu)
+      return true;
+    }
+    // Controllers come through MyPC.gamepad (the player's map); here only the remote without MyPC.buttons, keyboard, touch.
+    if (pad || action === 'jump' || action === 'menu' && pad) return;
+    if (action === 'menu') { if (pressed) { if (menu.open) menu.close(); else openMenu(); } return; }
+    if (capture) return;
+    if (action === 'confirm') {
+      if (!pressed) return;
+      if (mode !== 'world') { screenOk(); return; }
+      if (menu.open) { menu.input('ok'); return; }
+      doAction(dev === 'touch' ? 'use' : remoteAction(binds, 'ok') ?? 'use', true);
       return;
     }
-    if (action === 'confirm') followNext();
-    else if (action === 'cancel') { if (follow >= 0) { follow = -1; return true; } return false; }
+    if (mode !== 'world' || menu.open) return;
+    if (action === 'run') { doAction('run', pressed); return; }
+    if (!pressed) return;
+    if (action === 'pageUp') doAction(remoteAction(binds, 'chUp') ?? 'zoomIn', true);
+    else if (action === 'pageDown') doAction(remoteAction(binds, 'chDown') ?? 'zoomOut', true);
   },
 });
 let startDist = 24;

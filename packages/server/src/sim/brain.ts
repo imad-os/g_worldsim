@@ -86,6 +86,7 @@ export class Brain {
   // ------------------------------------------------------------------ per tick
   think(): void {
     const w = this.w, e = w.e;
+    if (w.tick % 20 === 0) this.playerNeeds();
     if (w.tick >= this.nextSpawn) { this.spawnItems(false); this.nextSpawn = w.tick + Math.round(60 / w.dt); }
     for (let i = 0; i < e.hi; i++) {
       if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP) continue;
@@ -144,6 +145,86 @@ export class Brain {
     this.stop(i); this.setAct(i, Act.Talk, secs); e.target[i] = e.id(j); e.goal[i] = -2;
     e.angle[i] = Math.atan2(e.y[j]! - e.y[i]!, e.x[j]! - e.x[i]!);
     this.schedule(i, 0);
+  }
+
+  // ------------------------------------------------------------------ players (they live by the same rules)
+  /** Needs of the players' characters, every 20 ticks (no damage: a player is never killed by hunger). */
+  private playerNeeds(): void {
+    const w = this.w, e = w.e, N = this.life.needs, k = this.life.difficulty;
+    const h = (20 * w.dt * w.opt.clockScale) / HOUR;
+    for (let i = 0; i < e.hi; i++) {
+      if (e.kind[i] !== Kind.Player || e.map[i] === NO_MAP) continue;
+      const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
+      e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * h * (asleep ? 0.5 : 1));
+      e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * h * (asleep ? 0.5 : 1));
+      e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * h) : Math.min(100, e.tired[i]! + N.tired * k * h);
+      if (asleep && e.tired[i]! <= 0) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
+    }
+  }
+
+  /** Next to water (the tile under or beside x, y). */
+  nearWater(m: number, x: number, y: number): boolean {
+    const t = this.w.maps[m]!.tiles, W = t.w;
+    const tx = Math.floor(x), ty = Math.floor(y);
+    const list = this.drinkSpots[m]!;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = tx + dx, yy = ty + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= t.h) continue;
+      const c = yy * W + xx;
+      // drink spots are sorted by index (built row by row)
+      let lo = 0, hi = list.length - 1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1, v = list[mid]!; if (v === c) return true; if (v < c) lo = mid + 1; else hi = mid - 1; }
+    }
+    return false;
+  }
+
+  /**
+   * A player does what people do: 'use' = the obvious thing here (pick up food, drink, else eat), or one action by name.
+   * Returns what happened ('drank', 'picked', 'ate', 'sleep', 'wake') or why not ('noWater', 'nothing', 'noFood', 'full').
+   */
+  playerDo(i: number, a: string): { ok: boolean; code: string; item?: string } {
+    const w = this.w, e = w.e;
+    if (e.kind[i] !== Kind.Player || e.map[i] === NO_MAP) return { ok: false, code: 'nothing' };
+    const m = e.map[i]!;
+    const item = () => { const t = this.nearestItem(i, 1.8); return t; };
+    if (a === 'use') {
+      if (item() >= 0) a = 'pickup';
+      else if (this.nearWater(m, e.x[i]!, e.y[i]!) && e.thirst[i]! > 5) a = 'drink';
+      else if (e.carry[i]! > 0 && e.hunger[i]! > 15) a = 'eat';
+      else return { ok: false, code: 'nothing' };
+    }
+    switch (a) {
+      case 'drink':
+        if (!this.nearWater(m, e.x[i]!, e.y[i]!)) return { ok: false, code: 'noWater' };
+        e.thirst[i] = 0; w.emit('drink', { id: e.id(i), player: true });
+        return { ok: true, code: 'drank' };
+      case 'pickup': {
+        const t = item();
+        if (t < 0) return { ok: false, code: 'nothing' };
+        if (e.carry[i]! >= 5) return { ok: false, code: 'full' };
+        const def = this.itemDef.get(e.sub[t]!);
+        w.remove(t, 'taken');
+        e.carry[i]!++;
+        w.emit('pickup', { id: e.id(i), item: def?.name ?? 'food', player: true });
+        return { ok: true, code: 'picked', item: def?.name ?? 'food' };
+      }
+      case 'eat':
+        if (e.carry[i]! <= 0) return { ok: false, code: 'noFood' };
+        e.carry[i]!--; e.hunger[i] = Math.max(0, e.hunger[i]! - 35);
+        return { ok: true, code: 'ate' };
+      case 'sleep':
+        if (e.flags[i]! & EFlag.Sleeping) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; return { ok: true, code: 'wake' }; }
+        e.flags[i] = e.flags[i]! | EFlag.Sleeping; e.act[i] = Act.Sleep; e.inX[i] = e.inY[i] = 0;
+        return { ok: true, code: 'sleep' };
+    }
+    return { ok: false, code: 'nothing' };
+  }
+
+  /** What a person is up to, in words, for the owner's thought bubbles: [action, target name or '', metres to go, wish]. */
+  intent(i: number): { act: number; to: number; dist: number; wish: number; wishWith: number } {
+    const e = this.w.e, walking = this.walking(i);
+    const dist = walking ? Math.hypot(this.gx[i]! - e.x[i]!, this.gy[i]! - e.y[i]!) : 0;
+    return { act: e.act[i]!, to: e.target[i]!, dist, wish: this.wishOf(i), wishWith: this.wishWith[i]! };
   }
 
   stop(i: number): void { const e = this.w.e; this.pN[i] = 0; e.tx[i] = e.x[i]!; e.ty[i] = e.y[i]!; e.speed[i] = 0; }

@@ -19,6 +19,10 @@ export interface Join { t: typeof Msg.Join }
  */
 export interface Input { t: typeof Msg.Input; mx: number; my: number; run?: boolean; act?: boolean; seq?: number }
 
+/** Client -> server: my character does something (answer: Notice 'did' { a, ok, code }, then Notice 'me'). */
+export interface Do { t: typeof Msg.Do; a: string }
+/** Client -> server: about one person (answer: Notice 'info'). */
+export interface Info { t: typeof Msg.Info; id: number }
 /** Client -> server: list the people of a map (answer: Notice kind 'people', data [id, x, y, act][]). */
 export interface Who { t: typeof Msg.Who; map: string }
 
@@ -60,6 +64,8 @@ export type AdminCmd =
   /** AI planner (milestone 6): settings, the last requests and answers, plan someone now, talk to someone. */
   | { cmd: 'planner'; on?: boolean; everyGameHours?: number; batch?: number; minGapSec?: number }
   | { cmd: 'aiLog' }
+  /** Who sees people's thoughts and plans on their TV. */
+  | { cmd: 'seer'; name: string; on: boolean }
   /** Life cycle (milestone 7): game days per year of age, the most people alive for a baby to come. */
   | { cmd: 'life'; yearDays?: number; maxPopulation?: number }
   | { cmd: 'planNow'; id: number }
@@ -83,6 +89,8 @@ export interface Welcome {
   clock: ClockInfo;
   /** People's body: radius and walk / run speeds (m/s), so a player's own client can predict its moves. */
   body?: { radius: number; walk: number; run: number };
+  /** This viewer may see what people think and plan (the owner's choice in the panel). */
+  seer?: boolean;
 }
 
 export interface ClockInfo {
@@ -148,5 +156,5 @@ export interface Notice { t: typeof Msg.Notice; kind: string; data?: unknown }
 export interface Pong { t: typeof Msg.Pong; c: number; s: number }
 export interface AdminResult { t: typeof Msg.AdminResult; id: number; ok: boolean; data?: unknown; err?: string }
 
-export type ClientMsg = Hello | Pair | Join | Input | View | Ping | Admin | Who;
+export type ClientMsg = Hello | Pair | Join | Input | View | Ping | Admin | Who | Do | Info;
 export type ServerMsg = Welcome | ErrorMsg | Chunk | ChunkDrop | Frame | Stats | Pong | AdminResult | PairCode | Paired | Notice | You;

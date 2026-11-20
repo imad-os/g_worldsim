@@ -45,6 +45,8 @@ export const Msg = {
   Pair: 'pair', // ask to pair this device (no token yet)
   Join: 'join', // put my character in the world
   Input: 'in',  // my character's controls
+  Do: 'do',     // my character does something: 'use' (the obvious thing here), 'drink', 'eat', 'pickup', 'sleep', 'talk'
+  Info: 'info', // about one person (watch mode): answered with Notice 'info'
   // server -> client
   Welcome: 'wel',
   Error: 'err',

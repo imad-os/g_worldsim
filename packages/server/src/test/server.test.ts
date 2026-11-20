@@ -254,3 +254,78 @@ test('players: join puts my character in the world, input moves it, leaving keep
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test('players do what people do; only allowed players see thoughts; person info', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws-'));
+  try {
+    const app = makeApp(dir);
+    await app.start();
+    after(() => app.stop());
+    const url = app.net.address().replace('http', 'ws') + '/ws';
+    const notice = (c: Client, kind: string, f: (d: any) => boolean = () => true) =>
+      c.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === kind && f((m as { data: unknown }).data)).then((m) => (m as { data: any }).data);
+    const me = await connect(url, VIEW1), guest = await connect(url, VIEW2);
+    const w1 = await me.wait((m) => m.t === Msg.Welcome) as { seer?: boolean };
+    const w2 = await guest.wait((m) => m.t === Msg.Welcome) as { seer?: boolean };
+    assert.equal(w1.seer, true, 'imad sees thoughts by default');
+    assert.equal(w2.seer, false, 'other players do not');
+    me.send({ t: Msg.Join });
+    const you = await me.wait((m) => m.t === Msg.You) as { id: number };
+    const e = app.world.e, i = e.slot(you.id);
+    // Eat with nothing carried, then pick up food lying next to me, then eat it.
+    me.send({ t: Msg.Do, a: 'eat' });
+    assert.equal((await notice(me, 'did', (d) => d.a === 'eat')).code, 'noFood');
+    let it = -1;
+    for (let k = 0; k < e.hi; k++) if (e.kind[k] === 3 && e.map[k] === e.map[i]) { it = k; break; }
+    assert.ok(it >= 0, 'food lies around');
+    app.world.place(i, e.map[i]!, e.x[it]! + 0.5, e.y[it]!);
+    e.hunger[i] = 60;
+    me.msgs.length = 0;
+    me.send({ t: Msg.Do, a: 'use' }); // the obvious thing here: pick it up
+    const got = await notice(me, 'did');
+    assert.equal(got.code, 'picked', JSON.stringify(got));
+    assert.equal(e.carry[i], 1);
+    me.send({ t: Msg.Do, a: 'eat' });
+    assert.equal((await notice(me, 'did', (d) => d.a === 'eat')).code, 'ate');
+    assert.equal(e.carry[i], 0);
+    assert.ok(e.hunger[i]! < 60);
+    const mine = await notice(me, 'me');
+    assert.equal(typeof mine.hunger, 'number');
+    // Sleep, then wake up by moving.
+    me.send({ t: Msg.Do, a: 'sleep' });
+    assert.equal((await notice(me, 'did', (d) => d.a === 'sleep')).code, 'sleep');
+    assert.ok(e.flags[i]! & 4, 'asleep');
+    for (let k = 0; k < 3; k++) { me.send({ t: Msg.Input, mx: 1, my: 0 }); await new Promise((r) => setTimeout(r, 100)); }
+    me.send({ t: Msg.Input, mx: 0, my: 0 });
+    assert.equal(e.flags[i]! & 4, 0, 'moving wakes me up');
+    // Thoughts: the seer gets them for the people in view, the guest never.
+    let ag = -1;
+    for (let k = 0; k < e.hi; k++) if (e.kind[k] === 1) { ag = k; break; }
+    me.send({ t: Msg.View, map: 'town', x: e.x[ag]!, y: e.y[ag]!, r: 40 });
+    guest.send({ t: Msg.View, map: 'town', x: e.x[ag]!, y: e.y[ag]!, r: 40 });
+    const minds = await notice(me, 'minds', (d) => Array.isArray(d) && d.some((r: number[]) => r[0] === e.id(ag)));
+    assert.ok(minds.length >= 1);
+    await new Promise((r) => setTimeout(r, 1300));
+    assert.ok(!guest.msgs.some((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'minds'), 'guest gets no thoughts');
+    // Person info: everyone gets the facts, only the seer gets the mind.
+    me.send({ t: Msg.Info, id: e.id(ag) });
+    guest.send({ t: Msg.Info, id: e.id(ag) });
+    const a = await notice(me, 'info'), b = await notice(guest, 'info');
+    assert.equal(a.id, e.id(ag)); assert.equal(b.name, a.name);
+    assert.ok(typeof a.hunger === 'number' && a.traits);
+    assert.equal(b.mind, undefined, 'no thoughts for the guest');
+    // The owner allows the guest in the panel.
+    const adm = await connect(url, ADMIN);
+    await adm.wait((m) => m.t === Msg.Welcome);
+    adm.send({ t: Msg.Admin, id: 7, c: { cmd: 'seer', name: 'guest', on: true } });
+    await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 7);
+    await notice(guest, 'minds');
+    adm.send({ t: Msg.Admin, id: 8, c: { cmd: 'players' } });
+    const pl = (await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 8)) as { data: { name: string; seer: boolean }[] };
+    assert.equal(pl.data.find((p) => p.name === 'guest')?.seer, true);
+    me.ws.close(); guest.ws.close(); adm.ws.close();
+    await app.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});

@@ -168,12 +168,17 @@ function addChat(name: string, text: string): void {
 }
 
 async function refreshPlayers(): Promise<void> {
-  const list = (await cmd({ cmd: 'players' })) as { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean }[];
+  const list = (await cmd({ cmd: 'players' })) as { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean; seer?: boolean }[];
   $('players').innerHTML = list.length ? list.map((p) => `<div class="row"><div><b>${esc(p.name)}</b><br><span class="dim">${esc(p.dev)} · last seen ${ago(p.lastSeen)}</span></div>
-    <div>${p.fromEnv ? '<span class="dim">.env</span>' : `<button data-rm="${esc(p.name)}">Remove</button>`}</div></div>`).join('') : '<p class="dim">No players yet.</p>';
+    <div><label title="Sees what people think and plan, as bubbles over their heads"><input type="checkbox" data-seer="${esc(p.name)}"${p.seer ? ' checked' : ''}> sees thoughts</label>
+    ${p.fromEnv ? '<span class="dim">.env</span>' : `<button data-rm="${esc(p.name)}">Remove</button>`}</div></div>`).join('') : '<p class="dim">No players yet.</p>';
   for (const b of $('players').querySelectorAll<HTMLButtonElement>('[data-rm]')) b.onclick = async () => {
     if (!confirm(`Remove ${b.dataset.rm}? That TV will have to pair again.`)) return;
     try { await cmd({ cmd: 'revoke', name: b.dataset.rm! }); log(`removed ${b.dataset.rm}`); } catch (e) { log(String(e)); }
+    void refreshPlayers();
+  };
+  for (const c of $('players').querySelectorAll<HTMLInputElement>('[data-seer]')) c.onchange = async () => {
+    try { await cmd({ cmd: 'seer', name: c.dataset.seer!, on: c.checked }); log(`${c.dataset.seer} ${c.checked ? 'sees' : 'no longer sees'} thoughts`); } catch (e) { log(String(e)); }
     void refreshPlayers();
   };
 }

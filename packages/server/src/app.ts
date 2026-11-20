@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -128,6 +128,12 @@ export class App {
     this.net.onStop = () => this.onStopRequest();
     // A player pressed A next to someone: they stop, face the player and answer.
     this.net.onTalk = (name, player, i) => { void this.planner.chat(i, name, null, player).catch(() => {}); };
+    // Players do what people do; the owner (and whoever they allow) sees thoughts and plans.
+    this.net.onDo = (_name, player, a) => w.brain.playerDo(player, a);
+    this.net.isSeer = (name) => this.seers().has(name.toLowerCase());
+    this.net.info = (id, seer) => this.personInfo(id, seer);
+    this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
+    this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0 });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     this.net.avatarStore = {
       get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },
@@ -180,6 +186,46 @@ export class App {
       travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty, yearDays: w.brain.life.yearDays, maxPopulation: w.brain.life.maxPopulation,
       ai: { ...(({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()), plans: this.planner.counts.plans, chats: this.planner.counts.chats, failures: this.planner.counts.failures },
     };
+  }
+
+  /** Players who see thoughts (lower case). imad asked to be the only one by default (2026-11-20). */
+  seers(): Set<string> {
+    const v = this.db.getMeta('seers');
+    return new Set((v ? (JSON.parse(v) as string[]) : ['imad']).map((n) => n.toLowerCase()));
+  }
+
+  /** One person for a viewer (watch mode's card). Thoughts, plans and memory only for seers. */
+  personInfo(id: number, seer: boolean): Record<string, unknown> | null {
+    const w = this.world, e = w.e, p = w.profiles.get(id);
+    if (!p) return null;
+    const i = e.slot(id), r2 = (v: number) => Math.round(v * 100) / 100;
+    const base: Record<string, unknown> = {
+      id, name: p.name, sex: p.sex, age: Math.floor(ageOf(p, w.gameSec, w.yearSec)), alive: i >= 0, cause: p.cause,
+      personality: p.personality, generation: p.generation, pregnant: !!p.pregnant,
+      partner: p.partner >= 0 ? this.nameOf(p.partner) : null, parents: p.parents.map((x) => this.nameOf(x)),
+      children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([, q]) => q.name),
+      traits: Object.fromEntries(Object.entries(p.traits).map(([k, v]) => [k, k === 'lifespan' ? Math.round(v) : r2(v)])),
+    };
+    if (i >= 0) Object.assign(base, { act: e.act[i], hunger: Math.round(e.hunger[i]!), thirst: Math.round(e.thirst[i]!), tired: Math.round(e.tired[i]!), lonely: Math.round(e.lonely[i]!), hp: Math.round(e.hp[i]!), carry: e.carry[i] });
+    if (seer && p.mind) {
+      const m = p.mind;
+      base.mind = { mood: m.mood, plan: m.plan && m.plan.until > w.gameSec ? { act: m.plan.act, with: m.plan.with !== undefined ? this.nameOf(m.plan.with) : null, why: m.plan.why } : null, memory: m.summary, said: m.said?.text ?? null, recent: m.notes.slice(-5).map((n) => n.text) };
+    }
+    return base;
+  }
+
+  /** Thought bubbles: [id, act, target name, metres to go, wish act, wish with, why, mood, said] for people near (x, y). */
+  mindsAround(m: number, x: number, y: number, r: number): unknown[] {
+    const w = this.world, e = w.e, out: unknown[] = [];
+    for (let i = 0; i < e.hi && out.length < 40; i++) {
+      if (e.kind[i] !== Kind.Agent || e.map[i] !== m || Math.abs(e.x[i]! - x) > r || Math.abs(e.y[i]! - y) > r) continue;
+      const it = w.brain.intent(i), p = w.profileOf(i);
+      const act = it.act;
+      const to = (act === 6 && it.to >= 0) ? this.nameOf(it.to) : '';
+      const plan = p?.mind?.plan && p.mind.plan.until > w.gameSec ? p.mind.plan : undefined;
+      out.push([e.id(i), act, to, Math.round(it.dist), plan ? plan.act : '', plan?.with !== undefined ? this.nameOf(plan.with) : '', plan?.why ?? '', p?.mind?.mood ?? '', p?.mind?.said && w.gameSec - p.mind.said.at < 1800 ? p.mind.said.text : '']);
+    }
+    return out;
   }
 
   private nameOf(id: number): string { return this.world.profiles.get(id)?.name ?? `#${id & 0xffff}`; }
@@ -240,7 +286,15 @@ export class App {
         return this.players.approve(c.code, typeof c.name === 'string' ? c.name : undefined);
       }
       case 'deny': this.players.deny(String(c.code)); return { ok: true };
-      case 'players': return this.players.list();
+      case 'players': { const s = this.seers(); return this.players.list().map((p) => ({ ...p, seer: s.has(p.name.toLowerCase()) })); }
+      case 'seer': {
+        const name = String(c.name ?? '').trim().toLowerCase();
+        if (!name) throw new Error('bad name');
+        const s = this.seers();
+        if (c.on === true) s.add(name); else s.delete(name);
+        this.db.setMeta('seers', JSON.stringify([...s]));
+        return { seers: [...s] };
+      }
       case 'revoke': {
         const ok = this.players.revoke(String(c.name));
         if (!ok) throw new Error('no such player (players from .env are removed there)');
