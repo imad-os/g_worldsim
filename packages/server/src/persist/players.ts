@@ -12,6 +12,8 @@ export interface Pairing { code: string; name: string; dev: string; ip: string; 
  */
 export class Players {
   readonly pending = new Map<string, Pairing>();
+  /** Names a TV may not take as they are (signed-in accounts' characters): it gets "name (2)". */
+  reserved: (name: string) => boolean = () => false;
 
   constructor(private readonly db: Db, private readonly envViewers: Map<string, string>) {
     db.sql.exec(`CREATE TABLE IF NOT EXISTS players (
@@ -55,7 +57,7 @@ export class Players {
     if (!p) throw new Error('no such code (it lasts 10 minutes)');
     this.pending.delete(code);
     let n = (name ?? p.name).trim().slice(0, 32) || 'Player';
-    const taken = (x: string) => !!this.db.sql.prepare('SELECT 1 FROM players WHERE name = ?').get(x) || this.envViewers.has(x);
+    const taken = (x: string) => !!this.db.sql.prepare('SELECT 1 FROM players WHERE lower(name) = lower(?)').get(x) || this.envViewers.has(x) || (!exact && this.reserved(x));
     if (exact) this.db.sql.prepare('DELETE FROM players WHERE name = ?').run(n);
     else if (taken(n)) { let k = 2; while (taken(`${n} (${k})`)) k++; n = `${n} (${k})`; }
     const token = randomBytes(24).toString('base64url');

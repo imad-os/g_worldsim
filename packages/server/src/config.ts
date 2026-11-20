@@ -41,8 +41,10 @@ export interface Secrets {
   viewers: Map<string, string>;
   firebase?: { client_email: string; private_key: string; project_id?: string };
   cloudflareToken?: string;
+  /** GEMINI_API_KEYS=k1,k2 (or GEMINI_API_KEY): they take turns, call by call. */
   geminiKey?: string;
   ollamaKey?: string;
+  openaiKey?: string;
 }
 
 export const DEFAULTS: Config = {
@@ -139,5 +141,5 @@ export function loadConfig(argv: string[], cwd = process.cwd()): { cfg: Config; 
   }
   if (cfg.cloud.enabled && (!firebase || !cfg.cloud.projectId)) throw new Error('cloud.enabled needs FIREBASE_SERVICE_ACCOUNT in .env');
   if (typeof args.tunnel === 'string') cfg.tunnel.provider = args.tunnel as Config['tunnel']['provider'];
-  return { cfg, secrets: { adminToken, viewers, firebase, cloudflareToken: env.CLOUDFLARE_TUNNEL_TOKEN, geminiKey: env.GEMINI_API_KEY || undefined, ollamaKey: env.OLLAMA_API_KEY || undefined } };
+  return { cfg, secrets: { adminToken, viewers, firebase, cloudflareToken: env.CLOUDFLARE_TUNNEL_TOKEN, geminiKey: [env.GEMINI_API_KEYS, env.GEMINI_API_KEY].filter(Boolean).join(',') || undefined, ollamaKey: env.OLLAMA_API_KEY || undefined, openaiKey: env.OPENAI_API_KEY || undefined } };
 }

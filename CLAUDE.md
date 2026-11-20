@@ -189,3 +189,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `tp`) = `App.isStaff(name)`. A role change counts from that person's next sign-in.
 - Tests: `auth.test.ts` (fake Google key + Firestore). Proof: `node tools/auth-proof.mjs <outdir>` (fake SDK + Firestore, real server
   and panel: owner by Google, player by email joins, owner makes her admin).
+
+## TVs join by themselves, saved brains, Gemini key turns (imad 2026-11-20)
+- **Players never sign in to the panel**: a TV that opens the World app joins at once under its My PC profile name (meta `auto_join`,
+  default on; admin `autoJoin { on? }`, switch on Players & TVs). A taken name (any case) gets "(2)"; an owner's / admin's character
+  name is reserved (`Players.reserved` = `Accounts.isStaff`). Off = the old 6-digit code + approval / approveMine.
+- **Brains** (`ai/brains.ts`, meta `brains` { active, list [{ id, name, provider, url, model, key }] }, server DB only): admin `brains`,
+  `brainSave` (key undefined = keep, '' = remove), `brainUse`, `brainDelete` (not the one in use), `brainModels` / `brainTest` (a temporary
+  `Ai`, the live one untouched). Clients get keys only as a count + last 4 characters. First start seeds the AI in use (+ "Gemini (keys
+  in .env)" when .env has keys). Old `aiSet` updates the brain in use. Provider `openai` = any OpenAI-compatible API (`/v1` base, Bearer key).
+- **Keys take turns**: `GEMINI_API_KEYS=k1,k2` (and/or `GEMINI_API_KEY`) in .env, or several comma-separated keys in a brain's key
+  field: round robin per call (`Ai.nextKey`). A brain's own key wins over .env. `OPENAI_API_KEY` in .env also works.

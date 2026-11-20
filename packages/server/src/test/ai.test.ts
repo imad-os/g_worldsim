@@ -21,7 +21,13 @@ const fake = createServer((req, res) => {
     }
     if (req.url === '/api/chat') return res.end(JSON.stringify({ message: { role: 'assistant', content: '{"say":"hi from ollama"}' } }));
     if (req.url!.startsWith('/v1beta/models?')) return res.end(JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/embed', supportedGenerationMethods: ['embedContent'] }] }));
+    if (req.url === '/oa/v1/models') return res.end(JSON.stringify({ data: [{ id: 'gpt-x' }, { id: 'text-embedding-3' }, { id: 'aaa-mini' }] }));
+    if (req.url === '/oa/v1/chat/completions') {
+      if (req.headers.authorization !== 'Bearer sk-1') { res.statusCode = 401; return res.end(JSON.stringify({ error: { message: 'bad key' } })); }
+      return res.end(JSON.stringify({ choices: [{ message: { content: '{"say":"hi from openai"}' } }] }));
+    }
     if (req.url!.includes(':generateContent')) {
+      if (req.headers['x-goog-api-key'] === 'g1' || req.headers['x-goog-api-key'] === 'g2') return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'turn ' + req.headers['x-goog-api-key'] }] } }] }));
       if (req.headers['x-goog-api-key'] !== 'gkey') { res.statusCode = 403; return res.end(JSON.stringify({ error: { message: 'bad key' } })); }
       return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hello ' }, { text: 'from gemini' }] } }] }));
     }
@@ -104,4 +110,49 @@ test('ai: any pasted Ollama address works (API paths and missing http:// are fix
   assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b', 'tinyllama:latest']);
   ai.apply({ ollamaUrl: base + '/nothing' });
   await assert.rejects(ai.models(), (e: Error) => e.message.includes(`${base}/nothing/api/tags`) && /404/.test(e.message));
+});
+
+test('ai: Gemini keys take turns call by call; OpenAI-compatible APIs; a brain\'s own key wins', async () => {
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none', geminiBase: base }, { gemini: 'g1, g2,g1' }, log);
+  ai.apply({ provider: 'gemini' });
+  assert.equal(ai.status().keys, 2);
+  const used = [];
+  for (let k = 0; k < 4; k++) used.push((await ai.generate({ prompt: 'x' })).text);
+  assert.deepEqual(used, ['turn g1', 'turn g2', 'turn g1', 'turn g2']);
+  ai.apply({ key: 'gkey' }); // the brain's own key
+  assert.equal((await ai.generate({ prompt: 'x' })).text, 'hello from gemini');
+  ai.apply({ provider: 'openai', ollamaUrl: base + '/oa/v1/chat/completions', model: 'gpt-x', key: 'sk-1' });
+  assert.equal(ai.settings.ollamaUrl, base + '/oa/v1');
+  assert.deepEqual(await ai.models(), ['aaa-mini', 'gpt-x']);
+  const r = await ai.generate({ prompt: 'hi', system: 's', json: true });
+  assert.equal(r.text, '{"say":"hi from openai"}');
+  const last = seen.filter((x) => x.url === '/oa/v1/chat/completions').pop()!;
+  assert.equal(last.body.messages[0].role, 'system');
+  assert.deepEqual(last.body.response_format, { type: 'json_object' });
+  ai.apply({ key: 'sk-wrong' });
+  await assert.rejects(ai.generate({ prompt: 'hi' }), /401/);
+});
+
+test('brains: saved, switched, keys kept server side (only the last 4 shown), the one in use cannot be removed', async () => {
+  const { Brains } = await import('../ai/brains.js');
+  let stored: string | undefined;
+  const ai = new Ai({ ...AI_DEFAULTS, provider: 'none', geminiBase: base }, { gemini: 'g1,g2' }, log, { provider: 'ollama', ollamaUrl: base });
+  const br = new Brains(() => stored, (j) => { stored = j; }, ai.settings, [{ provider: 'gemini', name: 'Gemini' }]);
+  assert.deepEqual(br.view().list.map((b) => [b.id, b.provider, b.active]), [['b1', 'ollama', true], ['b2', 'gemini', false]]);
+  const b = br.put({ name: 'Groq', provider: 'openai', url: base + '/oa/v1', model: 'gpt-x', key: 'sk-1' }, (s) => ai.check(s));
+  assert.equal(b.id, 'b3');
+  const v = br.view().list.find((x) => x.id === 'b3')!;
+  assert.equal(v.keys, 1); assert.equal(v.keyEnd, 'sk-1'.slice(-4));
+  assert.ok(!JSON.stringify(br.view()).includes('"key"'), 'no key field in what clients get');
+  br.put({ id: 'b3', name: 'Groq fast' }, (s) => ai.check(s));
+  assert.equal(br.get('b3')!.key, 'sk-1', 'key kept when not sent');
+  assert.throws(() => br.put({ id: 'b3', url: 'file:///etc' }, (s) => ai.check(s)), /http/);
+  ai.apply(br.settingsOf(br.use('b3')));
+  assert.equal((await ai.generate({ prompt: 'x' })).text, '{"say":"hi from openai"}');
+  assert.throws(() => br.remove('b3'), /in use/);
+  br.remove('b1');
+  // Read again from what was stored.
+  const again = new Brains(() => stored, () => {}, ai.settings);
+  assert.equal(again.active.name, 'Groq fast');
+  assert.deepEqual(again.view().list.map((x) => x.id), ['b2', 'b3']);
 });

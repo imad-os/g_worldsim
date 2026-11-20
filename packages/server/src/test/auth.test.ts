@@ -91,6 +91,12 @@ test('firebase accounts: owner gets the admin tools, a player only joins as a pe
     assert.ok(app.net.characters().some(([n]) => n === 'Sara'));
     assert.equal(app.isStaff('Sara'), false, 'no in-game admin tools for a player');
 
+    // TVs join by themselves under their My PC name, but never as an owner's / admin's character.
+    assert.equal((await owner.cmd(20, { cmd: 'joinWorld', name: 'Boss' })).ok, true);
+    const tvb = new Client(url); await tvb.opened(); tvb.send({ t: Msg.Pair, v: PROTOCOL_VERSION, name: 'boss' });
+    assert.equal(((await tvb.wait((m) => m.t === Msg.Paired)) as { name: string }).name, 'boss (2)');
+    tvb.ws.close();
+    assert.equal((await owner.cmd(21, { cmd: 'autoJoin', on: false })).ok, true);
     // Their TV: pair -> the player approves it themselves -> it plays as Sara.
     const tv = new Client(url); await tv.opened(); tv.send({ t: Msg.Pair, v: PROTOCOL_VERSION, name: 'TV' });
     const code = ((await tv.wait((m) => m.t === Msg.PairCode)) as { code: string }).code;

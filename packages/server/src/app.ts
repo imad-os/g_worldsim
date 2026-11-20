@@ -16,7 +16,8 @@ import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
-import { Ai, type AiSettings } from './ai/llm.js';
+import { Ai, keyList, type AiSettings, type Provider } from './ai/llm.js';
+import { Brains } from './ai/brains.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
@@ -30,9 +31,9 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+const READS = new Set<string>(['brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
-const READ_BARE = new Set<string>(['rules', 'zombies', 'life', 'planner']);
+const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner']);
 const LOGGED = new Set(['joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
@@ -53,6 +54,7 @@ export class App {
   authFetch?: ConstructorParameters<typeof FirebaseAuth>[1];
   tunnel!: TunnelManager;
   ai!: Ai;
+  brains!: Brains;
   planner!: Planner;
   readonly monitor = new Monitor();
   lastSnapshotAt = 0;
@@ -72,6 +74,8 @@ export class App {
     this.events = new EventLog(this.db);
     this.players = new Players(this.db, this.secrets.viewers);
     this.accounts = new Accounts(this.db);
+    // A TV can't take an owner's / admin's character name (in-game tools follow the name).
+    this.players.reserved = (n) => this.accounts.isStaff(n);
     this.auth = new FirebaseAuth(c.auth.projectId === 'none' ? '' : c.auth.projectId || firebaseProject(), this.authFetch); // 'none' = sign-in off
     const sc = loadScenario(resolve(ROOT, c.scenariosDir, c.scenario));
     const seed = this.db.getMeta('seed') ?? String(sc.seed);
@@ -122,7 +126,11 @@ export class App {
       else if (savedAi?.provider === 'ollama') savedAi = { ...savedAi, model: '' }; // the fastest one, picked by the server
       this.db.setMeta('ai_defaults', '2');
     }
-    this.ai = new Ai(c.ai, { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey }, this.log, savedAi);
+    this.ai = new Ai(c.ai, this.aiKeys(), this.log, savedAi);
+    // Saved brains (imad 2026-11-20): the AI in use becomes the first one; Gemini is offered when .env has its keys.
+    this.brains = new Brains(() => this.db.getMeta('brains'), (j) => this.db.setMeta('brains', j), this.ai.settings,
+      this.secrets.geminiKey ? [{ provider: 'gemini', name: 'Gemini (keys in .env)', model: 'gemini-2.5-flash' }] : []);
+    try { this.ai.apply(this.brains.settingsOf(this.brains.active)); } catch (err) { this.log.warn('saved brain refused', { err: String(err) }); }
     const savedPlanner = this.db.getMeta('planner');
     this.planner = new Planner(this.world, this.ai, this.log, savedPlanner ? (JSON.parse(savedPlanner) as Partial<PlannerConfig>) : undefined);
     this.world.listeners.push((ev: WorldEvent) => { if (LOGGED.has(ev.kind)) this.events.add(ev.tick, ev.gameSec, ev.kind, ev.data); });
@@ -138,6 +146,7 @@ export class App {
     this.net = new NetServer(w, {
       host: c.host, port: c.port, netHz: c.netHz, maxViewRadius: c.maxViewRadius, maxClients: c.maxClients,
       adminToken: this.secrets.adminToken, players: this.players, auth: this.auth, accounts: this.accounts,
+      autoJoin: () => this.db.getMeta('auto_join') !== '0',
       staticDirs: [
         { prefix: '/panel/', dir: join(ROOT, 'docs', 'panel') }, // the same files GitHub Pages serves (main /docs)
         { prefix: '/app/', dir: join(ROOT, 'docs') },
@@ -359,6 +368,20 @@ export class App {
   }
   /** Put a player's character right next to someone (any map). */
   /** In-game admin tools (Go to someone...): owner / admin accounts; without Firebase sign-in set up, every player as before. */
+  /** Saved brains for the panel (no keys) + how many Gemini keys .env has. */
+  private brainsView() { return { ...this.brains.view(), envKeys: { gemini: keyList(this.secrets.geminiKey).length } }; }
+  private aiKeys() { return { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey, openai: this.secrets.openaiKey }; }
+
+  /** Switch the AI to a saved brain. */
+  private useBrain(id: string, who: string): void {
+    const b = this.brains.get(id);
+    if (!b) throw new Error('no such brain');
+    const s = this.ai.apply(this.brains.settingsOf(b));
+    this.brains.use(id);
+    this.db.setMeta('ai', JSON.stringify({ ...s, key: undefined }));
+    this.log.info('brain in use', { who, name: b.name, provider: s.provider, model: this.ai.model });
+  }
+
   isStaff(name: string): boolean {
     if (!this.auth.enabled) return true;
     return this.accounts.isStaff(name);
@@ -510,6 +533,10 @@ export class App {
         return { broke };
       }
       case 'pairings': return this.players.pendingList();
+      case 'autoJoin': {
+        if (typeof c.on === 'boolean') { this.db.setMeta('auto_join', c.on ? '1' : '0'); this.log.info(c.on ? 'TVs join by themselves' : 'TVs need approval', { who }); }
+        return { on: this.db.getMeta('auto_join') !== '0' };
+      }
       case 'accounts': return { signIn: this.auth.enabled, project: this.auth.projectId, list: this.accounts.list().map((a) => ({ ...a, online: !!a.name && this.net.online(a.name), tv: !!a.name && this.players.has(a.name) })) };
       case 'approve': {
         if (typeof c.code !== 'string' || !/^\d{6}$/.test(c.code)) throw new Error('bad code');
@@ -549,9 +576,32 @@ export class App {
       case 'aiModels': return this.ai.models();
       case 'aiSet': {
         const s = this.ai.apply({ provider: c.provider, model: c.model, ollamaUrl: c.ollamaUrl });
-        this.db.setMeta('ai', JSON.stringify(s));
+        this.brains.syncActive(s);
+        this.db.setMeta('ai', JSON.stringify({ ...s, key: undefined }));
         this.log.info('ai changed', { who, provider: s.provider, model: this.ai.model });
         return this.ai.status();
+      }
+      case 'brains': return this.brainsView();
+      case 'brainSave': {
+        const b = this.brains.put({ id: c.id, name: c.name, provider: c.provider as Provider, url: c.url, model: c.model, key: c.key }, (s) => this.ai.check(s));
+        if (b.id === this.brains.active.id) this.useBrain(b.id, who);
+        this.log.info('brain saved', { who, id: b.id, name: b.name, provider: b.provider });
+        return { ...this.brainsView(), saved: b.id };
+      }
+      case 'brainUse': {
+        this.useBrain(String(c.id), who);
+        return { ...this.brainsView(), ai: this.ai.status() };
+      }
+      case 'brainDelete': { this.brains.remove(String(c.id)); return this.brainsView(); }
+      case 'brainModels': case 'brainTest': {
+        // A saved brain (id) and / or the editor's unsaved values, tried on a separate AI object: the one in use is untouched.
+        const base = c.id ? this.brains.get(String(c.id)) : undefined;
+        if (c.id && !base) throw new Error('no such brain');
+        const tmp = new Ai({ ...this.cfg.ai, provider: 'none' }, this.aiKeys(), this.log);
+        tmp.apply({ provider: (c.provider ?? base?.provider ?? 'none') as Provider, ollamaUrl: c.url ?? base?.url ?? '', model: c.model ?? base?.model ?? '', key: c.key ?? base?.key ?? '' });
+        if (c.cmd === 'brainModels') return tmp.models();
+        const r = await tmp.generate({ system: 'You are a person living in a post-apocalyptic world. Answer briefly.', prompt: 'In one short sentence, say hello as a survivor in a ruined town.', maxTokens: 120 });
+        return { text: r.text.slice(0, 1000), ms: r.ms, provider: r.provider, model: r.model };
       }
       case 'aiTest': {
         const prompt = typeof c.prompt === 'string' && c.prompt.trim() ? c.prompt.slice(0, 500) : 'In one short sentence, say hello as a survivor in a ruined town.';

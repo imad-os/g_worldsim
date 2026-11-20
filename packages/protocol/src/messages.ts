@@ -48,6 +48,8 @@ export type AdminCmd =
   | { cmd: 'shoot'; map: string; x: number; y: number; dx: number; dy: number }
   | { cmd: 'damageTile'; map: string; tx: number; ty: number; amount: number }
   | { cmd: 'pairings' }
+  /** TVs join at once under their My PC username (default) or wait for approval. */
+  | { cmd: 'autoJoin'; on?: boolean }
   | { cmd: 'approve'; code: string; name?: string }
   | { cmd: 'deny'; code: string }
   | { cmd: 'players' }
@@ -58,7 +60,13 @@ export type AdminCmd =
   | { cmd: 'travel'; open: boolean }
   | { cmd: 'ai' }
   | { cmd: 'aiModels' }
-  | { cmd: 'aiSet'; provider: 'none' | 'gemini' | 'ollama'; model?: string; ollamaUrl?: string }
+  | { cmd: 'aiSet'; provider: 'none' | 'gemini' | 'ollama' | 'openai'; model?: string; ollamaUrl?: string }
+  /** Saved brains (provider + address + model + key); keys are never sent back, only how many and their last 4 characters. */
+  | { cmd: 'brains' }
+  | { cmd: 'brainSave'; id?: string; name?: string; provider?: string; url?: string; model?: string; key?: string }
+  | { cmd: 'brainUse'; id: string }
+  | { cmd: 'brainDelete'; id: string }
+  | { cmd: 'brainModels' | 'brainTest'; id?: string; provider?: string; url?: string; model?: string; key?: string }
   | { cmd: 'aiTest'; prompt?: string }
   /** People: list, one in detail, change values, move, kill. */
   | { cmd: 'agents' }

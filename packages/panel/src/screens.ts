@@ -172,17 +172,20 @@ export const rules: Screen = {
 };
 
 // ------------------------------------------------------------ AI
-type AiStatus = { provider: string; model: string; auto?: boolean; ollamaUrl: string; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string };
+type AiStatus = { provider: string; model: string; auto?: boolean; ollamaUrl: string; keys?: number; ready: boolean; why?: string; callsLastHour: number; maxCallsPerHour: number; lastMs: number; lastError: string };
 type PlannerStatus = { on: boolean; everyGameHours: number; batch: number; minGapSec: number; busy: boolean; counts: { batches: number; plans: number; chats: number; failures: number; builtIn: number } };
 export const ai: Screen = {
   title: 'AI brain', icon: 'ai', help: 'ai', every: 10,
   render() {
     return `<div class="grid2">
     ${card('Status', `<div id="aStatus" class="stat"></div>`)}
-    ${card('Provider', `${row('Brain', `<select id="aProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option></select>`)}
-      <div id="aUrlRow">${row('Ollama address', `<input id="aUrl" placeholder="https://your-ollama-server">`, help('aiUrl'))}</div>
-      ${row('Model', `<input id="aModel" list="aModels" placeholder="fastest (automatic)"><datalist id="aModels"></datalist>`, help('aiModel'))}
-      <div class="row wrap"><button class="btn primary" id="aSave">Save</button><button class="btn" id="aList">List models</button><button class="btn" id="aTest">Test</button></div><pre id="aOut" class="out"></pre>`, { help: help('ai') })}
+    ${card('Saved brains', `<div id="bList"><div class="skel"></div></div><button class="btn" id="bAdd">${icon('plus')} Add a brain</button>`, { help: help('brains') })}
+    ${card('<span id="bEdTitle">Edit brain</span>', `${row('Name', `<input id="aName" maxlength="40" placeholder="e.g. Gemini fast">`)}
+      ${row('Type', `<select id="aProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option><option value="openai">OpenAI-compatible</option></select>`)}
+      <div id="aUrlRow">${row('Address', `<input id="aUrl" placeholder="https://your-ollama-server">`, help('aiUrl'))}</div>
+      <div id="aModelRow">${row('Model', `<input id="aModel" list="aModels" placeholder="fastest (automatic)"><datalist id="aModels"></datalist>`, help('aiModel'))}</div>
+      <div id="aKeyRow">${row('API key', `<input id="aKey" type="password" autocomplete="off" placeholder="optional"><label class="small dim" id="aKeyRmL" hidden><input type="checkbox" id="aKeyRm"> remove the saved key</label>`, help('aiKey'))}</div>
+      <div class="row wrap"><button class="btn primary" id="aSave">Save</button><button class="btn" id="aUse">Save and use</button><button class="btn" id="aList">List models</button><button class="btn" id="aTest">Test</button></div><pre id="aOut" class="out"></pre>`, { help: help('ai') })}
     ${card('Planner', `<div id="plState" class="dim"></div>
       ${row('Plans on', `<label class="switch"><input type="checkbox" id="plOn"><i></i></label>`)}
       ${row('A new plan every', `<input type="number" id="plEvery" min="0.5" max="48" step="0.5" style="width:80px"> game hours`)}
@@ -193,39 +196,93 @@ export const ai: Screen = {
     </div>`;
   },
   async mount() {
-    const prov = () => { document.getElementById('aUrlRow')!.hidden = val('aProv') !== 'ollama'; };
-    on('#aProv', 'change', () => { prov(); (document.getElementById('aModel') as HTMLInputElement).value = ''; });
-    const saveForm = async (quiet = false) => {
-      try { const s = await cmd<AiStatus>({ cmd: 'aiSet', provider: val('aProv') as 'none', model: val('aModel'), ollamaUrl: val('aUrl') || undefined }); show(s, false); if (!quiet) toast('AI saved', 'ok'); return true; }
-      catch (e) { setHtml('aOut', esc(String(e))); return false; }
-    };
-    on('#aSave', 'click', () => void saveForm());
-    on('#aList', 'click', async () => { setHtml('aOut', 'Asking for the models…'); if (!(await saveForm(true))) return; try { const l = await cmd<string[]>({ cmd: 'aiModels' }, 60000); setHtml('aModels', l.map((m) => `<option value="${esc(m)}">`).join('')); setHtml('aOut', l.length ? esc(`Models: ${l.join(', ')}`) : 'No models found.'); } catch (e) { setHtml('aOut', esc(String(e))); } });
-    on('#aTest', 'click', async () => { setHtml('aOut', 'Asking the model…'); if (!(await saveForm(true))) return; try { const r = await cmd<{ text: string; ms: number; model: string }>({ cmd: 'aiTest' }, 120000); setHtml('aOut', esc(`${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`)); } catch (e) { setHtml('aOut', esc(String(e))); } });
+    on('#aProv', 'change', () => { provRows(); (document.getElementById('aModel') as HTMLInputElement).value = ''; });
+    on('#bAdd', 'click', () => edit(null));
+    on('#aSave', 'click', () => void saveBrain(false));
+    on('#aUse', 'click', () => void saveBrain(true));
+    on('#aList', 'click', async () => { setHtml('aOut', 'Asking for the models…'); try { const l = await cmd<string[]>({ cmd: 'brainModels', ...form() }, 60000); setHtml('aModels', l.map((m) => `<option value="${esc(m)}">`).join('')); setHtml('aOut', l.length ? esc(`Models: ${l.join(', ')}`) : 'No models found.'); } catch (e) { setHtml('aOut', esc(String(e))); } });
+    on('#aTest', 'click', async () => { setHtml('aOut', 'Asking the model…'); try { const r = await cmd<{ text: string; ms: number; model: string }>({ cmd: 'brainTest', ...form() }, 120000); setHtml('aOut', esc(`${r.model} (${(r.ms / 1000).toFixed(1)} s): ${r.text}`)); } catch (e) { setHtml('aOut', esc(String(e))); } });
+    await loadBrains(true);
     on('#plSave', 'click', async () => { try { const p = await cmd<PlannerStatus>({ cmd: 'planner', on: (document.getElementById('plOn') as HTMLInputElement).checked, everyGameHours: Number(val('plEvery')), batch: Number(val('plBatch')), minGapSec: Number(val('plGap')) }); planner(p, true); toast('Planner saved', 'ok'); } catch (e) { err(e); } });
     on('#aLogR', 'click', () => void this.refresh!());
-    const s = await cmd<AiStatus>({ cmd: 'ai' }); show(s, true); prov();
+    const s = await cmd<AiStatus>({ cmd: 'ai' }); show(s);
     await this.refresh!(true as never);
   },
   async refresh(fill?: boolean) {
     const r = await cmd<{ ai: AiStatus; planner: PlannerStatus; log: { at: number; kind: string; who: string; prompt: string; reply: string; ms: number; err?: string }[] }>({ cmd: 'aiLog' });
-    show(r.ai, false); planner(r.planner, !!fill);
+    show(r.ai); planner(r.planner, !!fill);
     const open = new Set([...document.querySelectorAll<HTMLDetailsElement>('#aLog details[open]')].map((d) => d.dataset.k));
     setHtml('aLog', r.log.length ? r.log.slice(0, 30).map((x) => { const k = `${x.at}`; return `<details class="logi" data-k="${k}"${open.has(k) ? ' open' : ''}><summary><span class="ev-t">${new Date(x.at).toLocaleTimeString()}</span> <span class="tag">${esc(x.kind)}</span> ${esc(x.who)} · ${x.err ? `<span class="bad">${esc(x.err)}</span>` : (x.ms / 1000).toFixed(1) + ' s'}</summary><h5>Asked</h5><pre>${esc(x.prompt)}</pre><h5>Answer</h5><pre>${esc(x.reply || '-')}</pre></details>`; }).join('') : '<div class="empty">No request yet.</div>');
   },
 };
-function show(s: AiStatus, fill: boolean): void {
-  setHtml('aStatus', `<div class="statrow"><span>Brain</span><b>${s.provider === 'none' ? 'Off (built-in)' : esc(s.provider)}</b></div>
+// Saved brains: the list, and the editor (the brain being edited, or null = a new one).
+type BrainV = { id: string; name: string; provider: string; url: string; model: string; keys: number; keyEnd: string; active: boolean };
+type BrainsAns = { active: string; list: BrainV[]; envKeys?: { gemini: number } };
+const PROV_NAMES: Record<string, string> = { none: 'Built-in', gemini: 'Gemini', ollama: 'Ollama', openai: 'OpenAI-compatible' };
+let brains: BrainsAns = { active: '', list: [] };
+let editing: BrainV | null = null;
+function provRows(): void {
+  const p = val('aProv');
+  document.getElementById('aUrlRow')!.hidden = p !== 'ollama' && p !== 'openai';
+  document.getElementById('aModelRow')!.hidden = p === 'none';
+  document.getElementById('aKeyRow')!.hidden = p === 'none';
+  (document.getElementById('aUrl') as HTMLInputElement).placeholder = p === 'openai' ? 'https://api.openai.com/v1' : 'https://your-ollama-server';
+  (document.getElementById('aModel') as HTMLInputElement).placeholder = p === 'ollama' ? 'fastest (automatic)' : p === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o-mini';
+  const k = document.getElementById('aKey') as HTMLInputElement, env = brains.envKeys?.gemini ?? 0;
+  k.placeholder = editing?.keys ? `saved (…${editing.keyEnd}): leave empty to keep it` : p === 'gemini' && env ? `empty = the ${env} keys in .env, taking turns` : 'optional';
+  document.getElementById('aKeyRmL')!.hidden = !editing?.keys;
+}
+function edit(b: BrainV | null): void {
+  editing = b;
+  setHtml('bEdTitle', b ? `Edit "${esc(b.name)}"` : 'New brain');
+  (document.getElementById('aName') as HTMLInputElement).value = b?.name ?? '';
+  (document.getElementById('aProv') as HTMLSelectElement).value = b?.provider ?? 'ollama';
+  (document.getElementById('aUrl') as HTMLInputElement).value = b?.url && (b.provider === 'ollama' || b.provider === 'openai') ? b.url : '';
+  (document.getElementById('aModel') as HTMLInputElement).value = b?.model ?? '';
+  (document.getElementById('aKey') as HTMLInputElement).value = '';
+  (document.getElementById('aKeyRm') as HTMLInputElement).checked = false;
+  setHtml('aOut', ''); setHtml('aModels', '');
+  provRows();
+  if (!b) document.getElementById('aName')?.focus();
+}
+/** The editor's values; the key only when typed (or removed), so a saved key stays on the server. */
+function form(): { id?: string; name: string; provider: string; url: string; model: string; key?: string } {
+  const key = val('aKey'), rm = (document.getElementById('aKeyRm') as HTMLInputElement).checked;
+  return { ...(editing ? { id: editing.id } : {}), name: val('aName'), provider: val('aProv'), url: val('aUrl'), model: val('aModel'), ...(key ? { key } : rm ? { key: '' } : {}) };
+}
+async function saveBrain(use: boolean): Promise<void> {
+  try {
+    const r = await cmd<BrainsAns & { saved: string }>({ cmd: 'brainSave', ...form() });
+    brains = r;
+    if (use && r.saved !== r.active) brains = await cmd<BrainsAns>({ cmd: 'brainUse', id: r.saved });
+    renderBrains();
+    edit(brains.list.find((b) => b.id === r.saved) ?? null);
+    toast(use || r.saved === brains.active ? 'Brain saved and in use' : 'Brain saved', 'ok');
+    show(await cmd<AiStatus>({ cmd: 'ai' }));
+  } catch (e) { setHtml('aOut', esc(String((e as Error).message ?? e))); }
+}
+async function loadBrains(first = false): Promise<void> {
+  brains = await cmd<BrainsAns>({ cmd: 'brains' });
+  renderBrains();
+  if (first) edit(brains.list.find((b) => b.active) ?? null);
+}
+function renderBrains(): void {
+  setHtml('bList', brains.list.map((b) => `<div class="li${b.active ? ' on' : ''}"><div><b>${esc(b.name)}</b> ${b.active ? '<span class="tag ok">In use</span>' : ''}<br>
+    <small class="dim">${esc(PROV_NAMES[b.provider] ?? b.provider)}${b.provider !== 'none' ? ` · ${esc(b.model || (b.provider === 'ollama' ? 'fastest model' : 'default model'))}` : ''}${b.provider === 'ollama' || b.provider === 'openai' ? ` · ${esc(b.url)}` : ''}${b.keys ? ` · ${b.keys > 1 ? `${b.keys} keys` : 'key'} …${esc(b.keyEnd)}` : b.provider === 'gemini' && brains.envKeys?.gemini ? ` · ${brains.envKeys.gemini} keys from .env` : ''}</small></div>
+    <div class="row">${b.active ? '' : `<button class="btn sm primary" data-buse="${esc(b.id)}">Use</button>`}<button class="btn sm ghost" data-bed="${esc(b.id)}">Edit</button>${b.active ? '' : `<button class="btn sm ghost danger" data-brm="${esc(b.id)}" aria-label="Delete">${icon('x')}</button>`}</div></div>`).join(''));
+  on('[data-buse]', 'click', async (el) => { try { const r = await cmd<BrainsAns & { ai: AiStatus }>({ cmd: 'brainUse', id: el.dataset.buse! }); brains = r; renderBrains(); show(r.ai); toast(`Now thinking with ${brains.list.find((b) => b.active)?.name}`, 'ok'); } catch (e) { err(e); } });
+  on('[data-bed]', 'click', (el) => edit(brains.list.find((b) => b.id === el.dataset.bed) ?? null));
+  on('[data-brm]', 'click', async (el) => { const b = brains.list.find((x) => x.id === el.dataset.brm); if (!b || !confirm(`Delete the brain "${b.name}"?`)) return; try { brains = { ...brains, ...(await cmd<BrainsAns>({ cmd: 'brainDelete', id: b.id })) }; renderBrains(); if (editing?.id === b.id) edit(null); } catch (e) { err(e); } });
+}
+function show(s: AiStatus): void {
+  const active = brains.list.find((b) => b.active);
+  setHtml('aStatus', `<div class="statrow"><span>Brain</span><b>${active ? esc(active.name) + ' · ' : ''}${s.provider === 'none' ? 'Off (built-in)' : esc(PROV_NAMES[s.provider] ?? s.provider)}</b></div>
     <div class="statrow"><span>Model</span><b>${esc(s.model || '-')}${s.auto ? ' <small>(fastest, automatic)</small>' : ''}</b></div>
     <div class="statrow"><span>State</span><b class="${s.ready ? 'ok' : 'bad'}">${s.provider === 'none' ? '-' : s.ready ? 'Ready' : esc(s.why ?? 'not ready')}</b></div>
     <div class="statrow"><span>Calls this hour</span><b>${s.callsLastHour} / ${s.maxCallsPerHour}</b></div>
     <div class="statrow"><span>Last answer took</span><b>${s.lastMs ? (s.lastMs / 1000).toFixed(1) + ' s' : '-'}</b></div>
+    ${s.keys && s.keys > 1 ? `<div class="statrow"><span>API keys</span><b>${s.keys}, taking turns</b></div>` : ''}
     ${s.lastError ? `<div class="statrow"><span>Last error</span><b class="bad">${esc(s.lastError)}</b></div>` : ''}`);
-  if (fill) {
-    (document.getElementById('aProv') as HTMLSelectElement).value = s.provider;
-    (document.getElementById('aUrl') as HTMLInputElement).value = s.ollamaUrl;
-    (document.getElementById('aModel') as HTMLInputElement).value = s.provider === 'none' || s.auto ? '' : s.model;
-  }
 }
 function planner(p: PlannerStatus, fill: boolean): void {
   setHtml('plState', `${p.on ? 'On' : 'Off'}${p.busy ? ' · thinking now' : ''} · ${p.counts.batches} requests, ${p.counts.plans} plans, ${p.counts.chats} chats (${p.counts.builtIn} without AI), ${p.counts.failures} failures`);
@@ -243,12 +300,16 @@ type Player = { name: string; dev: string; created: number; lastSeen: number; fr
 export const players: Screen = {
   title: 'Players & TVs', icon: 'tv', help: 'players', every: 5,
   render() {
-    return `<div class="grid2">${card('TVs waiting', `<div id="plPairs"></div>`, { help: help('pairings'), id: 'pairCard' })}${card('Players', `<div id="plList"></div>`, { help: help('players') })}</div>
-      <p class="dim">To add a TV: open the World app on it (My PC > App Store), it shows a 6-digit code here. Approve it with the player's name.</p>`;
+    return `<div class="grid2">${card('How TVs join', `${row('TVs join by themselves', `<label class="switch"><input type="checkbox" id="plAuto"><i></i></label>`, help('autoJoin'))}<p class="dim small" id="plAutoTxt"></p>`, { help: help('autoJoin') })}
+      ${card('TVs waiting', `<div id="plPairs"></div>`, { help: help('pairings'), id: 'pairCard' })}${card('Players', `<div id="plList"></div>`, { help: help('players'), cls: 'span2' })}</div>`;
   },
-  async mount() { await this.refresh!(); },
+  async mount() {
+    on('#plAuto', 'change', async (el) => { try { const r = await cmd<{ on: boolean }>({ cmd: 'autoJoin', on: (el as HTMLInputElement).checked }); autoTxt(r.on); toast(r.on ? 'TVs now join by themselves' : 'Each TV now waits for your approval', 'ok'); } catch (e) { err(e); } });
+    await this.refresh!();
+  },
   async refresh() {
-    const [pairs, list, all] = await Promise.all([cmd<Pairing[]>({ cmd: 'pairings' }), cmd<Player[]>({ cmd: 'players' }), people()]);
+    const [pairs, list, all, aj] = await Promise.all([cmd<Pairing[]>({ cmd: 'pairings' }), cmd<Player[]>({ cmd: 'players' }), people(), cmd<{ on: boolean }>({ cmd: 'autoJoin' })]);
+    (document.getElementById('plAuto') as HTMLInputElement).checked = aj.on; autoTxt(aj.on);
     document.getElementById('pairCard')?.classList.toggle('alert-card', pairs.length > 0);
     const focus = document.activeElement?.id;
     if (!focus?.startsWith('pn_')) setHtml('plPairs', pairs.length ? pairs.map((p) => `<div class="pair"><div><div class="code">${esc(p.code)}</div><small class="dim">${esc(p.dev || 'device')} · ${ago(p.at)}</small></div>
@@ -261,6 +322,11 @@ export const players: Screen = {
     on('[data-seer]', 'change', async (el) => { const c = el as HTMLInputElement; try { await cmd({ cmd: 'seer', name: c.dataset.seer!, on: c.checked }); toast(`${c.dataset.seer} ${c.checked ? 'sees' : 'no longer sees'} thoughts`, 'ok'); } catch (e) { err(e); } });
   },
 };
+
+function autoTxt(on: boolean): void {
+  setHtml('plAutoTxt', on ? 'A TV that opens the World app (My PC > App Store) plays at once under its My PC username. Nobody signs in.'
+    : 'A TV that opens the World app shows a 6-digit code below. Approve it with the player\'s name.');
+}
 
 // ------------------------------------------------------------ events
 type Ev = { at: number; kind: string; data: Record<string, unknown> };

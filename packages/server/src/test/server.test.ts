@@ -178,6 +178,18 @@ test('pairing: a TV gets a code, the admin approves it, the TV keeps its own tok
     const url = app.net.address().replace('http', 'ws') + '/ws';
     const adm = await connect(url, ADMIN);
     await adm.wait((m) => m.t === Msg.Welcome);
+    // By default a TV joins at once under its My PC username; a second TV with the same name gets "(2)".
+    for (const [name, want] of [['Sara', 'Sara'], ['sara', 'sara (2)']]) {
+      const t = new Client(url);
+      await t.opened();
+      t.send({ t: Msg.Pair, v: PROTOCOL_VERSION, name, dev: 'Samsung TV' });
+      const got = await t.wait((m) => m.t === Msg.Paired || m.t === Msg.PairCode) as unknown as { t: unknown; name: string };
+      assert.equal(got.t, Msg.Paired, 'no code to approve');
+      assert.equal(got.name, want);
+      t.ws.close();
+    }
+    adm.send({ t: Msg.Admin, id: 9, c: { cmd: 'autoJoin', on: false } });
+    assert.equal(((await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 9)) as { data: { on: boolean } }).data.on, false);
     const tv = new Client(url);
     await tv.opened();
     tv.send({ t: Msg.Pair, v: PROTOCOL_VERSION, name: 'Imad', dev: 'Samsung TV' });

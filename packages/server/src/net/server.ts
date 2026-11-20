@@ -25,6 +25,8 @@ export interface NetOptions {
   /** Firebase sign-ins (panel); off when no project is set. */
   auth?: FirebaseAuth;
   accounts?: Accounts;
+  /** TVs join at once under their My PC profile name (no code to approve). */
+  autoJoin?: () => boolean;
   staticDirs: { prefix: string; dir: string }[];
 }
 
@@ -451,6 +453,12 @@ export class NetServer {
       (why) => { this.sendRaw(ws, { t: Msg.Error, code: why }); ws.close(4005, why); });
     this.pairing.set(ws, p.code);
     ws.on('close', () => this.o.players.cancel(p.code));
+    if (this.o.autoJoin?.()) {
+      // Players join with their TV's My PC username: nobody has to approve a code.
+      const r = this.o.players.approve(p.code);
+      this.log.info('player joined from a TV', { name: r.name, dev: p.dev, ip });
+      return;
+    }
     this.sendRaw(ws, { t: Msg.PairCode, code: p.code, exp: p.at + 600_000 });
     this.notifyAdmins('pairing', { code: p.code, name: p.name, dev: p.dev });
     this.log.info('pairing requested', { name: p.name, dev: p.dev, ip });

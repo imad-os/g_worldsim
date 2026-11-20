@@ -126,7 +126,7 @@ listeners.welcome = () => {
 listeners.denied = (why) => { deniedAt = Date.now(); disconnect(); showSignin(why); };
 listeners.stats = (s) => topStats(s);
 listeners.notice = (kind, data) => {
-  if (kind === 'pairing') { toast('A TV wants to join: approve it on Players & TVs', 'info'); if (load('vibrate', true)) try { navigator.vibrate?.(200); } catch { /* */ } if (curKey === 'players') void cur?.refresh?.(); }
+  if (kind === 'pairing') { toast('A TV is waiting for approval on Players & TVs', 'info'); if (load('vibrate', true)) try { navigator.vibrate?.(200); } catch { /* */ } if (curKey === 'players') void cur?.refresh?.(); }
   if (kind === 'paired' && curKey === 'players') void cur?.refresh?.();
   if (kind === 'say') { const d = data as { id: number; name: string; text: string }; personSaid(d.id, d.name, d.text); if (load('sayToasts', false)) toast(`${d.name}: “${d.text}”`); }
   if (kind === 'url') toast(`Internet link changed: ${(data as { url: string }).url}`);
@@ -149,6 +149,7 @@ document.body.innerHTML = `
   <details class="si-tok" id="sTokBox"><summary>Admin token (your PC only) ${help('token')}</summary>
     <label class="fld"><input id="sTokIn" type="password" autocomplete="off" placeholder="ADMIN_TOKEN from the server .env"></label>
     <button class="btn wide" id="sGo">Sign in with the token</button></details>
+  <p class="dim small"><b>Players don't sign in here:</b> they open the World app on their TV (My PC > App Store) and play under their My PC username.</p>
   <p class="dim small">This device remembers you. The panel can be opened from anywhere: it talks to your server directly.</p></div></div>
 <div id="app" class="app" hidden>
   <aside class="side"><div class="brand">${icon('world')}<span>World<small id="srv"></small></span></div><nav class="nav">${navHtml()}</nav>

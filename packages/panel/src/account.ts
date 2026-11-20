@@ -20,8 +20,8 @@ export const meScreen: Screen = {
       ${card('Your account', `<div id="meAcct"></div>`, { help: help('account') })}
       ${card('Play on your TV', `<ol class="steps">
           <li>On the TV, open <b>My PC</b> &gt; <b>App Store</b> and install <b>World</b>.</li>
-          <li>Open it: the TV shows a <b>6-digit code</b>.</li>
-          <li>Type the code here. The TV then plays as your character.</li></ol>
+          <li>Open it: it plays at once as the My PC user on that TV.</li>
+          <li>If the TV shows a <b>6-digit code</b> instead (TVs need approval), type it here: the TV then plays as your character.</li></ol>
           <div class="row2"><input id="meCode" inputmode="numeric" maxlength="6" placeholder="123456" aria-label="Code on the TV"><button class="btn primary" id="meCodeGo">${icon('check')} Link this TV</button></div>
           <div id="meTv" class="dim small"></div>`, { help: help('myTv') })}
     </div>`;
