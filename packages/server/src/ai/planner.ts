@@ -51,10 +51,11 @@ export function cleanLine(text: string, name: string): string {
   return t.slice(0, 220);
 }
 
-/** What the speaker asks for, from their words (en / fr / es / ar): 'come' | 'follow' | 'stay' | 'stop' | ''. */
+/** What the speaker asks for, from their words (en / fr / es / ar): 'come' | 'follow' | 'bring' | 'stay' | 'stop' | ''. */
 export function askedFor(text: string): string {
   const t = ' ' + text.toLowerCase() + ' ';
   if (/\b(follow me|come with me|suis[- ]moi|suivez[- ]moi|viens avec moi|s[ií]gueme|ven conmigo)\b|اتبعني|إتبعني|تعال معي|تبعني/.test(t)) return 'follow';
+  if (/\b(bring me|give me|get me)\b.*\b(food|something to eat|eat|can|cans)\b|\b(apporte|donne)[- ]moi\b.*\b(manger|nourriture|bouffe)\b|\b(tráeme|traeme|dame)\b.*\b(comida|comer)\b|(أحضر|جيب|هات|اعطني|أعطني).*(أكل|طعام|ماكلة)/.test(t)) return 'bring';
   if (/\b(come( here| to me| over| find me| search for me)?|get over here|viens|venez|rejoins[- ]moi|ven( aquí| aca| acá)?|ven a buscarme|búscame|buscame)\b|تعال|تعالي|اجي|أجي|ارواح/.test(t) && !/\b(come on|comment|venir de|welcome)\b/.test(t)) return 'come';
   if (/\b(stay( here)?|wait( here| for me)?|don't move|attends|reste( ici)?|espera|quédate|quedate)\b|انتظر|ابق|إبق|استنى/.test(t)) return 'stay';
   if (/\b(stop following|forget it|never ?mind|laisse tomber|olvídalo|olvidalo)\b|انس الأمر/.test(t)) return 'stop';
@@ -326,10 +327,10 @@ export class Planner {
         text ? `${who} says to you: "${text.slice(0, 300)}"` : `${who} walks up to you.`,
         `Your feeling about them: ${Math.round(mind.rel[key] ?? 0)} (-5..5).`,
         'If you are asked to do something and you agree, say what you do in "do" (come = walk to the one speaking to you; follow = keep '
-        + 'walking with someone; goto = walk to someone named in "target"; stay = stop and wait; stop = stop what you were told; or drink, eat, '
+        + 'walking with someone; goto = walk to someone named in "target"; bring = bring food to someone (the speaker if no target); stay = stop and wait; stop = stop what you were told; or drink, eat, '
         + 'forage, sleep, talk, wander, rest). Otherwise "do" is "nothing".'].join('\n');
       const system = `You are ${p.name}, a survivor in a post-apocalyptic world. Speak naturally and briefly (one or two short sentences), in the `
-        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","do":"come|follow|goto|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty"}';
+        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty"}';
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
       try {
         const r = await this.ai.generate({ system, prompt, json: true, maxTokens: 200, temperature: 0.8 });
@@ -358,7 +359,7 @@ export class Planner {
       else doRaw = '';
     }
     if (!reply) {
-      reply = doRaw === 'come' || doRaw === 'follow' ? (owner ? 'Yes. On my way.' : "Alright, I'm coming.") : doRaw === 'stay' ? "Okay, I'll wait here." : this.builtInLine(i);
+      reply = doRaw === 'come' || doRaw === 'follow' ? (owner ? 'Yes. On my way.' : "Alright, I'm coming.") : doRaw === 'stay' ? "Okay, I'll wait here." : doRaw === 'bring' ? "I'll find you something to eat." : this.builtInLine(i);
       this.counts.builtIn++;
     }
     const did = this.applyChatOrder(i, doRaw, target, player, owner);
@@ -385,6 +386,11 @@ export class Planner {
       if (to < 0) return '';
       if (!w.brain.order(e.slot(id), d === 'follow' ? 'follow' : 'goto', to, -1, d === 'follow' ? mins * 2 : mins)) return '';
       return `${d === 'follow' ? 'follow' : 'go to'} ${this.nameOfId(to)}`;
+    }
+    if (d === 'bring' || d === 'fetch' || d === 'give') {
+      const to = named >= 0 ? named : speaker >= 0 ? speaker : owner ? (() => { for (const [, slot] of this.players()) if (e.map[slot] === e.map[i]) return e.id(slot); return -1; })() : -1;
+      if (to < 0 || !w.brain.order(e.slot(id), 'bring', to, -1, mins * 2)) return '';
+      return `bring food to ${this.nameOfId(to)}`;
     }
     if (d === 'stay' || d === 'wait') { w.brain.order(e.slot(id), 'stay', -1, -1, mins); return 'wait here'; }
     if (d === 'stop') { w.brain.order(e.slot(id), 'stop', -1, -1, 0); return 'stop'; }

@@ -183,6 +183,15 @@ test('chat orders: what people are asked to do, they do (model JSON, the speaker
   const d3 = Math.hypot(e.x[a]! - e.x[b]!, e.y[a]! - e.y[b]!);
   assert.ok(d3 < 5, `kept up with them: ${d3.toFixed(1)} m`);
   assert.equal(w.brain.orderOf(a).kind, 'follow');
+  // 4. Bring food (no AI, the owner's words): empty hands -> find food, pick it up, hand it to the player.
+  assert.equal(askedFor('bring me some food'), 'bring');
+  assert.equal(askedFor('apporte-moi à manger'), 'bring');
+  e.carry[a] = 0; e.carry[pl] = 0;
+  const r4 = await p.chat(a, 'imad', 'please bring me some food', pl);
+  assert.match(r4.did, /bring food to imad/);
+  for (let t = 0; t < 20 * 400 && e.carry[pl]! === 0; t++) { calm(); w.step(); }
+  assert.equal(e.carry[pl], 1, 'the player got one food');
+  p.orderFromPanel(a, 'follow', w.profileOf(b)!.name);
   // Stop: the order ends.
   p.orderFromPanel(a, 'stop', '');
   assert.equal(w.brain.orderOf(a).kind, '');

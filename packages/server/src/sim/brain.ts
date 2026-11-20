@@ -149,13 +149,13 @@ export class Brain {
    * 'stay' = stop where you are, 'stop' = forget orders, 'act' = do that action now (then it stays a strong wish).
    * Only a desperate need (about to die of thirst or hunger) interrupts it. Wakes a sleeper.
    */
-  order(i: number, kind: 'come' | 'goto' | 'follow' | 'stay' | 'stop' | 'act', who: number, act: number, gameMinutes: number): boolean {
+  order(i: number, kind: 'come' | 'goto' | 'follow' | 'stay' | 'stop' | 'act' | 'bring', who: number, act: number, gameMinutes: number): boolean {
     const w = this.w, e = w.e;
     if (e.kind[i] !== Kind.Agent) return false;
     if (kind === 'stop') { this.ordKind[i] = 0; this.wishUntil[i] = 0; if (e.act[i] === Act.Go) { this.stop(i); this.setAct(i, Act.Idle); } e.nextThink[i] = w.tick + 1; return true; }
-    if ((kind === 'come' || kind === 'goto' || kind === 'follow') && (who < 0 || e.slot(who) < 0 || e.slot(who) === i)) return false;
+    if ((kind === 'come' || kind === 'goto' || kind === 'follow' || kind === 'bring') && (who < 0 || e.slot(who) < 0 || e.slot(who) === i)) return false;
     if (kind === 'act' && act < 0) return false;
-    this.ordKind[i] = kind === 'come' || kind === 'goto' ? 1 : kind === 'follow' ? 2 : kind === 'stay' ? 3 : 4;
+    this.ordKind[i] = kind === 'come' || kind === 'goto' ? 1 : kind === 'follow' ? 2 : kind === 'stay' ? 3 : kind === 'bring' ? 5 : 4;
     this.ordWho[i] = who; this.ordAct[i] = act;
     this.ordUntil[i] = w.gameSec + Math.max(5, Math.min(24 * 60, gameMinutes)) * 60;
     if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
@@ -166,7 +166,7 @@ export class Brain {
   /** The order now: ['come' | 'follow' | 'stay' | 'act' | '', whom, action]. */
   orderOf(i: number): { kind: string; who: number; act: number } {
     const k = this.ordUntil[i]! > this.w.gameSec ? this.ordKind[i]! : 0;
-    return { kind: ['', 'come', 'follow', 'stay', 'act'][k]!, who: this.ordWho[i]!, act: this.ordAct[i]! };
+    return { kind: ['', 'come', 'follow', 'stay', 'act', 'bring'][k]!, who: this.ordWho[i]!, act: this.ordAct[i]! };
   }
 
   /** Carry out the order, if any. True = handled this think. */
@@ -186,11 +186,16 @@ export class Brain {
     }
     const j = e.slot(this.ordWho[i]!);
     if (j < 0 || j === i || e.map[j] !== e.map[i]) { this.ordKind[i] = 0; return false; } // gone or on another map
+    if (k === 5 && e.carry[i]! <= 0) return this.fetchFood(i); // bring food: find some first
     const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
     if (d <= (k === 2 ? 3 : 2)) { // next to them: stop and face them
       this.stop(i);
       e.angle[i] = Math.atan2(e.y[j]! - e.y[i]!, e.x[j]! - e.x[i]!);
-      if (k === 1) { this.ordKind[i] = 0; this.setAct(i, Act.Talk, 20); e.target[i] = e.id(j); e.goal[i] = -2; this.schedule(i, 0); return true; } // arrived
+      if (k === 5) { // hand over one food
+        e.carry[i]!--; e.carry[j] = Math.min(5, e.carry[j]! + 1);
+        w.emit('give', { id: e.id(i), to: e.id(j), item: 'food' });
+      }
+      if (k === 1 || k === 5) { this.ordKind[i] = 0; this.setAct(i, Act.Talk, 20); e.target[i] = e.id(j); e.goal[i] = -2; this.schedule(i, 0); return true; } // arrived
       this.setAct(i, Act.Go); e.target[i] = e.id(j); this.schedule(i, 1); return true; // following: wait for them to move
     }
     // On the way: a new path towards where they are now (they may move).
@@ -198,6 +203,28 @@ export class Brain {
     if (!this.goTo(i, e.x[j]!, e.y[j]!, d > 12)) { this.ordKind[i] = 0; return false; }
     this.setAct(i, Act.Go); e.target[i] = e.id(j);
     this.schedule(i, 1);
+    return true;
+  }
+
+  /** For a "bring food" order with empty hands: walk to the nearest food and pick it up (not eat it). */
+  private fetchFood(i: number): boolean {
+    const w = this.w, e = w.e;
+    const t = this.nearestItem(i, 150);
+    if (t < 0) { // none known: search around
+      if (!this.walking(i) && !this.wanderGo(i, 30)) { this.ordKind[i] = 0; return false; }
+      this.setAct(i, Act.Forage); this.schedule(i, 1); return true;
+    }
+    if (Math.hypot(e.x[t]! - e.x[i]!, e.y[t]! - e.y[i]!) <= 1.3) {
+      const def = this.itemDef.get(e.sub[t]!);
+      w.emit('pickup', { id: e.id(i), item: def?.name ?? 'food' });
+      w.remove(t, 'taken');
+      e.carry[i]!++;
+      this.pN[i] = 0; e.nextThink[i] = w.tick + 1; this.setAct(i, Act.Go);
+      return true;
+    }
+    if (this.walking(i) && e.act[i] === Act.Forage && Math.hypot(this.gx[i]! - e.x[t]!, this.gy[i]! - e.y[t]!) < 1) { this.schedule(i, 1); return true; }
+    if (!this.goTo(i, e.x[t]!, e.y[t]!)) { this.ordKind[i] = 0; return false; }
+    this.setAct(i, Act.Forage); e.target[i] = -1; this.schedule(i, 1);
     return true;
   }
 
