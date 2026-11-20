@@ -22,7 +22,7 @@ const PLAYER_NAV = ['me', 'settings'];
 let NAV = STAFF_NAV;
 const BOTTOM = ['dashboard', 'people', 'world', 'events'];
 
-let cur: Screen | null = null, curKey = '', timer = 0, ready = false;
+let cur: Screen | null = null, curKey = '', timer = 0, ready = false, deniedAt = 0;
 
 function navHtml(): string {
   return NAV.map((k) => { const s = ROUTES[k]!; return `<a href="#/${k}" data-nav="${k}">${icon(s.icon)}<span>${s.title}</span><b class="badge" data-badge="${k}" hidden></b></a>`; }).join('');
@@ -102,7 +102,8 @@ listeners.state = (s, why) => {
   const el = $('conn');
   el.className = `conn ${s}`;
   el.title = s === 'open' ? 'Connected' : s === 'connecting' ? 'Connecting…' : `Disconnected${why ? ': ' + why : ''}`;
-  if (s === 'closed' && !ready && !$('signin').hidden) $('sMsg').textContent = `Could not reach ${serverAddress()}${why ? ' (' + why + ')' : ''}. Check the address and that the server is running.`;
+  // A refusal already said why (wrong token, sign-in not accepted): keep that, don't call it "could not reach".
+  if (s === 'closed' && !ready && !$('signin').hidden && Date.now() - deniedAt > 3000) $('sMsg').textContent = `Could not reach ${serverAddress()}${why ? ' (' + why + ')' : ''}. Check the address and that the server is running.`;
 };
 listeners.welcome = () => {
   const first = !ready;
@@ -122,7 +123,7 @@ listeners.welcome = () => {
   if (!isStaff()) { if (first) route(); else cur?.refresh?.(); return; }
   void import('./state.js').then(async (m) => { await m.overview(true); await m.people(); if (first) route(); else cur?.refresh?.(); });
 };
-listeners.denied = (why) => { disconnect(); showSignin(why); };
+listeners.denied = (why) => { deniedAt = Date.now(); disconnect(); showSignin(why); };
 listeners.stats = (s) => topStats(s);
 listeners.notice = (kind, data) => {
   if (kind === 'pairing') { toast('A TV wants to join: approve it on Players & TVs', 'info'); if (load('vibrate', true)) try { navigator.vibrate?.(200); } catch { /* */ } if (curKey === 'players') void cur?.refresh?.(); }

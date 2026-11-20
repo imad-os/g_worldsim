@@ -52,7 +52,7 @@ export function connect(server: string, tok: string | (() => Promise<string>)): 
         listeners.welcome();
         break;
       case Msg.Error:
-        if (m.code === 'auth' && typeof tok !== 'string') listeners.denied('The server did not accept your sign-in (is sign-in set up on the server? try again).');
+        if (m.code === 'auth' && typeof tok !== 'string') listeners.denied('The world server did not accept your sign-in. It may still run an older version without sign-in, or the Firebase project is not set up yet (Firestore rules published?). Your admin token still works.');
         else if (m.code === 'auth' || m.code === 'locked') { save('token', ''); listeners.denied(m.code === 'locked' ? 'Too many wrong tokens: wait 10 minutes.' : 'Wrong admin token.'); }
         else if (m.code === 'version') listeners.denied('The server runs another version: update it, then reload this page.');
         break;
