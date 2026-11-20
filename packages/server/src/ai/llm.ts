@@ -1,7 +1,7 @@
 /**
  * Language models behind one small interface, so the planner never cares which one answers:
  *  - Gemini (Google's API, key GEMINI_API_KEY in .env),
- *  - Ollama (any Ollama server: imad's https://ollama-cpu.chtipol.xyz by default; OLLAMA_API_KEY only for ollama.com's hosted models;
+ *  - Ollama (any Ollama server, address in worldsim.config.json `ai.ollamaUrl` or the panel, never in the code; OLLAMA_API_KEY only for ollama.com's hosted models;
  *    no model chosen = the smallest installed one, the fastest on a CPU server),
  *  - none (agents keep their built-in brain).
  * The owner switches provider / model / address in the control panel; the choice is kept in the database.
@@ -30,7 +30,8 @@ export interface AiConfig extends AiSettings {
   geminiBase?: string;
 }
 /** imad's Ollama server (owner request 2026-11-19): the default AI. */
-export const DEFAULT_OLLAMA_URL = 'https://ollama-cpu.chtipol.xyz';
+/** A local Ollama. The owner's own server is set in the PC's worldsim.config.json (not committed): Ollama has no password. */
+export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 export const AI_DEFAULTS: AiConfig = {
   provider: 'ollama', model: '', ollamaUrl: DEFAULT_OLLAMA_URL, maxCallsPerHour: 600, timeoutMs: 120_000,
 };

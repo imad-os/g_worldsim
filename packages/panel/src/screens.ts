@@ -180,7 +180,7 @@ export const ai: Screen = {
     return `<div class="grid2">
     ${card('Status', `<div id="aStatus" class="stat"></div>`)}
     ${card('Provider', `${row('Brain', `<select id="aProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option></select>`)}
-      <div id="aUrlRow">${row('Ollama address', `<input id="aUrl" placeholder="https://ollama-cpu.chtipol.xyz">`, help('aiUrl'))}</div>
+      <div id="aUrlRow">${row('Ollama address', `<input id="aUrl" placeholder="https://your-ollama-server">`, help('aiUrl'))}</div>
       ${row('Model', `<input id="aModel" list="aModels" placeholder="fastest (automatic)"><datalist id="aModels"></datalist>`, help('aiModel'))}
       <div class="row wrap"><button class="btn primary" id="aSave">Save</button><button class="btn" id="aList">List models</button><button class="btn" id="aTest">Test</button></div><pre id="aOut" class="out"></pre>`, { help: help('ai') })}
     ${card('Planner', `<div id="plState" class="dim"></div>

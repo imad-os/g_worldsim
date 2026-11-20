@@ -37,7 +37,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **AI providers** (`packages/server/src/ai/llm.ts`): none / Gemini (`GEMINI_API_KEY`) / Ollama (address, optional
   `OLLAMA_API_KEY` for ollama.com). Switch in the panel's AI brain card (meta `ai`); `Ai.generate` with an hourly budget,
   2 at once. Planner code must only use `Ai`, never a provider directly. **Default (imad 2026-11-19): Ollama at
-  https://ollama-cpu.chtipol.xyz, no model = the smallest installed one (fastest)**; meta `ai_defaults` = 2 moved old
+  imad's own server (address only in the PC's worldsim.config.json + the saved setting, NEVER in the public repo: Ollama has no password), no model = the smallest installed one (fastest)**; meta `ai_defaults` = 2 moved old
   worlds once. Ollama calls send `think: false` (qwen3 spent the whole answer on thinking) and strip `<think>`.
 - **Planner** (milestone 6, `ai/planner.ts`): every `everyGameHours` (3) a person is due; one request plans up to `batch`
   (5) people of one map, at most one request at a time, `minGapSec` (20) apart, stops at 80 % of the hourly budget
