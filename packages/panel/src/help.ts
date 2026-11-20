@@ -54,8 +54,14 @@ export const HELP: Record<string, [string, string]> = {
   server: ['Server', 'The server process on your PC: speed of the simulation, CPU and RAM, the internet link and saving.'],
   tunnel: ['Internet link', 'How TVs and this panel reach your PC from outside. ngrok keeps the same address. Switching restarts the link (a few seconds offline).'],
   settings: ['Settings', 'Settings of this panel on this device only: the server address, what the dashboard shows, the look.'],
+  me: ['My character', 'Your own person in the world. Join once with a name: you then live there like everyone else (needs, work, talk, fights). Away = asleep where you left them.'],
+  account: ['Your account', 'You signed in with Google or your email. Your role decides what you can do: owner and admins get every page and the admin tools in the game; players get this page only and play like any person of the world.'],
+  myTv: ['Your TV', 'Install World from My PC\'s App Store on the TV and open it: it shows a 6-digit code. Type it here and that TV plays as your character. Linking another TV replaces the first one.'],
+  join: ['Join the world', '2 to 20 letters, digits or spaces, not a name already used by a person or another player. You start in Old Town.'],
+  users: ['Users & roles', 'Everyone who signed in to this panel. Only the owner changes roles; it counts from that person\'s next sign-in. Roles are kept in your Firebase project (roles collection), protected by its rules.'],
+  roles: ['Roles', 'Owner: everything, and gives roles. Admin: every page and the in-game admin tools. Player: joins the world as a person and links their own TV.'],
   address: ['Server address', 'The public link of your world server (the same one the TV app uses), e.g. https://something.ngrok-free.dev. This panel can be opened from GitHub and connects there.'],
-  token: ['Admin token', 'ADMIN_TOKEN in the server .env file on your PC. This device remembers it until you sign out.'],
+  token: ['Admin token', 'ADMIN_TOKEN in the server .env file on your PC: a way in for you even without Google or email. This device remembers it until you sign out.'],
 };
 
 export function help(key: string): string {

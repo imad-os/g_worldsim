@@ -11,6 +11,8 @@ import type { World } from '../sim/world.js';
 import type { Logger } from '../log.js';
 import { NO_MAP } from '../sim/entities.js';
 import type { Players } from '../persist/players.js';
+import type { Accounts } from '../persist/accounts.js';
+import type { FirebaseAuth, AccountRole } from '../auth/firebase.js';
 
 export interface NetOptions {
   host: string;
@@ -20,6 +22,9 @@ export interface NetOptions {
   maxClients: number;
   adminToken: string;
   players: Players;
+  /** Firebase sign-ins (panel); off when no project is set. */
+  auth?: FirebaseAuth;
+  accounts?: Accounts;
   staticDirs: { prefix: string; dir: string }[];
 }
 
@@ -31,6 +36,8 @@ interface Session {
   role: Role;
   name: string;
   ip: string;
+  /** Signed in with Firebase. */
+  acct?: { uid: string; role: AccountRole; email: string };
   view: { map: number; x: number; y: number; r: number } | null;
   chunks: Map<number, number>; // key -> version sent
   chunkMap: number;
@@ -61,6 +68,9 @@ function safeEq(a: string, b: string): boolean {
   const x = Buffer.from(a), y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 }
+
+/** Commands a Firebase player may send (all about themselves). */
+const PLAYER_CMDS = new Set(['me', 'joinWorld', 'approveMine', 'revokeMine']);
 
 const isNum = (v: unknown, lo = -1e9, hi = 1e9): v is number => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 
@@ -97,6 +107,8 @@ export class NetServer {
   info: (id: number, seer: boolean) => unknown = () => null;
   /** Who may see thoughts (the owner's choice). */
   isSeer: (name: string) => boolean = () => false;
+  /** Commands a Firebase account runs about itself (character, its TVs). */
+  playerCmd: (c: AdminCmd, uid: string, role: AccountRole) => unknown | Promise<unknown> = () => { throw new Error('not ready'); };
   /** Thoughts of the people around (x, y) on map m, within r. */
   minds: (m: number, x: number, y: number, r: number) => unknown[] = () => [];
   /** My character's needs. */
@@ -228,7 +240,7 @@ export class NetServer {
   }
 
   private onSocket(ws: WebSocket, ip: string): void {
-    let session: Session | null = null;
+    let session: Session | null = null, busy = false;
     const helloTimer = setTimeout(() => ws.close(4001, 'hello timeout'), 5000);
     ws.on('message', (raw, isBinary) => {
       let m: ClientMsg;
@@ -238,10 +250,12 @@ export class NetServer {
         if (!m || typeof m !== 'object' || typeof (m as { t?: unknown }).t !== 'string') throw new Error('shape');
       } catch { ws.close(4002, 'bad message'); return; }
       if (!session) {
+        if (busy) return; // still checking the first hello
         if (m.t === Msg.Pair) { this.pair(ws, ip, m); return; }
         if (m.t !== Msg.Hello) { ws.close(4003, 'hello first'); return; }
         clearTimeout(helloTimer);
-        session = this.hello(ws, ip, m);
+        busy = true;
+        this.hello(ws, ip, m).then((s) => { session = s; busy = false; }, (err) => { this.log.warn('hello failed', { err: String(err) }); ws.close(4004, 'auth'); });
         return;
       }
       if (!this.rate(session)) { ws.close(4008, 'too many messages'); return; }
@@ -264,15 +278,26 @@ export class NetServer {
     return true;
   }
 
-  private hello(ws: WebSocket, ip: string, m: ClientMsg): Session | null {
+  private async hello(ws: WebSocket, ip: string, m: ClientMsg): Promise<Session | null> {
     if (m.t !== Msg.Hello) return null;
     const fail = (code: string) => { this.sendRaw(ws, { t: Msg.Error, code }); ws.close(4004, code); return null; };
     if (m.v !== PROTOCOL_VERSION) return fail('version');
     if (this.locked(ip)) return fail('locked');
     const token = typeof m.token === 'string' ? m.token : '';
-    let role: Role | null = null, name = '';
-    if (this.o.adminToken && safeEq(token, this.o.adminToken)) { role = 'admin'; name = 'admin'; }
+    let role: Role | null = null, name = '', acct: Session['acct'];
+    if (token.startsWith('fb:') && this.o.auth?.enabled && this.o.accounts) {
+      // Firebase sign-in (panel): the role comes from Firestore roles/<uid>, read with the person's own token.
+      try {
+        const idt = token.slice(3), u = await this.o.auth.verify(idt), r = await this.o.auth.role(u.uid, idt);
+        const a = this.o.accounts.seen(u.uid, u.email, r);
+        acct = { uid: u.uid, role: r, email: u.email };
+        role = r === 'player' ? 'player' : 'admin';
+        name = a.name || u.email || u.uid;
+      } catch (err) { this.log.warn('firebase sign-in refused', { ip, err: String((err as Error).message ?? err) }); }
+      if (ws.readyState !== 1) return null;
+    } else if (this.o.adminToken && safeEq(token, this.o.adminToken)) { role = 'admin'; name = 'admin'; }
     else { const n = this.o.players.check(token); if (n) { role = 'viewer'; name = n; } }
+    if (!role && token.startsWith('fb:')) return fail('auth'); // a signed token: expired or another project, not a guess
     if (!role) { this.authFailed(ip); this.log.warn('auth failed', { ip }); return fail('auth'); }
     this.pruneSessions();
     if (this.clientCount() >= this.o.maxClients) return fail('full');
@@ -282,7 +307,7 @@ export class NetServer {
     if (!s) {
       const cap = this.world.e.cap;
       s = {
-        id: randomBytes(12).toString('base64url'), ws, role, name, ip, view: null,
+        id: randomBytes(12).toString('base64url'), ws, role, name, ip, acct, view: null,
         chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 4), list: new Int32Array(cap), listN: 0, idle: 0,
         tokens: 60, tokensAt: Date.now(), goneAt: 0, avatar: -1, avatarId: 0, lastMap: -2,
       };
@@ -299,6 +324,7 @@ export class NetServer {
       clock: this.clockInfo(),
       body: { radius: w.sc.agents.radius, walk: w.sc.agents.walk, run: w.sc.agents.run },
       seer: role === 'viewer' && this.isSeer(name),
+      account: acct ? { uid: acct.uid, role: acct.role, name: this.o.accounts!.get(acct.uid)?.name ?? '', email: acct.email } : undefined,
     });
     this.log.info('client joined', { name, role, resumed: !!(m as { resume?: string }).resume });
     return s;
@@ -529,10 +555,13 @@ export class NetServer {
         return;
       }
       case Msg.Admin: {
-        if (s.role !== 'admin') { this.send(s, { t: Msg.Error, code: 'forbidden' }); return; }
         const id = isNum(m.id) ? m.id : 0;
+        const mine = PLAYER_CMDS.has(String((m.c as { cmd?: unknown } | undefined)?.cmd));
+        if (s.role !== 'admin' && !(mine && s.acct)) { this.send(s, { t: Msg.Error, code: 'forbidden' }); return; }
         try {
-          const data = await this.admin(m.c, s.name);
+          // A Firebase player only asks about themselves; staff use the same commands for their own character.
+          const data = mine && s.acct ? await this.playerCmd(m.c, s.acct.uid, s.acct.role) : await this.admin(m.c, s.acct ? s.acct.email || s.name : s.name);
+          if (mine && s.acct && (m.c as { cmd: string }).cmd === 'joinWorld') s.name = this.o.accounts!.get(s.acct.uid)?.name || s.name;
           this.send(s, { t: Msg.AdminResult, id, ok: true, data });
         } catch (err) {
           this.send(s, { t: Msg.AdminResult, id, ok: false, err: String((err as Error).message ?? err) });

@@ -1,6 +1,6 @@
 import type { ServerStats } from '@worldsim/protocol';
 import { RECIPES_ALL, CATEGORIES, WEAPONS, DEFENCE, PLACEABLE, ANIMAL_NAMES } from '@worldsim/protocol';
-import { cmd, stats, serverAddress, onServer } from './api.js';
+import { cmd, stats, serverAddress, onServer, isStaff } from './api.js';
 import { lineChart } from './charts.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, type Screen } from './screen.js';
@@ -327,7 +327,7 @@ export const settings: Screen = {
   title: 'Settings', icon: 'settings', help: 'settings',
   render() {
     return `<div class="grid2">
-      ${card('Dashboard', `<p class="dim">What the dashboard shows.</p>${WIDGETS.map(([k, l]) => `<label class="check"><input type="checkbox" data-w="${k}"${dashOn(k) ? ' checked' : ''}> ${esc(l)}</label>`).join('')}`, { help: help('dashboard') })}
+      ${!isStaff() ? '' : card('Dashboard', `<p class="dim">What the dashboard shows.</p>${WIDGETS.map(([k, l]) => `<label class="check"><input type="checkbox" data-w="${k}"${dashOn(k) ? ' checked' : ''}> ${esc(l)}</label>`).join('')}`, { help: help('dashboard') })}
       ${card('Look', `${row('Theme', `<div class="seg" id="sTheme">${[['auto', 'Automatic'], ['dark', 'Dark'], ['light', 'Light']].map(([k, l]) => `<button data-t="${k}" class="${load('theme', 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
         ${row('Accent', `<div class="seg" id="sAcc">${['#4da3ff', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6'].map((c) => `<button data-c="${c}" class="${load('accent', '#4da3ff') === c ? 'on' : ''}"><i class="dotc" style="background:${c}"></i></button>`).join('')}</div>`)}
         ${row('Compact lists', `<label class="switch"><input type="checkbox" id="sCompact"${load('compact', false) ? ' checked' : ''}><i></i></label>`)}

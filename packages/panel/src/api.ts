@@ -10,6 +10,9 @@ let conn: Conn | null = null;
 let nextId = 1;
 const waiting = new Map<number, (ok: boolean, data: unknown, err?: string) => void>();
 export let stats: ServerStats | null = null;
+/** Signed in with Firebase: the account from the server's welcome (role owner / admin / player, character name). */
+export let account: { uid: string; role: 'owner' | 'admin' | 'player'; name: string; email: string } | null = null;
+export const setAccountName = (n: string) => { if (account) account.name = n; };
 export const listeners = {
   state: (_s: 'connecting' | 'open' | 'closed', _why?: string) => {},
   welcome: () => {},
@@ -33,8 +36,9 @@ export function setServer(url: string): string {
   return u;
 }
 export const token = () => load('token', '');
+export const isStaff = () => !account || account.role !== 'player';
 
-export function connect(server: string, tok: string): void {
+export function connect(server: string, tok: string | (() => Promise<string>)): void {
   conn?.close();
   const ws = server.replace(/^http/, 'ws') + '/ws';
   conn = new Conn(ws, tok, 'panel');
@@ -42,12 +46,14 @@ export function connect(server: string, tok: string): void {
   conn.onMsg = (m: ServerMsg) => {
     switch (m.t) {
       case Msg.Welcome:
-        if (m.role !== 'admin') { conn?.close(); listeners.denied('That is a TV (viewer) token, not the admin token.'); return; }
-        save('token', tok);
+        account = m.account ?? null;
+        if (m.role === 'viewer') { conn?.close(); listeners.denied('That is a TV (viewer) token, not the admin token.'); return; }
+        if (typeof tok === 'string') save('token', tok);
         listeners.welcome();
         break;
       case Msg.Error:
-        if (m.code === 'auth' || m.code === 'locked') { save('token', ''); listeners.denied(m.code === 'locked' ? 'Too many wrong tokens: wait 10 minutes.' : 'Wrong admin token.'); }
+        if (m.code === 'auth' && typeof tok !== 'string') listeners.denied('The server did not accept your sign-in (is sign-in set up on the server? try again).');
+        else if (m.code === 'auth' || m.code === 'locked') { save('token', ''); listeners.denied(m.code === 'locked' ? 'Too many wrong tokens: wait 10 minutes.' : 'Wrong admin token.'); }
         else if (m.code === 'version') listeners.denied('The server runs another version: update it, then reload this page.');
         break;
       case Msg.Notice: listeners.notice(m.kind, m.data); break;

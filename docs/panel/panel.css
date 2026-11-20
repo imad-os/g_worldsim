@@ -217,3 +217,10 @@ a.pcard:hover{border-color:color-mix(in srgb,var(--acc) 55%,var(--line));transfo
 }
 @keyframes up{from{transform:translateY(30px);opacity:.6}}
 @media (min-width:1400px){.dash{grid-template-columns:repeat(3,1fr)}.dash .span2.tall{grid-column:span 2;grid-row:span 2}}
+/* accounts (Firebase sign-in) */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:center;font-size:14px}.kv>span{color:var(--dim)}
+.steps{margin:0 0 14px;padding-left:20px;line-height:1.7}.row2{display:flex;gap:8px;flex-wrap:wrap}.row2 input{flex:1;min-width:140px}
+.si-or{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:12.5px;margin:14px 0}.si-or:before,.si-or:after{content:"";flex:1;border-top:1px solid var(--line)}
+.btn.google{background:#fff;color:#1f1f1f;border-color:#dadce0}.btn.google svg{fill:#4285f4;stroke:none}
+.si-links{display:flex;justify-content:space-between;gap:8px;margin-top:10px;font-size:13px}.si-links a{color:var(--acc);cursor:pointer}
+details.si-tok{margin-top:16px;font-size:13px;color:var(--dim)}details.si-tok summary{cursor:pointer}

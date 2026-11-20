@@ -9,6 +9,9 @@ import { Db } from './persist/db.js';
 import { Snapshots, EventLog } from './persist/snapshot.js';
 import { CloudSync } from './persist/cloud.js';
 import { Players } from './persist/players.js';
+import { Accounts } from './persist/accounts.js';
+import { FirebaseAuth } from './auth/firebase.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
@@ -21,11 +24,16 @@ import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
+/** The Firebase project of the panel's sign-in: docs/panel/firebase.json (the public web config, the same file the panel reads). */
+function firebaseProject(): string {
+  const f = join(ROOT, 'docs', 'panel', 'firebase.json');
+  try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
+}
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+const READS = new Set<string>(['accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['rules', 'zombies', 'life', 'planner']);
-const LOGGED = new Set(['replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+const LOGGED = new Set(['joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
@@ -39,6 +47,10 @@ export class App {
   events!: EventLog;
   cloud!: CloudSync;
   players!: Players;
+  accounts!: Accounts;
+  auth!: FirebaseAuth;
+  /** Tests: a fake Google / Firestore for the sign-in checks. */
+  authFetch?: ConstructorParameters<typeof FirebaseAuth>[1];
   tunnel!: TunnelManager;
   ai!: Ai;
   planner!: Planner;
@@ -59,6 +71,8 @@ export class App {
     this.snaps = new Snapshots(this.db, c.snapshotsKept);
     this.events = new EventLog(this.db);
     this.players = new Players(this.db, this.secrets.viewers);
+    this.accounts = new Accounts(this.db);
+    this.auth = new FirebaseAuth(c.auth.projectId || firebaseProject(), this.authFetch);
     const sc = loadScenario(resolve(ROOT, c.scenariosDir, c.scenario));
     const seed = this.db.getMeta('seed') ?? String(sc.seed);
     this.world = new World(sc, { tickRate: c.tickRate, clockScale: c.clockScale, capacity: c.capacity, seed });
@@ -123,7 +137,7 @@ export class App {
 
     this.net = new NetServer(w, {
       host: c.host, port: c.port, netHz: c.netHz, maxViewRadius: c.maxViewRadius, maxClients: c.maxClients,
-      adminToken: this.secrets.adminToken, players: this.players,
+      adminToken: this.secrets.adminToken, players: this.players, auth: this.auth, accounts: this.accounts,
       staticDirs: [
         { prefix: '/panel/', dir: join(ROOT, 'docs', 'panel') }, // the same files GitHub Pages serves (main /docs)
         { prefix: '/app/', dir: join(ROOT, 'docs') },
@@ -145,7 +159,7 @@ export class App {
       if (a === 'replays') return { ok: true, code: 'replays', list: this.replayList() };
       if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
-      if (a === 'tp') return this.teleport(player, Number(text));
+      if (a === 'tp') return this.isStaff(name) ? this.teleport(player, Number(text)) : { ok: false, code: 'staffOnly' }; // admin tool
       if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
       const sv = w.survival;
       if (a === 'craft') { // "weapon:wood=1,ore=1"
@@ -202,7 +216,8 @@ export class App {
       set: (name, p) => this.db.setMeta('pos:' + name, JSON.stringify(p)),
     };
     // Every player's character lives in the world 24/7: asleep where they left it until they come back.
-    this.net.spawnResidents(this.players.list().map((p) => p.name));
+    this.net.spawnResidents([...this.players.list().map((p) => p.name), ...this.accounts.list().map((a) => a.name).filter(Boolean)]);
+    this.net.playerCmd = (c, uid) => this.playerCmd(c, uid);
     // The owner's strict rules (sim/rules.ts): everyone's are in the database, each person's in their profile.
     { const r = this.db.getMeta('rules_all'); if (r) { try { this.world.rules.all = JSON.parse(r) as Rule[]; } catch { /* broken: none */ } } }
     this.world.rules.resolve((n) => this.planner.whoIs(n));
@@ -343,6 +358,51 @@ export class App {
     return out;
   }
   /** Put a player's character right next to someone (any map). */
+  /** In-game admin tools (Go to someone...): owner / admin accounts; without Firebase sign-in set up, every player as before. */
+  isStaff(name: string): boolean {
+    if (!this.auth.enabled) return true;
+    return this.accounts.isStaff(name);
+  }
+
+  /** A signed-in account about itself: its character and its TV. Players get exactly what a person of the world has. */
+  playerCmd(c: AdminCmd, uid: string): unknown {
+    const a = this.accounts.get(uid);
+    if (!a) throw new Error('sign in again');
+    switch (c.cmd) {
+      case 'me': {
+        const r = a.name ? this.net.residents.get(a.name) : undefined, e = this.world.e, i = r !== undefined ? e.slot(r) : -1;
+        const me = i >= 0 ? { id: r, map: this.world.maps[e.map[i] === NO_MAP ? e.toMap[i]! : e.map[i]!]!.def.name, x: Math.round(e.x[i]!), y: Math.round(e.y[i]!),
+          hp: Math.round(e.hp[i]!), hunger: Math.round(e.hunger[i]!), thirst: Math.round(e.thirst[i]!), tired: Math.round(e.tired[i]!), asleep: (e.flags[i]! & EFlag.Sleeping) !== 0,
+          online: this.net.online(a.name), inv: this.world.survival.inv(i) } : null;
+        return { name: a.name, role: a.role, email: a.email, character: me, tv: !!a.name && this.players.has(a.name), clock: this.clock() };
+      }
+      case 'joinWorld': {
+        if (a.name) return { name: a.name };
+        const name = String(c.name ?? '').trim().replace(/\s+/g, ' ');
+        if (!/^[\p{L}\p{N} ._-]{2,20}$/u.test(name)) throw new Error('2 to 20 letters, digits or spaces');
+        const lower = name.toLowerCase();
+        const person = [...this.world.profiles.values()].some((p) => p.name.toLowerCase() === lower);
+        if (person || lower === 'admin' || this.accounts.byName(name)) throw new Error('that name is taken');
+        // A TV already paired under that name: only the owner / an admin may take it over (their own old TV).
+        if (this.players.has(name) && a.role === 'player') throw new Error('that name is taken');
+        this.accounts.setName(uid, name);
+        this.net.spawnResidents([name]);
+        this.world.emit('joined', { name, who: a.email });
+        return { name };
+      }
+      case 'approveMine': {
+        if (!a.name) throw new Error('join the world first');
+        if (typeof c.code !== 'string' || !/^\d{6}$/.test(c.code)) throw new Error('bad code');
+        return this.players.approve(c.code, a.name, true);
+      }
+      case 'revokeMine': {
+        if (!a.name || !this.players.revoke(a.name)) throw new Error('no TV');
+        return { kicked: this.net.kick(a.name) };
+      }
+      default: throw new Error('not allowed');
+    }
+  }
+
   teleport(player: number, id: number): Record<string, unknown> {
     const w = this.world, e = w.e, j = Number.isInteger(id) ? e.slot(id) : -1;
     if (j < 0 || j === player || e.map[j] === NO_MAP) return { ok: false, code: 'nobody' };
@@ -450,6 +510,7 @@ export class App {
         return { broke };
       }
       case 'pairings': return this.players.pendingList();
+      case 'accounts': return { signIn: this.auth.enabled, project: this.auth.projectId, list: this.accounts.list().map((a) => ({ ...a, online: !!a.name && this.net.online(a.name), tv: !!a.name && this.players.has(a.name) })) };
       case 'approve': {
         if (typeof c.code !== 'string' || !/^\d{6}$/.test(c.code)) throw new Error('bad code');
         return this.players.approve(c.code, typeof c.name === 'string' ? c.name : undefined);

@@ -29,6 +29,8 @@ export interface Config {
     cloudflareHostname?: string;
     bin?: { ngrok?: string; cloudflared?: string; tailscale?: string };
   };
+  /** Firebase sign-in for the panel: project id (empty = from docs/panel/firebase.json). */
+  auth: { projectId: string };
   /** Language model for the planner (switchable in the panel; the panel's choice wins once made). */
   ai: AiConfig;
 }
@@ -64,6 +66,7 @@ export const DEFAULTS: Config = {
   logLevel: 'info',
   cloud: { enabled: false, projectId: '', everySec: 300, maxWritesPerDay: 15000 },
   tunnel: { provider: 'none' },
+  auth: { projectId: '' },
   ai: { ...AI_DEFAULTS },
 };
 
@@ -103,7 +106,7 @@ export function loadConfig(argv: string[], cwd = process.cwd()): { cfg: Config; 
   let cfg: Config = structuredClone(DEFAULTS);
   if (existsSync(file)) {
     const j = JSON.parse(readFileSync(file, 'utf8')) as Partial<Config>;
-    cfg = { ...cfg, ...j, cloud: { ...cfg.cloud, ...j.cloud }, tunnel: { ...cfg.tunnel, ...j.tunnel }, ai: { ...cfg.ai, ...j.ai } };
+    cfg = { ...cfg, ...j, cloud: { ...cfg.cloud, ...j.cloud }, tunnel: { ...cfg.tunnel, ...j.tunnel }, auth: { ...cfg.auth, ...j.auth }, ai: { ...cfg.ai, ...j.ai } };
   }
   if (args['low-spec'] || cfg.lowSpec) cfg = { ...cfg, ...LOW_SPEC, lowSpec: true };
   const num = (k: string) => (args[k] !== undefined ? Number(args[k]) : undefined);

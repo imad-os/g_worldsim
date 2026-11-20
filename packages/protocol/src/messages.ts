@@ -1,8 +1,10 @@
 import type { Msg } from './constants.js';
 
-export type Role = 'viewer' | 'admin';
+/** viewer = a paired TV; admin = the admin token or a Firebase owner / admin; player = a Firebase player in the panel. */
+export type Role = 'viewer' | 'admin' | 'player';
 
 /** Client -> server: first message. `resume` = the session id of a previous connection, to keep its interest state. */
+/** `token`: a viewer / admin token, or `fb:<Firebase ID token>` (panel sign-in with Google or email). */
 export interface Hello { t: typeof Msg.Hello; v: number; token: string; name?: string; resume?: string }
 
 /** Client -> server: the area the client wants to see (a map plus a centre and a radius in metres). */
@@ -30,6 +32,13 @@ export interface Ping { t: typeof Msg.Ping; c: number }
 
 /** Admin commands (control panel). Every field is validated server side. */
 export type AdminCmd =
+  // a Firebase player may use only these (about themselves)
+  | { cmd: 'me' }
+  | { cmd: 'joinWorld'; name: string }
+  | { cmd: 'approveMine'; code: string }
+  | { cmd: 'revokeMine' }
+  // staff
+  | { cmd: 'accounts' }
   | { cmd: 'speed'; speed: number }
   | { cmd: 'pause'; paused: boolean }
   | { cmd: 'snapshot' }
@@ -106,6 +115,8 @@ export interface Welcome {
   body?: { radius: number; walk: number; run: number };
   /** This viewer may see what people think and plan (the owner's choice in the panel). */
   seer?: boolean;
+  /** Signed in with Firebase: the account (role owner / admin / player, character name, '' until they join). */
+  account?: { uid: string; role: 'owner' | 'admin' | 'player'; name: string; email: string };
 }
 
 export interface ClockInfo {

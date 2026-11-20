@@ -48,14 +48,16 @@ export class Players {
     for (const [c, p] of this.pending) if (now - p.at > 600_000) { this.pending.delete(c); p.fail('expired'); }
   }
 
-  approve(code: string, name?: string): { name: string } {
+  /** `exact`: a signed-in player pairs their own TV: it takes their name, replacing their previous TV. */
+  approve(code: string, name?: string, exact = false): { name: string } {
     this.expire();
     const p = this.pending.get(code);
     if (!p) throw new Error('no such code (it lasts 10 minutes)');
     this.pending.delete(code);
     let n = (name ?? p.name).trim().slice(0, 32) || 'Player';
     const taken = (x: string) => !!this.db.sql.prepare('SELECT 1 FROM players WHERE name = ?').get(x) || this.envViewers.has(x);
-    if (taken(n)) { let k = 2; while (taken(`${n} (${k})`)) k++; n = `${n} (${k})`; }
+    if (exact) this.db.sql.prepare('DELETE FROM players WHERE name = ?').run(n);
+    else if (taken(n)) { let k = 2; while (taken(`${n} (${k})`)) k++; n = `${n} (${k})`; }
     const token = randomBytes(24).toString('base64url');
     this.db.sql.prepare('INSERT INTO players (name, token_hash, dev, created_at, last_seen) VALUES (?, ?, ?, ?, ?)')
       .run(n, hash(token), p.dev, Date.now(), Date.now());
@@ -81,6 +83,8 @@ export class Players {
     this.expire();
     return [...this.pending.values()].map(({ code, name, dev, ip, at }) => ({ code, name, dev, ip, at }));
   }
+
+  has(name: string): boolean { return !!this.db.sql.prepare('SELECT 1 FROM players WHERE lower(name) = lower(?)').get(name) || [...this.envViewers.keys()].some((k) => k.toLowerCase() === name.toLowerCase()); }
 
   revoke(name: string): boolean {
     return Number(this.db.sql.prepare('DELETE FROM players WHERE name = ?').run(name).changes) > 0;

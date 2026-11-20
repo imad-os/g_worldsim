@@ -12,7 +12,8 @@ export class Conn {
   onMsg: (m: ServerMsg) => void = () => {};
   onState: (s: 'connecting' | 'open' | 'closed', why?: string) => void = () => {};
 
-  constructor(private readonly url: string, private readonly token: string, private readonly name = 'viewer') {}
+  /** `token` may be a function (the panel's Firebase sign-in: a fresh ID token at every connect, they last an hour). */
+  constructor(private readonly url: string, private readonly token: string | (() => Promise<string>), private readonly name = 'viewer') {}
 
   open(): void {
     this.closed = false;
@@ -22,7 +23,9 @@ export class Conn {
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
-      this.send({ t: Msg.Hello, v: PROTOCOL_VERSION, token: this.token, name: this.name, resume: this.session || undefined });
+      const hello = (token: string) => this.send({ t: Msg.Hello, v: PROTOCOL_VERSION, token, name: this.name, resume: this.session || undefined });
+      if (typeof this.token === 'string') hello(this.token);
+      else this.token().then(hello, () => ws.close());
     };
     ws.onmessage = (ev) => {
       const m = decode(ev.data as ArrayBuffer) as ServerMsg;

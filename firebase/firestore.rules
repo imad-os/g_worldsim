@@ -1,0 +1,47 @@
+rules_version = '2';
+// World simulator: who may use the control panel (imad 2026-11-20).
+// roles/<uid>   { role: 'owner' | 'admin' | 'player', email, name, at }  (no document = player)
+// players/<uid> { name, email, at }                                        (people who joined the world)
+// The owner's email is written ONLY in the copy published in the Firebase console: replace OWNER_EMAIL below there,
+// never in this file (the repository is public).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return /databases/$(database)/documents/roles/$(request.auth.uid); }
+    function myRole() { return exists(me()) ? get(me()).data.role : 'player'; }
+    function isOwner() { return signedIn() && myRole() == 'owner'; }
+    function isStaff() { return signedIn() && myRole() in ['owner', 'admin']; }
+    function ownerEmail() {
+      return request.auth.token.email == 'OWNER_EMAIL' && request.auth.token.email_verified == true;
+    }
+    function goodRole(d) {
+      return d.keys().hasOnly(['role', 'email', 'name', 'at']) && d.role in ['owner', 'admin', 'player']
+        && d.email is string && d.email.size() <= 200 && d.name is string && d.name.size() <= 80;
+    }
+
+    match /roles/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isStaff());
+      allow list: if isStaff();
+      // Your own record, once: 'player', or 'owner' for the owner's verified email only.
+      allow create: if signedIn() && request.auth.uid == uid && goodRole(request.resource.data)
+        && (request.resource.data.role == 'player' || (request.resource.data.role == 'owner' && ownerEmail()));
+      // Only an owner changes roles (not their own, so there is always one owner).
+      allow update: if isOwner() && request.auth.uid != uid && goodRole(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
+      allow delete: if isOwner() && request.auth.uid != uid;
+    }
+
+    match /players/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isStaff());
+      allow list: if isStaff();
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'at'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 20;
+      allow delete: if isStaff() || request.auth.uid == uid;
+    }
+
+    match /{other=**} {
+      allow read, write: if false;
+    }
+  }
+}
