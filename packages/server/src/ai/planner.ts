@@ -115,6 +115,7 @@ export class Planner {
     this.cfg = { ...PLANNER_DEFAULTS, ...cfg };
     // Tasks (step plans) speak through the planner and end in memory.
     w.tasks.onSay = (i, text) => this.say(i, text);
+    w.rules.onSay = (i, text) => this.say(i, text);
     w.tasks.onEnd = (id, t, ok, why) => {
       this.note(id, ok ? `I did what ${t.from === 'owner' ? 'the voice from the sky' : t.from} asked: ${t.text}.` : `I could not ${t.text}: ${why}.`, true);
       const i = w.e.slot(id);
@@ -465,7 +466,7 @@ export class Planner {
 
   /** The model's plan as steps the engine runs (names -> people; unknown skills dropped). */
   private toSteps(i: number, raw: unknown[], player: number): Step[] {
-    const e = this.w.e, id = e.id(i), speaker = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
+    const e = this.w.e, id = i >= 0 ? e.id(i) : -1, speaker = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
     const out: Step[] = [];
     let found = -1, foundStep: Step | null = null;
     for (const r of raw.slice(0, 8)) {
@@ -581,20 +582,30 @@ export class Planner {
    */
   async refineRule(r: Rule, about: string): Promise<Rule> {
     if (!this.ai.status().ready) return r;
+    if (r.kind === 'when' || (r.kind === 'goal' && r.goal && r.goal !== 'plan')) { r.ai = true; return r; } // the engine knows these already
     const names = [...new Set([...this.w.profiles.values()].filter((p) => p.died === undefined).map((p) => p.name).concat([...this.players()].map(([n]) => n)))];
     const prompt = `The owner of a world gave ${about} this strict rule: "${r.text}".\nPeople: ${names.join(', ')}.\n`
       + `Things a person can do: ${RULE_ACTS.join(', ')}.\nWhich of those things does the rule forbid, and is it about one person (a name from the list) or nobody in particular?`;
-    const system = 'Answer ONLY with JSON: {"forbid":["things from the list"],"with":"a name or empty"}. Forbid everything the rule means: '
+    const system = 'Answer ONLY with JSON: {"forbid":["things from the list"],"with":"a name or empty","plan":[steps]}. Forbid everything the rule means: '
       + '"never talk to X" forbids talk, court and child with X; "stay away from X" forbids goto, follow, talk, give, trade, bring, heal, court, child with X; '
-      + '"never leave the town" forbids travel. If the rule forbids nothing on the list, answer {"forbid":[],"with":""}.';
+      + '"never leave the town" forbids travel. If the rule forbids nothing on the list, "forbid" is []. '
+      + 'If the rule is an order to DO something, "plan" is a short list of steps (at most 6), each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what"}, '
+      + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"}, child {}, bring {"who"}, give {"who","what"}, stay {"minutes"}, drink, eat, forage, sleep, rest, '
+      + 'wander, say {"text"}, gather {"what": "wood"|"stone"|"scrap"|"ore", "times"}, hunt {"what","times"}, craft {"what"}, build {"what": "campfire"|"hut"|"palisade"|"bed"|"lamp"|"door"}, '
+      + 'tend {}, collect {"what":"food","times"}, store {"what"}, take {"what","times"}, loot {"times"}, farm {}, repair {}, heal {"who"}, trade {"who","what","get"}. '
+      + 'Use names for "who", "found" for the person found by the step before. Otherwise "plan" is [].';
     const ex: Exchange = { at: Date.now(), kind: 'rule', who: about, prompt, reply: '', ms: 0 };
     try {
       const a = await this.ai.generate({ system, prompt, json: true, maxTokens: 120, temperature: 0.1 });
       ex.reply = a.text.slice(0, 1000); ex.ms = a.ms;
-      const j = parseJsonReply<{ forbid?: unknown; with?: unknown }>(a.text.replace(/<think>[\s\S]*?<\/think>/gi, ''));
-      if (j && Array.isArray(j.forbid)) {
-        const add = j.forbid.map((x) => String(x).trim().toLowerCase()).filter((x) => (RULE_ACTS as readonly string[]).includes(x));
+      const j = parseJsonReply<{ forbid?: unknown; with?: unknown; plan?: unknown }>(a.text.replace(/<think>[\s\S]*?<\/think>/gi, ''));
+      if (j && (Array.isArray(j.forbid) || Array.isArray(j.plan))) {
+        j.forbid ??= [];
+        const add = (j.forbid as unknown[]).map((x) => String(x).trim().toLowerCase()).filter((x) => (RULE_ACTS as readonly string[]).includes(x));
         r.forbid = [...new Set([...r.forbid, ...add])];
+        // Forbids something = a "never" rule; else an order to do something: the AI's plan, run once a game day.
+        if (r.forbid.length) { r.kind = 'never'; delete r.goal; }
+        else if (r.kind === 'goal' && !r.goal && Array.isArray(j.plan)) { const st = this.toSteps(-1, j.plan, -1); if (st.length) { r.plan = st; r.goal = 'plan'; } }
         const wn = typeof j.with === 'string' ? j.with.trim() : '';
         if (r.with < 0 && wn) { const id = this.whoIs(wn); if (id >= 0) { r.with = id; r.withName = this.nameOfId(id); } }
         r.ai = true;

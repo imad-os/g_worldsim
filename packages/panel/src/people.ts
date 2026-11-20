@@ -66,7 +66,9 @@ function bindList(): void { on('tr.link', 'click', (el) => { location.hash = `#/
 
 // ------------------------------------------------------------ one person
 type Mind = { notes: { at: number; text: string }[]; summary: string; mood: string; plan?: { act: string; with?: number; why: string; until: number }; said?: { text: string } };
-type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean };
+type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[] };
+const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
+  : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
 type Detail = Person & { now: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
 let pid = -1, ptab = load('ptab', 'overview'), chat: [string, string][] = [];
 const ORDERS: [string, string, boolean][] = [
@@ -130,7 +132,7 @@ type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[]
 async function loadRules(r?: RulesAns): Promise<void> {
   r ??= await cmd<RulesAns>({ cmd: 'rules' });
   const list = r.people.find((x) => x.id === pid)?.rules ?? [];
-  setHtml('xRules', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only'}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules for them.</div>');
+  setHtml('xRules', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${ruleWhat(x)}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules for them.</div>');
   on('#xRules [data-rm]', 'click', async (b) => { try { await loadRules(await cmd<RulesAns>({ cmd: 'rules', id: pid, remove: Number(b.dataset.rm) })); toast('Rule removed', 'ok'); } catch (e) { toast(String(e), 'err'); } });
 }
 function addChat(w: string, t: string): void { chat.push([w, t]); if (chat.length > 40) chat.shift(); if (ptab === 'talk' && detail) { setHtml('xPage', personHtml(detail)); bindPerson(); const c = document.getElementById('xChat'); if (c) c.scrollTop = c.scrollHeight; } }

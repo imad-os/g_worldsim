@@ -307,7 +307,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
-    if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); }
+    if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); this.rules.update(); }
     this.zombies.update();
     this.animals.update();
     if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });

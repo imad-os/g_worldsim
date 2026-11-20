@@ -486,3 +486,39 @@ test('replays: a zombie attack is recorded (everyone near it, bites, kills), com
   assert.equal(Math.round(frames / r.hz), r.secs);
   assert.ok(JSON.stringify(r).length < 120_000, 'small');
 });
+
+test('rules that say what to DO are followed: "you must get married" -> find, talk, court; "reproduce" -> a child; "when you see X say Y" fires only near X', async () => {
+  const { compileRule } = await import('../sim/rules.js');
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'must1' });
+  w.populate();
+  const e = w.e, nameOf = (n: string) => { for (const [id, p] of w.profiles) if (p.name.toLowerCase() === n.toLowerCase()) return id; return -1; };
+  const ids = [...w.profiles.keys()];
+  // imad's own rules (2026-11-20), word for word.
+  const kinds = ['you must get married', 'reproduce', 'go find a husband', 'get married and have kids now'].map((t) => { const r = compileRule(w, t, nameOf); return [r.kind, r.goal]; });
+  assert.deepEqual(kinds, [['goal', 'marry'], ['goal', 'child'], ['goal', 'marry'], ['goal', 'child']]);
+  const B = w.profiles.get(ids[1]!)!;
+  const g = compileRule(w, `when you see '${B.name}', great him with 'Hello my king'`, nameOf);
+  assert.equal(g.kind, 'when'); assert.equal(g.say, 'Hello my king'); assert.equal(g.with, ids[1]);
+  assert.equal(compileRule(w, `never talk to ${B.name}`, nameOf).kind, 'never');
+  // Everyone must marry: within a few game days, couples form through courting (not by chance alone).
+  let n = 0;
+  for (const p of w.profiles.values()) { p.partner = -1; p.sex = n++ % 2 ? 'f' : 'm'; p.born = Math.min(p.born, w.gameSec - 20 * w.life.yearSec); }
+  w.rules.all = [compileRule(w, 'you must get married', nameOf)];
+  const ev: Record<string, number> = {};
+  w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; });
+  for (let k = 0; k < 3 * 86400 / 30 * 20 && !(ev.partner ?? 0); k++) w.step();
+  assert.ok((ev.rule ?? 0) >= 1, `the rule started tasks ${JSON.stringify(ev)}`);
+  assert.ok((ev.partner ?? 0) >= 1, `a couple formed ${JSON.stringify(ev)}`);
+  // The greeting: said next to B only.
+  const said: string[] = [];
+  w.rules.onSay = (i, t) => said.push(`${e.id(i)}:${t}`);
+  const A = ids[0]!, ia = e.slot(A), ib = e.slot(ids[1]!);
+  w.rules.all = [g];
+  e.x[ib] = e.x[ia]! + 60; e.y[ib] = e.y[ia]!;
+  w.rules.update();
+  assert.ok(!said.some((x) => x.startsWith(`${A}:`)), 'far away: nothing');
+  e.x[ib] = e.x[ia]! + 3; e.y[ib] = e.y[ia]!;
+  w.rules.update(); w.rules.update();
+  assert.equal(said.filter((x) => x === `${A}:Hello my king`).length, 1, 'once per meeting');
+  assert.doesNotMatch(w.rules.text(ia), /Hello my king/, 'the trigger is the engine\'s, not in the prompt');
+});

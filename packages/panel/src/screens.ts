@@ -144,7 +144,9 @@ export const crafting: Screen = {
 };
 
 // ------------------------------------------------------------ rules
-type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean };
+type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[] };
+const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
+  : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
 type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[] }[]; max: number };
 let rFor = -1;
 export const rules: Screen = {
@@ -164,7 +166,7 @@ export const rules: Screen = {
     const r = given ?? await cmd<RulesAns>({ cmd: 'rules' });
     setHtml('rWho', [`<button class="who ${rFor < 0 ? 'on' : ''}" data-id="-1">Everyone <small>${r.all.length}/${r.max}</small></button>`, ...r.people.map((p) => `<button class="who ${rFor === p.id ? 'on' : ''}" data-id="${p.id}">${esc(p.name)} <small>${p.rules.length}/${r.max}</small></button>`)].join(''));
     const list = rFor < 0 ? r.all : r.people.find((p) => p.id === rFor)?.rules ?? [];
-    setHtml('rList', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only'}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules yet.</div>');
+    setHtml('rList', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${ruleWhat(x)}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules yet.</div>');
     (document.getElementById('rAdd') as HTMLButtonElement | null)?.toggleAttribute('disabled', list.length >= r.max);
     on('#rWho .who', 'click', (b) => { rFor = Number(b.dataset.id); void this.refresh!(r as never); });
     on('#rList [data-rm]', 'click', async (b) => { try { await this.refresh!(await cmd<RulesAns>({ cmd: 'rules', id: rFor, remove: Number(b.dataset.rm) }) as never); toast('Rule removed', 'ok'); } catch (e) { err(e); } });

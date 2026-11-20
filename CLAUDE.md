@@ -200,3 +200,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   in .env)" when .env has keys). Old `aiSet` updates the brain in use. Provider `openai` = any OpenAI-compatible API (`/v1` base, Bearer key).
 - **Keys take turns**: `GEMINI_API_KEYS=k1,k2` (and/or `GEMINI_API_KEY`) in .env, or several comma-separated keys in a brain's key
   field: round robin per call (`Ai.nextKey`). A brain's own key wins over .env. `OPENAI_API_KEY` in .env also works.
+- **Rule kinds (imad 2026-11-20: "rules are not respected"; all his rules were "must" rules)**: `classify()` in sim/rules.ts:
+  `never` (forbid, as before), `goal` (`marry` / `child` / `plan` = AI steps from refineRule, once a game day) = `Rules.update()` (World.step
+  every 20 ticks) starts a task (from 'owner') when the person is free, adult, not desperate, the goal not yet true, 2 game hours between
+  tries; `when` ("when you see 'X', greet him with 'Y'") = the engine says Y within 7 m of X, once per 2 game hours, NOT in the prompt.
+  Old saved rules get their kind at load (`resolve`). Prompt: never rules + "your owner's orders, your main goals".
