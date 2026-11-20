@@ -30,6 +30,7 @@ export const EFlag = {
   Sleeping: 4,
   Transit: 8, // travelling between maps, not in any map
   Dead: 16,
+  Child: 32, // younger than 16: drawn smaller
 } as const;
 
 /** Message type tags (first field `t` of every message). Short strings keep msgpack small and readable in logs. */

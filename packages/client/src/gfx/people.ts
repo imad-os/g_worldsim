@@ -47,11 +47,12 @@ export class People {
    * One person. x, z = ground position; facing = rotation around up (0 = towards +z); phase / amp = walk cycle
    * (amp 0 standing .. 1 running); lying = asleep or dead.
    */
-  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean): void {
+  /** `size` 1 = adult; children are drawn smaller (0.6). */
+  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean, size = 1): void {
     if (this.n >= this.cap) return;
     const i = this.n++;
-    const bob = Math.abs(Math.sin(phase)) * 0.05 * amp;
-    this.base.compose(this.v.set(x, bob, z), this.q.setFromEuler(this.e.set(0, facing, 0)), this.s.set(SCALE, SCALE, SCALE));
+    const bob = Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
+    this.base.compose(this.v.set(x, bob, z), this.q.setFromEuler(this.e.set(0, facing, 0)), this.s.set(k, k, k));
     if (lying) {
       this.part.compose(this.v.set(0, 0.2, -0.55), this.q.setFromEuler(this.e.set(Math.PI / 2, 0, 0)), this.s.set(1, 1, 1));
       this.base.multiply(this.part);

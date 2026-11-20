@@ -60,6 +60,8 @@ export type AdminCmd =
   /** AI planner (milestone 6): settings, the last requests and answers, plan someone now, talk to someone. */
   | { cmd: 'planner'; on?: boolean; everyGameHours?: number; batch?: number; minGapSec?: number }
   | { cmd: 'aiLog' }
+  /** Life cycle (milestone 7): game days per year of age, the most people alive for a baby to come. */
+  | { cmd: 'life'; yearDays?: number; maxPopulation?: number }
   | { cmd: 'planNow'; id: number }
   | { cmd: 'chat'; id: number; text: string };
 
@@ -132,6 +134,8 @@ export interface ServerStats {
   pairings?: number;
   travelOpen?: boolean;
   difficulty?: number;
+  yearDays?: number;
+  maxPopulation?: number;
   ai?: { provider: string; model: string; ready: boolean; why?: string; plans?: number; chats?: number; failures?: number };
 }
 

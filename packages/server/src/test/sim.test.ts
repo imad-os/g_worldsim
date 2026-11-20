@@ -275,3 +275,53 @@ test('pathfinding: around walls, through the door, straight lines kept, unreacha
     assert.notEqual(pf.find(s.x, s.y, (water % t.w) + 0.5, Math.floor(water / t.w) + 0.5), 'full');
   }
 });
+
+test('life: talks make partners, a couple has a baby with traits from both, children are flagged, the old die', async () => {
+  const { ageOf } = await import('../sim/people.js');
+  const w = newWorld('life-cycle');
+  w.populate();
+  const e = w.e, from = w.yearSec;
+  w.brain.life.yearDays = 1 / 24; // a year every game hour: fast enough to test
+  w.life.rescale(from);
+  const slots: number[] = [];
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) slots.push(i);
+  const f = slots.find((i) => w.profileOf(i)!.sex === 'f'), m = slots.find((i) => w.profileOf(i)!.sex === 'm');
+  assert.ok(f !== undefined && m !== undefined, 'one woman and one man');
+  const pf = w.profileOf(f!)!, pm = w.profileOf(m!)!;
+  for (const p of [pf, pm]) { p.born = w.gameSec - 25 * w.yearSec; p.partner = -1; p.traits.lifespan = 70; }
+  const events: string[] = [];
+  w.listeners.push((ev) => events.push(ev.kind));
+  for (let k = 0; k < 40 && pf.partner < 0; k++) w.emit('talk', { a: e.id(f!), b: e.id(m!), map: 'town' });
+  assert.equal(pf.partner, e.id(m!));
+  assert.equal(pm.partner, e.id(f!));
+  assert.ok(events.includes('partner'));
+  // Together, fed and watered: within a few years a baby.
+  w.place(m!, e.map[f!]!, e.x[f!]! + 1, e.y[f!]!);
+  let child = -1;
+  for (let h = 0; h < 12 && child < 0; h++) {
+    for (const i of [f!, m!]) { e.hunger[i] = 0; e.thirst[i] = 0; }
+    w.gameSec += 3600;
+    w.life.hourly();
+    for (const [id, p] of w.profiles) if (p.parents.includes(e.id(f!)) && e.slot(id) >= 0) child = e.slot(id);
+  }
+  assert.ok(child >= 0, `a baby within 12 years: ${events.join(',')}`);
+  const pc = w.profileOf(child)!;
+  assert.deepEqual(pc.parents, [e.id(f!), e.id(m!)]);
+  assert.equal(pc.generation, 1);
+  assert.ok(ageOf(pc, w.gameSec, w.yearSec) < 1);
+  assert.ok(e.flags[child]! & EFlag.Child, 'drawn as a child');
+  for (const k of ['strength', 'empathy'] as const) {
+    const lo = Math.min(pf.traits[k], pm.traits[k]) - 0.09, hi = Math.max(pf.traits[k], pm.traits[k]) + 0.09;
+    assert.ok(pc.traits[k] >= lo && pc.traits[k] <= hi, `${k} from the parents`);
+  }
+  // Old age.
+  pm.born = w.gameSec - 85 * w.yearSec;
+  w.gameSec += 3600; w.life.hourly();
+  assert.equal(e.slot(pm === w.profileOf(m!) ? e.id(m!) : -1), -1, 'died of old age');
+  assert.equal(pm.cause, 'old age');
+  assert.equal(pf.partner, -1, 'the widow may find someone again');
+  // Ages keep their years when the life speed changes.
+  const before = ageOf(pf, w.gameSec, w.yearSec), y0 = w.yearSec;
+  w.brain.life.yearDays = 2; w.life.rescale(y0);
+  assert.ok(Math.abs(ageOf(pf, w.gameSec, w.yearSec) - before) < 1e-6);
+});

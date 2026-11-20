@@ -19,7 +19,7 @@ import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
-const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say']);
+const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
 export class App {
@@ -84,6 +84,13 @@ export class App {
     }
     const diff = Number(this.db.getMeta('difficulty'));
     if (diff > 0) this.world.brain.life.difficulty = diff;
+    // How fast people age (milestone 7). Ages saved before this setting were counted in real 365-day years.
+    const yd = Number(this.db.getMeta('year_days'));
+    if (yd > 0) this.world.brain.life.yearDays = yd;
+    else if (loaded) this.world.life.rescale(365 * 86400);
+    this.db.setMeta('year_days', String(this.world.brain.life.yearDays));
+    const maxPop = Number(this.db.getMeta('max_population'));
+    if (maxPop > 0) this.world.brain.life.maxPopulation = maxPop;
     let savedAi = this.db.getMeta('ai') ? (JSON.parse(this.db.getMeta('ai')!) as Partial<AiSettings>) : undefined;
     // Owner request 2026-11-19: the default AI is now imad's Ollama server with the fastest model. Once, a world still on
     // the old defaults (off, or the local address) takes the new ones; choices made after that are kept.
@@ -170,7 +177,7 @@ export class App {
       entities: w.e.count, agents: w.e.countKind(Kind.Agent), clients: this.net.clientCount(),
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
-      travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty,
+      travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty, yearDays: w.brain.life.yearDays, maxPopulation: w.brain.life.maxPopulation,
       ai: { ...(({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()), plans: this.planner.counts.plans, chats: this.planner.counts.chats, failures: this.planner.counts.failures },
     };
   }
@@ -182,10 +189,10 @@ export class App {
     const w = this.world, e = w.e, p = w.profileOf(i) as Profile | undefined, id = e.id(i);
     const r1 = (v: number) => Math.round(v * 10) / 10;
     return {
-      id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec)) : 0,
+      id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec, w.yearSec)) : 0,
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
-      carry: e.carry[i], lod: e.lod[i], talkingTo: e.act[i] === 6 && e.target[i]! > 0 ? this.nameOf(e.target[i]!) : null,
+      carry: e.carry[i], lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
 
@@ -279,8 +286,8 @@ export class App {
         const events = (this.db.sql.prepare('SELECT tick, game_sec, kind, data FROM events WHERE data LIKE ? ORDER BY id DESC LIMIT 40').all(like) as { game_sec: number; kind: string; data: string }[])
           .filter((r) => { try { const d = JSON.parse(r.data) as Record<string, unknown>; return d.id === id || d.a === id || d.b === id; } catch { return false; } })
           .map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
-        const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner ? this.nameOf(p.partner) : null };
-        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec), family, events, now: w.gameSec };
+        const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null };
+        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, now: w.gameSec };
       }
       case 'agentSet': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
@@ -330,6 +337,17 @@ export class App {
         const lim = c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 100;
         this.events.flush();
         return this.events.recent(lim).map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
+      }
+      case 'life': {
+        const L = w.brain.life;
+        if (c.yearDays !== undefined) {
+          const from = w.yearSec;
+          L.yearDays = num(c.yearDays, 1 / 24, 365, 'yearDays');
+          w.life.rescale(from);
+          this.db.setMeta('year_days', String(L.yearDays));
+        }
+        if (c.maxPopulation !== undefined) { L.maxPopulation = Math.round(num(c.maxPopulation, 1, 100, 'maxPopulation')); this.db.setMeta('max_population', String(L.maxPopulation)); }
+        return { yearDays: L.yearDays, maxPopulation: L.maxPopulation };
       }
       case 'planner': {
         const r = this.planner.set({ on: c.on, everyGameHours: c.everyGameHours, batch: c.batch, minGapSec: c.minGapSec });

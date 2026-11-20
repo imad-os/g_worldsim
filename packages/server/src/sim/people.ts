@@ -20,13 +20,17 @@ export interface Profile {
   /** Entity ids of the parents (empty for the first survivors). */
   parents: number[];
   generation: number;
-  /** Partner's entity id (0 = none). */
+  /** Partner's entity id (-1 = none; 0 is a real id). */
   partner: number;
   /** Game seconds of death, and why (kept for family trees). */
   died?: number;
   cause?: string;
   /** What the AI planner keeps for this person (memory, mood, plan); absent until the planner first runs. */
   mind?: Mind;
+  /** Talks with each other person ('#<id>' -> count): enough of them and two adults may become partners. */
+  bonds?: Record<string, number>;
+  /** Expecting a baby: the father's entity id and the birth time (game seconds). */
+  pregnant?: { father: number; due: number };
 }
 
 /** A person's mind for the LLM planner (milestone 6). Times are game seconds. */
@@ -58,12 +62,12 @@ const PERSONALITY = ['cautious', 'brave', 'kind', 'grumpy', 'curious', 'calm', '
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /** A random adult survivor (aged 18-45 when the world starts). */
-export function randomProfile(rng: Rng, now: number, taken: Set<string>): Profile {
+export function randomProfile(rng: Rng, now: number, taken: Set<string>, year = YEAR): Profile {
   const sex: 'f' | 'm' = rng.chance(0.5) ? 'f' : 'm';
   const traits = {} as Traits;
   for (const k of TRAIT_KEYS) traits[k] = clamp01(0.5 + (rng.next() + rng.next() + rng.next() - 1.5) * 0.4);
   traits.lifespan = 60 + rng.next() * 25;
-  return { name: uniqueName(rng, sex, taken), sex, born: now - (18 + rng.next() * 27) * YEAR, traits, personality: pickPersonality(rng), parents: [], generation: 0, partner: 0 };
+  return { name: uniqueName(rng, sex, taken), sex, born: now - (18 + rng.next() * 27) * year, traits, personality: pickPersonality(rng), parents: [], generation: 0, partner: -1 };
 }
 
 /** A baby: traits are the parents' average plus a mutation; personality partly from each. */
@@ -77,7 +81,7 @@ export function inherit(rng: Rng, a: Profile, b: Profile, ids: [number, number],
   traits.lifespan = Math.max(40, (a.traits.lifespan + b.traits.lifespan) / 2 + (rng.next() - 0.5) * 10);
   const pool = [...a.personality, ...b.personality];
   const personality = [...new Set([pool[rng.int(pool.length)]!, rng.chance(0.5) ? pool[rng.int(pool.length)]! : PERSONALITY[rng.int(PERSONALITY.length)]!])];
-  return { name: uniqueName(rng, sex, taken), sex, born: now, traits, personality, parents: [...ids], generation: Math.max(a.generation, b.generation) + 1, partner: 0 };
+  return { name: uniqueName(rng, sex, taken), sex, born: now, traits, personality, parents: [...ids], generation: Math.max(a.generation, b.generation) + 1, partner: -1 };
 }
 
 function pickPersonality(rng: Rng): string[] {
@@ -96,5 +100,5 @@ function uniqueName(rng: Rng, sex: 'f' | 'm', taken: Set<string>): string {
   return `${base} ${n}`;
 }
 
-/** Age in game years. */
-export function ageOf(p: Profile, now: number): number { return (now - p.born) / YEAR; }
+/** Age in years (`year` = game seconds per year of age, `World.yearSec`). */
+export function ageOf(p: Profile, now: number, year = YEAR): number { return (now - p.born) / year; }

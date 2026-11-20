@@ -7,6 +7,7 @@ import type { MapDef, PortalDef, Scenario } from './scenario.js';
 import { SpatialGrid } from './spatial.js';
 import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
 import { randomProfile, type Profile } from './people.js';
+import { Life } from './life.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -56,6 +57,8 @@ export class World {
   readonly brain: Brain;
   /** Who every agent is (also the dead, for family trees), by entity id. */
   readonly profiles = new Map<number, Profile>();
+  /** Ageing, partners, babies, old age (milestone 7). */
+  readonly life: Life;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -78,7 +81,10 @@ export class World {
     const L = sc.life ?? {};
     const life: LifeDef = { ...LIFE_DEFAULTS, ...L, needs: { ...LIFE_DEFAULTS.needs, ...L.needs } };
     this.brain = new Brain(this, life);
+    this.life = new Life(this);
   }
+  /** Game seconds per year of age. */
+  get yearSec(): number { return this.brain.life.yearDays * 86400; }
 
   emit(kind: string, data: Record<string, unknown>): void {
     const ev = { tick: this.tick, gameSec: this.gameSec, kind, data };
@@ -157,7 +163,7 @@ export class World {
     const e = this.e;
     const i = e.create(Kind.Agent, map, x, y, this.agentR);
     if (i < 0) return -1;
-    this.profiles.set(e.id(i), profile ?? randomProfile(this.rng, this.gameSec, this.livingNames()));
+    this.profiles.set(e.id(i), profile ?? randomProfile(this.rng, this.gameSec, this.livingNames(), this.yearSec));
     e.hp[i] = this.sc.agents.hp;
     e.nextThink[i] = this.tick + this.rng.int(THINK_EVERY[1]!);
     this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, x, y, this.agentR);
@@ -266,6 +272,7 @@ export class World {
   step(): void {
     const e = this.e, dt = this.dt;
     this.brain.think();
+    this.life.tick();
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
       const k = e.kind[i]!;

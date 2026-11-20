@@ -24,10 +24,14 @@ export interface LifeDef {
   items: ItemDef[];
   /** Scales every need's decay (moderate = 1). */
   difficulty: number;
+  /** Game days per year of age (milestone 7; 1 = a year every game day). */
+  yearDays: number;
+  /** No baby is conceived while this many people are alive. */
+  maxPopulation: number;
 }
 export const LIFE_DEFAULTS: LifeDef = {
   needs: { hunger: 2, thirst: 4, tired: 5.5, lonely: 2.5, sleepRecover: 13 },
-  water: ['water'], shelter: ['floor'], items: [], difficulty: 1,
+  water: ['water'], shelter: ['floor'], items: [], difficulty: 1, yearDays: 1, maxPopulation: 14,
 };
 
 export class Brain {
@@ -58,7 +62,7 @@ export class Brain {
     this.paths = w.maps.map((m) => new Pathfinder(m.tiles));
     this.pbuf = new Int32Array(cap * PMAX); this.pN = new Uint8Array(cap); this.pK = new Uint8Array(cap);
     this.gx = new Float32Array(cap); this.gy = new Float32Array(cap); this.replans = new Uint8Array(cap);
-    this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap); this.wishUntil = new Float64Array(cap);
+    this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap).fill(-1); this.wishUntil = new Float64Array(cap);
     const idsOf = (names: string[]) => new Set(w.sc.tiles.filter((t) => names.includes(t.name)).map((t) => t.id));
     const water = idsOf(life.water), shelter = idsOf(life.shelter);
     this.drinkSpots = []; this.shelterSpots = [];
@@ -118,7 +122,7 @@ export class Brain {
     const W = w.maps[e.map[i]!]!.tiles.w, endT = pf.out[n - 1]!;
     if (r === 'full') { this.gx[i] = x; this.gy[i] = y; } else { this.gx[i] = (endT % W) + 0.5; this.gy[i] = ((endT / W) | 0) + 0.5; }
     const pr = w.profileOf(i);
-    e.speed[i] = (run ? w.sc.agents.run : w.sc.agents.walk) * (pr ? 0.85 + pr.traits.speed * 0.3 : 1);
+    e.speed[i] = (run ? w.sc.agents.run : w.sc.agents.walk) * (pr ? 0.85 + pr.traits.speed * 0.3 : 1) * (e.flags[i]! & EFlag.Child ? 0.75 : 1);
     e.stuck[i] = 0;
     return true;
   }
@@ -261,7 +265,7 @@ export class Brain {
       }
       case Act.Talk: {
         let j = -1;
-        if (this.wishOf(i) === Act.Talk && this.wishWith[i]) { // the planner named someone
+        if (this.wishOf(i) === Act.Talk && this.wishWith[i]! >= 0) { // the planner named someone
           const k = e.slot(this.wishWith[i]!);
           if (k >= 0 && k !== i && e.kind[k] === Kind.Agent && e.map[k] === m && e.act[k] !== Act.Sleep && Math.hypot(e.x[k]! - e.x[i]!, e.y[k]! - e.y[i]!) < 150) j = k;
         }

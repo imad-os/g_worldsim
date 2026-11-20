@@ -53,7 +53,7 @@ async function refreshPairings(): Promise<void> {
 }
 
 // ------------------------------------------------------------ people (milestone 5)
-type Person = { id: number; alive: boolean; name: string; sex?: string; age: number; map: string | null; x: number; y: number; act: number;
+type Person = { id: number; alive: boolean; child?: boolean; pregnant?: boolean; partner?: string | null; name: string; sex?: string; age: number; map: string | null; x: number; y: number; act: number;
   hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; talkingTo: string | null };
 const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away'];
 const names = new Map<number, string>();
@@ -69,7 +69,7 @@ async function refreshPeople(): Promise<void> {
   try {
     const list = (await cmd({ cmd: 'agents' })) as Person[];
     for (const p of list) names.set(p.id, p.name);
-    $('people').innerHTML = list.length ? list.map((p) => `<div class="row person" data-id="${p.id}"><div><b>${esc(p.name)}</b> <span class="dim">${p.sex === 'f' ? '♀' : '♂'} ${p.age} · ${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''} · ${esc(p.map ?? 'on the road')}</span></div>
+    $('people').innerHTML = list.length ? list.map((p) => `<div class="row person" data-id="${p.id}"><div><b>${esc(p.name)}</b> <span class="dim">${p.sex === 'f' ? '♀' : '♂'} ${p.age}${p.child ? ' (child)' : ''}${p.pregnant ? ' · expecting' : ''}${p.partner ? ' · with ' + esc(p.partner) : ''} · ${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''} · ${esc(p.map ?? 'on the road')}</span></div>
       <div class="dim">food ${bar(p.hunger)} water ${bar(p.thirst)} rest ${bar(p.tired)} hp ${bar(p.hp, true)}</div></div>`).join('') : '<p class="dim">Nobody is alive.</p>';
     for (const r of $('people').querySelectorAll<HTMLElement>('[data-id]')) r.onclick = () => void openPerson(Number(r.dataset.id));
   } catch (e) { log(String(e)); }
@@ -87,7 +87,7 @@ async function openPerson(id: number): Promise<void> {
       ...Object.entries(d.profile.traits).map(([k, v]) => f(k, Math.round(v * 100) / 100, k === 'lifespan' ? '1' : '0.05'))].join('') : '';
     const mind = (d.profile as { mind?: Mind }).mind;
     $('pMind').innerHTML = !mind ? 'The AI has not thought for them yet (turn on an AI provider below).' : [
-      `<div>Mood: <b>${esc(mind.mood)}</b>${mind.plan && mind.plan.until > d.now ? ` · Wants to <b>${esc(mind.plan.act)}${mind.plan.with ? ' with ' + esc(who(mind.plan.with)) : ''}</b>${mind.plan.why ? ' (' + esc(mind.plan.why) + ')' : ''}` : ''}</div>`,
+      `<div>Mood: <b>${esc(mind.mood)}</b>${mind.plan && mind.plan.until > d.now ? ` · Wants to <b>${esc(mind.plan.act)}${mind.plan.with != null ? ' with ' + esc(who(mind.plan.with)) : ''}</b>${mind.plan.why ? ' (' + esc(mind.plan.why) + ')' : ''}` : ''}</div>`,
       mind.said ? `<div>Last said: “${esc(mind.said.text)}”</div>` : '',
       `<div>Memory: ${esc(mind.summary || 'nothing yet')}</div>`,
       mind.notes.length ? `<div>Recent: ${mind.notes.slice(-6).reverse().map((n) => `${gameTime(n.at)} ${esc(n.text)}`).join(' · ')}</div>` : '',
@@ -112,6 +112,7 @@ function describe(e: { kind: string; data: Record<string, unknown> }): string {
     case 'supply': return `Supply drop: ${d.n} food in ${d.map}`;
     case 'birth': return `${who(d.id)} was born (${who(d.mother)} and ${who(d.father)})`;
     case 'partner': return `${who(d.a)} and ${who(d.b)} became partners`;
+    case 'pregnant': return `${who(d.id)} is expecting a baby with ${who(d.father)}`;
     case 'admin': return `Panel: ${d.cmd}`;
     case 'say': return `${who(d.id)}: “${d.text}”`;
     default: return `${e.kind} ${JSON.stringify(d)}`;
@@ -218,6 +219,8 @@ function connect(token: string): void {
           `agents ${s.agents} · entities ${s.entities} · viewers ${s.clients - 1}`,
           `snapshot ${s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-'} · up ${Math.round(s.uptimeSec / 60)} min`,
         ].join('\n');
+        if (s.yearDays !== undefined && document.activeElement !== $('yearDays')) ($('yearDays') as HTMLSelectElement).value = String(s.yearDays);
+        if (s.maxPopulation !== undefined && document.activeElement !== $('maxPop')) ($('maxPop') as HTMLInputElement).value = String(s.maxPopulation);
         if (s.difficulty !== undefined && document.activeElement !== $('diff')) { ($('diff') as HTMLInputElement).value = String(s.difficulty); $('diffV').textContent = String(s.difficulty); }
         if (++statsN % 3 === 0) { void refreshPeople(); if (statsN % 15 === 0) { void refreshTimeline(); void refreshPlanner(); } }
         if (s.travelOpen !== undefined && s.travelOpen !== travelOpen) showTravel(s.travelOpen);
@@ -348,6 +351,8 @@ $('addPerson').onclick = async () => {
 ($('diff') as HTMLInputElement).onchange = async () => { try { await cmd({ cmd: 'difficulty', value: Number(($('diff') as HTMLInputElement).value) }); log('difficulty changed'); } catch (e) { log(String(e)); } };
 $('supply').onclick = async () => { try { const r = (await cmd({ cmd: 'supply', map: ($('supMap') as HTMLSelectElement).value })) as { n: number }; log(`supply drop: ${r.n} food`); void refreshTimeline(); } catch (e) { log(String(e)); } };
 $('tlMore').onclick = () => void refreshTimeline();
+($('yearDays') as HTMLSelectElement).onchange = async () => { try { await cmd({ cmd: 'life', yearDays: Number(($('yearDays') as HTMLSelectElement).value) }); log('ageing speed changed'); } catch (e) { log(String(e)); } };
+($('maxPop') as HTMLInputElement).onchange = async () => { try { await cmd({ cmd: 'life', maxPopulation: Number(($('maxPop') as HTMLInputElement).value) }); log('population limit changed'); } catch (e) { log(String(e)); } };
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-speed]')) b.onclick = () => void cmd({ cmd: 'speed', speed: Number(b.dataset.speed) });
 const saved = stored();
 if (saved) connect(saved); else showLogin();

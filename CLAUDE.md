@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3, 5, 6 done 2026-11-19 (4 first version); next 7 (genetics, babies, aging), 8.
+simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); next 8 (post-apocalypse content, weather, polish).
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -46,6 +46,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6 done 2026-11-19 (4 first versi
   snapshots. Chat: panel person card (`chat`), TV A next to someone (`NetServer.onTalk`, they stop and face you); built-in
   lines without AI. Lines = event `say` -> Notice `say` to viewers of that map + admins. Panel: Planner settings, requests
   and answers (`aiLog`), Plan now (`planNow`).
+
+## Life cycle (milestone 7, `sim/life.ts`, hourly)
+- Age clock: `life.yearDays` game days per year (default 1, panel World card, meta `year_days`; `Life.rescale` keeps ages
+  in years when it changes; worlds from before were counted in 365-day years and were rescaled once).
+- 4+ talks between two unrelated adults (18+) of opposite sex, both single -> chance to become partners (`partner`).
+  Woman 18-45 with her partner on the same map, both fed / watered, fewer than `life.maxPopulation` (14) alive ->
+  0.9 / year to conceive, birth after 0.75 year (`inherit`: parents' traits + mutation, generation + 1). Under 16 =
+  `EFlag.Child` (drawn at 0.62, walk 0.75). Past `traits.lifespan` the chance to die of old age grows each year.
+- **`Profile.partner` -1 = none (entity id 0 is real; snapshot v2 moved old 0s)**; planner `with` -1 = nobody too.
 
 ## Agents (milestone 3, `sim/brain.ts`, `sim/pathfind.ts`)
 - Needs stored as a lack (0 fine .. 100 desperate: hunger, thirst, tired, lonely) so zeros from old snapshots are healthy.

@@ -5,7 +5,7 @@ import type { World } from '../sim/world.js';
 import { Kind } from '@worldsim/protocol';
 import { randomProfile } from '../sim/people.js';
 
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2; // 2: Profile.partner -1 = none (was 0)
 
 /** Typed array -> bytes (copy of the used part). */
 function bytesOf(a: ArrayLike<number> & { buffer: ArrayBufferLike; byteOffset: number; BYTES_PER_ELEMENT: number }, n: number): Uint8Array {
@@ -40,7 +40,7 @@ interface SnapData {
 /** Load a snapshot into a freshly built world (same scenario + seed). Throws on any mismatch. */
 export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => void): void {
   const s = decode(bytes) as SnapData;
-  if (s.v !== SNAPSHOT_VERSION) throw new Error(`snapshot version ${s.v}`);
+  if (s.v !== SNAPSHOT_VERSION && s.v !== 1) throw new Error(`snapshot version ${s.v}`);
   if (s.scenario !== w.sc.id || s.seed !== w.seed) throw new Error('snapshot is for another world');
   if (s.hi > w.e.cap) throw new Error('snapshot larger than capacity');
   const cols = w.e.columns();
@@ -73,9 +73,9 @@ export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => v
   for (let i = 0; i < w.bodies.length; i++) { const b = w.bodies[i]; if (b) { b.getWorld().destroyBody(b); w.bodies[i] = null; } }
   w.rebuildBodies();
   w.profiles.clear();
-  for (const [id, p] of s.profiles ?? []) w.profiles.set(id, p);
+  for (const [id, p] of s.profiles ?? []) { if (s.v === 1 && p.partner === 0) p.partner = -1; w.profiles.set(id, p); }
   // Worlds from before profiles: give every agent one.
-  for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent && !w.profiles.has(w.e.id(i))) w.profiles.set(w.e.id(i), randomProfile(w.rng, w.gameSec, w.livingNames()));
+  for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent && !w.profiles.has(w.e.id(i))) w.profiles.set(w.e.id(i), randomProfile(w.rng, w.gameSec, w.livingNames(), w.yearSec));
 }
 
 /** Snapshots in SQLite: write in one transaction, keep the newest `keep`. */

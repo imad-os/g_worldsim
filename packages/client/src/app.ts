@@ -501,7 +501,7 @@ function draw(now: number, dt: number): void {
     phase[i] = (phase[i]! + moved * 4.2) % (Math.PI * 2);
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const look = i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / 2.2), look, lying);
+    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / 2.2), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1);
     if (kind[i] === Kind.Player) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }

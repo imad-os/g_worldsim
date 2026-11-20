@@ -66,7 +66,7 @@ export class Planner {
     for (let i = 0; i < w.e.hi; i++) {
       const p = w.e.kind[i] === Kind.Agent ? w.profileOf(i) : undefined;
       const pl = p?.mind?.plan;
-      if (pl && pl.until > w.gameSec && GOALS[pl.act] !== undefined) w.brain.wish(i, GOALS[pl.act]!, pl.with ?? 0, pl.until);
+      if (pl && pl.until > w.gameSec && GOALS[pl.act] !== undefined) w.brain.wish(i, GOALS[pl.act]!, pl.with ?? -1, pl.until);
     }
     w.listeners.push((ev) => this.onEvent(ev));
   }
@@ -208,13 +208,13 @@ export class Planner {
       const goal = String(p.goal ?? '').trim().toLowerCase();
       const act = GOALS[goal];
       const withName = String(p.with ?? '').trim().toLowerCase();
-      let withId = 0;
+      let withId = -1;
       if (withName) for (const [oid, op] of w.profiles) if (op.name.toLowerCase() === withName && e.slot(oid) >= 0 && oid !== id) { withId = oid; break; }
       if (typeof p.mood === 'string' && p.mood.trim()) mind.mood = p.mood.trim().slice(0, 30);
       if (typeof p.memory === 'string' && p.memory.trim()) mind.summary = p.memory.trim().slice(0, 400);
       if (act !== undefined) {
         const until = w.gameSec + this.cfg.everyGameHours * HOUR;
-        mind.plan = { act: goal, with: withId || undefined, why: String(p.why ?? '').slice(0, 160), until };
+        mind.plan = { act: goal, with: withId >= 0 ? withId : undefined, why: String(p.why ?? '').slice(0, 160), until };
         w.brain.wish(i, act, withId, until);
         n++;
       }
@@ -245,9 +245,9 @@ export class Planner {
       near.push(`${nm} (${Math.round(d)} m, ${ACT_TEXT[e.act[j]!] ?? 'standing'})`);
     }
     const rel = Object.entries(mind.rel).filter(([, v]) => Math.abs(v) >= 1).map(([k, v]) => `${k[0] === '#' ? this.name(Number(k.slice(1))) : k.slice(1)} ${v > 0 ? '+' : ''}${Math.round(v)}`);
-    const wish = mind.plan && mind.plan.until > w.gameSec ? `${mind.plan.act}${mind.plan.with ? ' with ' + this.name(mind.plan.with) : ''}` : 'none';
+    const wish = mind.plan && mind.plan.until > w.gameSec ? `${mind.plan.act}${mind.plan.with !== undefined ? ' with ' + this.name(mind.plan.with) : ''}` : 'none';
     return [
-      `Person: ${p.name} (${p.sex === 'f' ? 'woman' : 'man'}, ${Math.floor(ageOf(p, w.gameSec))}; ${p.personality.join(', ')}; mood: ${mind.mood})`,
+      `Person: ${p.name} (${p.sex === 'f' ? 'woman' : 'man'}, ${Math.floor(ageOf(p, w.gameSec, w.yearSec))}; ${p.personality.join(', ')}; mood: ${mind.mood})`,
       `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${e.carry[i]} food. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
