@@ -213,3 +213,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   +10 hp, less lonely, rel +1 with the asker. `Profile.xp`, `goals` (last 10). Events reward / levelup / grown.
 - **Families** (`life.ts INDEPENDENT = 14`, `Brain.guardian`): a child under 14 stays with a parent on its map (mother first):
   follows past 7 m, wanders 6 m at most, sleeps next to them, never travels, forages only when very hungry. At 14: event `grown`.
+
+## Players' characters are people (imad 2026-11-20)
+- A player's character has a `Profile` with `player: <name>` (`World.playerProfile`, made at join / spawnResidents): sex, `skin` 0-4,
+  `chose`, `sexAt` (real ms; after the first pick the sex can change once a real week, `SEX_WEEK_MS`; not while pregnant), `auto`.
+  Always 25 (`PLAYER_AGE`), never die (hp floored at 5 by hunger, zombies, animals). Kept in snapshots with the same entity id;
+  `NetServer.adopt` re-links them by name at start (old characters without a profile are still made again).
+- Frames: players' characters carry their look in bits 24+ (`e.sub` = 1 + skin, + 8 woman); the TV draws that skin tone, a woman's
+  trousers match her top.
+- Partner / children: TV person page "Ask to be my partner" (Do `court` text = entity id, within 10 m -> `Life.court`) and "Try for a
+  child" (Do `child` -> `Life.tryChild`); conception / birth in `Life.hourly` include players. A mother waits a year between babies.
+- **Autopilot** (`auto`, Do `auto` 1/0): leaving with it on = `World.toAgent` (Kind.Agent: the brain, planner and rules drive it); coming
+  back = `toPlayer`. The bag stays the player's (`survival.inv` by `charName`). 5 rules (Do `ruleAdd` text / `ruleDel` index, the same
+  `compileRule` + `refineRule` as the owner's).
+- Do `mine` -> the TV "Me" page (level, objective, partner, children, traits, look, autopilot, rules); first entry opens "How I look".
+  Do `hut` = a hut right ahead (`Survival.playerHut`, 12 wood + 4 stone). Strings `i18n5.ts`. Proof: `node tools/me-proof.mjs`.

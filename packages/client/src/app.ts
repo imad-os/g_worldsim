@@ -95,6 +95,12 @@ const pot: Record<string, number> = {};
 let roster: [number, string, string][] | null = null;
 /** Past events (recorded zombie attacks): the list (null = asked), the one playing, the map to go back to. */
 let past: ReplaySummary[] | null = null;
+/** My character as a person (the "Me" page): look, family, autopilot, rules, level. */
+interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number;
+  goal: { text: string; from: string; k: number; n: number; pct: number } | null; goals: { text: string; ok: boolean; xp: number }[];
+  partner: { id: number; name: string } | null; children: { id: number; name: string; age: number }[]; expecting: number; traits: Record<string, number>; hp: number }
+let meChar: MeChar | null = null, askedMine = false;
+const lookDraft = { sex: 'm' as 'f' | 'm', skin: 1 };
 let rp: ReplayPlayer | null = null;
 let rpBackMap = '', rpDist = 24;
 let info: PersonInfo | null = null, infoFor = -1, infoAt = 0;
@@ -113,6 +119,18 @@ const ZOMBIE: PersonLook = { tunic: C(0x6b6650), skin: C(0x9fbf7f), hair: C(0x56
 const ME: PersonLook = { tunic: C(0x2fa36b), skin: C(0xe8b890), hair: C(0x3a2416), pants: C(0x3a3f5a) };
 const OTHER_PLAYER: PersonLook = { tunic: C(0xd9822b), skin: C(0xd8a27a), hair: C(0x2b1d14), pants: C(0x40404a) };
 const GOLD = C(0xffd166), WHITE = C(0xffffff);
+/** A player's character: their skin tone (1 + tone, + 8 = woman: the trousers match the top, like a dress). Made once each. */
+const playerLooks = new Map<number, PersonLook>();
+function playerLook(mine: boolean, code: number): PersonLook {
+  const k = (mine ? 64 : 0) + code;
+  let l = playerLooks.get(k);
+  if (!l) {
+    const base = mine ? ME : OTHER_PLAYER, f = (code & 8) !== 0;
+    l = { tunic: base.tunic, skin: SKINS[Math.min(SKINS.length - 1, ((code - 1) & 7))]!, hair: f ? C(0x5a3420) : base.hair, pants: f ? base.tunic : base.pants };
+    playerLooks.set(k, l);
+  }
+  return l;
+}
 function lookFor(id: number): PersonLook {
   const h = (k: number) => hash2(id & 0xffff, k);
   const pick = (a: Color[], k: number) => a[Math.floor(h(k) * a.length)]!;
@@ -226,6 +244,7 @@ function onMsg(m: ServerMsg): void {
       if (!m.transit && m.map !== map) setMap(m.map);
       // The camera goes to my character (it may be far from where I was watching), so its frames come in.
       if (how === 'play' && m.x !== undefined && m.y !== undefined) { camX = m.x; camY = m.y; snapCam = true; follow = -1; sendView(); }
+      if (how === 'play' && !askedMine) { askedMine = true; send({ t: Msg.Do, a: 'mine' }); } // first time: choose how I look
       if (m.transit) note(tf('travelling', mapName(m.map)), 0);
       else noteEl.hidden = true;
       break;
@@ -716,6 +735,20 @@ function onSttText(e: { text: string }): void {
 }
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+  const dm = d as typeof d & { me?: MeChar; days?: number; why?: string };
+  if (dm.me) {
+    meChar = dm.me;
+    if (menu.open && (menu.page === 'me' || menu.page === 'rules' || menu.page === 'look')) menu.refresh();
+    // First time in the world: choose woman / man and a skin tone.
+    if (!meChar.chose && how === 'play' && mode === 'world' && !menu.open) { lookDraft.sex = meChar.sex; lookDraft.skin = meChar.skin; openMenu('look'); }
+  }
+  if (d.code === 'mine') return;
+  const charCodes: Record<string, Key> = { looked: 'looked', sexPregnant: 'sexPregnant', autoOn: 'autoOn', autoOff: 'autoOff', ruleAdded: 'ruleAdded', ruleRemoved: 'ruleRemoved',
+    rulesFull: 'rulesFull', built: 'built', needHut: 'needHut', expecting: 'expecting', tooFar: 'tooFar' };
+  if (charCodes[d.code]) { note(t(charCodes[d.code]!), 3000); if (d.code === 'looked' && menu.page === 'look') menu.back(); return; }
+  if (d.code === 'sexWeek') { note(tf('sexWeek', String(dm.days ?? 7)), 3500); return; }
+  if (d.code === 'partners') { note(tf('partners', d.name ?? ''), 4000); return; }
+  if (d.code === 'why') { note(dm.why ?? '', 4000); return; }
   if (d.code === 'replays') { past = d.list as never; if (menu.page === 'past') menu.refresh(); return; }
   if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }
   if (d.code === 'noReplay') { note(t('pastNone'), 2500); return; }
@@ -773,7 +806,7 @@ function buildPage(id: string): Page {
   switch (id) {
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true }, { id: 'bag', label: t('mBag'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
+      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'bag', label: t('mBag'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
@@ -829,8 +862,40 @@ function buildPage(id: string): Page {
       for (const [id, name, map] of roster ?? []) rows.push({ id: 'p' + id, label: name, value: map });
       if (roster && !roster.length) rows.push({ id: 'back', label: t('mBack') });
       return { id, title: t('mGoTo'), rows, text: roster ? t('mGoToHelp') : '…' };
+    case 'me': {
+      const c = meChar;
+      if (!c) return { id, title: t('meTitle'), rows: [{ id: 'back', label: t('mBack') }], text: '…' };
+      const tr = c.traits;
+      const html = `<div class="pm"><b>${esc(c.name)}</b> · ${esc(t(c.sex === 'f' ? 'lookWoman' : 'lookMan'))} · ${esc(tf('meHp', String(c.hp)))}</div>`
+        + `<div class="pm">${tf('pLevel', String(c.level), String(c.xp))}</div><div class="bp"><i style="width:${Math.max(4, Math.min(100, ((c.xp - 50 * c.level * c.level) / Math.max(1, 50 * (c.level + 1) ** 2 - 50 * c.level * c.level)) * 100))}%"></i></div>`
+        + (c.goal ? `<div class="pm">${t('pGoal')}: <b>${esc(c.goal.text)}</b> · ${Math.min(c.goal.k + 1, c.goal.n)}/${c.goal.n}</div><div class="bp${c.goal.from !== 'myself' ? ' ord' : ''}"><i style="width:${Math.max(6, c.goal.pct)}%"></i></div>` : '')
+        + `<div class="pm">${t('mePartner')}: <b>${esc(c.partner?.name ?? t('meNone'))}</b></div>`
+        + `<div class="pm">${t('meChildren')}: <b>${c.children.length ? c.children.map((k) => `${esc(k.name)} (${k.age})`).join(', ') : esc(t('meNone'))}</b></div>`
+        + (c.expecting >= 0 ? `<div class="pm">${esc(tf('meExpecting', String(c.expecting)))}</div>` : '')
+        + `<div class="pm dim">${esc(tf('meTraits', String(tr.strength ?? 0), String(tr.speed ?? 0), String(tr.intelligence ?? 0), String(tr.courage ?? 0), String(tr.empathy ?? 0)))}</div>`
+        + (c.goals.length ? `<div class="pm dim">${t('meGoals')}: ${c.goals.map((g) => `${g.ok ? '✓' : '✗'} ${esc(g.text)} (+${g.xp})`).join(' · ')}</div>` : '');
+      rows.push({ id: 'look', label: t('lookTitle'), sub: true }, { id: 'auto', label: t('autoRow'), value: onOff(c.auto) },
+        { id: 'rules', label: t('myRules'), value: `${c.rules.length} / ${c.max}`, sub: true }, { id: 'hut', label: t('meHut') });
+      return { id, title: t('meTitle'), rows, html, wide: true };
+    }
+    case 'look': {
+      rows.push({ id: 'f', label: t('lookWoman'), value: lookDraft.sex === 'f' ? '●' : '' }, { id: 'm', label: t('lookMan'), value: lookDraft.sex === 'm' ? '●' : '' });
+      for (let k = 0; k < 5; k++) rows.push({ id: 's' + k, label: `${t('lookSkin')} ${k + 1}`, value: lookDraft.skin === k ? '●' : '' });
+      rows.push({ id: 'save', label: t('lookSave') });
+      const swatch = SKINS.map((c, k) => `<span class="sw${lookDraft.skin === k ? ' on' : ''}" style="background:#${c.getHexString()}"></span>`).join('');
+      return { id, title: t('lookTitle'), rows, html: `<p>${esc(meChar && !meChar.chose ? t('lookHelp') : t('lookSexNote'))}</p><div class="sws">${swatch}</div>` };
+    }
+    case 'rules': {
+      (meChar?.rules ?? []).forEach((r, k) => rows.push({ id: 'r' + k, label: r, value: '✕' }));
+      if ((meChar?.rules.length ?? 0) < (meChar?.max ?? 5)) rows.push({ id: 'add', label: t('ruleAdd') });
+      return { id, title: t('myRules'), rows, wide: true, text: `${tf('ruleHelp', String(meChar?.max ?? 5))} ${t('autoHelp')}` };
+    }
     case 'person': {
       rows.push({ id: 'back', label: t('mBack') });
+      if (how === 'play' && info && info.id === infoFor) {
+        if (meChar?.partner?.id === info.id) rows.push({ id: 'child', label: t('tryChild') });
+        else if (!meChar?.partner) rows.push({ id: 'court', label: t('askPartner') });
+      }
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') });
       return { id, title: info?.name ?? t('mPerson'), rows, wide: true, html: info && info.id === infoFor ? personHtml(info, actName, true) : '…' };
     }
@@ -853,6 +918,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
     else if (row === 'past') { past = null; send({ t: Msg.Do, a: 'replays' }); menu.push('past'); }
     else if (row === 'bag') menu.push('bag');
+    else if (row === 'me') { send({ t: Msg.Do, a: 'mine' }); menu.push('me'); }
     else if (row === 'goto') { roster = null; send({ t: Msg.Do, a: 'roster' }); menu.push('goto'); }
     else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
     else if (row === 'next') { menu.close(); followNext(); }
@@ -891,8 +957,29 @@ function pickRow(page: string, row: string): void {
     if (row === 'back') menu.back();
     else { menu.close(); send({ t: Msg.Do, a: 'tp', text: row.slice(1) }); }
   }
+  else if (page === 'me') {
+    if (row === 'back') menu.back();
+    else if (row === 'look') { lookDraft.sex = meChar?.sex ?? 'm'; lookDraft.skin = meChar?.skin ?? 1; menu.push('look'); }
+    else if (row === 'auto') send({ t: Msg.Do, a: 'auto', text: meChar?.auto ? '0' : '1' });
+    else if (row === 'rules') menu.push('rules');
+    else if (row === 'hut') { menu.close(); send({ t: Msg.Do, a: 'hut' }); }
+  }
+  else if (page === 'look') {
+    if (row === 'f' || row === 'm') { lookDraft.sex = row; menu.refresh(); }
+    else if (row === 'save') send({ t: Msg.Do, a: 'look', text: `${lookDraft.sex}:${lookDraft.skin}` });
+    else if (row.startsWith('s')) { lookDraft.skin = Number(row.slice(1)); menu.refresh(); }
+  }
+  else if (page === 'rules') {
+    if (row === 'add') {
+      if (!MyPC.text?.keyboard) return;
+      void (MyPC.text.keyboard({ value: '', kind: 'text', label: t('ruleLabel'), ok: 'OK' }) as Promise<string | null>)
+        .then((v) => { if (v && v.trim()) send({ t: Msg.Do, a: 'ruleAdd', text: v.trim().slice(0, 200) }); });
+    } else if (row.startsWith('r')) send({ t: Msg.Do, a: 'ruleDel', text: row.slice(1) });
+  }
   else if (page === 'person') {
     if (row === 'back') menu.back();
+    else if (row === 'court') send({ t: Msg.Do, a: 'court', text: String(info?.id ?? -1) });
+    else if (row === 'child') send({ t: Msg.Do, a: 'child' });
     else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
@@ -1005,7 +1092,8 @@ function draw(now: number, dt: number): void {
     if (eyes && i === me) continue;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const zed = kind[i] === Kind.Threat;
-    const look = zed ? ZOMBIE : i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
+    const mine = i === me || eid[i] === meId;
+    const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1, zed);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);

@@ -6,7 +6,7 @@
  */
 import { EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
-import { ageOf, inherit } from './people.js';
+import { ageOf, inherit, PLAYER_AGE } from './people.js';
 import type { World, WorldEvent } from './world.js';
 
 const HOUR = 3600;
@@ -94,7 +94,9 @@ export class Life {
     { const rule = w.rules.forbiddenId(id, 'child', p.partner) ?? w.rules.forbiddenId(p.partner, 'child', id); if (rule) return `I must not: "${rule}"`; }
     if (mother.pregnant) return `${mother.name} is already expecting`;
     const age = ageOf(mother, now, y);
-    if (age < ADULT + 2 || age > 45) return `${mother.name} is not of age to have a child`;
+    if (age < ADULT + 2) return `${mother.name} is too young to have a child`;
+    if (age > 45) return `${mother.name} is past the age to have a child`;
+    if (this.babyLately(mid)) return `${mother.name} had a baby less than a year ago`;
     let living = 0;
     for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) living++;
     if (living >= w.brain.life.maxPopulation) return 'there is no room for more people in this world';
@@ -104,6 +106,13 @@ export class Life {
     mother.pregnant = { father: mid === id ? p.partner : id, due: now + GESTATION_YEARS * y };
     w.emit('pregnant', { id: mid, father: mother.pregnant.father });
     return true;
+  }
+
+  /** A mother rests at least a year between babies (imad's world had one woman with 5 in a few days). */
+  private babyLately(mid: number): boolean {
+    const w = this.w, now = w.gameSec;
+    for (const c of w.profiles.values()) if (c.parents[0] === mid && now - c.born < this.yearSec) return true;
+    return false;
   }
 
   /** Every tick: does the hourly work when a game hour has passed. */
@@ -120,16 +129,17 @@ export class Life {
     let living = 0;
     for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) living++;
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Agent) continue;
+      if (e.kind[i] !== Kind.Agent && e.kind[i] !== Kind.Player) continue;
       const id = e.id(i), p = w.profiles.get(id);
       if (!p) continue;
+      if (p.player) p.born = now - PLAYER_AGE * y; // players' characters stay grown-ups: no aging, no death of old age
       const age = ageOf(p, now, y);
       // Children are small and slower; the flag tells the viewers.
       e.flags[i] = age < ADULT ? e.flags[i]! | EFlag.Child : e.flags[i]! & ~EFlag.Child;
       if (age >= INDEPENDENT && p.parents.length && !p.grown) { p.grown = true; w.emit('grown', { id, age: INDEPENDENT }); }
       // Old age: past their lifespan the chance to die grows every year.
       const over = age - p.traits.lifespan;
-      if (over > -3 && w.rng.chance(Math.min(1, (0.25 + Math.max(0, over) * 0.5) * perHour) )) {
+      if (!p.player && over > -3 && w.rng.chance(Math.min(1, (0.25 + Math.max(0, over) * 0.5) * perHour) )) {
         w.emit('death', { id, cause: 'old age', map: e.map[i] === NO_MAP ? '' : w.maps[e.map[i]!]!.def.id, x: e.x[i], y: e.y[i], age: Math.floor(age) });
         w.remove(i, 'old age');
         living--;
@@ -152,7 +162,7 @@ export class Life {
         continue;
       }
       // Conception: a woman 18-45 with her partner alive on the same map, both fed and watered, room in the world.
-      if (p.sex === 'f' && p.partner >= 0 && !p.pregnant && age >= ADULT + 2 && age <= 45 && living < w.brain.life.maxPopulation) {
+      if (p.sex === 'f' && p.partner >= 0 && !p.pregnant && age >= ADULT + 2 && age <= 45 && living < w.brain.life.maxPopulation && !this.babyLately(id)) {
         const j = e.slot(p.partner);
         if (j < 0 || e.map[j] !== e.map[i] || e.map[i] === NO_MAP) continue;
         if (e.hunger[i]! > 70 || e.thirst[i]! > 70 || e.hunger[j]! > 70 || e.thirst[j]! > 70) continue;

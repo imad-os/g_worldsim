@@ -113,8 +113,8 @@ export class Survival {
   }
 
   inv(i: number): Inv {
-    if (this.w.e.kind[i] === Kind.Player) {
-      const n = this.playerName(i);
+    if (this.w.isChar(i)) {
+      const n = this.w.charName(i) || this.playerName(i);
       if (!n) return {};
       let v = this.pinv.get(n);
       if (!v) this.pinv.set(n, (v = {}));
@@ -318,6 +318,28 @@ export class Survival {
     }
     // Stand just outside the door, at (x0 + 2, y0 + 5).
     return this.begin(i, { kind: 'hut', m, tx: x0 + 2, ty: y0 + 5, work: 0, tiles: [...floor, ...walls] });
+  }
+
+  /** A player builds a hut (imad 2026-11-20: players can make everything the people make): right away, just ahead of them. */
+  playerHut(i: number): string {
+    if (!this.enabled) return 'nothing';
+    if (!this.has(i, RECIPES.hut!)) return 'needHut';
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
+    const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * 4, e.y[i]! + Math.sin(a) * 4, 5, 5, 12);
+    if (s < 0) return 'noRoom';
+    const x0 = s % tm.w, y0 = (s / tm.w) | 0;
+    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) if (this.occupied(m, x0 + xx, y0 + yy)) return 'noRoom';
+    this.use(i, RECIPES.hut!);
+    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4, door = yy === 4 && xx === 2;
+      if (tm.tiles[k] === this.T.water) continue;
+      tm.set(x0 + xx, y0 + yy, edge && !door ? this.T.woodwall : this.T.floor);
+      if (!edge || door) w.brain.addShelter(m, k);
+    }
+    this.huts[m]!.push((y0 + 5) * tm.w + x0 + 2);
+    this.setCamp(m, x0 + 2.5, y0 + 6.5);
+    w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + 2, ty: y0 + 2, player: true });
+    return 'built';
   }
 
   /** Put down a palisade / spikes / wall / door / window / bed / lamp near the camp (a bed: inside a hut). Made first if needed. */

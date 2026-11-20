@@ -19,7 +19,7 @@ import { TunnelManager } from './tunnel.js';
 import { Ai, keyList, type AiSettings, type Provider } from './ai/llm.js';
 import { Brains } from './ai/brains.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
-import { ageOf, levelOf, TRAIT_KEYS, type Profile } from './sim/people.js';
+import { ageOf, levelOf, TRAIT_KEYS, SEX_WEEK_MS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
@@ -89,7 +89,8 @@ export class App {
     const loaded = loadedSnap;
     if (loaded) {
       // Characters belong to connected people: nobody is connected after a restart.
-      for (let i = 0; i < this.world.e.hi; i++) if (this.world.e.kind[i] === Kind.Player) this.world.remove(i, 'restart');
+      // Players' characters with a person profile (sex, partner, children...) stay; older ones are made again by name.
+      for (let i = 0; i < this.world.e.hi; i++) if (this.world.e.kind[i] === Kind.Player && !this.world.charName(i)) this.world.remove(i, 'restart');
       this.log.info('resumed from snapshot', { id: loaded.id, tick: loaded.tick, agents: this.world.e.countKind(Kind.Agent) });
     } else if (await this.cloud.restoreInto(this.world).catch((err) => { this.log.warn('cloud restore failed', { err: String(err) }); return false; })) {
       this.log.info('restored from the cloud backup', { tick: this.world.tick });
@@ -169,6 +170,7 @@ export class App {
       if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
       if (a === 'tp') return this.isStaff(name) ? this.teleport(player, Number(text)) : { ok: false, code: 'staffOnly' }; // admin tool
+      { const r = this.charDo(name, player, a, text); if (r) return r; } // my character: look, autopilot, rules, partner, child, hut
       if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
       const sv = w.survival;
       if (a === 'craft') { // "weapon:wood=1,ore=1"
@@ -225,6 +227,7 @@ export class App {
       set: (name, p) => this.db.setMeta('pos:' + name, JSON.stringify(p)),
     };
     // Every player's character lives in the world 24/7: asleep where they left it until they come back.
+    for (let i = 0; i < w.e.hi; i++) { const n = w.e.alive(i) ? w.charName(i) : ''; if (n && !this.net.residents.has(n)) this.net.adopt(n, i); }
     this.net.spawnResidents([...this.players.list().map((p) => p.name), ...this.accounts.list().map((a) => a.name).filter(Boolean)]);
     this.net.playerCmd = (c, uid) => this.playerCmd(c, uid);
     // The owner's strict rules (sim/rules.ts): everyone's are in the database, each person's in their profile.
@@ -443,6 +446,83 @@ export class App {
   }
 
   /** One person for a viewer (watch mode's card). Thoughts, plans and memory only for seers. */
+  /**
+   * The player's own character as a person (imad 2026-11-20): look (sex once a real week, skin tone), the AI autopilot
+   * while away, 5 rules for that autopilot, asking someone to be a partner, trying for a child, building a hut.
+   * Null = not one of these.
+   */
+  private charDo(name: string, player: number, a: string, text?: string): Record<string, unknown> | null {
+    const w = this.world, e = w.e, p = w.playerProfile(player, name);
+    const mine = () => ({ ok: true, code: 'mine', me: this.charInfo(player) });
+    switch (a) {
+      case 'mine': return mine();
+      case 'look': { // "f:2" = woman, skin tone 2
+        const [sx, sk] = String(text ?? '').split(':');
+        const sex = sx === 'f' ? 'f' : 'm', skin = Math.max(0, Math.min(4, Math.floor(Number(sk) || 0)));
+        if (p.chose && sex !== p.sex) {
+          const left = (p.sexAt ?? 0) + SEX_WEEK_MS - Date.now();
+          if (left > 0) return { ok: false, code: 'sexWeek', days: Math.ceil(left / 86400_000), me: this.charInfo(player) };
+          if (p.pregnant) return { ok: false, code: 'sexPregnant', me: this.charInfo(player) };
+          p.sexAt = Date.now();
+        }
+        p.sex = sex; p.skin = skin; p.chose = true;
+        w.setLook(player);
+        return { ...mine(), code: 'looked' };
+      }
+      case 'auto': p.auto = text === '1'; return { ...mine(), code: p.auto ? 'autoOn' : 'autoOff' };
+      case 'ruleAdd': {
+        const t = String(text ?? '').trim();
+        if (!t) return mine();
+        p.rules ??= [];
+        if (p.rules.length >= MAX_RULES) return { ok: false, code: 'rulesFull', me: this.charInfo(player) };
+        const pid = e.id(player), r = compileRule(w, t.slice(0, 200), (n) => this.planner.whoIs(n, pid));
+        p.rules.push(r);
+        w.emit('ruleSet', { id: pid, text: r.text, forbid: r.forbid.join(','), with: r.withName ?? '', player: name });
+        void this.planner.refineRule(r, p.name).catch(() => {}); // the AI reads it once (in the background)
+        return { ...mine(), code: 'ruleAdded' };
+      }
+      case 'ruleDel': {
+        const k = Math.floor(Number(text));
+        if (p.rules && k >= 0 && k < p.rules.length) p.rules.splice(k, 1);
+        if (p.rules && !p.rules.length) delete p.rules;
+        return { ...mine(), code: 'ruleRemoved' };
+      }
+      case 'court': case 'child': {
+        if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
+        if (a === 'child') {
+          const r = w.life.tryChild(e.id(player));
+          return r === true ? { ...mine(), code: 'expecting' } : { ok: false, code: 'why', why: r };
+        }
+        const t = e.slot(Number(text));
+        if (t < 0 || e.map[t] !== e.map[player] || Math.hypot(e.x[t]! - e.x[player]!, e.y[t]! - e.y[player]!) > 10) return { ok: false, code: 'tooFar' };
+        const r = w.life.court(e.id(player), e.id(t));
+        return r === true ? { ...mine(), code: 'partners', name: this.nameOf(e.id(t)) } : { ok: false, code: 'why', why: r };
+      }
+      case 'hut': {
+        if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
+        const c = w.survival.playerHut(player);
+        return { ok: c === 'built', code: c };
+      }
+    }
+    return null;
+  }
+
+  /** What the TV shows on the player's "Me" page. */
+  charInfo(i: number): Record<string, unknown> {
+    const w = this.world, e = w.e, p = w.profileOf(i)!, now = w.gameSec, y = w.yearSec, id = e.id(i);
+    const partner = p.partner >= 0 ? { id: p.partner, name: w.profiles.get(p.partner)?.name ?? '?' } : null;
+    const children: { id: number; name: string; age: number }[] = [];
+    for (const [cid, c] of w.profiles) if (c.died === undefined && c.parents.includes(id) && e.slot(cid) >= 0) children.push({ id: cid, name: c.name, age: Math.floor(ageOf(c, now, y)) });
+    const left = p.chose ? Math.max(0, (p.sexAt ?? 0) + SEX_WEEK_MS - Date.now()) : 0;
+    return {
+      name: p.name, sex: p.sex, skin: p.skin ?? 1, chose: !!p.chose, sexDays: Math.ceil(left / 86400_000), auto: !!p.auto,
+      rules: (p.rules ?? []).map((r) => r.text), max: MAX_RULES, xp: p.xp ?? 0, level: levelOf(p.xp), goal: w.tasks.progress(id),
+      goals: (p.goals ?? []).slice(-5).reverse(), partner, children, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1,
+      traits: Object.fromEntries(TRAIT_KEYS.filter((k) => k !== 'metabolism').map((k) => [k, Math.round(p.traits[k] * 100)])),
+      hp: Math.round(e.hp[i]!),
+    };
+  }
+
   personInfo(id: number, seer: boolean): Record<string, unknown> | null {
     const w = this.world, e = w.e, p = w.profiles.get(id);
     if (!p) return null;
@@ -703,10 +783,10 @@ export class App {
       case 'people': { // everyone who ever lived (the dead too), for the People screen and family trees
         const out = [];
         for (const [id, p] of w.profiles) {
-          const i = w.e.slot(id), alive = i >= 0 && p.died === undefined && w.e.kind[i] === Kind.Agent;
+          const i = w.e.slot(id), alive = i >= 0 && p.died === undefined && (w.e.kind[i] === Kind.Agent || w.e.kind[i] === Kind.Player);
           out.push({ id, name: p.name, sex: p.sex, age: Math.floor(ageOf(p, p.died ?? w.gameSec, w.yearSec)), alive, died: p.died ?? null, cause: p.cause ?? null, generation: p.generation,
             parents: p.parents.map((x) => this.nameOf(x)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null, children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).length,
-            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0 });
+            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0, player: p.player ?? null });
         }
         return out;
       }

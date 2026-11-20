@@ -338,7 +338,7 @@ export class NetServer {
   /** Players' characters in the world: [name, slot]. */
   characters(): [string, number][] {
     const out: [string, number][] = [];
-    for (const [name, id] of this.residents) { const i = this.world.e.slot(id); if (i >= 0 && this.world.e.kind[i] === Kind.Player) out.push([name, i]); }
+    for (const [name, id] of this.residents) { const i = this.world.e.slot(id); if (i >= 0 && this.world.isChar(i)) out.push([name, i]); }
     return out;
   }
   /** Is this player here now (a screen connected)? */
@@ -357,7 +357,7 @@ export class NetServer {
     if (!this.ownsAvatar(s)) { // the character kept in the world while the player was away
       const r = this.residents.get(s.name);
       const i = r !== undefined ? w.e.slot(r) : -1;
-      if (i >= 0 && w.e.kind[i] === Kind.Player) { s.avatar = i; s.avatarId = r!; }
+      if (i >= 0 && w.isChar(i)) { s.avatar = i; s.avatarId = r!; }
     }
     if (!this.ownsAvatar(s)) {
       const p = this.avatarStore.get(s.name);
@@ -371,6 +371,8 @@ export class NetServer {
     }
     // Awake and standing: the player is here (in watch mode it stays like that, doing nothing).
     const e = w.e, i = s.avatar;
+    w.toPlayer(i); // the AI autopilot hands the controls back
+    this.onCharacter(i, s.name);
     w.away.delete(s.avatarId);
     if (e.flags[i]! & EFlag.Sleeping) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
     s.lastMap = -2;
@@ -400,8 +402,24 @@ export class NetServer {
       const i = w.spawnPlayer(mi, p?.x ?? def.w / 2, p?.y ?? def.h / 2);
       if (i < 0) continue;
       this.residents.set(name, w.e.id(i));
+      this.onCharacter(i, name);
       this.sleepAway(i);
     }
+  }
+
+  /** A player's character gets its person profile (sex, skin, partner, children, autopilot): set by the app. */
+  onCharacter: (i: number, name: string) => void = (i, name) => { this.world.playerProfile(i, name); };
+
+  /** After a restart: a character kept in the snapshot is that player's again (asleep, or on autopilot). */
+  adopt(name: string, i: number): void {
+    this.residents.set(name, this.world.e.id(i));
+    if (this.world.e.kind[i] === Kind.Player) this.sleepAway(i);
+  }
+
+  /** The player is away: the AI autopilot (if they turned it on) or sleep. */
+  private goAway(i: number): void {
+    if (this.world.profileOf(i)?.auto) { this.world.away.delete(this.world.e.id(i)); this.world.toAgent(i); }
+    else this.sleepAway(i);
   }
 
   /** The player is away: the character lies down and sleeps until they come back. */
@@ -423,7 +441,7 @@ export class NetServer {
     const x = e.map[i] === NO_MAP ? e.ax[i]! : e.x[i]!, y = e.map[i] === NO_MAP ? e.ay[i]! : e.y[i]!;
     this.avatarStore.set(s.name, { map: w.maps[mi]!.def.id, x, y });
     this.residents.set(s.name, s.avatarId);
-    this.sleepAway(i);
+    this.goAway(i);
     s.avatar = -1;
   }
 
@@ -432,7 +450,7 @@ export class NetServer {
     const w = this.world, e = w.e;
     for (const [name, id] of this.residents) {
       const i = e.slot(id);
-      if (i < 0 || e.kind[i] !== Kind.Player) continue;
+      if (i < 0 || !w.isChar(i)) continue;
       const s = { name };
       if (e.map[i] === NO_MAP) this.avatarStore.set(s.name, { map: w.maps[e.toMap[i]!]!.def.id, x: e.ax[i]!, y: e.ay[i]! });
       else this.avatarStore.set(s.name, { map: w.maps[e.map[i]!]!.def.id, x: e.x[i]!, y: e.y[i]! });
@@ -544,7 +562,7 @@ export class NetServer {
           this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
           return;
         }
-        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, 40) : undefined) } });
+        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, m.a === 'ruleAdd' ? 200 : 40) : undefined) } });
         this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
         return;
       }
@@ -645,7 +663,7 @@ export class NetServer {
       const id = e.id(i);
       const qx = Math.round(e.x[i]! * POS_Q), qy = Math.round(e.y[i]! * POS_Q), qa = Math.round(e.angle[i]! * ANG_Q);
       // kind | flags << 8 | sub << 16 (items: item type; agents: current action).
-      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+
+      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal || ((e.kind[i] === Kind.Player || e.kind[i] === Kind.Agent) && e.sub[i]) ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+; players' characters: look (1 + skin, +8 woman)
       const was = s.known[i]!;
       if (was > 0 && was !== id + 1) (delEarly ??= []).push(was - 1); // slot reused by a new entity
       const changed = was !== id + 1 || s.q[i * 4] !== qx || s.q[i * 4 + 1] !== qy || s.q[i * 4 + 2] !== qa || s.q[i * 4 + 3] !== kf;

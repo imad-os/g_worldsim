@@ -40,7 +40,19 @@ export interface Profile {
   /** Old enough (14) to leave their parents' side. */
   grown?: boolean;
   goals?: { text: string; from: string; ok: boolean; at: number; xp: number }[];
+  /** A player's character (imad 2026-11-20): the player's name, skin tone 0-4, when the sex was last changed (real ms),
+   *  whether they chose their look yet, and the AI autopilot while they are away. */
+  player?: string;
+  skin?: number;
+  sexAt?: number;
+  chose?: boolean;
+  auto?: boolean;
 }
+
+/** Players' characters stay this age (they never grow old or die of age). */
+export const PLAYER_AGE = 25;
+/** A player may change sex once a real week. */
+export const SEX_WEEK_MS = 7 * 86400_000;
 
 /** Level from objective points: 0, 1 at 50, 2 at 200, 3 at 450... */
 export function levelOf(xp = 0): number { return Math.floor(Math.sqrt(Math.max(0, xp) / 50)); }

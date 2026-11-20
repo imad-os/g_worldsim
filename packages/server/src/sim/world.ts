@@ -6,7 +6,7 @@ import { Rng } from './rng.js';
 import type { MapDef, PortalDef, Scenario } from './scenario.js';
 import { SpatialGrid } from './spatial.js';
 import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
-import { randomProfile, type Profile } from './people.js';
+import { randomProfile, PLAYER_AGE, type Profile } from './people.js';
 import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Survival } from './survival.js';
@@ -150,7 +150,7 @@ export class World {
     const e = this.e, start = this.startMap();
     let removed = 0, moved = 0;
     const list: number[] = [];
-    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) list.push(i);
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && !this.charName(i)) list.push(i);
     list.sort((a, b) => Number(e.map[b] === start) - Number(e.map[a] === start));
     for (let k = max; k < list.length; k++) { this.remove(list[k]!, 'population'); removed++; }
     if (start >= 0 && !this.travelOpen) {
@@ -248,6 +248,52 @@ export class World {
     return s;
   }
   profileOf(i: number): Profile | undefined { return this.profiles.get(this.e.id(i)); }
+
+  /** A player's character (Kind.Player, or Kind.Agent while the AI autopilot drives it): the player's name, else ''. */
+  charName(i: number): string { return this.profiles.get(this.e.id(i))?.player ?? ''; }
+  isChar(i: number): boolean { return this.e.kind[i] === Kind.Player || !!this.charName(i); }
+
+  /** Give a player's character its person profile (first time): a 25-year-old, sex and skin chosen later on the TV. */
+  playerProfile(i: number, name: string): Profile {
+    const id = this.e.id(i);
+    let p = this.profiles.get(id);
+    if (!p) {
+      const r = randomProfile(this.rng, this.gameSec, this.livingNames(), this.yearSec);
+      p = { ...r, name, sex: 'm', born: this.gameSec - PLAYER_AGE * this.yearSec, player: name, skin: 1, chose: false, auto: false };
+      this.profiles.set(id, p);
+    }
+    this.setLook(i);
+    return p;
+  }
+  /** The look sent to the viewers with a character (frame bits 24+): 1 + skin tone, + 8 for a woman. */
+  setLook(i: number): void {
+    const p = this.profileOf(i);
+    if (p?.player) this.e.sub[i] = 1 + Math.max(0, Math.min(4, p.skin ?? 1)) + (p.sex === 'f' ? 8 : 0);
+  }
+
+  /** The player left with the autopilot on: the AI drives the character (an agent for the brain) until they come back. */
+  toAgent(i: number): void {
+    const e = this.e;
+    if (e.kind[i] !== Kind.Player) return;
+    e.kind[i] = Kind.Agent;
+    e.inX[i] = e.inY[i] = 0;
+    e.flags[i] = e.flags[i]! & ~EFlag.Sleeping;
+    e.act[i] = Act.Idle; e.target[i] = -1;
+    this.brain.stop(i);
+    e.stuck[i] = 0;
+    e.nextThink[i] = this.tick + 1;
+  }
+  /** The player is back: their hands on the controls again. */
+  toPlayer(i: number): void {
+    const e = this.e;
+    if (e.kind[i] === Kind.Player) return;
+    this.tasks.stop(i);
+    this.brain.order(i, 'stop', -1, -1, 0);
+    this.brain.stop(i);
+    e.kind[i] = Kind.Player;
+    e.stuck[i] = 1; e.speed[i] = 0; e.target[i] = -1;
+    e.act[i] = Act.Idle;
+  }
 
   remove(i: number, cause = 'removed'): void {
     const e = this.e;

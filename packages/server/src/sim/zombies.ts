@@ -181,7 +181,7 @@ export class Zombies {
     const sleeping = (e.flags[t]! & EFlag.Sleeping) !== 0;
     e.hp[t]! -= BITE * (sleeping ? 1.5 : 1) * (1 - w.survival.defence(t));
     w.emit('bitten', { id: e.id(t), by: e.id(i), hp: Math.round(e.hp[t]!) });
-    if (e.kind[t] === Kind.Player) { e.hp[t] = Math.max(5, e.hp[t]!); return; } // players are hurt, never killed
+    if (w.isChar(t)) { e.hp[t] = Math.max(5, e.hp[t]!); return; } // players are hurt, never killed
     e.nextThink[t] = w.tick + 1;
     if (e.hp[t]! <= 0) {
       w.emit('death', { id: e.id(t), cause: 'zombie', map: w.maps[e.map[t]!]!.def.id, x: e.x[t], y: e.y[t] });

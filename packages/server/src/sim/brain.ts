@@ -469,6 +469,7 @@ export class Brain {
     // Health: starving or parched hurts; otherwise it heals slowly.
     if (e.hunger[i]! >= 100 || e.thirst[i]! >= 100) e.hp[i]! -= 6 * since * k;
     else if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 3 * since);
+    if (e.hp[i]! <= 0 && w.charName(i)) e.hp[i] = 5; // a player's character on autopilot is hurt, never killed
     if (e.hp[i]! <= 0) {
       const cause = e.thirst[i]! >= 100 ? 'thirst' : 'hunger';
       w.emit('death', { id: e.id(i), cause, map: w.maps[e.map[i]!]!.def.id, x: e.x[i], y: e.y[i] });

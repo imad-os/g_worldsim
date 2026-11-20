@@ -545,3 +545,46 @@ test('families: a child under 14 stays near a parent; at 14 they are on their ow
   kid.born = w.gameSec - 14.2 * w.life.yearSec;
   assert.equal(w.brain.guardian(c), -1, 'at 14: free');
 });
+
+test('players as people: profile, partner + child with a person, own bag on autopilot, never die, hut, kept through a snapshot', async () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'pl1' });
+  w.populate();
+  const e = w.e, ids = [...w.profiles.keys()];
+  const her = w.profiles.get(ids[0]!)!; her.sex = 'f'; her.born = w.gameSec - 25 * w.life.yearSec; her.partner = -1;
+  const ih = e.slot(ids[0]!);
+  const pl = w.spawnPlayer(e.map[ih]!, e.x[ih]! + 1, e.y[ih]!);
+  const p = w.playerProfile(pl, 'imad');
+  assert.equal(w.charName(pl), 'imad'); assert.equal(p.player, 'imad'); assert.ok(e.sub[pl]! > 0, 'look sent with the frames');
+  p.sex = 'm'; w.setLook(pl); assert.equal(e.sub[pl], 2);
+  // Asking her: may take a few tries (it grows with the talks).
+  let r: true | string = 'no';
+  for (let k = 0; k < 12 && r !== true; k++) r = w.life.court(e.id(pl), ids[0]!);
+  assert.equal(r, true, `partners (${r})`);
+  assert.equal(her.partner, e.id(pl));
+  let c: true | string = 'no';
+  for (let k = 0; k < 12 && c !== true; k++) c = w.life.tryChild(e.id(pl));
+  assert.equal(c, true, `expecting (${c})`);
+  assert.ok(her.pregnant);
+  // The bag is the player's (by name) whoever drives.
+  w.survival.add(pl, 'wood', 12); w.survival.add(pl, 'stone', 4);
+  p.auto = true; w.toAgent(pl);
+  assert.equal(e.kind[pl], Kind.Agent);
+  assert.equal(w.survival.inv(pl).wood, 12, 'same bag on autopilot');
+  e.hunger[pl] = 100; e.thirst[pl] = 100; e.hp[pl] = 1;
+  for (let k = 0; k < 600; k++) w.step();
+  assert.ok(e.alive(pl) && e.hp[pl]! >= 1, 'a player character is never killed');
+  w.toPlayer(pl);
+  assert.equal(e.kind[pl], Kind.Player);
+  e.hunger[pl] = e.thirst[pl] = 0;
+  assert.equal(w.survival.playerHut(pl), 'built');
+  assert.equal(w.survival.inv(pl).wood ?? 0, 0);
+  // Players don't age.
+  const age0 = Math.round((w.gameSec - p.born) / w.life.yearSec);
+  w.life.hourly();
+  assert.equal(Math.round((w.gameSec - p.born) / w.life.yearSec), age0);
+  // A snapshot keeps the character with its profile and id.
+  const w2 = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'pl1' });
+  restore(w2, serialize(w));
+  const j = w2.e.slot(e.id(pl));
+  assert.ok(j >= 0 && w2.charName(j) === 'imad' && w2.profileOf(j)!.partner === ids[0]);
+});

@@ -177,7 +177,7 @@ export class Animals {
     const hurt = dmg * (sleeping ? 1.5 : 1) * (1 - w.survival.defence(t));
     e.hp[t]! -= hurt;
     w.emit('bitten', { id: e.id(t), by: e.id(i), hp: Math.round(e.hp[t]!), animal: ANIMAL_NAMES[e.sub[i]!] });
-    if (e.kind[t] === Kind.Player) { e.hp[t] = Math.max(5, e.hp[t]!); return; }
+    if (w.isChar(t)) { e.hp[t] = Math.max(5, e.hp[t]!); return; }
     e.nextThink[t] = w.tick + 1;
     if (e.hp[t]! <= 0) {
       w.emit('death', { id: e.id(t), cause: ANIMAL_NAMES[e.sub[i]!], map: w.maps[e.map[t]!]!.def.id, x: e.x[t], y: e.y[t] });

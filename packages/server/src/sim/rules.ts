@@ -223,6 +223,9 @@ export class Rules {
       if (p.partner < 0) return canMarry() ? marry : null; // a partner first
       const q = w.profiles.get(p.partner);
       if (p.pregnant || q?.pregnant) return null;
+      // Past the age for children (the woman of the couple over 45): nothing more to try.
+      const mother = p.sex === 'f' ? p : q;
+      if (mother && ageOf(mother, now, w.life.yearSec) > 45) return null;
       // A child born less than a year ago counts as done for now.
       for (const c of w.profiles.values()) if (c.died === undefined && c.parents.includes(e.id(i)) && now - c.born < w.life.yearSec) return null;
       return [{ do: 'goto', who: p.partner }, { do: 'child' }];
