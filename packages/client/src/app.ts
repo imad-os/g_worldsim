@@ -284,7 +284,7 @@ function slotFor(id: number): number {
   return -1;
 }
 function clearEntities(): void { eid.fill(-1); kind.fill(0); slotOf.clear(); follow = -1; }
-const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee'] as const)[a] ?? 'actIdle');
+const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee', 'actGo'] as const)[a] ?? 'actIdle');
 const mapName = (id: string) => welcome?.maps.find((x) => x.id === id)?.name ?? id;
 
 // ------------------------------------------------------------ chunks
@@ -525,7 +525,17 @@ function doAction(a: ActionId, pressed: boolean): void {
     return;
   }
   if (!playing()) return;
-  if (a === 'use') { send({ t: Msg.Do, a: nearestPerson(2.5) >= 0 ? 'talk' : 'use' }); return; }
+  if (a === 'use') {
+    if (nearestPerson(2.8) < 0) { send({ t: Msg.Do, a: 'use' }); return; }
+    // Next to someone: type what to say (My PC's keyboard); empty = just say hello. They may do what you ask.
+    if (!MyPC.text?.keyboard) { send({ t: Msg.Do, a: 'talk' }); return; }
+    send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I type
+    held.left = held.right = held.up = held.down = false; runHeld = false;
+    void (MyPC.text.keyboard({ value: '', kind: 'text', label: t('sayLabel'), ok: 'OK' }) as Promise<string | null>).then((v) => {
+      send(v && v.trim() ? { t: Msg.Do, a: 'talk', text: v.trim().slice(0, 300) } : { t: Msg.Do, a: 'talk' });
+    });
+    return;
+  }
   send({ t: Msg.Do, a }); // drink, eat, pickup, sleep
 }
 

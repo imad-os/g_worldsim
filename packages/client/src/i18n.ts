@@ -27,7 +27,7 @@ const T = {
     metPlayer: 'Another player is here.',
     worldFull: 'The world is full right now.',
     noGl: 'This screen can’t draw 3D.',
-    actIdle: 'Standing', actWander: 'Walking around', actDrink: 'Getting water', actEat: 'Eating', actForage: 'Looking for food', actSleep: 'Sleeping', actTalk: 'Talking', actTravel: 'Travelling', actRest: 'Resting', actFlee: 'Running away',
+    actIdle: 'Standing', actWander: 'Walking around', actDrink: 'Getting water', actEat: 'Eating', actForage: 'Looking for food', actSleep: 'Sleeping', actTalk: 'Talking', actTravel: 'Travelling', actRest: 'Resting', actFlee: 'Running away', actGo: 'Going to someone',
     inTransit: 'travelling',
   },
   fr: {
@@ -56,7 +56,7 @@ const T = {
     metPlayer: 'Un autre joueur est là.',
     worldFull: 'Le monde est plein pour le moment.',
     noGl: 'Cet écran ne peut pas afficher la 3D.',
-    actIdle: 'Debout', actWander: 'Se promène', actDrink: 'Va boire', actEat: 'Mange', actForage: 'Cherche à manger', actSleep: 'Dort', actTalk: 'Discute', actTravel: 'En voyage', actRest: 'Se repose', actFlee: 'S’enfuit',
+    actIdle: 'Debout', actWander: 'Se promène', actDrink: 'Va boire', actEat: 'Mange', actForage: 'Cherche à manger', actSleep: 'Dort', actTalk: 'Discute', actTravel: 'En voyage', actRest: 'Se repose', actFlee: 'S’enfuit', actGo: 'Va rejoindre quelqu’un',
     inTransit: 'en voyage',
   },
   es: {
@@ -85,7 +85,7 @@ const T = {
     metPlayer: 'Hay otro jugador aquí.',
     worldFull: 'El mundo está lleno ahora mismo.',
     noGl: 'Esta pantalla no puede mostrar 3D.',
-    actIdle: 'De pie', actWander: 'Paseando', actDrink: 'Va a beber', actEat: 'Comiendo', actForage: 'Busca comida', actSleep: 'Durmiendo', actTalk: 'Hablando', actTravel: 'De viaje', actRest: 'Descansando', actFlee: 'Huyendo',
+    actIdle: 'De pie', actWander: 'Paseando', actDrink: 'Va a beber', actEat: 'Comiendo', actForage: 'Busca comida', actSleep: 'Durmiendo', actTalk: 'Hablando', actTravel: 'De viaje', actRest: 'Descansando', actFlee: 'Huyendo', actGo: 'Va hacia alguien',
     inTransit: 'de viaje',
   },
   ar: {
@@ -114,7 +114,7 @@ const T = {
     metPlayer: 'لاعب آخر هنا.',
     worldFull: 'العالم ممتلئ الآن.',
     noGl: 'هذه الشاشة لا تستطيع عرض ثلاثي الأبعاد.',
-    actIdle: 'واقف', actWander: 'يتجول', actDrink: 'يذهب ليشرب', actEat: 'يأكل', actForage: 'يبحث عن طعام', actSleep: 'نائم', actTalk: 'يتحدث', actTravel: 'مسافر', actRest: 'يستريح', actFlee: 'يهرب',
+    actIdle: 'واقف', actWander: 'يتجول', actDrink: 'يذهب ليشرب', actEat: 'يأكل', actForage: 'يبحث عن طعام', actSleep: 'نائم', actTalk: 'يتحدث', actTravel: 'مسافر', actRest: 'يستريح', actFlee: 'يهرب', actGo: 'يذهب إلى شخص',
     inTransit: 'في سفر',
   },
 } as const;

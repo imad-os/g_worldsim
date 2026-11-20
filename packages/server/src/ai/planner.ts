@@ -51,6 +51,20 @@ export function cleanLine(text: string, name: string): string {
   return t.slice(0, 220);
 }
 
+/** What the speaker asks for, from their words (en / fr / es / ar): 'come' | 'follow' | 'stay' | 'stop' | ''. */
+export function askedFor(text: string): string {
+  const t = ' ' + text.toLowerCase() + ' ';
+  if (/\b(follow me|come with me|suis[- ]moi|suivez[- ]moi|viens avec moi|s[ií]gueme|ven conmigo)\b|اتبعني|إتبعني|تعال معي|تبعني/.test(t)) return 'follow';
+  if (/\b(come( here| to me| over| find me| search for me)?|get over here|viens|venez|rejoins[- ]moi|ven( aquí| aca| acá)?|ven a buscarme|búscame|buscame)\b|تعال|تعالي|اجي|أجي|ارواح/.test(t) && !/\b(come on|comment|venir de|welcome)\b/.test(t)) return 'come';
+  if (/\b(stay( here)?|wait( here| for me)?|don't move|attends|reste( ici)?|espera|quédate|quedate)\b|انتظر|ابق|إبق|استنى/.test(t)) return 'stay';
+  if (/\b(stop following|forget it|never ?mind|laisse tomber|olvídalo|olvidalo)\b|انس الأمر/.test(t)) return 'stop';
+  return '';
+}
+/** Does an answer agree to come ("I'm coming", "on my way", "j'arrive", "voy", "حاضر")? */
+export function agrees(text: string): boolean {
+  return /\b(i'?m coming|coming|on my way|be right there|i'?ll come|ok(ay)?|sure|yes|alright|j'arrive|j'y vais|d'accord|oui|voy|vale|claro|s[ií]|ya voy)\b|حاضر|نعم|حسنا|حسناً|جاي|قادم|آتي|طيب/i.test(text);
+}
+
 export class Planner {
   cfg: PlannerConfig;
   readonly log: Exchange[] = [];
@@ -241,7 +255,7 @@ export class Planner {
       if (j === i || e.map[j] !== e.map[i] || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
       const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
       if (d > 80) continue;
-      const nm = e.kind[j] === Kind.Player ? 'a player' : this.name(e.id(j));
+      const nm = e.kind[j] === Kind.Player ? `${this.nameOfId(e.id(j))} (a player)` : this.name(e.id(j));
       near.push(`${nm} (${Math.round(d)} m, ${ACT_TEXT[e.act[j]!] ?? 'standing'})`);
     }
     const rel = Object.entries(mind.rel).filter(([, v]) => Math.abs(v) >= 1).map(([k, v]) => `${k[0] === '#' ? this.name(Number(k.slice(1))) : k.slice(1)} ${v > 0 ? '+' : ''}${Math.round(v)}`);
@@ -276,27 +290,57 @@ export class Planner {
   }
 
   // ------------------------------------------------------------------ chat
+  /** Players' characters by name (App fills it from the network): [name, slot]. */
+  players: () => [string, number][] = () => [];
+
+  /** Someone by name: a person (agent) or a player's character. Entity id, or -1. */
+  whoIs(name: string, except = -1): number {
+    const n = name.trim().toLowerCase().replace(/^@/, '');
+    if (!n) return -1;
+    const e = this.w.e;
+    for (const [id, p] of this.w.profiles) if (p.name.toLowerCase() === n && id !== except && e.slot(id) >= 0) return id;
+    for (const [pn, slot] of this.players()) if (pn.toLowerCase() === n && e.kind[slot] === Kind.Player) return e.id(slot);
+    return -1;
+  }
+
   /**
    * Someone talks to person i: `from` is the owner ('owner') or a player's name; `text` = what they said (null = they
-   * walked up to them). Returns the answer (also said aloud). Built-in lines when the AI is off or fails.
+   * walked up to them); `player` = the speaker's character slot. The model answers in JSON with what they say AND what
+   * they do ({"say", "do", "target"}); what they do becomes an order (Brain.order). A small model may forget the "do":
+   * the speaker's own words ("come", "follow me", "viens"...) and an answer that agrees ("I'm coming") count too.
+   * Built-in lines when the AI is off or fails.
    */
-  async chat(i: number, from: string, text: string | null, player = -1): Promise<{ reply: string; ai: boolean }> {
+  async chat(i: number, from: string, text: string | null, player = -1): Promise<{ reply: string; ai: boolean; did: string }> {
     const w = this.w, e = w.e;
     if (i < 0 || e.kind[i] !== Kind.Agent) throw new Error('no such person');
     const id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!;
+    const owner = from === 'owner';
     if (player >= 0) w.brain.listen(i, player, 30);
-    const who = from === 'owner' ? 'a voice from the sky (the owner of this world)' : `${from}, a stranger who is a player`;
+    const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
     const key = '@' + from;
-    let reply = '', usedAi = false;
+    let reply = '', usedAi = false, doRaw = '', target = '';
     const st = this.ai.status();
-    if (st.ready && e.act[i] !== Act.Sleep) {
-      const prompt = [this.describe(i), '', text ? `${who} says to you: "${text.slice(0, 300)}"` : `${who} walks up to you.`,
-        `Your feeling about them: ${Math.round(mind.rel[key] ?? 0)} (-5..5).`, `Answer as ${p.name}, in one or two short sentences, only the words you say.`].join('\n');
+    if (st.ready && (e.act[i] !== Act.Sleep || owner)) {
+      const present = this.presentNames(i);
+      const prompt = [this.describe(i), `People you can name: ${present.join(', ') || 'nobody'}.`, '',
+        text ? `${who} says to you: "${text.slice(0, 300)}"` : `${who} walks up to you.`,
+        `Your feeling about them: ${Math.round(mind.rel[key] ?? 0)} (-5..5).`,
+        'If you are asked to do something and you agree, say what you do in "do" (come = walk to the one speaking to you; follow = keep '
+        + 'walking with someone; goto = walk to someone named in "target"; stay = stop and wait; stop = stop what you were told; or drink, eat, '
+        + 'forage, sleep, talk, wander, rest). Otherwise "do" is "nothing".'].join('\n');
+      const system = `You are ${p.name}, a survivor in a post-apocalyptic world. Speak naturally and briefly (one or two short sentences), in the `
+        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","do":"come|follow|goto|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty"}';
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
       try {
-        const r = await this.ai.generate({ system: `You are ${p.name}, a survivor in a post-apocalyptic world. Speak naturally and briefly, in the language you are spoken to (English if nobody spoke).`, prompt, maxTokens: 160, temperature: 0.9 });
+        const r = await this.ai.generate({ system, prompt, json: true, maxTokens: 200, temperature: 0.8 });
         ex.reply = r.text.slice(0, 2000); ex.ms = r.ms;
-        reply = cleanLine(r.text, p.name);
+        const raw = r.text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        const j = parseJsonReply<Record<string, unknown>>(raw);
+        if (j && typeof j === 'object') {
+          reply = cleanLine(String(j.say ?? j.text ?? j.answer ?? ''), p.name);
+          doRaw = String(j.do ?? j.action ?? '').trim().toLowerCase();
+          target = String(j.target ?? j.with ?? '').trim();
+        } else reply = cleanLine(raw, p.name); // the model forgot the JSON: its words are still the answer
         usedAi = !!reply;
         if (!reply) ex.err = 'empty answer';
       } catch (err) {
@@ -305,12 +349,78 @@ export class Planner {
       }
       this.keep(ex);
     }
-    if (!reply) { reply = this.builtInLine(i); this.counts.builtIn++; }
+    // What was asked, from the speaker's own words (works without AI too).
+    const asked = text ? askedFor(text) : '';
+    const agreed = reply ? agrees(reply) : false;
+    if (!doRaw || doRaw === 'nothing' || doRaw === 'none') {
+      // The owner is obeyed; a player when the answer agrees (or there is no AI to ask).
+      if (asked && (owner || agreed || !usedAi)) doRaw = asked;
+      else doRaw = '';
+    }
+    if (!reply) {
+      reply = doRaw === 'come' || doRaw === 'follow' ? (owner ? 'Yes. On my way.' : "Alright, I'm coming.") : doRaw === 'stay' ? "Okay, I'll wait here." : this.builtInLine(i);
+      this.counts.builtIn++;
+    }
+    const did = this.applyChatOrder(i, doRaw, target, player, owner);
     this.counts.chats++;
-    this.note(id, text ? `${from === 'owner' ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`, !!text);
+    this.note(id, (text ? `${owner ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`)
+      + (did ? ` I ${did}.` : ''), !!text);
     this.feel(id, key, 0.5);
     if (e.slot(id) === i) this.say(i, reply);
-    return { reply, ai: usedAi };
+    return { reply, ai: usedAi, did };
+  }
+
+  /** Turn a chat's "do" into an order. Returns what they do, in words ('' = nothing). */
+  private applyChatOrder(i: number, doRaw: string, target: string, player: number, owner: boolean): string {
+    const w = this.w, e = w.e, id = e.id(i);
+    const d = doRaw.replace(/[^a-z]/g, '');
+    if (!d) return '';
+    const speaker = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
+    const named = target ? this.whoIs(target, id) : -1;
+    const mins = owner ? 180 : 60;
+    if (d === 'come' || d === 'goto' || d === 'follow') {
+      // The voice from the sky has no body: "come" = to the player named, else the player on this map (the owner playing).
+      const onMap = (): number => { for (const [, slot] of this.players()) if (e.map[slot] === e.map[i]) return e.id(slot); return -1; };
+      const to = d === 'come' ? (speaker >= 0 ? speaker : named >= 0 ? named : owner ? onMap() : -1) : named >= 0 ? named : speaker >= 0 ? speaker : owner ? onMap() : -1;
+      if (to < 0) return '';
+      if (!w.brain.order(e.slot(id), d === 'follow' ? 'follow' : 'goto', to, -1, d === 'follow' ? mins * 2 : mins)) return '';
+      return `${d === 'follow' ? 'follow' : 'go to'} ${this.nameOfId(to)}`;
+    }
+    if (d === 'stay' || d === 'wait') { w.brain.order(e.slot(id), 'stay', -1, -1, mins); return 'wait here'; }
+    if (d === 'stop') { w.brain.order(e.slot(id), 'stop', -1, -1, 0); return 'stop'; }
+    const act = GOALS[d];
+    if (act === undefined) return '';
+    if (act === Act.Talk && named >= 0) { w.brain.order(e.slot(id), 'goto', named, -1, mins); return `go to talk with ${this.nameOfId(named)}`; }
+    w.brain.order(e.slot(id), 'act', -1, act, mins);
+    return d;
+  }
+
+  /** Names a person can use: the people and players on their map. */
+  private presentNames(i: number): string[] {
+    const e = this.w.e, out: string[] = [];
+    for (const [id, p] of this.w.profiles) { const k = e.slot(id); if (k >= 0 && k !== i && e.map[k] === e.map[i]) out.push(p.name); }
+    for (const [n, slot] of this.players()) if (e.map[slot] === e.map[i]) out.push(n);
+    return out.slice(0, 20);
+  }
+
+  whoName(id: number): string { return this.nameOfId(id); }
+
+  private nameOfId(id: number): string {
+    const p = this.w.profiles.get(id);
+    if (p) return p.name;
+    const slot = this.w.e.slot(id);
+    for (const [n, s] of this.players()) if (s === slot) return n;
+    return 'them';
+  }
+
+  /** The owner's order from the panel, without asking the model. */
+  orderFromPanel(i: number, kind: string, target: string): string {
+    const w = this.w, e = w.e;
+    if (i < 0 || e.kind[i] !== Kind.Agent) throw new Error('no such person');
+    const did = this.applyChatOrder(i, kind, target, -1, true);
+    if (!did) throw new Error(kind === 'goto' || kind === 'follow' ? 'choose who' : 'unknown order');
+    this.note(e.id(i), `The voice from the sky told me to ${did}.`, true);
+    return did;
   }
 
   /** What a person says without a model: from their needs and the time of day. */

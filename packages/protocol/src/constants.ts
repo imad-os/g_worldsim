@@ -65,5 +65,7 @@ export const Msg = {
 /** What an agent is doing (sent in frames, shown by viewers). Scenario actions map onto these. */
 export const Act = {
   Idle: 0, Wander: 1, Drink: 2, Eat: 3, Forage: 4, Sleep: 5, Talk: 6, Travel: 7, Rest: 8, Flee: 9,
+  /** Going to someone, or following them: an order from a chat or the panel. */
+  Go: 10,
 } as const;
 export type ActId = (typeof Act)[keyof typeof Act];

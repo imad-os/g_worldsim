@@ -49,6 +49,8 @@ a{color:var(--acc);word-break:break-all}
     <button id="pSave" class="primary">Save changes</button><button id="pMove">Move to the map centre</button><button id="pKill">Kill</button><button id="pClose">Close</button>
     <h3 style="margin-top:12px">Mind</h3><div id="pMind" class="dim"></div>
     <div class="row"><input id="pSay" placeholder="Say something to them..." style="flex:1;min-width:0" maxlength="300"> <span><button id="pTalk" class="primary">Talk</button> <button id="pPlan">Plan now</button></span></div>
+    <div class="row"><span>Order:</span> <select id="pOrd"><option value="goto">Go to…</option><option value="follow">Follow…</option><option value="stay">Stay where you are</option><option value="stop">Stop the order</option><option value="drink">Drink</option><option value="eat">Eat</option><option value="forage">Find food</option><option value="sleep">Sleep</option><option value="talk">Talk with…</option><option value="wander">Walk around</option><option value="rest">Rest</option></select>
+      <input id="pOrdWho" list="pOrdNames" placeholder="who (name)" style="flex:1;min-width:0"><datalist id="pOrdNames"></datalist> <button id="pOrdGo">Do it</button></div>
     <div id="pChat"></div>
     <h3 style="margin-top:12px">Family</h3><p id="pFam" class="dim"></p>
     <h3>Recent events</h3><div id="pEv"></div></div>

@@ -55,7 +55,7 @@ async function refreshPairings(): Promise<void> {
 // ------------------------------------------------------------ people (milestone 5)
 type Person = { id: number; alive: boolean; child?: boolean; pregnant?: boolean; partner?: string | null; name: string; sex?: string; age: number; map: string | null; x: number; y: number; act: number;
   hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; talkingTo: string | null };
-const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away'];
+const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away', 'going to someone'];
 const names = new Map<number, string>();
 let openId = -1; // -1 = nobody open (0 is a real id)
 let lastChatId = -1;
@@ -80,7 +80,12 @@ async function openPerson(id: number): Promise<void> {
     const d = (await cmd({ cmd: 'agent', id })) as Person & { now: number; profile: { traits: Record<string, number>; personality: string[]; generation: number }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
     $('personCard').hidden = false;
     $('pName').textContent = d.name;
-    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
+    try {
+      const names = ((await cmd({ cmd: 'agents' })) as { name: string }[]).map((x) => x.name).concat(((await cmd({ cmd: 'players' })) as { name: string }[]).map((x) => x.name));
+      $('pOrdNames').innerHTML = names.filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('');
+    } catch { /* names are only a help */ }
+    const ord = (d as { order?: string | null }).order;
+    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''}${ord ? ` (told to ${ord})` : ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
     const f = (k: string, v: number | string, step = '1') => `<label>${k}<input data-k="${k}" value="${v}" ${typeof v === 'number' ? `type="number" step="${step}"` : ''}></label>`;
     $('pEdit').innerHTML = d.alive ? [f('name', d.name), f('personality', d.profile.personality.join(', ')),
       f('hunger', d.hunger), f('thirst', d.thirst), f('tired', d.tired), f('lonely', d.lonely), f('hp', d.hp), f('carry', d.carry),
@@ -315,8 +320,13 @@ $('pTalk').onclick = async () => {
   addChat('You', text);
   const b = $('pTalk') as HTMLButtonElement;
   b.disabled = true;
-  try { const r = (await cmd({ cmd: 'chat', id: openId, text })) as { reply: string; ai: boolean }; if (!r.ai) addChat('', '(answered without AI: turn on Gemini or Ollama in the AI brain card)'); void openPerson(openId); } catch (e) { addChat('', String(e)); }
+  try { const r = (await cmd({ cmd: 'chat', id: openId, text })) as { reply: string; ai: boolean; did?: string }; if (!r.ai) addChat('', '(answered without AI: turn on Gemini or Ollama in the AI brain card)'); if (r.did) addChat('', `→ will ${r.did}`); void openPerson(openId); } catch (e) { addChat('', String(e)); }
   b.disabled = false;
+};
+$('pOrdGo').onclick = async () => {
+  if (openId < 0) return;
+  const kind = ($('pOrd') as HTMLSelectElement).value, target = ($('pOrdWho') as HTMLInputElement).value.trim();
+  try { const r = (await cmd({ cmd: 'order', id: openId, kind, target })) as { did: string }; addChat('', `→ will ${r.did}`); void openPerson(openId); } catch (e) { addChat('', String(e)); }
 };
 ($('pSay') as HTMLInputElement).onkeydown = (e) => { if (e.key === 'Enter') $('pTalk').click(); };
 $('pPlan').onclick = async () => {

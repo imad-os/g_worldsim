@@ -4,13 +4,14 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Act, Kind } from '@worldsim/protocol';
 import { Ai, AI_DEFAULTS } from '../ai/llm.js';
-import { Planner, cleanLine } from '../ai/planner.js';
+import { Planner, cleanLine, askedFor, agrees } from '../ai/planner.js';
 import { Logger } from '../log.js';
 import { serialize, restore } from '../persist/snapshot.js';
 import { newWorld } from './helpers.js';
 
 // A fake Ollama that plans like a model would: everyone named in the prompt wants to talk to the first person.
-let mode: 'ok' | 'junk' | 'think' = 'ok';
+let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' = 'ok';
+let orderTarget = '';
 const prompts: string[] = [];
 const fake = createServer((req, res) => {
   let b = '';
@@ -22,6 +23,15 @@ const fake = createServer((req, res) => {
     prompts.push(user);
     const names = [...user.matchAll(/^Person: (\S+)/gm)].map((m: RegExpMatchArray) => m[1]);
     let content: string;
+    const sys = body.messages?.find((m: any) => m.role === 'system')?.content ?? '';
+    if (/"say":"the words you say"/.test(sys)) { // a chat
+      content = mode === 'think' ? '<think>hmm, who is this</think>Mira: "Hello there, stranger."' // forgot the JSON
+        : mode === 'order' ? JSON.stringify({ say: "On my way!", do: 'goto', target: orderTarget })
+        : mode === 'forget' ? JSON.stringify({ say: "Sure, I'm coming." }) // agreed but forgot "do"
+        : JSON.stringify({ say: 'Hello there, stranger.', do: 'nothing', target: '' });
+      res.end(JSON.stringify({ message: { role: 'assistant', content } }));
+      return;
+    }
     if (body.format !== 'json') content = mode === 'think' ? '<think>hmm, who is this</think>Mira: "Hello there, stranger."' : 'Hello there, stranger.';
     else if (mode === 'junk') content = 'I would rather not.';
     else content = JSON.stringify({ people: names.map((n, k) => ({ name: n, goal: 'talk', with: k ? names[0] : names[1] ?? '', why: 'company', say: `Hey, it's ${n}.`, mood: 'hopeful', memory: `${n} remembers the long winter.` })) });
@@ -118,4 +128,63 @@ test('planner: minds and wishes survive a snapshot', async () => {
   for (let i = 0; i < w2.e.hi; i++) if (w2.e.kind[i] === Kind.Agent && w2.brain.wishOf(i) === Act.Talk) wished++;
   assert.equal(wished, w2.e.countKind(Kind.Agent));
   assert.ok(p2);
+});
+
+test('chat orders: what people are asked to do, they do (model JSON, the speaker\'s words, or the panel)', async () => {
+  assert.equal(askedFor('come search for me'), 'come');
+  assert.equal(askedFor('Viens me chercher stp'), 'come');
+  assert.equal(askedFor('ven aquí'), 'come');
+  assert.equal(askedFor('تعال هنا'), 'come');
+  assert.equal(askedFor('follow me to the river'), 'follow');
+  assert.equal(askedFor('suis-moi'), 'follow');
+  assert.equal(askedFor('wait here'), 'stay');
+  assert.equal(askedFor('how are you?'), '');
+  assert.ok(agrees("I'm coming!")); assert.ok(agrees("D'accord, j'arrive.")); assert.ok(!agrees('No way.'));
+
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  const agents: number[] = [];
+  for (let k = 0; k < w.e.hi; k++) if (w.e.kind[k] === Kind.Agent) agents.push(k);
+  const [a, b] = agents as [number, number];
+  const e = w.e, m = e.map[a]!;
+  // Keep them fed so no desperate need interferes; put b 25 m away and hold it still.
+  const calm = () => { for (const k of agents) { e.hunger[k] = 0; e.thirst[k] = 0; e.tired[k] = 0; } };
+  calm();
+  w.place(b, m, e.x[a]! + 25, e.y[a]!);
+  const hold = () => { w.brain.stop(b); e.nextThink[b] = w.tick + 100000; };
+  hold();
+  // 1. The model answers with an action: go to b.
+  mode = 'order'; orderTarget = w.profileOf(b)!.name;
+  const r = await p.chat(a, 'owner', `Go and find ${orderTarget}.`);
+  assert.equal(r.reply, 'On my way!');
+  assert.match(r.did, new RegExp(`go to ${orderTarget}`));
+  assert.equal(w.brain.orderOf(a).kind, 'come');
+  for (let t = 0; t < 20 * 60 && Math.hypot(e.x[a]! - e.x[b]!, e.y[a]! - e.y[b]!) > 2.6; t++) { calm(); w.step(); }
+  const d1 = Math.hypot(e.x[a]! - e.x[b]!, e.y[a]! - e.y[b]!);
+  assert.ok(d1 <= 2.6, `walked to them: ${d1.toFixed(1)} m left`);
+
+  // 2. The model forgets "do" but its answer agrees, and the player's words said "come": it comes to the player.
+  const pl = w.spawnPlayer(m, e.x[a]! - 20, e.y[a]!);
+  p.players = () => [['imad', pl]];
+  mode = 'forget';
+  const r2 = await p.chat(a, 'imad', 'come search for me', pl);
+  assert.equal(r2.reply, "Sure, I'm coming.");
+  assert.match(r2.did, /go to imad/);
+  for (let t = 0; t < 20 * 60 && Math.hypot(e.x[a]! - e.x[pl]!, e.y[a]! - e.y[pl]!) > 2.6; t++) { calm(); hold(); w.step(); }
+  const d2 = Math.hypot(e.x[a]! - e.x[pl]!, e.y[a]! - e.y[pl]!);
+  assert.ok(d2 <= 2.6, `came to the player: ${d2.toFixed(1)} m left`);
+
+  // 3. The panel's order, no AI: follow b; b walks away, a keeps up.
+  ai.apply({ provider: 'none' });
+  assert.match(p.orderFromPanel(a, 'follow', w.profileOf(b)!.name), /follow/);
+  e.nextThink[b] = w.tick;
+  w.brain.goTo(b, e.x[b]! - 15, e.y[b]! + 10);
+  for (let t = 0; t < 20 * 40; t++) { calm(); w.step(); }
+  const d3 = Math.hypot(e.x[a]! - e.x[b]!, e.y[a]! - e.y[b]!);
+  assert.ok(d3 < 5, `kept up with them: ${d3.toFixed(1)} m`);
+  assert.equal(w.brain.orderOf(a).kind, 'follow');
+  // Stop: the order ends.
+  p.orderFromPanel(a, 'stop', '');
+  assert.equal(w.brain.orderOf(a).kind, '');
+  mode = 'ok';
 });

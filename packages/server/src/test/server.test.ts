@@ -314,6 +314,13 @@ test('players do what people do; only allowed players see thoughts; person info'
     assert.equal(a.id, e.id(ag)); assert.equal(b.name, a.name);
     assert.ok(typeof a.hunger === 'number' && a.traits);
     assert.equal(b.mind, undefined, 'no thoughts for the guest');
+    // Typed on the TV next to someone: "wait here" -> they answer and stay.
+    app.world.place(ag, e.map[i]!, e.x[i]! + 1.5, e.y[i]!);
+    await new Promise((r) => setTimeout(r, 150));
+    me.msgs.length = 0;
+    me.send({ t: Msg.Do, a: 'talk', text: 'wait here please' });
+    await notice(me, 'say', (d) => d.id === e.id(ag));
+    assert.equal(app.world.brain.orderOf(ag).kind, 'stay', 'told to wait: waits');
     // The owner allows the guest in the panel.
     const adm = await connect(url, ADMIN);
     await adm.wait((m) => m.t === Msg.Welcome);

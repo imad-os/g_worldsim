@@ -20,7 +20,7 @@ export const T2 = {
     gDrink: 'drink', gEat: 'eat', gForage: 'find food', gSleep: 'sleep', gTalk: 'talk', gWander: 'walk around', gRest: 'rest', gTravel: 'travel',
     hintMenu: '+ / Back: menu',
     gameMenuItem: 'Game menu',
-    hMove: 'Move', wFollow: 'follow a person', wMap: 'next map', wCard: 'person card', mNearby: 'Nearest person', sThoughtsOnly: 'Only players the owner allows see thoughts.', mMe: 'Me', dTalk: 'You talk to them.', dNobody: 'Nobody close enough.', sZoom: 'Zoom', cPressed: 'Pressed: {0}',
+    hMove: 'Move', sayLabel: 'Say something (empty = just say hello)', wFollow: 'follow a person', wMap: 'next map', wCard: 'person card', mNearby: 'Nearest person', sThoughtsOnly: 'Only players the owner allows see thoughts.', mMe: 'Me', dTalk: 'You talk to them.', dNobody: 'Nobody close enough.', sZoom: 'Zoom', cPressed: 'Pressed: {0}',
   },
   fr: {
     mResume: 'Reprendre', mActions: 'Actions', mSettings: 'Réglages', mControls: 'Boutons', mPerson: 'Cette personne', mNextPerson: 'Personne suivante',
@@ -42,7 +42,7 @@ export const T2 = {
     gDrink: 'boire', gEat: 'manger', gForage: 'trouver à manger', gSleep: 'dormir', gTalk: 'parler', gWander: 'se promener', gRest: 'se reposer', gTravel: 'voyager',
     hintMenu: '+ / Retour : menu',
     gameMenuItem: 'Menu du jeu',
-    hMove: 'Bouger', wFollow: 'suivre une personne', wMap: 'carte suivante', wCard: 'fiche', mNearby: 'Personne la plus proche', sThoughtsOnly: 'Seuls les joueurs autorisés par le propriétaire voient les pensées.', mMe: 'Moi', dTalk: 'Vous lui parlez.', dNobody: 'Personne assez près.', sZoom: 'Zoom', cPressed: 'Appuyé : {0}',
+    hMove: 'Bouger', sayLabel: 'Dire quelque chose (vide = juste saluer)', wFollow: 'suivre une personne', wMap: 'carte suivante', wCard: 'fiche', mNearby: 'Personne la plus proche', sThoughtsOnly: 'Seuls les joueurs autorisés par le propriétaire voient les pensées.', mMe: 'Moi', dTalk: 'Vous lui parlez.', dNobody: 'Personne assez près.', sZoom: 'Zoom', cPressed: 'Appuyé : {0}',
   },
   es: {
     mResume: 'Continuar', mActions: 'Acciones', mSettings: 'Ajustes', mControls: 'Botones', mPerson: 'Esta persona', mNextPerson: 'Siguiente persona',
@@ -64,7 +64,7 @@ export const T2 = {
     gDrink: 'beber', gEat: 'comer', gForage: 'buscar comida', gSleep: 'dormir', gTalk: 'hablar', gWander: 'pasear', gRest: 'descansar', gTravel: 'viajar',
     hintMenu: '+ / Atrás: menú',
     gameMenuItem: 'Menú del juego',
-    hMove: 'Mover', wFollow: 'seguir a alguien', wMap: 'mapa siguiente', wCard: 'ficha', mNearby: 'Persona más cercana', sThoughtsOnly: 'Solo los jugadores que el dueño permite ven los pensamientos.', mMe: 'Yo', dTalk: 'Le hablas.', dNobody: 'No hay nadie lo bastante cerca.', sZoom: 'Zoom', cPressed: 'Pulsado: {0}',
+    hMove: 'Mover', sayLabel: 'Decir algo (vacío = solo saludar)', wFollow: 'seguir a alguien', wMap: 'mapa siguiente', wCard: 'ficha', mNearby: 'Persona más cercana', sThoughtsOnly: 'Solo los jugadores que el dueño permite ven los pensamientos.', mMe: 'Yo', dTalk: 'Le hablas.', dNobody: 'No hay nadie lo bastante cerca.', sZoom: 'Zoom', cPressed: 'Pulsado: {0}',
   },
   ar: {
     mResume: 'متابعة', mActions: 'الأفعال', mSettings: 'الإعدادات', mControls: 'الأزرار', mPerson: 'هذا الشخص', mNextPerson: 'الشخص التالي',
@@ -86,6 +86,6 @@ export const T2 = {
     gDrink: 'الشرب', gEat: 'الأكل', gForage: 'إيجاد طعام', gSleep: 'النوم', gTalk: 'الحديث', gWander: 'التجول', gRest: 'الراحة', gTravel: 'السفر',
     hintMenu: '+ / رجوع: القائمة',
     gameMenuItem: 'قائمة اللعبة',
-    hMove: 'التحريك', wFollow: 'تتبع شخص', wMap: 'الخريطة التالية', wCard: 'بطاقة الشخص', mNearby: 'أقرب شخص', sThoughtsOnly: 'لا يرى الأفكار إلا اللاعبون الذين يسمح لهم المالك.', mMe: 'أنا', dTalk: 'تتحدث إليه.', dNobody: 'لا أحد قريب بما يكفي.', sZoom: 'تكبير', cPressed: 'تم الضغط: {0}',
+    hMove: 'التحريك', sayLabel: 'قل شيئًا (فارغ = مجرد تحية)', wFollow: 'تتبع شخص', wMap: 'الخريطة التالية', wCard: 'بطاقة الشخص', mNearby: 'أقرب شخص', sThoughtsOnly: 'لا يرى الأفكار إلا اللاعبون الذين يسمح لهم المالك.', mMe: 'أنا', dTalk: 'تتحدث إليه.', dNobody: 'لا أحد قريب بما يكفي.', sZoom: 'تكبير', cPressed: 'تم الضغط: {0}',
   },
 } as const;

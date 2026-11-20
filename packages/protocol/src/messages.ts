@@ -20,7 +20,7 @@ export interface Join { t: typeof Msg.Join }
 export interface Input { t: typeof Msg.Input; mx: number; my: number; run?: boolean; act?: boolean; seq?: number }
 
 /** Client -> server: my character does something (answer: Notice 'did' { a, ok, code }, then Notice 'me'). */
-export interface Do { t: typeof Msg.Do; a: string }
+export interface Do { t: typeof Msg.Do; a: string; /** 'talk': what I say (typed on the TV). */ text?: string }
 /** Client -> server: about one person (answer: Notice 'info'). */
 export interface Info { t: typeof Msg.Info; id: number }
 /** Client -> server: list the people of a map (answer: Notice kind 'people', data [id, x, y, act][]). */
@@ -69,6 +69,8 @@ export type AdminCmd =
   /** Life cycle (milestone 7): game days per year of age, the most people alive for a baby to come. */
   | { cmd: 'life'; yearDays?: number; maxPopulation?: number }
   | { cmd: 'planNow'; id: number }
+  /** Tell a person what to do now (no AI): goto / follow (target = a name), stay, stop, or a goal (drink, forage...). */
+  | { cmd: 'order'; id: number; kind: string; target?: string }
   | { cmd: 'chat'; id: number; text: string };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }

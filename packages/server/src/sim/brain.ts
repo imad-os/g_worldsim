@@ -53,6 +53,11 @@ export class Brain {
   private readonly wishAct: Int8Array;
   private readonly wishWith: Int32Array;
   private readonly wishUntil: Float64Array;
+  /** Orders (from a chat or the panel): what (0 none), whom (entity id), an action, until when (game seconds). Stronger than a wish. */
+  private readonly ordKind: Uint8Array;
+  private readonly ordWho: Int32Array;
+  private readonly ordAct: Int8Array;
+  private readonly ordUntil: Float64Array;
   /** Path searches this second (stats). */
   searches = 0;
 
@@ -63,6 +68,7 @@ export class Brain {
     this.pbuf = new Int32Array(cap * PMAX); this.pN = new Uint8Array(cap); this.pK = new Uint8Array(cap);
     this.gx = new Float32Array(cap); this.gy = new Float32Array(cap); this.replans = new Uint8Array(cap);
     this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap).fill(-1); this.wishUntil = new Float64Array(cap);
+    this.ordKind = new Uint8Array(cap); this.ordWho = new Int32Array(cap).fill(-1); this.ordAct = new Int8Array(cap).fill(-1); this.ordUntil = new Float64Array(cap);
     const idsOf = (names: string[]) => new Set(w.sc.tiles.filter((t) => names.includes(t.name)).map((t) => t.id));
     const water = idsOf(life.water), shelter = idsOf(life.shelter);
     this.drinkSpots = []; this.shelterSpots = [];
@@ -137,6 +143,63 @@ export class Brain {
     if (a === Act.Wander || a === Act.Rest || a === Act.Idle) e.nextThink[i] = Math.min(e.nextThink[i]!, this.w.tick + 1);
   }
   wishOf(i: number): number { return this.wishUntil[i]! > this.w.gameSec ? this.wishAct[i]! : -1; }
+
+  /**
+   * An order: 'come' / 'goto' = walk to that person (entity id) and stay next to them, 'follow' = keep walking behind them,
+   * 'stay' = stop where you are, 'stop' = forget orders, 'act' = do that action now (then it stays a strong wish).
+   * Only a desperate need (about to die of thirst or hunger) interrupts it. Wakes a sleeper.
+   */
+  order(i: number, kind: 'come' | 'goto' | 'follow' | 'stay' | 'stop' | 'act', who: number, act: number, gameMinutes: number): boolean {
+    const w = this.w, e = w.e;
+    if (e.kind[i] !== Kind.Agent) return false;
+    if (kind === 'stop') { this.ordKind[i] = 0; this.wishUntil[i] = 0; if (e.act[i] === Act.Go) { this.stop(i); this.setAct(i, Act.Idle); } e.nextThink[i] = w.tick + 1; return true; }
+    if ((kind === 'come' || kind === 'goto' || kind === 'follow') && (who < 0 || e.slot(who) < 0 || e.slot(who) === i)) return false;
+    if (kind === 'act' && act < 0) return false;
+    this.ordKind[i] = kind === 'come' || kind === 'goto' ? 1 : kind === 'follow' ? 2 : kind === 'stay' ? 3 : 4;
+    this.ordWho[i] = who; this.ordAct[i] = act;
+    this.ordUntil[i] = w.gameSec + Math.max(5, Math.min(24 * 60, gameMinutes)) * 60;
+    if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
+    this.pN[i] = 0; this.replans[i] = 0;
+    e.nextThink[i] = w.tick + 1;
+    return true;
+  }
+  /** The order now: ['come' | 'follow' | 'stay' | 'act' | '', whom, action]. */
+  orderOf(i: number): { kind: string; who: number; act: number } {
+    const k = this.ordUntil[i]! > this.w.gameSec ? this.ordKind[i]! : 0;
+    return { kind: ['', 'come', 'follow', 'stay', 'act'][k]!, who: this.ordWho[i]!, act: this.ordAct[i]! };
+  }
+
+  /** Carry out the order, if any. True = handled this think. */
+  private obey(i: number): boolean {
+    const w = this.w, e = w.e, k = this.ordKind[i]!;
+    if (!k) return false;
+    if (this.ordUntil[i]! <= w.gameSec) { this.ordKind[i] = 0; return false; }
+    if (e.thirst[i]! > 92 || e.hunger[i]! > 95) return false; // about to die: that first, the order waits
+    if (k === 3) { // stay
+      this.stop(i); this.setAct(i, Act.Rest, 20); this.schedule(i, 2, this.ticksLeft(i)); return true;
+    }
+    if (k === 4) { // do an action now, then keep it as a strong wish
+      this.ordKind[i] = 0;
+      this.wish(i, this.ordAct[i]!, -1, this.ordUntil[i]!);
+      if (this.start(i, this.ordAct[i]!)) return true;
+      return false;
+    }
+    const j = e.slot(this.ordWho[i]!);
+    if (j < 0 || j === i || e.map[j] !== e.map[i]) { this.ordKind[i] = 0; return false; } // gone or on another map
+    const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
+    if (d <= (k === 2 ? 3 : 2)) { // next to them: stop and face them
+      this.stop(i);
+      e.angle[i] = Math.atan2(e.y[j]! - e.y[i]!, e.x[j]! - e.x[i]!);
+      if (k === 1) { this.ordKind[i] = 0; this.setAct(i, Act.Talk, 20); e.target[i] = e.id(j); e.goal[i] = -2; this.schedule(i, 0); return true; } // arrived
+      this.setAct(i, Act.Go); e.target[i] = e.id(j); this.schedule(i, 1); return true; // following: wait for them to move
+    }
+    // On the way: a new path towards where they are now (they may move).
+    if (this.walking(i) && e.act[i] === Act.Go && Math.hypot(this.gx[i]! - e.x[j]!, this.gy[i]! - e.y[j]!) < 2) { this.schedule(i, 1); return true; }
+    if (!this.goTo(i, e.x[j]!, e.y[j]!, d > 12)) { this.ordKind[i] = 0; return false; }
+    this.setAct(i, Act.Go); e.target[i] = e.id(j);
+    this.schedule(i, 1);
+    return true;
+  }
 
   /** Stop and talk to someone who came up to this person (a player): face them for `secs` seconds. */
   listen(i: number, j: number, secs: number): void {
@@ -252,6 +315,8 @@ export class Brain {
       return;
     }
     if (!this.walking(i)) e.actT[i] = Math.max(0, e.actT[i]! - since * HOUR / w.opt.clockScale); // timers run once there
+    if (this.obey(i)) return;
+    if (e.act[i] === Act.Go) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
 
     // Stuck on the way (blocked by people or a door): replan, then give up after 3 tries.
     if (this.walking(i)) {

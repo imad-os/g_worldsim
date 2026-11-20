@@ -127,7 +127,9 @@ export class App {
     this.net.admin = (cmd, who) => this.adminCmd(cmd, who);
     this.net.onStop = () => this.onStopRequest();
     // A player pressed A next to someone: they stop, face the player and answer.
-    this.net.onTalk = (name, player, i) => { void this.planner.chat(i, name, null, player).catch(() => {}); };
+    this.net.onTalk = (name, player, i, text) => { void this.planner.chat(i, name, text ?? null, player).catch(() => {}); };
+    this.planner.players = () => this.net.characters();
+    this.net.onHold = (player, i) => w.brain.listen(i, player, 60);
     // Players do what people do; the owner (and whoever they allow) sees thoughts and plans.
     this.net.onDo = (_name, player, a) => w.brain.playerDo(player, a);
     this.net.isSeer = (name) => this.seers().has(name.toLowerCase());
@@ -238,6 +240,7 @@ export class App {
       id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec, w.yearSec)) : 0,
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
+      order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' ? `${o.kind === 'come' ? 'go to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       carry: e.carry[i], lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
@@ -424,6 +427,10 @@ export class App {
         const text = typeof c.text === 'string' ? c.text.trim().slice(0, 300) : '';
         if (!text) throw new Error('say something');
         return this.planner.chat(i, 'owner', text);
+      }
+      case 'order': {
+        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        return { did: this.planner.orderFromPanel(i, String(c.kind ?? ''), String(c.target ?? '')) };
       }
       default: throw new Error('unknown command');
     }

@@ -86,7 +86,9 @@ export class NetServer {
   welcomeExtra: () => Record<string, unknown> = () => ({});
   onStop: () => void = () => {};
   /** A viewer pressed A next to a person (viewer name, their character's slot, the person's slot). */
-  onTalk: (name: string, player: number, agent: number) => void = () => {};
+  onTalk: (name: string, player: number, agent: number, text?: string) => void = () => {};
+  /** A viewer is typing to person `agent`: they wait. */
+  onHold: (player: number, agent: number) => void = () => {};
   /** A viewer's character does something (see Msg.Do). */
   onDo: (name: string, player: number, a: string) => Record<string, unknown> = () => ({ ok: false });
   /** About one person; `seer` adds their thoughts and memory. */
@@ -303,6 +305,13 @@ export class NetServer {
   /** Player characters: positions kept per player name between visits. */
   avatarStore: { get(name: string): { map: string; x: number; y: number } | null; set(name: string, p: { map: string; x: number; y: number }): void } = { get: () => null, set: () => {} };
 
+  /** Players' characters in the world: [name, slot]. */
+  characters(): [string, number][] {
+    const out: [string, number][] = [];
+    for (const s of this.sessions.values()) if (s.role === 'viewer' && s.avatar >= 0 && this.ownsAvatar(s)) out.push([s.name, s.avatar]);
+    return out;
+  }
+
   private ownsAvatar(s: Session): boolean {
     return s.avatar >= 0 && this.world.e.id(s.avatar) === s.avatarId && this.world.e.alive(s.avatar);
   }
@@ -440,9 +449,15 @@ export class NetServer {
       }
       case Msg.Do: {
         if (s.avatar < 0 || !this.ownsAvatar(s) || typeof m.a !== 'string' || m.a.length > 12) return;
+        if (m.a === 'hold') { // I am typing what to say: the person waits for me
+          const j = this.world.nearest(s.avatar, 3);
+          if (j >= 0 && this.world.e.kind[j] === Kind.Agent) this.onHold(s.avatar, j);
+          return;
+        }
         if (m.a === 'talk') {
-          const j = this.world.nearest(s.avatar, 2.5);
-          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && Date.now() - (s.talkAt ?? 0) > 4000) { s.talkAt = Date.now(); this.onTalk(s.name, s.avatar, j); }
+          const j = this.world.nearest(s.avatar, 3);
+          const text = typeof m.text === 'string' ? m.text.trim().slice(0, 300) : '';
+          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && (text || Date.now() - (s.talkAt ?? 0) > 4000)) { s.talkAt = Date.now(); this.onTalk(s.name, s.avatar, j, text || undefined); }
           this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
           return;
         }
