@@ -294,7 +294,7 @@ export class NetServer {
         const a = this.o.accounts.seen(u.uid, u.email, r);
         acct = { uid: u.uid, role: r, email: u.email };
         role = r === 'player' ? 'player' : 'admin';
-        name = a.name || u.email || u.uid;
+        name = a.name || `${r} ${u.uid.slice(0, 6)}`; // never the email in logs or the timeline
       } catch (err) { this.log.warn('firebase sign-in refused', { ip, err: String((err as Error).message ?? err) }); }
       if (ws.readyState !== 1) return null;
     } else if (this.o.adminToken && safeEq(token, this.o.adminToken)) { role = 'admin'; name = 'admin'; }
@@ -598,7 +598,7 @@ export class NetServer {
         if (s.role !== 'admin' && !(mine && s.acct)) { this.send(s, { t: Msg.Error, code: 'forbidden' }); return; }
         try {
           // A Firebase player only asks about themselves; staff use the same commands for their own character.
-          const data = mine && s.acct ? await this.playerCmd(m.c, s.acct.uid, s.acct.role) : await this.admin(m.c, s.acct ? s.acct.email || s.name : s.name);
+          const data = mine && s.acct ? await this.playerCmd(m.c, s.acct.uid, s.acct.role) : await this.admin(m.c, s.name);
           if (mine && s.acct && (m.c as { cmd: string }).cmd === 'joinWorld') s.name = this.o.accounts!.get(s.acct.uid)?.name || s.name;
           this.send(s, { t: Msg.AdminResult, id, ok: true, data });
         } catch (err) {
