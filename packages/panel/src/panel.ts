@@ -54,8 +54,9 @@ async function refreshPairings(): Promise<void> {
 
 // ------------------------------------------------------------ people (milestone 5)
 type Person = { id: number; alive: boolean; child?: boolean; pregnant?: boolean; partner?: string | null; name: string; sex?: string; age: number; map: string | null; x: number; y: number; act: number;
-  hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; talkingTo: string | null };
-const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away', 'going to someone'];
+  hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; inv?: Record<string, number>; talkingTo: string | null };
+const invText = (v?: Record<string, number>) => { const p = Object.entries(v ?? {}).filter(([, n]) => n > 0).map(([k, n]) => (k === 'axe' || k === 'spear' ? k : `${n} ${k}`)); return p.length ? ', ' + p.join(', ') : ''; };
+const ACTS = ['standing', 'walking around', 'getting water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away', 'going to someone', 'gathering', 'building'];
 const names = new Map<number, string>();
 let openId = -1; // -1 = nobody open (0 is a real id)
 let lastChatId = -1;
@@ -86,7 +87,7 @@ async function openPerson(id: number): Promise<void> {
     } catch { /* names are only a help */ }
     const ord = (d as { order?: string | null }).order;
     const task = (d as { task?: string | null }).task;
-    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''}${task ? ` (task: ${task})` : ord ? ` (told to ${ord})` : ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
+    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''}${task ? ` (task: ${task})` : ord ? ` (told to ${ord})` : ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food${invText(d.inv)} · ${d.profile.personality.join(', ')}` : 'Dead';
     const f = (k: string, v: number | string, step = '1') => `<label>${k}<input data-k="${k}" value="${v}" ${typeof v === 'number' ? `type="number" step="${step}"` : ''}></label>`;
     $('pEdit').innerHTML = d.alive ? [f('name', d.name), f('personality', d.profile.personality.join(', ')),
       f('hunger', d.hunger), f('thirst', d.thirst), f('tired', d.tired), f('lonely', d.lonely), f('hp', d.hp), f('carry', d.carry),
@@ -229,6 +230,7 @@ function connect(token: string): void {
           `RAM ${s.rssMb.toFixed(0)} MB · CPU ${s.cpuPct.toFixed(0)} %`,
           `agents ${s.agents} · entities ${s.entities} · viewers ${s.clients - 1}`,
           `snapshot ${s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-'} · up ${Math.round(s.uptimeSec / 60)} min`,
+          ...(s.camps ?? []).map((c) => `camp in ${c.map} at (${c.x}, ${c.y}): ${c.huts} hut${c.huts === 1 ? '' : 's'}, ${c.fires} fire${c.fires === 1 ? '' : 's'} burning`),
         ].join('\n');
         if (s.yearDays !== undefined && document.activeElement !== $('yearDays')) ($('yearDays') as HTMLSelectElement).value = String(s.yearDays);
         if (s.maxPopulation !== undefined && document.activeElement !== $('maxPop')) ($('maxPop') as HTMLInputElement).value = String(s.maxPopulation);

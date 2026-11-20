@@ -37,6 +37,7 @@ export class World3D {
   private q = new Quaternion(); private eu = new Euler(); private v3 = new Vector3(); private s3 = new Vector3();
   private groundMat = new MeshLambertMaterial({ vertexColors: true });
   private propMat = new MeshLambertMaterial({ vertexColors: true });
+  private glowMat = new MeshBasicMaterial({ vertexColors: true });
   readonly target = new Vector3();
   private look = new Vector3();
   dist = 24;
@@ -119,7 +120,7 @@ export class World3D {
     for (const p of portals) this.portals.add(portalMesh(p.x, p.y));
   }
 
-  addChunk(ground: BufferGeometry, props: BufferGeometry | null): Group {
+  addChunk(ground: BufferGeometry, props: BufferGeometry | null, glow: BufferGeometry | null = null): Group {
     const g = new Group();
     const gm = new Mesh(ground, this.groundMat);
     gm.receiveShadow = this.tier !== 'low';
@@ -129,6 +130,7 @@ export class World3D {
       pm.castShadow = pm.receiveShadow = this.tier !== 'low';
       g.add(pm);
     }
+    if (glow) g.add(new Mesh(glow, this.glowMat));
     this.chunks.add(g);
     return g;
   }

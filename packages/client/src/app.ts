@@ -284,7 +284,7 @@ function slotFor(id: number): number {
   return -1;
 }
 function clearEntities(): void { eid.fill(-1); kind.fill(0); slotOf.clear(); follow = -1; }
-const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee', 'actGo'] as const)[a] ?? 'actIdle');
+const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee', 'actGo', 'actGather', 'actBuild'] as const)[a] ?? 'actIdle');
 const mapName = (id: string) => welcome?.maps.find((x) => x.id === id)?.name ?? id;
 
 // ------------------------------------------------------------ chunks
@@ -314,7 +314,7 @@ function buildOne(): void {
   const old = meshOf.get(k);
   if (old) g3.removeChunk(old);
   const geo = buildChunk(k & 0xffff, k >>> 16, (lx, ly) => tileAt(k, lx, ly), looks, tier === 'high');
-  meshOf.set(k, g3.addChunk(geo.ground, geo.props));
+  meshOf.set(k, g3.addChunk(geo.ground, geo.props, geo.glow));
 }
 
 function setMap(id: string): void {
@@ -854,7 +854,7 @@ MyPC.init({
       MyPC.gamepad.on('button', (i: number, pressed: boolean) => onPad(i, pressed));
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map] };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map], look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
     MyPC.ready();
   },
   onStart() {

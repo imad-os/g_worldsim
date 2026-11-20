@@ -10,7 +10,7 @@ import { serialize, restore } from '../persist/snapshot.js';
 import { newWorld } from './helpers.js';
 
 // A fake Ollama that plans like a model would: everyone named in the prompt wants to talk to the first person.
-let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' | 'plan' = 'ok';
+let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' | 'plan' | 'build' = 'ok';
 let orderTarget = '';
 const prompts: string[] = [];
 const fake = createServer((req, res) => {
@@ -29,6 +29,7 @@ const fake = createServer((req, res) => {
         : mode === 'order' ? JSON.stringify({ say: "On my way!", do: 'goto', target: orderTarget })
         : mode === 'plan' ? JSON.stringify({ say: "Alright, I'll look around.", do: 'nothing', task: 'find a wife', plan: [
           { do: 'find', what: 'single woman' }, { do: 'talk', who: 'found', times: 2 }, { do: 'court', who: 'found' }, { do: 'say', text: 'Done.' }] })
+        : mode === 'build' ? JSON.stringify({ say: "Good idea, I'll get wood.", task: 'build a hut', plan: [{ do: 'build', what: 'hut' }] })
         : mode === 'forget' ? JSON.stringify({ say: "Sure, I'm coming." }) // agreed but forgot "do"
         : JSON.stringify({ say: 'Hello there, stranger.', do: 'nothing', target: '' });
       res.end(JSON.stringify({ message: { role: 'assistant', content } }));
@@ -233,5 +234,26 @@ test('any request becomes a plan of steps the engine runs: "go and find a wife"'
   } else assert.match(note, /could not find a wife: .*not yet/);
   const her = women.map((k) => e.id(k)).find((id) => (pr.bonds?.['#' + id] ?? 0) >= 3);
   assert.ok(her !== undefined, 'he talked with one of them three times (2 talks + courting)');
+  mode = 'ok';
+});
+
+test('work requests: "build us a house" (the model\'s plan) and "make a fire" (no plan: the words are enough) start real work', async () => {
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  const e = w.e;
+  const agents: number[] = [];
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent) agents.push(k);
+  mode = 'build';
+  const r = await p.chat(agents[0]!, 'owner', 'build us a house');
+  assert.match(r.did, /build a hut \(build\)/);
+  assert.equal(w.profileOf(agents[0]!)!.mind!.task!.steps[0]!.what, 'hut');
+  mode = 'ok'; // answers without a plan or "do"
+  const r2 = await p.chat(agents[1]!, 'owner', 'make a fire please');
+  assert.match(r2.did, /make a campfire/);
+  for (let t = 0; t < 40; t++) w.step();
+  const t2 = w.profileOf(agents[1]!)!.mind!.task!;
+  assert.equal(t2.steps[0]!.do, 'gather', 'gets the materials first');
+  assert.equal(p.orderFromPanel(agents[2]!, 'make an axe', ''), 'make an axe');
+  assert.equal(w.profileOf(agents[2]!)!.mind!.task!.steps.at(-1)!.do, 'craft');
   mode = 'ok';
 });

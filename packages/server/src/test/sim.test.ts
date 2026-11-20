@@ -325,3 +325,73 @@ test('life: talks make partners, a couple has a baby with traits from both, chil
   w.brain.life.yearDays = 2; w.life.rescale(y0);
   assert.ok(Math.abs(ageOf(pf, w.gameSec, w.yearSec) - before) < 1e-6);
 });
+
+test('survival: a command "build a hut" gathers wood and stone, builds a real hut (walls, floor, door); a campfire burns, is fed, goes out', () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'surv-test' });
+  w.populate();
+  const e = w.e, s = w.survival, T = s.T;
+  let a = -1;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) { a = i; break; }
+  const calm = () => { for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; } };
+  const ev: Record<string, number> = {};
+  const builds: { what: string; tx: number; ty: number }[] = [];
+  w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; if (x.kind === 'build') builds.push(x.data as never); });
+  assert.ok(w.tasks.start(a, 'build a hut', 'imad', [{ do: 'build', what: 'hut' }]));
+  const t = w.profileOf(a)!.mind!.task!;
+  for (let k = 0; k < 20 * 3600 && w.profileOf(a)!.mind?.task; k++) { calm(); w.step(); if (k === 200) assert.ok(t.steps.length >= 2, 'materials to gather were added before building'); }
+  assert.equal(w.profileOf(a)!.mind?.task, undefined, 'task finished');
+  const hut = builds.find((b) => b.what === 'hut');
+  assert.ok(hut, `hut built ${JSON.stringify(ev)}`);
+  assert.ok((ev.gather ?? 0) >= 6, `gathered ${ev.gather}`);
+  const tm = w.maps[e.map[a]!]!.tiles;
+  // The hut: 5 x 5, a ring of wooden walls with a door in the middle of the front, floor inside.
+  const x0 = hut.tx - 2, y0 = hut.ty - 2;
+  let walls = 0, floor = 0;
+  for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 5; x++) { const id = tm.get(x, y); if (id === T.woodwall) walls++; if (id === T.floor) floor++; }
+  assert.ok(walls >= 14 && floor >= 9, `walls ${walls} floor ${floor}`);
+  assert.equal(tm.get(x0 + 2, y0 + 4), T.floor, 'the door is open');
+  assert.ok(s.campOf(e.map[a]!), 'the hut made a camp');
+  // A campfire, from nothing: wood and stone first.
+  w.profileOf(a)!.inv = {};
+  assert.ok(w.tasks.start(a, 'make a fire', 'imad', [{ do: 'build', what: 'campfire' }]));
+  for (let k = 0; k < 20 * 3600 && w.profileOf(a)!.mind?.task; k++) { calm(); w.step(); }
+  const fire = builds.find((b) => b.what === 'campfire');
+  assert.ok(fire, 'campfire built');
+  assert.equal(tm.get(fire.tx, fire.ty), T.campfire);
+  const key = `${e.map[a]}:${fire.ty * tm.w + fire.tx}`;
+  const until = s.fires.get(key)!;
+  assert.ok(until > w.gameSec + 8 * 3600, 'fuel for the night');
+  // Feed it: one wood = 4 more hours.
+  w.profileOf(a)!.inv!.wood = 2;
+  assert.ok(w.tasks.start(a, 'keep the fire going', 'imad', [{ do: 'tend' }]));
+  for (let k = 0; k < 20 * 1200 && w.profileOf(a)!.mind?.task; k++) { calm(); w.step(); }
+  assert.ok(s.fires.get(key)! >= until + 3.9 * 3600, 'fed');
+  assert.equal(w.profileOf(a)!.inv!.wood, 1);
+  // Sleeping next to it is warmer.
+  assert.ok(s.warm(e.map[a]!, fire.tx + 0.5, fire.ty + 2));
+  // Left alone it burns out and leaves ashes.
+  s.fires.set(key, w.gameSec + 1);
+  for (let k = 0; k < 40; k++) w.step();
+  assert.equal(tm.get(fire.tx, fire.ty), T.ashes);
+  // Tools: an axe from 2 wood + 1 stone, and chopping with it gives 2 wood.
+  w.profileOf(a)!.inv = { wood: 2, stone: 1 };
+  assert.equal(s.craft(a, 'axe'), true);
+  assert.deepEqual(w.profileOf(a)!.inv, { wood: 0, stone: 0, axe: 1 });
+  assert.match(String(s.craft(a, 'spear')), /need 2 wood and 1 scrap/);
+  // Nobody ended up inside a new wall.
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) assert.notEqual(w.maps[e.map[i]!]!.tiles.get(Math.floor(e.x[i]!), Math.floor(e.y[i]!)), T.woodwall);
+});
+
+test('survival: left alone for two game days, people make a camp, light a fire in the evening, build huts and tools; nobody dies', () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'surv-own' });
+  w.populate();
+  const ev: Record<string, number> = {}, built: string[] = [];
+  w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; if (x.kind === 'build') built.push(String(x.data.what)); });
+  for (let k = 0; k < (48 * 3600) / 30 * 20; k++) w.step();
+  assert.equal(ev.death ?? 0, 0, `deaths ${JSON.stringify(ev)}`);
+  assert.equal(ev.camp, 1, 'one camp');
+  assert.ok(built.includes('campfire'), `fires ${built}`);
+  assert.ok(built.filter((b) => b === 'hut').length >= 1, `huts ${built}`);
+  assert.ok((ev.craft ?? 0) >= 1 && (ev.gather ?? 0) >= 20, `craft ${ev.craft} gather ${ev.gather}`);
+  assert.ok((ev.drink ?? 0) >= 8 && (ev.sleep ?? 0) >= 6, `still drink ${ev.drink} and sleep ${ev.sleep}`);
+});

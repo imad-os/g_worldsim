@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version, app 0.7.0); next 8 (post-apocalypse content, weather, polish).
+simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 part 1 (tasks) + part 2 (survival) done, app 0.7.3; next part 3 (zombies), then weather, polish.
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -70,6 +70,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `who: "me"` = speaker, `"found"` = the last find step's person). `Life.court` / `Life.tryChild` keep the real rules.
   A failed step ends the task with a reason: memory note + they say "I couldn't ...". Panel summary "(task: ...)", bubbles
   show it (wish `task`). Part 2 / 3 (milestone 8) add gather / craft / build / fire / zombies as more skills.
+- **Survival (milestone 8 part 2, 2026-11-20, app 0.7.3)**: `sim/survival.ts` (`World.survival`). `Profile.inv` { wood, stone, scrap,
+  axe, spear } (max 20). Jobs = `Brain.job` (order kind 'job': walk to a spot, then `Act.Gather` 11 / `Act.Build` 12 there; pressing
+  needs pause it). Chop a tree (wood, 2 with an axe; tree hp 60 = 3 chops, regrows on its old tile), search rubble (stone, 35 % scrap).
+  Recipes axe 2w+1s, spear 2w+1scrap, campfire 3w+2s (10 h of fuel, +4 h per wood, then `ashes`; sleeping within 6 m recovers x1.5),
+  hut 12w+4s (5x5 `woodwall` ring, door front middle, `floor` inside = new shelter). Task skills gather / craft / build / tend (missing
+  materials become gather steps). The first fire / hut sets the map's **camp** (people within 120 m sleep there; later builds go near it).
+  Hourly own plans without AI: fire at dusk if none at the camp, feed a low fire, huts until one per 2 people, axe, firewood. AI: batch
+  goals 'build a hut' etc. (`WORK_GOALS`), chat plans with the new skills, `askedWork(text)` keyword net. Panel: Order row work items,
+  camps in the stats. TV: campfire (flames unlit = glow at night), ashes, wooden walls (`even`). Proof: `tools/camp-proof.mjs` (`?dev` `__dev.look(x, y)`).
 - Proof: `ADMIN_TOKEN=... node tools/menu-proof.mjs <server> <sdk.js> <outdir>` (fake Xbox pad, `?dev` exposes `__dev.me()`).
 
 ## Life cycle (milestone 7, `sim/life.ts`, hourly)

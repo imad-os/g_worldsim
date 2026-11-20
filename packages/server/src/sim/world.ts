@@ -9,6 +9,7 @@ import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
 import { randomProfile, type Profile } from './people.js';
 import { Life } from './life.js';
 import { Tasks } from './tasks.js';
+import { Survival } from './survival.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -61,6 +62,7 @@ export class World {
   /** Ageing, partners, babies, old age (milestone 7). */
   readonly life: Life;
   readonly tasks: Tasks;
+  readonly survival: Survival;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -85,6 +87,7 @@ export class World {
     this.brain = new Brain(this, life);
     this.life = new Life(this);
     this.tasks = new Tasks(this);
+    this.survival = new Survival(this);
   }
   /** Game seconds per year of age. */
   get yearSec(): number { return this.brain.life.yearDays * 86400; }
@@ -280,7 +283,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
-    if (this.tick % 20 === 0) this.tasks.update();
+    if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); }
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
       const k = e.kind[i]!;

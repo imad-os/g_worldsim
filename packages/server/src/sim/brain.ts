@@ -58,6 +58,11 @@ export class Brain {
   private readonly ordWho: Int32Array;
   private readonly ordAct: Int8Array;
   private readonly ordUntil: Float64Array;
+  /** A job (survival work): where to stand, what to face. */
+  private readonly jobX: Float32Array;
+  private readonly jobY: Float32Array;
+  private readonly faceX: Float32Array;
+  private readonly faceY: Float32Array;
   /** Path searches this second (stats). */
   searches = 0;
 
@@ -69,6 +74,7 @@ export class Brain {
     this.gx = new Float32Array(cap); this.gy = new Float32Array(cap); this.replans = new Uint8Array(cap);
     this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap).fill(-1); this.wishUntil = new Float64Array(cap);
     this.ordKind = new Uint8Array(cap); this.ordWho = new Int32Array(cap).fill(-1); this.ordAct = new Int8Array(cap).fill(-1); this.ordUntil = new Float64Array(cap);
+    this.jobX = new Float32Array(cap); this.jobY = new Float32Array(cap); this.faceX = new Float32Array(cap); this.faceY = new Float32Array(cap);
     const idsOf = (names: string[]) => new Set(w.sc.tiles.filter((t) => names.includes(t.name)).map((t) => t.id));
     const water = idsOf(life.water), shelter = idsOf(life.shelter);
     this.drinkSpots = []; this.shelterSpots = [];
@@ -163,10 +169,32 @@ export class Brain {
     e.nextThink[i] = w.tick + 1;
     return true;
   }
-  /** The order now: ['come' | 'follow' | 'stay' | 'act' | '', whom, action]. */
+  /** The order now: ['come' | 'follow' | 'stay' | 'act' | 'bring' | 'job' | '', whom, action]. */
   orderOf(i: number): { kind: string; who: number; act: number } {
     const k = this.ordUntil[i]! > this.w.gameSec ? this.ordKind[i]! : 0;
-    return { kind: ['', 'come', 'follow', 'stay', 'act', 'bring'][k]!, who: this.ordWho[i]!, act: this.ordAct[i]! };
+    return { kind: ['', 'come', 'follow', 'stay', 'act', 'bring', 'job'][k]!, who: this.ordWho[i]!, act: this.ordAct[i]! };
+  }
+
+  /** Survival work (sim/survival.ts): walk to (sx, sy), then stay there doing `act` facing (fx, fy) until the job is stopped. */
+  job(i: number, sx: number, sy: number, fx: number, fy: number, act: number): boolean {
+    const w = this.w, e = w.e;
+    if (e.kind[i] !== Kind.Agent) return false;
+    this.ordKind[i] = 6; this.ordWho[i] = -1; this.ordAct[i] = act; this.ordUntil[i] = w.gameSec + 6 * HOUR;
+    this.jobX[i] = sx; this.jobY[i] = sy; this.faceX[i] = fx; this.faceY[i] = fy;
+    if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
+    this.pN[i] = 0; this.replans[i] = 0;
+    e.nextThink[i] = w.tick + 1;
+    return true;
+  }
+  /** At the job's spot and working. */
+  atJob(i: number): boolean {
+    const e = this.w.e;
+    return this.ordKind[i] === 6 && !this.walking(i) && e.act[i] === this.ordAct[i] && Math.hypot(this.jobX[i]! - e.x[i]!, this.jobY[i]! - e.y[i]!) <= 1.2;
+  }
+  /** A new roof (a hut's floor): a place to sleep from now on. */
+  addShelter(m: number, t: number): void {
+    const a = this.shelterSpots[m]!, b = new Int32Array(a.length + 1);
+    b.set(a); b[a.length] = t; this.shelterSpots[m] = b;
   }
 
   /** Carry out the order, if any. True = handled this think. */
@@ -175,6 +203,19 @@ export class Brain {
     if (!k) return false;
     if (this.ordUntil[i]! <= w.gameSec) { this.ordKind[i] = 0; return false; }
     if (e.thirst[i]! > 92 || e.hunger[i]! > 95) return false; // about to die: that first, the order waits
+    if (k === 6) { // survival work: go there, then work (needs that get pressing pause it)
+      if (e.thirst[i]! > 70 || e.hunger[i]! > 75 || e.tired[i]! > 90) { if (e.act[i] === this.ordAct[i]) { this.stop(i); this.setAct(i, Act.Idle); } return false; }
+      const d = Math.hypot(this.jobX[i]! - e.x[i]!, this.jobY[i]! - e.y[i]!);
+      if (d <= 1.0) {
+        this.stop(i); this.setAct(i, this.ordAct[i]!);
+        e.angle[i] = Math.atan2(this.faceY[i]! - e.y[i]!, this.faceX[i]! - e.x[i]!);
+        this.schedule(i, 2); return true;
+      }
+      if (this.walking(i) && e.act[i] === this.ordAct[i]) { this.schedule(i, 1); return true; }
+      if (!this.goTo(i, this.jobX[i]!, this.jobY[i]!)) { this.ordKind[i] = 0; return false; }
+      this.setAct(i, this.ordAct[i]!); this.schedule(i, 1);
+      return true;
+    }
     if (k === 3) { // stay
       this.stop(i); this.setAct(i, Act.Rest, 20); this.schedule(i, 2, this.ticksLeft(i)); return true;
     }
@@ -330,7 +371,8 @@ export class Brain {
     const k = this.life.difficulty;
     e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * met * since * (asleep ? 0.5 : 1));
     e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * since * (asleep ? 0.5 : 1));
-    e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
+    const warm = asleep && w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!) ? 1.5 : 1; // sleeping by a fire
+    e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * warm * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
     e.lonely[i] = Math.min(100, e.lonely[i]! + N.lonely * k * since);
     // Health: starving or parched hurts; otherwise it heals slowly.
     if (e.hunger[i]! >= 100 || e.thirst[i]! >= 100) e.hp[i]! -= 6 * since * k;
@@ -343,7 +385,7 @@ export class Brain {
     }
     if (!this.walking(i)) e.actT[i] = Math.max(0, e.actT[i]! - since * HOUR / w.opt.clockScale); // timers run once there
     if (this.obey(i)) return;
-    if (e.act[i] === Act.Go) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
+    if (e.act[i] === Act.Go || ((e.act[i] === Act.Gather || e.act[i] === Act.Build) && this.ordKind[i] !== 6)) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
 
     // Stuck on the way (blocked by people or a door): replan, then give up after 3 tries.
     if (this.walking(i)) {
@@ -428,9 +470,15 @@ export class Brain {
         this.setAct(i, Act.Forage); e.target[i] = e.id(t); this.schedule(i, 1); return true;
       }
       case Act.Sleep: {
-        // Prefer a roof (shelter tile) within 30 m; else sleep where you are.
-        const t = this.nearestSpot(this.shelterSpots[m]!, w.maps[m]!.tiles.w, e.x[i]!, e.y[i]!, 30, rng.next() * 6);
-        const W = w.maps[m]!.tiles.w;
+        // Home first: the camp's huts, else by its fire (when the camp is within 120 m). Else a roof (shelter tile)
+        // within 30 m; else where you are.
+        const W = w.maps[m]!.tiles.w, camp = w.survival.campOf(m);
+        let t = -1;
+        if (camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
+          t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3);
+          if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
+        }
+        if (t < 0) t = this.nearestSpot(this.shelterSpots[m]!, W, e.x[i]!, e.y[i]!, 30, rng.next() * 6);
         this.setAct(i, Act.Sleep);
         if (t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; this.schedule(i, 1); }
         else { this.stop(i); this.schedule(i, 3); }

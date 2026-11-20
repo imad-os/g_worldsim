@@ -186,6 +186,7 @@ export class App {
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
       travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty, yearDays: w.brain.life.yearDays, maxPopulation: w.brain.life.maxPopulation,
+      camps: w.maps.flatMap((m, mi) => { const c = w.survival.campOf(mi); return c ? [{ map: m.def.id, x: Math.round(c.x), y: Math.round(c.y), huts: w.survival.huts[mi]!.length, fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length }] : []; }),
       ai: { ...(({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()), plans: this.planner.counts.plans, chats: this.planner.counts.chats, failures: this.planner.counts.failures },
     };
   }
@@ -208,7 +209,7 @@ export class App {
       children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([, q]) => q.name),
       traits: Object.fromEntries(Object.entries(p.traits).map(([k, v]) => [k, k === 'lifespan' ? Math.round(v) : r2(v)])),
     };
-    if (i >= 0) Object.assign(base, { act: e.act[i], hunger: Math.round(e.hunger[i]!), thirst: Math.round(e.thirst[i]!), tired: Math.round(e.tired[i]!), lonely: Math.round(e.lonely[i]!), hp: Math.round(e.hp[i]!), carry: e.carry[i] });
+    if (i >= 0) Object.assign(base, { act: e.act[i], hunger: Math.round(e.hunger[i]!), thirst: Math.round(e.thirst[i]!), tired: Math.round(e.tired[i]!), lonely: Math.round(e.lonely[i]!), hp: Math.round(e.hp[i]!), carry: e.carry[i], inv: w.survival.inv(i) });
     if (seer && p.mind) {
       const m = p.mind;
       base.mind = { mood: m.mood, plan: m.plan && m.plan.until > w.gameSec ? { act: m.plan.act, with: m.plan.with !== undefined ? this.nameOf(m.plan.with) : null, why: m.plan.why } : null, memory: m.summary, said: m.said?.text ?? null, recent: m.notes.slice(-5).map((n) => n.text) };
@@ -242,8 +243,8 @@ export class App {
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
       task: w.tasks.describe(id) || null,
-      order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
-      carry: e.carry[i], lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
+      order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
+      carry: e.carry[i], inv: w.survival.inv(i), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
 

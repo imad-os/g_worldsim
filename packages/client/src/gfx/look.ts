@@ -4,9 +4,10 @@ import type { TileTypeInfo } from '@worldsim/protocol';
  * How each tile type looks in 3D. The scenario only gives a name and a flat colour; the viewer picks a softer
  * palette and a shape by name (unknown names: solid = a wall block, else flat ground in the scenario's colour).
  */
-export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4 }
+export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6 }
 
-export interface Look { shape: Shape; ground: number; top: number; side: number; height: number }
+/** `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides. */
+export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean }
 
 const BY_NAME: Record<string, Look> = {
   grass: { shape: Shape.Ground, ground: 0x76a955, top: 0, side: 0, height: 0 },
@@ -18,6 +19,9 @@ const BY_NAME: Record<string, Look> = {
   wall: { shape: Shape.Wall, ground: 0x8d877e, top: 0xc2b8aa, side: 0xa69b8d, height: 2.3 },
   tree: { shape: Shape.Tree, ground: 0x5e8f45, top: 0x4f9440, side: 0x6b4a2f, height: 0 },
   rubble: { shape: Shape.Rubble, ground: 0x908779, top: 0x9b9283, side: 0, height: 0 },
+  woodwall: { shape: Shape.Wall, ground: 0x8a6a48, top: 0x8b6239, side: 0x7a5432, height: 1.7, even: true, planks: true },
+  campfire: { shape: Shape.Fire, ground: 0x8d7a62, top: 0x8f8a82, side: 0x5b3a22, height: 0 },
+  ashes: { shape: Shape.Ashes, ground: 0x6f6a63, top: 0x3d3a37, side: 0x4a3524, height: 0 },
 };
 
 export function looksFor(tiles: TileTypeInfo[]): Look[] {

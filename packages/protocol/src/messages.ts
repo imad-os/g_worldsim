@@ -146,6 +146,8 @@ export interface ServerStats {
   difficulty?: number;
   yearDays?: number;
   maxPopulation?: number;
+  /** Per map: the camp (where the first fire or hut went up), huts and burning fires (milestone 8). */
+  camps?: { map: string; x: number; y: number; huts: number; fires: number }[];
   ai?: { provider: string; model: string; ready: boolean; why?: string; plans?: number; chats?: number; failures?: number };
 }
 

@@ -128,7 +128,13 @@ export function bar(label: string, lack: number): string {
 // ------------------------------------------------------------ thought bubbles
 export interface MindRow { id: number; act: number; to: string; dist: number; wish: string; wishWith: string; why: string; mood: string; said: string }
 
-const GOAL_KEY: Record<string, Key> = { drink: 'gDrink', eat: 'gEat', forage: 'gForage', sleep: 'gSleep', talk: 'gTalk', wander: 'gWander', rest: 'gRest', travel: 'gTravel' };
+const GOAL_KEY: Record<string, Key> = { drink: 'gDrink', eat: 'gEat', forage: 'gForage', sleep: 'gSleep', talk: 'gTalk', wander: 'gWander', rest: 'gRest', travel: 'gTravel',
+  'gather wood': 'wGatherWood', 'gather stone': 'wGatherStone', 'gather scrap': 'wGatherScrap', 'make an axe': 'wAxe', 'make a spear': 'wSpear', 'build a campfire': 'wFire', 'build a hut': 'wHut', 'feed the fire': 'wTend' };
+/** "3 wood, 1 stone, an axe" in the viewer's language. */
+export function invWords(v?: Record<string, number>): string {
+  const K: Record<string, Key> = { wood: 'iWood', stone: 'iStone', scrap: 'iScrap', axe: 'iAxe', spear: 'iSpear' };
+  return Object.entries(v ?? {}).filter(([k, n]) => n > 0 && K[k]).map(([k, n]) => (k === 'axe' || k === 'spear' ? t(K[k]!) : `${n} ${t(K[k]!)}`)).join(', ');
+}
 
 export class Bubbles {
   private readonly box: HTMLDivElement;
@@ -206,7 +212,7 @@ export class Bubbles {
 export interface PersonInfo {
   id: number; name: string; sex: 'f' | 'm'; age: number; alive: boolean; cause?: string; personality: string[]; generation: number; pregnant: boolean;
   partner: string | null; parents: string[]; children: string[]; traits: Record<string, number>;
-  act?: number; hunger?: number; thirst?: number; tired?: number; lonely?: number; hp?: number; carry?: number;
+  act?: number; hunger?: number; thirst?: number; tired?: number; lonely?: number; hp?: number; carry?: number; inv?: Record<string, number>;
   mind?: { mood: string; plan: { act: string; with: string | null; why: string } | null; memory: string; said: string | null; recent: string[] };
 }
 const TRAIT_KEY: Record<string, Key> = { strength: 'tStrength', speed: 'tSpeed', intelligence: 'tIntelligence', courage: 'tCourage', empathy: 'tEmpathy', metabolism: 'tMetabolism', lifespan: 'tLifespan' };
@@ -216,7 +222,7 @@ export function personHtml(p: PersonInfo, actName: (a: number) => string, full: 
   const e = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const head = `<div class="pn">${e(p.name)}</div><div class="ps">${p.sex === 'f' ? t('pWoman') : t('pMan')} · ${tf('pAge', String(p.age))}${p.age < 16 ? ' · ' + t('pChild') : ''}${p.pregnant ? ' · ' + t('pExpecting') : ''}</div>`;
   if (!p.alive) return head + `<div class="ps">${t('pDead')}${p.cause ? ' (' + e(p.cause) + ')' : ''}</div>`;
-  const lines = [head, `<div class="pa">${e(actName(p.act ?? 0))}${p.carry ? ' · ' + tf('carry', String(p.carry)) : ''}</div>`,
+  const lines = [head, `<div class="pa">${e(actName(p.act ?? 0))}${p.carry ? ' · ' + tf('carry', String(p.carry)) : ''}${invWords(p.inv) ? ' · ' + e(tf('has', invWords(p.inv))) : ''}</div>`,
     `<div class="pbars">${bar(t('nFood'), p.hunger ?? 0)}${bar(t('nWater'), p.thirst ?? 0)}${bar(t('nRest'), p.tired ?? 0)}${bar(t('nFun'), p.lonely ?? 0)}${bar(t('nHp'), 100 - (p.hp ?? 100))}</div>`];
   if (p.mind) {
     const m = p.mind;

@@ -18,11 +18,13 @@ import type { World } from './world.js';
  *  bring who           fetch food and give it     give who            give food you carry
  *  stay minutes        wait here                  drink eat forage sleep rest wander   the needs actions
  *  say text            say something aloud
+ *  gather what times   wood (chop trees) / stone / scrap (search rubble) / food   craft what   make an axe or a spear
+ *  build what          campfire / hut (gathers what is missing first)             tend         put wood on the fire
  */
-export interface Step { do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number }
+export interface Step { do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string }
 
-export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say'] as const;
+export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -42,6 +44,7 @@ export class Tasks {
     const w = this.w, p = w.profileOf(i);
     if (!p || !steps.length) return false;
     p.mind ??= { notes: [], summary: '', mood: 'calm', rel: {}, lastPlan: 0 };
+    w.survival.cancel(w.e.id(i));
     p.mind.task = { text: text.slice(0, 120), from, steps: steps.slice(0, 8), k: 0, started: w.gameSec };
     w.brain.order(i, 'stop', -1, -1, 0);
     return true;
@@ -49,7 +52,7 @@ export class Tasks {
 
   stop(i: number): void {
     const p = this.w.profileOf(i);
-    if (p?.mind?.task) { delete p.mind.task; this.w.brain.order(i, 'stop', -1, -1, 0); }
+    if (p?.mind?.task) { delete p.mind.task; this.w.survival.cancel(this.w.e.id(i)); this.w.brain.order(i, 'stop', -1, -1, 0); }
   }
 
   /** Once a game-second or so (World.step every 20 ticks). */
@@ -67,7 +70,7 @@ export class Tasks {
       }
       if (s.t0 === undefined) { s.t0 = w.gameSec; s.phase = 0; }
       else if (w.gameSec - s.t0 > MAX_STEP_SEC) { this.end(i, t, false, `${s.do} took too long`); continue; }
-      const r = this.run(i, s);
+      const r = this.run(i, s, t);
       if (r === true) { t.k++; if (t.k >= t.steps.length) this.end(i, t, true, ''); }
       else if (typeof r === 'string') this.end(i, t, false, r);
     }
@@ -76,13 +79,14 @@ export class Tasks {
   private end(i: number, t: Task, ok: boolean, why: string): void {
     const p = this.w.profileOf(i)!;
     delete p.mind!.task;
+    this.w.survival.cancel(this.w.e.id(i));
     this.w.brain.order(i, 'stop', -1, -1, 0);
     this.w.emit('task', { id: this.w.e.id(i), text: t.text, ok, why });
     this.onEnd(this.w.e.id(i), t, ok, why);
   }
 
   /** One step: true = done, a string = failed (why), false = still on it. */
-  private run(i: number, s: Step): boolean | string {
+  private run(i: number, s: Step, t: Task): boolean | string {
     const w = this.w, e = w.e, b = w.brain;
     const first = s.phase === 0;
     const near = (id: number, r: number) => { const j = e.slot(id); return j >= 0 && e.map[j] === e.map[i] && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) <= r; };
@@ -151,6 +155,51 @@ export class Tasks {
         if (s.do === 'give' && e.carry[i]! <= 0) return 'I have no food to give';
         if (first) { b.order(i, 'bring', s.who!, -1, 180); s.phase = 1; return false; }
         return b.orderOf(i).kind === 'bring' ? false : near(s.who!, 4) ? true : 'I could not reach them';
+      }
+      case 'gather': {
+        const what = /wood|bois|madera|حطب|خشب|tree|log/.test(s.what ?? 'wood') ? 'wood' : /scrap|metal|ferraille|chatarra|خردة/.test(s.what ?? '') ? 'scrap'
+          : /stone|rock|pierre|piedra|حجر/.test(s.what ?? '') ? 'stone' : /food|berr|eat|manger|comida|طعام/.test(s.what ?? '') ? 'food' : 'wood';
+        if (what === 'food') { s.do = 'forage'; s.phase = 0; return false; }
+        const sv = w.survival, id = e.id(i), have = () => sv.inv(i)[what] ?? 0;
+        if (first) { s.n0 = have(); s.phase = 1; }
+        const want = Math.max(1, Math.min(12, s.times ?? 3));
+        if (have() >= Math.min(20, s.n0! + want)) return true;
+        if (sv.busy(id)) return false;
+        const end = sv.ended.get(id);
+        if (typeof end === 'string' && s.got) { sv.ended.delete(id); if ((s.fails = (s.fails ?? 0) + 1) >= 3) return end; }
+        s.got = true;
+        const r = sv.gather(i, what);
+        return r === true ? false : r;
+      }
+      case 'craft': case 'build': {
+        const sv = w.survival, id = e.id(i);
+        const what = s.do === 'craft' ? (/spear|lance|lanza|رمح|weapon|arme|arma|سلاح/.test(s.what ?? '') ? 'spear' : 'axe')
+          : /hut|house|home|shelter|cabane|maison|abri|casa|cabaña|refugio|بيت|منزل|كوخ|wall|mur/.test(s.what ?? '') ? 'hut' : 'campfire';
+        if (first) {
+          s.phase = 1;
+          const miss = sv.missing(i, what);
+          if (miss.length && t.steps.length < 12) { // get the materials first
+            t.steps.splice(t.k, 0, ...miss.map(([res, n]) => ({ do: 'gather', what: res, times: n } as Step)));
+            s.t0 = undefined; // its own time starts when it comes back to it
+            return false;
+          }
+        }
+        if (s.do === 'craft') return sv.craft(i, what);
+        if (s.phase === 1) { const r = sv.build(i, what as 'hut'); if (r !== true) return r; s.phase = 2; return false; }
+        if (sv.busy(id)) return false;
+        const end = sv.ended.get(id); sv.ended.delete(id);
+        return end ?? true;
+      }
+      case 'tend': {
+        const sv = w.survival, id = e.id(i);
+        if (first) {
+          s.phase = 1;
+          if ((sv.inv(i).wood ?? 0) < 1 && t.steps.length < 12) { t.steps.splice(t.k, 0, { do: 'gather', what: 'wood', times: 2 }); s.t0 = undefined; return false; }
+        }
+        if (s.phase === 1) { const r = sv.tend(i); if (r !== true) return r; s.phase = 2; return false; }
+        if (sv.busy(id)) return false;
+        const end = sv.ended.get(id); sv.ended.delete(id);
+        return end ?? true;
       }
       case 'stay': {
         if (first) { b.order(i, 'stay', -1, -1, s.minutes ?? 30); s.phase = 1; return false; }

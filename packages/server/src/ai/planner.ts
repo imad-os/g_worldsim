@@ -37,7 +37,14 @@ export interface Exchange { at: number; kind: 'plan' | 'chat'; who: string; prom
 const GOALS: Record<string, number> = {
   drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, talk: Act.Talk, wander: Act.Wander, rest: Act.Rest, travel: Act.Travel,
 };
-const ACT_TEXT = ['standing', 'walking around', 'going for water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away'];
+const ACT_TEXT = ['standing', 'walking around', 'going for water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away', 'going to someone', 'gathering', 'building'];
+/** Goals of the batch planner that are work (milestone 8): they start a task. */
+const WORK_GOALS: Record<string, Step[]> = {
+  'gather wood': [{ do: 'gather', what: 'wood', times: 4 }], 'gather stone': [{ do: 'gather', what: 'stone', times: 3 }],
+  'gather scrap': [{ do: 'gather', what: 'scrap', times: 2 }], 'make an axe': [{ do: 'craft', what: 'axe' }],
+  'make a spear': [{ do: 'craft', what: 'spear' }], 'build a campfire': [{ do: 'build', what: 'campfire' }],
+  'build a hut': [{ do: 'build', what: 'hut' }], 'feed the fire': [{ do: 'tend' }],
+};
 const NOTES_MAX = 12;
 const HOUR = 3600;
 
@@ -61,6 +68,20 @@ export function askedFor(text: string): string {
   if (/\b(stay( here)?|wait( here| for me)?|don't move|attends|reste( ici)?|espera|quédate|quedate)\b|انتظر|ابق|إبق|استنى/.test(t)) return 'stay';
   if (/\b(stop following|forget it|never ?mind|laisse tomber|olvídalo|olvidalo)\b|انس الأمر/.test(t)) return 'stop';
   return '';
+}
+/** Work the speaker asks for (en / fr / es / ar): steps, or null. A safety net for small models that answer without a plan. */
+export function askedWork(text: string): { task: string; steps: Step[] } | null {
+  const t = ' ' + text.toLowerCase() + ' ';
+  if (/\b(hut|house|home|shelter|cabin|cabane|maison|abri|casa|caba[ñn]a|refugio)\b|بيت|منزل|كوخ|مأوى/.test(t) && /\b(build|make|construct|construis|construisez|fais|faire|construye|construir|haz|hacer)\b|ابن|إبن|اصنع|بناء|ابني/.test(t)) return { task: 'build a hut', steps: [{ do: 'build', what: 'hut' }] };
+  if (/\b(fire|campfire|feu|fuego|hoguera|fogata)\b|نار/.test(t)) {
+    if (/\b(feed|keep|add wood|alimente|entretiens|mets du bois|aviva|mant[eé]n)\b|زد|أضف/.test(t)) return { task: 'keep the fire going', steps: [{ do: 'tend' }] };
+    return { task: 'make a campfire', steps: [{ do: 'build', what: 'campfire' }] };
+  }
+  if (/\b(axe|hache|hacha)\b|فأس/.test(t)) return { task: 'make an axe', steps: [{ do: 'craft', what: 'axe' }] };
+  if (/\b(spear|weapon|lance|arme|lanza|arma)\b|رمح|سلاح/.test(t)) return { task: 'make a spear', steps: [{ do: 'craft', what: 'spear' }] };
+  if (/\b(wood|firewood|logs|bois|madera|le[ñn]a)\b|حطب|خشب/.test(t)) return { task: 'gather wood', steps: [{ do: 'gather', what: 'wood', times: 4 }] };
+  if (/\b(stones?|rocks?|pierres?|piedras?)\b|حجر|حجارة/.test(t)) return { task: 'gather stone', steps: [{ do: 'gather', what: 'stone', times: 3 }] };
+  return null;
 }
 /** Does an answer agree to come ("I'm coming", "on my way", "j'arrive", "voy", "حاضر")? */
 export function agrees(text: string): boolean {
@@ -235,7 +256,11 @@ export class Planner {
       if (withName) for (const [oid, op] of w.profiles) if (op.name.toLowerCase() === withName && e.slot(oid) >= 0 && oid !== id) { withId = oid; break; }
       if (typeof p.mood === 'string' && p.mood.trim()) mind.mood = p.mood.trim().slice(0, 30);
       if (typeof p.memory === 'string' && p.memory.trim()) mind.summary = p.memory.trim().slice(0, 400);
-      if (act !== undefined) {
+      const work = WORK_GOALS[goal];
+      if (work && !w.profileOf(i)?.mind?.task) {
+        mind.plan = { act: goal, why: String(p.why ?? '').slice(0, 160), until: w.gameSec + this.cfg.everyGameHours * HOUR };
+        if (w.tasks.start(i, goal, 'myself', work.map((st) => ({ ...st })))) n++;
+      } else if (act !== undefined) {
         const until = w.gameSec + this.cfg.everyGameHours * HOUR;
         mind.plan = { act: goal, with: withId >= 0 ? withId : undefined, why: String(p.why ?? '').slice(0, 160), until };
         w.brain.wish(i, act, withId, until);
@@ -249,7 +274,8 @@ export class Planner {
 
   private planPrompt(slots: number[]): string {
     const w = this.w, e = w.e, m = e.map[slots[0]!]!, place = w.maps[m]!.def.name;
-    const goals = ['drink', 'eat (only when carrying food)', 'forage', 'sleep', 'talk (say with whom)', 'wander', 'rest', ...(w.travelOpen ? ['travel (to another place)'] : [])];
+    const goals = ['drink', 'eat (only when carrying food)', 'forage', 'sleep', 'talk (say with whom)', 'wander', 'rest', ...(w.travelOpen ? ['travel (to another place)'] : []),
+      ...(w.survival.enabled ? Object.keys(WORK_GOALS) : [])];
     const lines = [`Time: ${this.clock()}. Place: ${place}. Travel to other places is ${w.travelOpen ? 'open' : 'closed'}.`, `Possible goals: ${goals.join(', ')}.`, ''];
     for (const i of slots) lines.push(this.describe(i), '');
     lines.push('For each person above, give one entry in "people".');
@@ -272,11 +298,24 @@ export class Planner {
     return [
       `Person: ${p.name} (${p.sex === 'f' ? 'woman' : 'man'}, ${Math.floor(ageOf(p, w.gameSec, w.yearSec))}; ${p.personality.join(', ')}; mood: ${mind.mood})`,
       `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${e.carry[i]} food. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
+      `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
       `Memory: ${mind.summary || 'nothing yet'}`,
       `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,
     ].join('\n');
+  }
+
+ private invText(i: number): string {
+    const v = this.w.survival.inv(i), parts = Object.entries(v).filter(([, n]) => n! > 0).map(([k, n]) => (k === 'axe' || k === 'spear' ? `an ${k === 'axe' ? 'axe' : 'spear'}`.replace('an spear', 'a spear') : `${n} ${k}`));
+    return parts.length ? parts.join(', ') : 'no materials';
+  }
+  private campText(i: number): string {
+    const w = this.w, e = w.e, s = w.survival, m = e.map[i]!;
+    if (!s.enabled) return '';
+    const f = s.nearestFire(i, 60), camp = s.campOf(m);
+    const fire = f >= 0 ? ` A campfire burns ${Math.round(Math.hypot((f % w.maps[m]!.tiles.w) + 0.5 - e.x[i]!, ((f / w.maps[m]!.tiles.w) | 0) + 0.5 - e.y[i]!))} m away (${Math.round(s.fuel(m, f))} h of wood left).` : ' No fire nearby.';
+    return `${fire} Huts here: ${s.huts[m]!.length}.${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} Recipes: axe = 2 wood + 1 stone, spear = 2 wood + 1 scrap, campfire = 3 wood + 2 stone, hut = 12 wood + 4 stone.`;
   }
 
   /** "day 2 14:30 (afternoon)" — the day starts at 08:00 like the viewers show. */
@@ -342,10 +381,13 @@ export class Planner {
         + '"task":"short name of what you will do, or empty","plan":[steps, or empty]}. When you agree to something that takes several steps, write "plan": '
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
         + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (ask them to be your partner), child {} (have a baby with your partner), '
-        + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}. '
+        + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
+        + 'gather {"what": "wood" | "stone" | "scrap", "times"}, craft {"what": "axe" | "spear"}, build {"what": "campfire" | "hut"} (it gathers what is missing by itself), '
+        + 'tend {} (put wood on the fire). '
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
         + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'
-        + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}';
+        + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}. '
+        + 'Example for "build us a house": {"say":"Good idea, I\'ll get wood.","task":"build a hut","plan":[{"do":"build","what":"hut"}]}';
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
       try {
         const r = await this.ai.generate({ system, prompt, json: true, maxTokens: 200, temperature: 0.8 });
@@ -380,7 +422,9 @@ export class Planner {
       this.counts.builtIn++;
     }
     // A plan of steps wins over a single "do": that is how any request becomes something they really do.
-    const steps = planRaw ? this.toSteps(i, planRaw, player) : [];
+    let steps = planRaw ? this.toSteps(i, planRaw, player) : [];
+    const work = text && !steps.length && (!doRaw || doRaw === 'nothing') ? askedWork(text) : null;
+    if (work && (owner || agreed || !usedAi)) { steps = work.steps; if (!taskText) taskText = work.task; }
     let did = '';
     if (steps.length >= 1 && (steps.length > 1 || !doRaw || !['come', 'follow', 'goto', 'bring', 'stay', 'stop'].includes(doRaw))) {
       const what = (taskText || (text ?? '') || steps.map((x) => x.do).join(', ')).slice(0, 100);
@@ -404,18 +448,18 @@ export class Planner {
       if (!r || typeof r !== 'object') continue;
       const o = r as Record<string, unknown>;
       let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
-      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', gather: 'forage', get_food: 'forage' } as Record<string, string>)[d] ?? d;
+      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend' } as Record<string, string>)[d] ?? d;
       if (!(SKILLS as readonly string[]).includes(d)) continue;
       const st: Step = { do: d };
       const whoRaw = String(o.who ?? o.with ?? o.target ?? (o.do === 'come' ? 'me' : '')).trim();
-      if (d === 'find') st.what = String(o.what ?? o.who ?? o.target ?? '').slice(0, 40);
+      if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
       else if (whoRaw) {
         const w = whoRaw.toLowerCase();
         if (['me', 'you', 'him', 'her', 'the player', 'speaker'].includes(w)) st.who = speaker;
         else if (['found', 'them', 'they', 'it', 'she', 'he'].includes(w)) { if (foundStep) { st.who = -2; } }
         else st.who = this.whoIs(whoRaw, id);
       } else if (d === 'goto' || d === 'follow' || d === 'bring' || d === 'give') st.who = speaker;
-      if (typeof o.times === 'number') st.times = Math.max(1, Math.min(4, Math.round(o.times)));
+      if (typeof o.times === 'number') st.times = Math.max(1, Math.min(d === 'gather' ? 12 : 4, Math.round(o.times)));
       if (typeof o.minutes === 'number') st.minutes = Math.max(5, Math.min(600, Math.round(o.minutes)));
       if (d === 'say') st.text = String(o.text ?? o.say ?? '').slice(0, 200);
       if ((d === 'goto' || d === 'follow' || d === 'talk' || d === 'court' || d === 'bring' || d === 'give') && (st.who === undefined || st.who === -1)) continue; // nobody to do it with
@@ -478,6 +522,12 @@ export class Planner {
   orderFromPanel(i: number, kind: string, target: string): string {
     const w = this.w, e = w.e;
     if (i < 0 || e.kind[i] !== Kind.Agent) throw new Error('no such person');
+    const work = WORK_GOALS[kind];
+    if (work) {
+      if (!w.tasks.start(i, kind, 'the voice from the sky', work.map((st) => ({ ...st })))) throw new Error('could not start');
+      this.note(e.id(i), `The voice from the sky told me to ${kind}.`, true);
+      return kind;
+    }
     const did = this.applyChatOrder(i, kind, target, -1, true);
     if (!did) throw new Error(kind === 'goto' || kind === 'follow' ? 'choose who' : 'unknown order');
     this.note(e.id(i), `The voice from the sky told me to ${did}.`, true);

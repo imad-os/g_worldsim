@@ -67,5 +67,9 @@ export const Act = {
   Idle: 0, Wander: 1, Drink: 2, Eat: 3, Forage: 4, Sleep: 5, Talk: 6, Travel: 7, Rest: 8, Flee: 9,
   /** Going to someone, or following them: an order from a chat or the panel. */
   Go: 10,
+  /** Chopping a tree / searching rubble (milestone 8). */
+  Gather: 11,
+  /** Building a campfire or a hut, feeding a fire. */
+  Build: 12,
 } as const;
 export type ActId = (typeof Act)[keyof typeof Act];

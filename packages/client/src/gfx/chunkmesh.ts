@@ -28,7 +28,7 @@ function tpl(g: BufferGeometry): Tpl {
   return { pos, nor: n.getAttribute('normal').array as Float32Array, minY, maxY };
 }
 
-let T: { trunk: Tpl; leaf: Tpl; leafLo: Tpl; rock: Tpl; blade: Tpl } | null = null;
+let T: { trunk: Tpl; leaf: Tpl; leafLo: Tpl; rock: Tpl; blade: Tpl; log: Tpl; flame: Tpl } | null = null;
 function templates() {
   if (!T) T = {
     trunk: tpl(new CylinderGeometry(0.1, 0.17, 1, 6, 1, true).translate(0, 0.5, 0)),
@@ -36,6 +36,8 @@ function templates() {
     leafLo: tpl(new IcosahedronGeometry(1, 0)),
     rock: tpl(new IcosahedronGeometry(1, 0)),
     blade: tpl(new ConeGeometry(0.045, 0.34, 3, 1, true).translate(0, 0.17, 0)),
+    log: tpl(new CylinderGeometry(0.06, 0.06, 0.62, 6, 1, false).rotateZ(Math.PI / 2)),
+    flame: tpl(new ConeGeometry(0.16, 0.5, 5, 1, false).translate(0, 0.25, 0)),
   };
   return T;
 }
@@ -83,13 +85,14 @@ function quad(o: Out, ax: number, ay: number, az: number, bx: number, by: number
 }
 
 export function wallHeight(look: Look, wx: number, wy: number): number {
-  return hash2(wx * 7 + 1, wy * 13 + 5) < 0.3 ? 0.8 + hash2(wx, wy + 99) * 1.2 : look.height;
+  return !look.even && hash2(wx * 7 + 1, wy * 13 + 5) < 0.3 ? 0.8 + hash2(wx, wy + 99) * 1.2 : look.height;
 }
 
 const colOf = (hex: number, out: Color) => out.setHex(hex);
 const DRY = new Color(0xb2b268), WARM = new Color();
 
-export interface ChunkGeo { ground: BufferGeometry; props: BufferGeometry | null }
+/** glow = unlit parts (flames), drawn with their own colours day and night. */
+export interface ChunkGeo { ground: BufferGeometry; props: BufferGeometry | null; glow: BufferGeometry | null }
 
 export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hiDetail: boolean): ChunkGeo {
   const ox = cx * CHUNK_TILES, oy = cy * CHUNK_TILES;
@@ -142,7 +145,7 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
 
   // ---------------------------------------------------------------- props
   const t = templates();
-  const o = new Out();
+  const o = new Out(), og = new Out();
   const leaf = hiDetail ? t.leaf : t.leafLo;
   for (let ly = 0; ly < CHUNK_TILES; ly++) for (let lx = 0; lx < CHUNK_TILES; lx++) {
     const id = at(lx, ly), L = looks[id]!, wx = ox + lx, wy = oy + ly;
@@ -176,6 +179,21 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       addTpl(o, leaf, place(px, th + 0.5 * s, pz, r2, r1 * 6, r3, 0.95 * s, 0.8 * s, 0.95 * s), c, 0.62);
       c.multiplyScalar(1.08);
       addTpl(o, leaf, place(px + (r2 - 0.5) * 0.5 * s, th + 1.05 * s, pz + (r3 - 0.5) * 0.4 * s, r3, r2 * 6, r1, 0.62 * s, 0.55 * s, 0.62 * s), c, 0.75);
+    } else if (L.shape === Shape.Fire || L.shape === Shape.Ashes) {
+      // A ring of stones, crossed logs and (burning) a flame of three cones.
+      const px = wx + 0.5, pz = wy + 0.5, lit = L.shape === Shape.Fire;
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + r1, sz = 0.1 + hash2(wx + k, wy - k) * 0.05;
+        colOf(L.top, c).multiplyScalar(0.8 + hash2(wx * 3 + k, wy) * 0.3);
+        addTpl(o, t.rock, place(px + Math.cos(a) * 0.34, sz * 0.4, pz + Math.sin(a) * 0.34, a, a * 2, 0, sz, sz * 0.7, sz), c, 0.65);
+      }
+      colOf(L.side, c);
+      for (let k = 0; k < 3; k++) addTpl(o, t.log, place(px, 0.07 + k * 0.03, pz, 0, r2 * 3 + k * 1.05, lit ? 0.25 : 0.05, 1, 1, 1), c, 0.6);
+      if (lit) {
+        colOf(0xf28a2e, c); addTpl(og, t.flame, place(px, 0.08, pz, 0, r1 * 6, 0, 1, 1.15, 1), c, 0.75);
+        colOf(0xf9c74f, c); addTpl(og, t.flame, place(px + 0.04, 0.1, pz - 0.03, 0.1, r2 * 6, 0, 0.6, 0.8, 0.6), c, 0.85);
+        colOf(0xfff1b8, c); addTpl(og, t.flame, place(px - 0.02, 0.1, pz + 0.02, 0, r3 * 6, 0.1, 0.3, 0.5, 0.3), c, 1);
+      }
     } else if (L.shape === Shape.Rubble) {
       for (let k = 0; k < 3; k++) {
         const a = hash2(wx * 5 + k, wy * 3 - k), b2 = hash2(wy * 7 + k, wx - k * 11);
@@ -194,5 +212,5 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       }
     }
   }
-  return { ground, props: o.geometry() };
+  return { ground, props: o.geometry(), glow: og.geometry() };
 }
