@@ -103,5 +103,6 @@ test('firebase accounts: owner gets the admin tools, a player only joins as a pe
     const bad = await signIn(url, 'fb:' + idToken('u_x', 'x@example.com', { aud: 'nope' }));
     assert.equal(await new Promise<number>((ok) => bad.ws.once('close', (c) => ok(c))), 4004);
     for (const c of [owner, pl, tv, tv2]) c.ws.close();
+    await app.stop(); // close the database before the folder is removed (Windows)
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
