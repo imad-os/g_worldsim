@@ -75,7 +75,7 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     const wa = await a.wait((m) => m.t === Msg.Welcome) as { role: string; maps: { id: string }[]; portals: unknown[] };
     assert.equal(wa.role, 'viewer');
     assert.deepEqual(wa.maps.map((m) => m.id), ['town', 'woods']);
-    assert.equal(wa.portals.length, 2);
+    assert.equal(wa.portals.length, 8); // 4 roads out of town, 4 ways back
     await b.wait((m) => m.t === Msg.Welcome);
     // Watch where agents are.
     const e = app.world.e;

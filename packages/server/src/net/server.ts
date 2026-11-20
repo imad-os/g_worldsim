@@ -40,6 +40,8 @@ interface Session {
   q: Int32Array;     // slot -> last sent x, y, angle (quantized)
   list: Int32Array;  // slots known after the last frame
   listN: number;
+  /** Frames since the last one sent (a quiet view still gets one a second: the clock moves on). */
+  idle: number;
   // rate limit (token bucket, messages)
   tokens: number;
   tokensAt: number;
@@ -281,7 +283,7 @@ export class NetServer {
       const cap = this.world.e.cap;
       s = {
         id: randomBytes(12).toString('base64url'), ws, role, name, ip, view: null,
-        chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 4), list: new Int32Array(cap), listN: 0,
+        chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 4), list: new Int32Array(cap), listN: 0, idle: 0,
         tokens: 60, tokensAt: Date.now(), goneAt: 0, avatar: -1, avatarId: 0, lastMap: -2,
       };
       this.sessions.set(s.id, s);
@@ -429,6 +431,11 @@ export class NetServer {
   }
 
   /** Someone said something on map m: viewers looking at that map and every admin hear it. */
+  /** Tell the player whose character is in that slot. */
+  noticeTo(slot: number, kind: string, data: unknown): void {
+    for (const s of this.sessions.values()) if (s.ws && s.avatar === slot && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind, data });
+  }
+
   say(m: number, data: { id: number; name: string; text: string }): void {
     for (const s of this.sessions.values()) {
       if (s.role === 'admin' || (s.view && s.view.map === m)) this.send(s, { t: Msg.Notice, kind: 'say', data });
@@ -601,7 +608,7 @@ export class NetServer {
       const id = e.id(i);
       const qx = Math.round(e.x[i]! * POS_Q), qy = Math.round(e.y[i]! * POS_Q), qa = Math.round(e.angle[i]! * ANG_Q);
       // kind | flags << 8 | sub << 16 (items: item type; agents: current action).
-      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16);
+      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+
       const was = s.known[i]!;
       if (was > 0 && was !== id + 1) (delEarly ??= []).push(was - 1); // slot reused by a new entity
       const changed = was !== id + 1 || s.q[i * 4] !== qx || s.q[i * 4 + 1] !== qy || s.q[i * 4 + 2] !== qa || s.q[i * 4 + 3] !== kf;
@@ -620,7 +627,8 @@ export class NetServer {
     }
     for (let k = 0; k < n; k++) { const i = this.scratch[k]!; s.known[i] = -s.known[i]!; s.list[k] = i; }
     s.listN = n;
-    if (rn === 0 && !del) return;
+    if (rn === 0 && !del && ++s.idle < this.o.netHz) return;
+    s.idle = 0;
     this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [] });
   }
 

@@ -38,6 +38,10 @@ export interface PortalDef {
   travel: number;
   /** Radius in metres that triggers it. */
   r?: number;
+  /** A town exit (north / south / east / west): placed on the road there at start (sim/land.ts). */
+  exit?: string;
+  /** Arrives at that town exit (its arrival point follows the exit). */
+  exitTo?: string;
 }
 
 export interface Scenario {

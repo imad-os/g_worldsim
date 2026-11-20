@@ -12,14 +12,14 @@
  *  - Chat: the owner (panel) or a player (A next to someone on the TV) talks to a person; built-in lines when AI is off.
  * Planner code only uses `Ai`, never a provider directly.
  */
-import { Act, Kind } from '@worldsim/protocol';
+import { Act, Kind, RECIPES_ALL } from '@worldsim/protocol';
 import type { Ai } from './llm.js';
 import { parseJsonReply } from './llm.js';
 import type { Logger } from '../log.js';
 import type { World, WorldEvent } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
 import { ageOf, type Mind } from '../sim/people.js';
-import { SKILLS, type Step } from '../sim/tasks.js';
+import { SKILLS, thingOf, type Step } from '../sim/tasks.js';
 import { RULE_ACTS, type Rule } from '../sim/rules.js';
 
 export interface PlannerConfig {
@@ -38,6 +38,7 @@ export interface Exchange { at: number; kind: 'plan' | 'chat' | 'rule'; who: str
 const GOALS: Record<string, number> = {
   drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, talk: Act.Talk, wander: Act.Wander, rest: Act.Rest, travel: Act.Travel,
 };
+const RECIPE_TEXT = RECIPES_ALL.map((r) => `${r.what} = ${Object.entries(r.need).map(([k, n]) => `${n} ${k}`).join(' + ')}`).join(', ');
 const ACT_TEXT = ['standing', 'walking around', 'going for water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away', 'going to someone', 'gathering', 'building'];
 /** Goals of the batch planner that are work (milestone 8): they start a task. */
 const WORK_GOALS: Record<string, Step[]> = {
@@ -46,6 +47,8 @@ const WORK_GOALS: Record<string, Step[]> = {
   'make a spear': [{ do: 'craft', what: 'spear' }], 'build a campfire': [{ do: 'build', what: 'campfire' }],
   'build a hut': [{ do: 'build', what: 'hut' }], 'feed the fire': [{ do: 'tend' }],
   'collect food and store it': [{ do: 'collect', what: 'food', times: 4 }, { do: 'store', what: 'food' }],
+  'go hunting': [{ do: 'hunt' }], 'make clothes': [{ do: 'craft', what: 'clothes' }], 'make a sword': [{ do: 'craft', what: 'sword' }],
+  'put a bed in a hut': [{ do: 'build', what: 'bed' }], 'put up a palisade': [{ do: 'build', what: 'palisade' }],
   'search the ruins': [{ do: 'loot', times: 3 }], 'plant a field': [{ do: 'farm' }], 'repair the huts': [{ do: 'repair' }],
 };
 const NOTES_MAX = 12;
@@ -85,6 +88,9 @@ export function askedWork(text: string): { task: string; steps: Step[] } | null 
   if (/\b(loot|scavenge|search the ruins|fouille|saquea|registra)\b|فتش|ابحث في الأنقاض/.test(t)) return { task: 'search the ruins', steps: [{ do: 'loot', times: 3 }] };
   if (/\b(plant|farm|grow|field|planter|cultive|champ|siembra|cultiva|huerto)\b|ازرع|زراعة|حقل/.test(t)) return { task: 'plant a field', steps: [{ do: 'farm' }] };
   if (/\b(repair|fix|mend|répare|reparar|arregla)\b|أصلح|اصلح|صلح/.test(t)) return { task: 'repair the huts', steps: [{ do: 'repair' }] };
+  if (/\b(hunt\w*|chasse\w*|chasser|caza\w*|cazar)\b|اصطد|صيد/.test(t)) return { task: 'go hunting', steps: [{ do: 'hunt', what: t }] };
+  if (/\b(sword|épée|espada|bow|arc|arco|arrows?|flèches?|flechas?|armou?r|armure|armadura|clothes|vêtements|ropa|helmet|casque|casco)\b|سيف|قوس|سهام|درع|ملابس|خوذة/.test(t)) { const th = thingOf(t, 'craft'); return { task: 'make ' + th, steps: [{ do: 'craft', what: th }] }; }
+  if (/\b(door|porte|puerta|window|fenêtre|ventana|bed|lit|cama|lamp|lampe|lámpara|palisade|palissade|fence|barricade|spikes|wall|mur|muro)\b|باب|نافذة|سرير|مصباح|سياج/.test(t) && /\b(build|make|put|place|construis|fais|mets|construye|haz|pon)\b|ابن|اصنع|ضع/.test(t)) { const th = thingOf(t, 'build'); return { task: 'build ' + th, steps: [{ do: 'build', what: th }] }; }
   if (/\b(axe|hache|hacha)\b|فأس/.test(t)) return { task: 'make an axe', steps: [{ do: 'craft', what: 'axe' }] };
   if (/\b(spear|weapon|lance|arme|lanza|arma)\b|رمح|سلاح/.test(t)) return { task: 'make a spear', steps: [{ do: 'craft', what: 'spear' }] };
   if (/\b(wood|firewood|logs|bois|madera|le[ñn]a)\b|حطب|خشب/.test(t)) return { task: 'gather wood', steps: [{ do: 'gather', what: 'wood', times: 4 }] };
@@ -316,7 +322,7 @@ export class Planner {
   }
 
  private invText(i: number): string {
-    const v = this.w.survival.inv(i), parts = Object.entries(v).filter(([, n]) => n! > 0).map(([k, n]) => (k === 'axe' || k === 'spear' ? `an ${k === 'axe' ? 'axe' : 'spear'}`.replace('an spear', 'a spear') : `${n} ${k}`));
+    const v = this.w.survival.inv(i), parts = Object.entries(v).filter(([, n]) => n! > 0).map(([k, n]) => `${n} ${k}`);
     return parts.length ? parts.join(', ') : 'no materials';
   }
   private campText(i: number): string {
@@ -325,7 +331,7 @@ export class Planner {
     const f = s.nearestFire(i, 60), camp = s.campOf(m);
     const fire = f >= 0 ? ` A campfire burns ${Math.round(Math.hypot((f % w.maps[m]!.tiles.w) + 0.5 - e.x[i]!, ((f / w.maps[m]!.tiles.w) | 0) + 0.5 - e.y[i]!))} m away (${Math.round(s.fuel(m, f))} h of wood left).` : ' No fire nearby.';
     const st = s.stash[m];
-    return `${fire} Huts here: ${s.huts[m]!.length}. Fields: ${[...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length}.${st ? ` The camp's store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap.` : ' No store yet.'}${w.zombies.count(m) ? ` ${w.zombies.count(m)} zombies are out.` : ''}${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} Recipes: axe = 2 wood + 1 stone, spear = 2 wood + 1 scrap, campfire = 3 wood + 2 stone, hut = 12 wood + 4 stone.`;
+    return `${fire} Huts here: ${s.huts[m]!.length}. Fields: ${[...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length}.${st ? ` The camp's store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap.` : ' No store yet.'}${w.zombies.count(m) ? ` ${w.zombies.count(m)} zombies are out.` : ''}${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} Recipes: ${RECIPE_TEXT}, hut = 12 wood + 4 stone.${w.animals.count(m) ? ` ${w.animals.count(m)} animals roam this map.` : ''}`;
   }
 
   /** "day 2 14:30 (afternoon)" — the day starts at 08:00 like the viewers show. */
@@ -395,7 +401,9 @@ export class Planner {
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
         + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (ask them to be your partner), child {} (have a baby with your partner), '
         + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
-        + 'gather {"what": "wood" | "stone" | "scrap", "times"}, craft {"what": "axe" | "spear"}, build {"what": "campfire" | "hut"} (it gathers what is missing by itself), '
+        + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
+        + 'craft {"what": "axe" | "spear" | "sword" | "bow" | "arrows" | "clothes" | "armor" | "helmet"}, '
+        + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
         + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), '
         + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}. If a request needs something you have no skill for, combine these skills into a plan. '
@@ -464,7 +472,7 @@ export class Planner {
       if (!r || typeof r !== 'object') continue;
       const o = r as Record<string, unknown>;
       let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
-      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
+      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', mine: 'gather', dig: 'gather', hunting: 'hunt', kill: 'hunt', shoot: 'hunt', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
         pick: 'collect', pick_up: 'collect', pickup: 'collect', stock: 'store', deposit: 'store', put: 'store', stash: 'store', scavenge: 'loot',
         plant: 'farm', grow: 'farm', fix: 'repair', mend: 'repair', treat: 'heal', bandage: 'heal', exchange: 'trade', swap: 'trade', withdraw: 'take' } as Record<string, string>)[d] ?? d;
       if (!(SKILLS as readonly string[]).includes(d)) continue;
@@ -472,7 +480,7 @@ export class Planner {
       const whoRaw = String(o.who ?? o.with ?? o.target ?? (o.do === 'come' ? 'me' : '')).trim();
       if (d === 'give' || d === 'trade' || d === 'collect' || d === 'store' || d === 'take') st.what = String(o.what ?? o.item ?? (d === 'collect' || d === 'store' || d === 'take' ? 'food' : '')).slice(0, 40);
       if (d === 'trade') st.text = String(o.get ?? o.for ?? 'food').slice(0, 40);
-      if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
+      if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build' || d === 'hunt') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
       else if (whoRaw) {
         const w = whoRaw.toLowerCase();
         if (['me', 'you', 'him', 'her', 'the player', 'speaker'].includes(w)) st.who = speaker;

@@ -25,21 +25,40 @@ import type { World } from './world.js';
  *  farm                plant a berry field near the camp                          repair       mend a broken hut wall (1 wood)
  *  heal who            dress someone's wounds                                     give who what  hand over food or a material
  *  trade who what get  give one thing for another (they must have it)
+ *  hunt what times     hunt an animal (rabbit, deer, boar, wolf, bear): meat, leather, claws
  */
 /** Food, wood, stone, scrap from free words (4 languages). */
-export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'): 'food' | 'wood' | 'stone' | 'scrap' {
+export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'): 'food' | 'wood' | 'stone' | 'scrap' | 'ore' | 'brick' | 'leather' | 'claw' {
   const q = (what ?? '').toLowerCase();
+  if (/\bore\b|iron|minerai|fer\b|mineral|hierro|خام|حديد/.test(q)) return 'ore';
+  if (/brick|brique|ladrillo|طوب|آجر/.test(q)) return 'brick';
+  if (/leather|hide|skin|cuir|peau|cuero|piel|جلد/.test(q)) return 'leather';
+  if (/claw|griffe|garra|مخلب|مخالب/.test(q)) return 'claw';
   if (/wood|bois|madera|le[ñn]a|حطب|خشب|log/.test(q)) return 'wood';
   if (/scrap|metal|ferraille|chatarra|خردة/.test(q)) return 'scrap';
   if (/stone|rock|pierre|piedra|حجر/.test(q)) return 'stone';
   if (/food|eat|berr|can|nourriture|manger|comida|طعام|أكل/.test(q)) return 'food';
   return dflt;
 }
+/** What to make (craft) or put up (build), from free words in 4 languages. */
+export function thingOf(q0: string, kind: 'craft' | 'build'): string {
+  const q = q0.toLowerCase();
+  const T: [RegExp, string][] = [
+    [/sword|épée|epee|espada|سيف/, 'sword'], [/\baxe|hache|hacha|فأس/, 'axe'], [/bow\b|\barc\b|arco|قوس/, 'bow'], [/arrow|flèche|fleche|flecha|سهم|سهام/, 'arrows'],
+    [/spear|lance|lanza|رمح/, 'spear'], [/armou?r|armure|armadura|درع/, 'armor'], [/helmet|casque|casco|خوذة/, 'helmet'], [/cloth|vêtement|vetement|ropa|ملابس|لباس/, 'clothes'],
+    [/palisade|fence|barricade|palissade|cerca|valla|سياج|حاجز/, 'palisade'], [/spike|pieu|estaca|أوتاد|شوك/, 'spikes'], [/stone ?wall|brick ?wall|mur de pierre|muro de piedra|جدار حجر/, 'stonewall'],
+    [/door|porte|puerta|باب/, 'door'], [/window|fenêtre|fenetre|ventana|نافذة|شباك/, 'window'], [/\bbed|\blit\b|cama|سرير/, 'bed'], [/lamp|light|lantern|lampe|lanterne|lámpara|lampara|farol|مصباح|فانوس/, 'lamp'],
+    [/hut|house|home|shelter|cabane|maison|abri|casa|cabaña|refugio|بيت|منزل|كوخ/, 'hut'], [/fire|feu|fuego|campfire|نار/, 'campfire'],
+  ];
+  for (const [re, v] of T) if (re.test(q)) return v;
+  if (/weapon|arme|arma|سلاح/.test(q)) return 'spear';
+  return kind === 'craft' ? 'axe' : 'campfire';
+}
 export interface Step { do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -220,10 +239,28 @@ export class Tasks {
         if (first) { b.order(i, 'bring', s.who!, -1, 180); s.phase = 1; return false; }
         return b.orderOf(i).kind === 'bring' ? false : near(s.who!, 4) ? true : 'I could not reach them';
       }
+      case 'hunt': {
+        const id = e.id(i);
+        if (first) { s.phase = 1; s.n0 = Math.max(1, Math.min(4, s.times ?? 1)); s.got = false; }
+        if (b.huntOf(i) >= 0) return false;
+        if (s.got) {
+          const k = w.animals.kills.get(id);
+          s.got = false;
+          if (k && k[0] >= (s.t0 ?? 0)) { if (--s.n0! <= 0) return true; }
+          else if ((s.fails = (s.fails ?? 0) + 1) >= 2) return 'it got away';
+        }
+        const r = w.survival.hunt(i, s.what ?? '');
+        if (r !== true) return r;
+        s.got = true;
+        return false;
+      }
       case 'gather': {
         const what = /wood|bois|madera|حطب|خشب|tree|log/.test(s.what ?? 'wood') ? 'wood' : /scrap|metal|ferraille|chatarra|خردة/.test(s.what ?? '') ? 'scrap'
-          : /stone|rock|pierre|piedra|حجر/.test(s.what ?? '') ? 'stone' : /food|berr|eat|manger|comida|طعام/.test(s.what ?? '') ? 'food' : 'wood';
+          : /\bore\b|iron|minerai|hierro|خام|حديد/.test(s.what ?? '') ? 'ore' : /brick|brique|ladrillo|طوب/.test(s.what ?? '') ? 'brick'
+          : /leather|hide|cuir|cuero|جلد/.test(s.what ?? '') ? 'leather' : /claw|griffe|garra|مخلب/.test(s.what ?? '') ? 'claw'
+          : /stone|rock|pierre|piedra|حجر/.test(s.what ?? '') ? 'stone' : /food|berr|eat|manger|comida|طعام|meat|viande|carne|لحم/.test(s.what ?? '') ? (/meat|viande|carne|لحم/.test(s.what ?? '') ? 'meat' : 'food') : 'wood';
         if (what === 'food') { s.do = 'forage'; s.phase = 0; return false; }
+        if (what === 'meat' || what === 'leather' || what === 'claw') { s.do = 'hunt'; s.what = what === 'claw' ? 'wolf' : ''; s.phase = 0; return false; }
         const sv = w.survival, id = e.id(i), have = () => sv.inv(i)[what] ?? 0;
         if (first) { s.n0 = have(); s.phase = 1; }
         const want = Math.max(1, Math.min(12, s.times ?? 3));
@@ -237,11 +274,10 @@ export class Tasks {
       }
       case 'craft': case 'build': {
         const sv = w.survival, id = e.id(i);
-        const what = s.do === 'craft' ? (/spear|lance|lanza|رمح|weapon|arme|arma|سلاح/.test(s.what ?? '') ? 'spear' : 'axe')
-          : /hut|house|home|shelter|cabane|maison|abri|casa|cabaña|refugio|بيت|منزل|كوخ|wall|mur/.test(s.what ?? '') ? 'hut' : 'campfire';
+        const what = s.do === 'craft' ? thingOf(s.what ?? '', 'craft') : thingOf(s.what ?? '', 'build');
         if (first) {
           s.phase = 1;
-          const miss = sv.missing(i, what);
+          const miss = (sv.inv(i)[what] ?? 0) > 0 ? [] : sv.missing(i, what);
           if (miss.length && t.steps.length < 12) { // get the materials first
             t.steps.splice(t.k, 0, ...miss.map(([res, n]) => ({ do: 'gather', what: res, times: n } as Step)));
             s.t0 = undefined; // its own time starts when it comes back to it

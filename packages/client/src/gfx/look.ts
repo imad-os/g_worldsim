@@ -4,7 +4,7 @@ import type { TileTypeInfo } from '@worldsim/protocol';
  * How each tile type looks in 3D. The scenario only gives a name and a flat colour; the viewer picks a softer
  * palette and a shape by name (unknown names: solid = a wall block, else flat ground in the scenario's colour).
  */
-export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6 }
+export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14 }
 
 /** `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides. */
 export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean }
@@ -22,6 +22,17 @@ const BY_NAME: Record<string, Look> = {
   woodwall: { shape: Shape.Wall, ground: 0x8a6a48, top: 0x8b6239, side: 0x7a5432, height: 1.7, even: true, planks: true },
   campfire: { shape: Shape.Fire, ground: 0x8d7a62, top: 0x8f8a82, side: 0x5b3a22, height: 0 },
   ashes: { shape: Shape.Ashes, ground: 0x6f6a63, top: 0x3d3a37, side: 0x4a3524, height: 0 },
+  crate: { shape: Shape.Wall, ground: 0x8a6a48, top: 0xa47a48, side: 0x8b6239, height: 0.8, even: true, planks: true },
+  farm: { shape: Shape.Ground, ground: 0x6b5236, top: 0, side: 0, height: 0 },
+  rock: { shape: Shape.Rock, ground: 0x8d877e, top: 0x9a948c, side: 0, height: 0 },
+  wreck: { shape: Shape.Wreck, ground: 0x6a6762, top: 0x8a4e32, side: 0x3b3a38, height: 0 },
+  palisade: { shape: Shape.Palisade, ground: 0x8a6a48, top: 0x9b7046, side: 0x6e4b2c, height: 0 },
+  spikes: { shape: Shape.Spikes, ground: 0x8a6a48, top: 0xa07a4a, side: 0x6e4b2c, height: 0 },
+  stonewall: { shape: Shape.Wall, ground: 0x8d877e, top: 0xb5aea3, side: 0x9b8f80, height: 1.9, even: true },
+  door: { shape: Shape.Door, ground: 0xb08a5f, top: 0x8b6239, side: 0x6b4a2f, height: 0 },
+  window: { shape: Shape.Window, ground: 0x8a6a48, top: 0x8b6239, side: 0x7a5432, height: 1.7 },
+  bed: { shape: Shape.Bed, ground: 0xb08a5f, top: 0xb0503c, side: 0x7a5432, height: 0 },
+  lamp: { shape: Shape.Lamp, ground: 0x8d7a62, top: 0xffe08a, side: 0x4a4440, height: 0 },
 };
 
 export function looksFor(tiles: TileTypeInfo[]): Look[] {

@@ -373,11 +373,11 @@ test('survival: a command "build a hut" gathers wood and stone, builds a real hu
   s.fires.set(key, w.gameSec + 1);
   for (let k = 0; k < 40; k++) w.step();
   assert.equal(tm.get(fire.tx, fire.ty), T.ashes);
-  // Tools: an axe from 2 wood + 1 stone, and chopping with it gives 2 wood.
+  // Tools: an axe from 1 wood + 1 stone (crafting 2026-11-20), and chopping with it gives 2 wood.
   w.profileOf(a)!.inv = { wood: 2, stone: 1 };
   assert.equal(s.craft(a, 'axe'), true);
-  assert.deepEqual(w.profileOf(a)!.inv, { wood: 0, stone: 0, axe: 1 });
-  assert.match(String(s.craft(a, 'spear')), /need 2 wood and 1 scrap/);
+  assert.deepEqual(w.profileOf(a)!.inv, { wood: 1, axe: 1 });
+  assert.match(String(s.craft(a, 'spear')), /need 1 (claw|scrap)/);
   // Nobody ended up inside a new wall.
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) assert.notEqual(w.maps[e.map[i]!]!.tiles.get(Math.floor(e.x[i]!), Math.floor(e.y[i]!)), T.woodwall);
 });

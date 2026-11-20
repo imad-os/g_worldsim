@@ -20,6 +20,7 @@ export const Kind = {
   Prop: 4,
   Threat: 5,
   Player: 6, // a person's avatar, driven by their controller
+  Animal: 7, // wild animals (type in frame bits 24-31): hunted for meat, leather, claws
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 

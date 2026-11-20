@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules done, app 0.7.4; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
+simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules + animals / crafting done, app 0.8.0; next camera modes + quick-action wheel; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -130,3 +130,22 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `MyPC.stt.enabled()` EVERY time: on = `listen({ maxSeconds: 10, hint: names })` (A again = stop early; 'nothing' / 'cancelled' = say
   nothing; other errors = keyboard), off / older My PC = `MyPC.text.keyboard` as before. `stt.on('text')` = the phone's mic button
   talks to the person next to me (push to talk); a result arriving both ways is sent once (`sendSpoken`). No mic / AI code in the app.
+
+## Animals, crafting, the land (imad 2026-11-20, app 0.8.0)
+- **Land** (`sim/land.ts`, run-time tile changes once, `land` in snapshots): the town is ringed by trees (`RING` 8 tiles, too thick
+  to cut) with 4 roads out (one per side; the 4 town portals have `exit`, the woods portals `exitTo`, moved onto the roads at every
+  start). While travel is closed, wrecked cars (tile `wreck`, hp 0) block the roads; a player pushing into them gets Notice `blocked`.
+  Opening travel clears them (`land.block`). Rocks (tile `rock`): 30 clusters in the woods, 9 in town.
+- **Animals** (`sim/animals.ts`, Kind.Animal 7, type in frame `kf` bits 24+): rabbit, deer, boar, wolf, bear; caps 16 woods / 4
+  town, hourly spawns 30 m from people. Boar / bear fight back, wolves bite at night, bears within 5 m; fire 5 m / lamp 3.5 m keep
+  them off. Kills give meat (carried) + leather + claws (`ANIMALS` drops). Agents: skill `hunt`, own plans; players: A next to one
+  (or a bow shot within 14 m, uses an arrow).
+- **Crafting** (`protocol/craft.ts`, ONE table for server + TV): category (weapon / clothing / defence / furniture) + exact
+  ingredients = `matchRecipe` (1 wood + 1 ore = sword in Weapons, door in Furniture). Weapons damage (`WEAPONS`), clothing defence
+  (`DEFENCE`, bites x (1 - def)). Players: game menu > Bag & crafting > Craft > category: put ingredients (A adds one), Make;
+  Recipe guide fills the pot. Do `craft` "cat:wood=1,ore=1", Do `place` item (in front, by angle). A next to a tree / rock / rubble
+  gathers (900 ms cooldown). Player bags kept by name (`survival.pinv`).
+- **Blocks** (tiles 15-23): defences palisade / spikes (hurt zombies) / stonewall (half damage); door (people pass, zombies and
+  animals are put back in `World.step`), window, bed (shelter, rest x2), lamp (glow + soft light pool at night, zombies back off 3 m).
+- Server frames: a quiet view still gets one frame a second (the clock moves on, `Session.idle`).
+- Test `craft.test.ts`; proof script idea: pair a TV in-process, hunt with A, craft through the menu, place blocks, night shot.

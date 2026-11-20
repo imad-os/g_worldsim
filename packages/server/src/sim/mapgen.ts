@@ -163,8 +163,8 @@ export function generateMap(sc: Scenario, def: MapDef, mapSeed: string): TileMap
     }
   };
   for (const p of sc.portals) {
-    if (p.map === def.id) clearAround(p.x, p.y, 3);
-    if (p.to === def.id) clearAround(p.toX, p.toY, 3);
+    if (p.map === def.id && !p.exit) clearAround(p.x, p.y, 3);
+    if (p.to === def.id && !p.exitTo) clearAround(p.toX, p.toY, 3);
   }
   m.base = m.tiles.slice();
   return m;

@@ -59,6 +59,9 @@ export class Brain {
   private readonly ordWho: Int32Array;
   private readonly ordAct: Int8Array;
   private readonly ordUntil: Float64Array;
+  /** The animal a person is hunting (entity id, -1 none) and until when they try. */
+  private readonly huntId: Int32Array;
+  private readonly huntUntil: Float64Array;
   /** A job (survival work): where to stand, what to face. */
   private readonly jobX: Float32Array;
   private readonly jobY: Float32Array;
@@ -74,6 +77,7 @@ export class Brain {
     this.pbuf = new Int32Array(cap * PMAX); this.pN = new Uint8Array(cap); this.pK = new Uint8Array(cap);
     this.gx = new Float32Array(cap); this.gy = new Float32Array(cap); this.replans = new Uint8Array(cap);
     this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap).fill(-1); this.wishUntil = new Float64Array(cap);
+    this.huntId = new Int32Array(cap).fill(-1); this.huntUntil = new Float64Array(cap);
     this.ordKind = new Uint8Array(cap); this.ordWho = new Int32Array(cap).fill(-1); this.ordAct = new Int8Array(cap).fill(-1); this.ordUntil = new Float64Array(cap);
     this.jobX = new Float32Array(cap); this.jobY = new Float32Array(cap); this.faceX = new Float32Array(cap); this.faceY = new Float32Array(cap);
     const idsOf = (names: string[]) => new Set(w.sc.tiles.filter((t) => names.includes(t.name)).map((t) => t.id));
@@ -190,6 +194,34 @@ export class Brain {
     e.nextThink[i] = w.tick + 1;
     return true;
   }
+  /** Hunt an animal (entity id): chase it and hit it until it dies, runs off (60 m) or an hour passes. */
+  hunt(i: number, id: number): boolean {
+    const e = this.w.e;
+    if (e.kind[i] !== Kind.Agent || this.w.e.slot(id) < 0) return false;
+    this.huntId[i] = id; this.huntUntil[i] = this.w.gameSec + HOUR;
+    if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
+    e.nextThink[i] = this.w.tick + 1;
+    return true;
+  }
+  huntOf(i: number): number { return this.huntId[i]!; }
+  private hunting(i: number): boolean {
+    const w = this.w, e = w.e, id = this.huntId[i]!;
+    if (id < 0) return false;
+    const a = e.slot(id);
+    const d = a >= 0 && e.map[a] === e.map[i] ? Math.hypot(e.x[a]! - e.x[i]!, e.y[a]! - e.y[i]!) : Infinity;
+    if (a < 0 || e.kind[a] !== Kind.Animal || d > 60 || w.gameSec > this.huntUntil[i]! || e.thirst[i]! > 92 || e.hunger[i]! > 97 || e.hp[i]! < 30) {
+      this.huntId[i] = -1;
+      if (e.act[i] === Act.Fight) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; }
+      return false;
+    }
+    this.setAct(i, Act.Fight); e.target[i] = id;
+    const ax = e.x[a]!, ay = e.y[a]!;
+    if (d > 1.2) { if (!this.walking(i) || Math.hypot(this.gx[i]! - ax, this.gy[i]! - ay) > 1.5) { if (!this.goTo(i, ax, ay, true)) { this.huntId[i] = -1; return false; } } }
+    else { this.stop(i); e.angle[i] = Math.atan2(ay - e.y[i]!, ax - e.x[i]!); }
+    this.schedule(i, 0, 5);
+    return true;
+  }
+
   /** At the job's spot and working. */
   atJob(i: number): boolean {
     const e = this.w.e;
@@ -260,14 +292,15 @@ export class Brain {
     const w = this.w, e = w.e, m = e.map[i]!;
     const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
     const fighting = e.act[i] === Act.Fight, fleeing = e.act[i] === Act.Flee;
-    const z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? 6 : 10);
+    let z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? 6 : 10);
+    if (z < 0) z = w.animals.attacker(i); // a wolf or a bear going for them
     if (z < 0) {
-      if (fighting || fleeing) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; }
+      if ((fighting && this.huntId[i]! < 0) || fleeing) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; }
       return false;
     }
     if (asleep) { this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i), why: 'zombie' }); }
     const p = w.profileOf(i), v = w.survival.inv(i);
-    const armed = (v.spear ?? 0) > 0 || (v.axe ?? 0) > 0;
+    const armed = w.survival.weapon(i)[1] > 0; void v;
     const brave = (p?.traits.courage ?? 0.5) > (armed ? 0.3 : 0.55) && (armed || (p?.traits.strength ?? 0.5) > 0.6) && e.hp[i]! > 45 && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight');
     const zx = e.x[z]!, zy = e.y[z]!, d = Math.hypot(zx - e.x[i]!, zy - e.y[i]!);
     if (brave) {
@@ -343,7 +376,7 @@ export class Brain {
       const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
       e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * h * (asleep ? 0.5 : 1));
       e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * h * (asleep ? 0.5 : 1));
-      e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * h) : Math.min(100, e.tired[i]! + N.tired * k * h);
+      e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * h * (w.survival.onBed(e.map[i]!, e.x[i]!, e.y[i]!) ? 2 : 1)) : Math.min(100, e.tired[i]! + N.tired * k * h);
       if (asleep && e.tired[i]! <= 0) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
       // Wounds (zombie bites) heal: 20 a game hour when fed and watered, twice that asleep.
       if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 20 * h * (asleep ? 2 : 1));
@@ -428,7 +461,7 @@ export class Brain {
     const k = this.life.difficulty;
     e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * met * since * (asleep ? 0.5 : 1));
     e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * since * (asleep ? 0.5 : 1));
-    const warm = asleep && w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!) ? 1.5 : 1; // sleeping by a fire
+    const warm = (asleep && w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!) ? 1.5 : 1) * (asleep && w.survival.onBed(e.map[i]!, e.x[i]!, e.y[i]!) ? 2 : 1); // by a fire, on a bed
     e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * warm * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
     e.lonely[i] = Math.min(100, e.lonely[i]! + N.lonely * k * since);
     // Health: starving or parched hurts; otherwise it heals slowly.
@@ -442,6 +475,7 @@ export class Brain {
     }
     if (!this.walking(i)) e.actT[i] = Math.max(0, e.actT[i]! - since * HOUR / w.opt.clockScale); // timers run once there
     if (this.danger(i)) return;
+    if (this.hunting(i)) return;
     if (this.obey(i)) return;
     if (e.act[i] === Act.Go || ((e.act[i] === Act.Gather || e.act[i] === Act.Build) && this.ordKind[i] !== 6)) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
 

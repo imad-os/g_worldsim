@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -22,7 +22,7 @@ import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 const LOGGED = new Set(['replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
-  'build', 'craft', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
+  'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
 export class App {
@@ -80,6 +80,7 @@ export class App {
     // Owner settings kept in the database: travel between maps, and the population size of the scenario.
     this.world.travelOpen = this.db.getMeta('travel_open') === '1';
     { const z = this.db.getMeta('zombies_night'); if (z !== null && z !== undefined) this.world.zombies.perNight = Number(z) || 0; }
+    this.world.land.setup(); // the town's ring of trees, its 4 roads out (wrecks while travel is closed), rocks
     const want = sc.agents.count;
     if (this.db.getMeta('agents_count') !== String(want) || !this.world.travelOpen) {
       const r = this.world.fitPopulation(this.db.getMeta('agents_count') !== String(want) ? want : 1e9);
@@ -141,17 +142,56 @@ export class App {
       if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
       if (a === 'tp') return this.teleport(player, Number(text));
-      if ((a === 'use' || a === 'hit') && e.map[player] !== NO_MAP) { // a zombie within reach: hit it
-        const z = w.zombies.nearest(e.map[player]!, e.x[player]!, e.y[player]!, 1.9);
+      if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
+      const sv = w.survival;
+      if (a === 'craft') { // "weapon:wood=1,ore=1"
+        const [cat, list] = String(text ?? '').split(':');
+        const put: Record<string, number> = {};
+        for (const p of (list ?? '').split(',')) { const [k, n] = p.split('='); if (k && Number(n) > 0) put[k] = Math.min(20, Math.floor(Number(n))); }
+        const r = sv.craftPut(player, cat ?? '', put);
+        return r.ok ? { ok: true, code: 'crafted', item: r.r.what } : { ok: false, code: r.code };
+      }
+      if (a === 'place') { const c = sv.placeFront(player, String(text ?? '')); return { ok: c === 'placed', code: c, item: String(text ?? '') }; }
+      if (a === 'use' || a === 'hit') {
+        const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!;
+        // A zombie or an animal within reach: hit it.
+        const z = w.zombies.nearest(m, x, y, 1.9);
         if (z >= 0) return { ok: true, code: w.zombies.hit(z, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
+        const an = w.animals.nearest(m, x, y, 2.4);
+        if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
+        // A bow and arrows: shoot the nearest zombie or animal within 14 m.
+        const inv = sv.inv(player);
+        if ((inv.bow ?? 0) > 0 && (inv.arrows ?? 0) > 0) {
+          const tz = w.zombies.nearest(m, x, y, 14), ta = tz >= 0 ? -1 : w.animals.nearest(m, x, y, 14), t = tz >= 0 ? tz : ta;
+          if (t >= 0) {
+            sv.add(player, 'arrows', -1);
+            e.angle[player] = Math.atan2(e.y[t]! - y, e.x[t]! - x);
+            const p = w.shoot(m, x + Math.cos(e.angle[player]!) * 0.5, y + Math.sin(e.angle[player]!) * 0.5, e.x[t]! - x, e.y[t]! - y, player);
+            if (p >= 0) e.hp[p] = 0; // the arrow is drawn flying; the hit is counted here
+            if (tz >= 0) return { ok: true, code: w.zombies.hit(tz, 26, player) ? 'zKilled' : 'zHit' };
+            return this.hitAnimal(player, ta, 26);
+          }
+        }
         if (a === 'hit') return { ok: false, code: 'nothing' };
+        const r0 = w.brain.playerDo(player, 'use');
+        if (r0.ok) return r0;
+        // A tree, a rock or rubble next to me: chop / mine one piece (at most one a second).
+        const now = Date.now();
+        if ((this.workAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
+        const wk = sv.playerWork(player);
+        if (wk) { this.workAt.set(name, now + 900); return { ok: !!wk.got, code: wk.code, got: wk.got }; }
+        return r0;
       }
       return w.brain.playerDo(player, a);
     };
     this.net.isSeer = (name) => this.seers().has(name.toLowerCase());
     this.net.info = (id, seer) => this.personInfo(id, seer);
     this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
-    this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0 });
+    this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0,
+      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0] });
+    w.survival.playerName = (i) => this.net.characters().find(([, k]) => k === i)?.[0] ?? '';
+    // Walking into the wrecks across a road out while travel is closed: that player is told why.
+    w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     this.net.avatarStore = {
       get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },
@@ -190,6 +230,13 @@ export class App {
     void this.tunnel.start();
     this.loop.start();
     this.log.info('server up', { url: this.net.address(), tickRate: c.tickRate, speed: c.speed, lowSpec: c.lowSpec });
+  }
+
+  private readonly workAt = new Map<string, number>();
+  private hitAnimal(player: number, a: number, dmg: number): { ok: boolean; code: string; got?: Record<string, number>; item?: string } {
+    const w = this.world, type = w.e.sub[a]!;
+    const d = w.animals.hit(a, dmg, player);
+    return d ? { ok: true, code: 'aKilled', item: ANIMAL_NAMES[type], got: d } : { ok: true, code: 'aHit', item: ANIMAL_NAMES[type] };
   }
 
   clock(): ClockInfo {
@@ -367,6 +414,7 @@ export class App {
       case 'travel': {
         w.travelOpen = c.open === true;
         this.db.setMeta('travel_open', w.travelOpen ? '1' : '0');
+        w.land.block(!w.travelOpen);
         this.log.info(w.travelOpen ? 'travel opened' : 'travel closed', { who });
         return { open: w.travelOpen };
       }

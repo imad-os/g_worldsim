@@ -10,6 +10,8 @@ import type { World } from './world.js';
  * whoever it reaches. People who see one (sim/brain.ts `danger`) flee to the fire or fight it (a spear or an axe, a
  * strong and brave person); players hit with their "use" action. Players' characters are hurt but never die.
  */
+/** What zombies claw through to get at people. */
+const CLAW = new Set(['woodwall', 'wall', 'crate', 'palisade', 'spikes', 'stonewall', 'door', 'window', 'lamp', 'bed']);
 const SIGHT = 16, FIRE_SAFE = 5, SPEED = 1.15, HP = 60, BITE = 8, EVERY = 5;
 export const NIGHT_HOUR = 21, DAWN_HOUR = 6;
 
@@ -65,7 +67,7 @@ export class Zombies {
   private prey(j: number): boolean {
     const w = this.w, e = w.e;
     if (e.kind[j] === Kind.Player && w.away.has(e.id(j))) return false;
-    return w.survival.fireNear(e.map[j]!, e.x[j]!, e.y[j]!, FIRE_SAFE) < 0;
+    return w.survival.fireNear(e.map[j]!, e.x[j]!, e.y[j]!, FIRE_SAFE) < 0 && !w.survival.lampNear(e.map[j]!, e.x[j]!, e.y[j]!, 3);
   }
 
   /** The nearest zombie to (x, y) on map m within r metres (slot, -1 none). */
@@ -125,7 +127,8 @@ export class Zombies {
         if (d < 12 && e.kind[j] === Kind.Agent && e.nextThink[j]! > w.tick + 4 && e.act[j] !== Act.Flee && e.act[j] !== Act.Fight) e.nextThink[j] = w.tick + 1; // they notice it
         if (d < td && this.prey(j)) { td = d; t = j; }
       }
-      const fire = w.survival.fireNear(m, e.x[i]!, e.y[i]!, FIRE_SAFE + 1);
+      let fire = w.survival.fireNear(m, e.x[i]!, e.y[i]!, FIRE_SAFE + 1);
+      if (fire < 0 && w.survival.lampNear(m, e.x[i]!, e.y[i]!, 3.5)) fire = Math.floor(e.y[i]! + 0.01) * w.maps[m]!.tiles.w + Math.floor(e.x[i]! + (e.vx[i]! > 0 ? 1 : -1)); // a lamp: back off the way it came
       if (fire >= 0) { // too close to a fire: back away from it
         const W = w.maps[m]!.tiles.w, fx = (fire % W) + 0.5, fy = ((fire / W) | 0) + 0.5;
         const dx = e.x[i]! - fx, dy = e.y[i]! - fy, l = Math.hypot(dx, dy) || 1;
@@ -158,24 +161,25 @@ export class Zombies {
     for (let j = 0; j < e.hi; j++) {
       if (e.kind[j] !== Kind.Agent || e.act[j] !== Act.Fight || e.map[j] === NO_MAP) continue;
       const z = e.slot(e.target[j]!);
-      if (z < 0 || e.kind[z] !== Kind.Threat || Math.hypot(e.x[z]! - e.x[j]!, e.y[z]! - e.y[j]!) > 1.5) continue;
+      if (z < 0 || (e.kind[z] !== Kind.Threat && e.kind[z] !== Kind.Animal) || Math.hypot(e.x[z]! - e.x[j]!, e.y[z]! - e.y[j]!) > 1.5 + e.radius[z]!) continue;
       const pid = e.id(j);
       if ((this.cool.get(pid) ?? 0) > now) continue;
       this.cool.set(pid, now + 1 * w.opt.clockScale);
+      if (e.kind[z] === Kind.Animal) { if (w.animals.hit(z, this.damageOf(j), j)) e.nextThink[j] = w.tick + 1; continue; }
       if (this.hit(z, this.damageOf(j), j)) e.nextThink[j] = w.tick + 1;
     }
   }
 
-  /** How hard person j hits: a spear 30, an axe 22, bare hands 9; strength adds up to 40 %. */
+  /** How hard person j hits: the best weapon (sword 34, spear 30, axe 22), bare hands 9 (players 15); strength adds up to 40 %. */
   damageOf(j: number): number {
-    const w = this.w, v = w.survival.inv(j), str = w.profileOf(j)?.traits.strength ?? 0.5;
-    return ((v.spear ?? 0) > 0 ? 30 : (v.axe ?? 0) > 0 ? 22 : w.e.kind[j] === Kind.Player ? 15 : 9) * (0.8 + str * 0.4);
+    const w = this.w, wp = w.survival.weapon(j)[1], str = w.profileOf(j)?.traits.strength ?? 0.5;
+    return (wp || (w.e.kind[j] === Kind.Player ? 15 : 9)) * (0.8 + str * 0.4);
   }
 
   private bite(i: number, t: number): void {
     const w = this.w, e = w.e;
     const sleeping = (e.flags[t]! & EFlag.Sleeping) !== 0;
-    e.hp[t]! -= BITE * (sleeping ? 1.5 : 1);
+    e.hp[t]! -= BITE * (sleeping ? 1.5 : 1) * (1 - w.survival.defence(t));
     w.emit('bitten', { id: e.id(t), by: e.id(i), hp: Math.round(e.hp[t]!) });
     if (e.kind[t] === Kind.Player) { e.hp[t] = Math.max(5, e.hp[t]!); return; } // players are hurt, never killed
     e.nextThink[t] = w.tick + 1;
@@ -192,10 +196,11 @@ export class Zombies {
     const dx = e.x[t]! - e.x[i]!, dy = e.y[t]! - e.y[i]!, l = Math.hypot(dx, dy) || 1;
     const tx = Math.floor(e.x[i]! + (dx / l) * 0.8), ty = Math.floor(e.y[i]! + (dy / l) * 0.8);
     const tm = w.maps[e.map[i]!]!.tiles;
-    if (!tm.inside(tx, ty) || !tm.solid[tm.get(tx, ty)]) return;
+    if (!tm.inside(tx, ty) || (!tm.solid[tm.get(tx, ty)] && tm.get(tx, ty) !== w.survival.T.door)) return;
     const name = w.sc.tiles.find((x) => x.id === tm.get(tx, ty))?.name;
-    if (name !== 'woodwall' && name !== 'wall' && name !== 'crate') return; // not trees or water
-    if (tm.damage(tx, ty, 1.4)) w.emit('destroyed', { map: w.maps[e.map[i]!]!.def.id, tx, ty, by: 'zombie' });
+    if (!name || !CLAW.has(name)) return; // not trees, rocks, wrecks or water
+    if (name === 'spikes') { e.hp[i]! -= 4; if (e.hp[i]! <= 0) { w.emit('zombie', { id: e.id(i), map: w.maps[e.map[i]!]!.def.id, how: 'killed', by: -1 }); w.remove(i, 'spikes'); return; } }
+    if (tm.damage(tx, ty, name === 'stonewall' ? 0.7 : 1.4)) w.emit('destroyed', { map: w.maps[e.map[i]!]!.def.id, tx, ty, by: 'zombie' });
   }
 
   clear(): number {

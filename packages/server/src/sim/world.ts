@@ -13,6 +13,8 @@ import { Survival } from './survival.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
+import { Animals } from './animals.js';
+import { Land } from './land.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -71,6 +73,11 @@ export class World {
   readonly rules: Rules;
   /** Zombie attacks recorded for viewers to play back (sim/replays.ts). */
   readonly replays: Replays;
+  /** Wild animals to hunt (sim/animals.ts). */
+  readonly animals: Animals;
+  /** The town's ring of trees, its 4 roads out, wrecks while travel is closed, rocks (sim/land.ts). */
+  readonly land: Land;
+  private doorTile = -1;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -99,6 +106,9 @@ export class World {
     this.zombies = new Zombies(this);
     this.rules = new Rules(this);
     this.replays = new Replays(this);
+    this.animals = new Animals(this);
+    this.land = new Land(this);
+    this.doorTile = sc.tiles.find((t) => t.name === 'door')?.id ?? -1;
   }
   /** Game seconds per year of age. */
   get yearSec(): number { return this.brain.life.yearDays * 86400; }
@@ -299,6 +309,8 @@ export class World {
     this.life.tick();
     if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); }
     this.zombies.update();
+    this.animals.update();
+    if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });
     this.replays.update();
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
@@ -308,7 +320,7 @@ export class World {
         if (e.life[i]! <= 0) this.remove(i, 'expired');
         continue;
       }
-      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Threat) || e.map[i] === NO_MAP) continue;
+      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Threat && k !== Kind.Animal) || e.map[i] === NO_MAP) continue;
       const b = this.bodies[i]!;
       const dx = e.tx[i]! - e.x[i]!, dy = e.ty[i]! - e.y[i]!;
       const d = Math.hypot(dx, dy);
@@ -337,6 +349,12 @@ export class World {
       const b = this.bodies[i];
       if (!b) continue;
       const p = b.getPosition(), v = b.getLinearVelocity();
+      // Doors let people through, never zombies or animals: they stay where they were (and claw at it).
+      if ((e.kind[i] === Kind.Threat || e.kind[i] === Kind.Animal) && this.doorTile >= 0 && this.maps[e.map[i]!]!.tiles.tiles[Math.floor(p.y) * this.maps[e.map[i]!]!.tiles.w + Math.floor(p.x)] === this.doorTile) {
+        this.pos.x = e.x[i]!; this.pos.y = e.y[i]!; b.setPosition(this.pos); this.vel.x = 0; this.vel.y = 0; b.setLinearVelocity(this.vel);
+        e.vx[i] = 0; e.vy[i] = 0;
+        continue;
+      }
       e.x[i] = p.x; e.y[i] = p.y; e.vx[i] = v.x; e.vy[i] = v.y;
       let fl = e.flags[i]! & ~EFlag.Moving; // Sleeping = asleep (set by the brain), not a resting physics body
       if (v.x * v.x + v.y * v.y > 0.01) { fl |= EFlag.Moving; e.angle[i] = Math.atan2(v.y, v.x); }
@@ -438,7 +456,7 @@ export class World {
     for (let i = 0; i < e.hi; i++) {
       if (!e.alive(i) || e.map[i] === NO_MAP) continue;
       const ph = this.maps[e.map[i]!]!.phys;
-      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player || e.kind[i] === Kind.Threat) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
+      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player || e.kind[i] === Kind.Threat || e.kind[i] === Kind.Animal) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
       else if (e.kind[i] === Kind.Projectile) this.bodies[i] = ph.createProjectileBody(i, e.owner[i]!, e.x[i]!, e.y[i]!, e.radius[i]!);
       const b = this.bodies[i];
       if (b) { this.vel.x = e.vx[i]!; this.vel.y = e.vy[i]!; b.setLinearVelocity(this.vel); }

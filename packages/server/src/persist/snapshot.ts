@@ -28,6 +28,7 @@ export function serialize(w: World, withTiles = true): Uint8Array {
     profiles: [...w.profiles],
     survival: w.survival.save(),
     zombies: w.zombies.perNight,
+    land: w.land.done,
     maps: !withTiles ? [] : w.maps.map((m) => ({ id: m.def.id, w: m.tiles.w, h: m.tiles.h, tiles: m.tiles.tiles, hp: m.tiles.hp, ver: new Uint8Array(m.tiles.chunkVer.buffer.slice(0)) })),
   });
 }
@@ -38,6 +39,7 @@ interface SnapData {
   profiles?: [number, import('../sim/people.js').Profile][];
   survival?: unknown;
   zombies?: number;
+  land?: number;
   maps: { id: string; w: number; h: number; tiles: Uint8Array; hp: Uint8Array; ver: Uint8Array }[];
 }
 
@@ -80,6 +82,7 @@ export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => v
   for (const [id, p] of s.profiles ?? []) { if (s.v === 1 && p.partner === 0) p.partner = -1; w.profiles.set(id, p); }
   w.survival.load(s.survival);
   if (typeof s.zombies === 'number') w.zombies.perNight = s.zombies;
+  w.land.done = s.land ?? 0;
   // Worlds from before profiles: give every agent one.
   for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent && !w.profiles.has(w.e.id(i))) w.profiles.set(w.e.id(i), randomProfile(w.rng, w.gameSec, w.livingNames(), w.yearSec));
 }

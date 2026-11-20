@@ -5,6 +5,7 @@ import {
   type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
+import { Animals3D } from './animals.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -38,6 +39,9 @@ export class World3D {
   private groundMat = new MeshLambertMaterial({ vertexColors: true });
   private propMat = new MeshLambertMaterial({ vertexColors: true });
   private glowMat = new MeshBasicMaterial({ vertexColors: true });
+  /** Lamp light on the ground: added on, only at night. */
+  private poolMat = new MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false, side: DoubleSide });
+  readonly animals: Animals3D;
   readonly target = new Vector3();
   private look = new Vector3();
   dist = 24;
@@ -76,6 +80,7 @@ export class World3D {
     this.water.receiveShadow = shadows;
     this.scene.add(this.water);
     this.people = new People(this.scene, 512, shadows);
+    this.animals = new Animals3D(this.scene, 128, shadows);
     this.shots = new InstancedMesh(new SphereGeometry(0.07, 6, 4), new MeshBasicMaterial({ color: 0xfff1a0 }), 256);
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
@@ -86,8 +91,8 @@ export class World3D {
       this.scene.add(m); return m;
     };
     this.cans = inst(new CylinderGeometry(0.09, 0.09, 0.17, 10).translate(0, 0.085, 0), 0xc4523f, 256);
-    this.bushes = inst(new IcosahedronGeometry(0.34, 0).scale(1, 0.75, 1).translate(0, 0.24, 0), 0x3f7f37, 256);
-    this.berries = inst(new IcosahedronGeometry(0.055, 0), 0xd7263d, 256 * 4);
+    this.bushes = inst(new IcosahedronGeometry(0.52, 1).scale(1, 0.8, 1).translate(0, 0.38, 0), 0x3f7f37, 256);
+    this.berries = inst(new IcosahedronGeometry(0.075, 0), 0xe0203a, 256 * 6);
     this.crates = inst(new CylinderGeometry(0.2, 0.2, 0.3, 4).rotateY(Math.PI / 4).translate(0, 0.15, 0), 0x9a7448, 128);
   }
 
@@ -100,15 +105,15 @@ export class World3D {
     } else if (type === 2 && this.nBush < 256) {
       const b = this.nBush++;
       this.bushes.setMatrixAt(b, this.m);
-      for (let k = 0; k < 4; k++) {
-        const a = r * 6.28 + k * 1.57;
-        this.m.makeTranslation(x + Math.cos(a) * 0.27, 0.28 + (k & 1) * 0.12, z + Math.sin(a) * 0.27);
-        this.berries.setMatrixAt(b * 4 + k, this.m);
+      for (let k = 0; k < 6; k++) {
+        const a = r * 6.28 + k * 1.05;
+        this.m.makeTranslation(x + Math.cos(a) * 0.43, 0.32 + (k % 3) * 0.14, z + Math.sin(a) * 0.43);
+        this.berries.setMatrixAt(b * 6 + k, this.m);
       }
     } else if (this.nCrate < 128) this.crates.setMatrixAt(this.nCrate++, this.m);
   }
   endItems(): void {
-    this.cans.count = this.nCan; this.bushes.count = this.nBush; this.berries.count = this.nBush * 4; this.crates.count = this.nCrate;
+    this.cans.count = this.nCan; this.bushes.count = this.nBush; this.berries.count = this.nBush * 6; this.crates.count = this.nCrate;
     for (const m of [this.cans, this.bushes, this.berries, this.crates]) m.instanceMatrix.needsUpdate = true;
   }
 
@@ -120,7 +125,7 @@ export class World3D {
     for (const p of portals) this.portals.add(portalMesh(p.x, p.y));
   }
 
-  addChunk(ground: BufferGeometry, props: BufferGeometry | null, glow: BufferGeometry | null = null): Group {
+  addChunk(ground: BufferGeometry, props: BufferGeometry | null, glow: BufferGeometry | null = null, pool: BufferGeometry | null = null): Group {
     const g = new Group();
     const gm = new Mesh(ground, this.groundMat);
     gm.receiveShadow = this.tier !== 'low';
@@ -131,6 +136,7 @@ export class World3D {
       g.add(pm);
     }
     if (glow) g.add(new Mesh(glow, this.glowMat));
+    if (pool) { const pm = new Mesh(pool, this.poolMat); pm.renderOrder = 2; g.add(pm); }
     this.chunks.add(g);
     return g;
   }
@@ -204,6 +210,7 @@ export class World3D {
     this.hemi.groundColor.setHex(0x1c1a22).lerp(this.c1.setHex(0x5d4c3a), day);
     this.bg.setHex(0x0b1426).lerp(this.c1.setHex(0x9cc7e8), day).lerp(this.c2.setHex(0xe79a6a), warm * 0.6);
     this.lamp.intensity = (1 - day) * 9;
+    this.poolMat.opacity = (1 - day) * 0.42; this.poolMat.visible = day < 0.98;
     // Portals breathe.
     const s = 1 + Math.sin(t * 2.5) * 0.06;
     for (const p of this.portals.children) { p.children[0]!.rotation.y = t * 0.8; p.children[1]!.scale.set(s, 1, s); }

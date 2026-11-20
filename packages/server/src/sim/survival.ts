@@ -1,4 +1,4 @@
-import { Act, Kind } from '@worldsim/protocol';
+import { Act, Kind, RECIPES_ALL, RESOURCES, PLACEABLE, WEAPONS, DEFENCE, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import type { World } from './world.js';
 
@@ -10,30 +10,30 @@ import type { World } from './world.js';
  * Commands use these as task skills (gather / craft / build / tend in sim/tasks.ts), and people also decide on
  * their own once an hour: a fire for the evening, a hut when there are not enough roofs, an axe, a wood pile.
  */
-export const RES = ['wood', 'stone', 'scrap'] as const;
-export const TOOLS = ['axe', 'spear'] as const;
+export const RES = RESOURCES;
 export type Res = (typeof RES)[number];
-export type Inv = Partial<Record<Res | (typeof TOOLS)[number], number>>;
+/** Materials, tools, weapons, clothes and things to put down, by name. */
+export type Inv = Partial<Record<string, number>>;
 export const CAP = 20;
-export const RECIPES: Record<string, Inv> = {
-  axe: { wood: 2, stone: 1 },
-  spear: { wood: 2, scrap: 1 },
-  campfire: { wood: 3, stone: 2 },
-  hut: { wood: 12, stone: 4 },
-};
+/** Things made from a recipe (crafting, shared with the viewer: @worldsim/protocol craft.ts) plus the hut. */
+export const RECIPES: Record<string, Inv> = { hut: { wood: 12, stone: 4 } };
+for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
+/** Kept in the inventory (not put down): weapons, arrows and clothes. */
+const KEEP = new Set(['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet']);
 /** Game seconds of work. */
-const WORK = { chop: 120, dig: 100, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120 } as const;
+const WORK = { chop: 120, dig: 100, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120 } as const;
 /** What a storage crate keeps. */
 export type StashKey = 'food' | Res;
-export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number }
+export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number; [k: string]: number }
 const HOUR = 3600;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
 
 type JobKind = keyof typeof WORK;
 interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number }
+const LAMP_R = 3.5, BED_R = 1.3;
 
 /** Job kinds under the names the owner's rules use (sim/rules.ts). */
-const JOB_RULE: Record<string, string> = { chop: 'gather', dig: 'gather', fire: 'build', hut: 'build', pick: 'collect', plant: 'farm' };
+const JOB_RULE: Record<string, string> = { chop: 'gather', dig: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
 
 export class Survival {
   private readonly jobs = new Map<number, Job>();
@@ -43,7 +43,13 @@ export class Survival {
   readonly huts: number[][];
   /** Each map's camp: where the first fire or hut went up; later fires and huts go near it, people sleep there. */
   readonly camp: ({ x: number; y: number } | null)[];
-  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number };
+  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number };
+  /** Tile id of each thing that is put down (palisade, door, bed...). */
+  readonly placeTile = new Map<string, number>();
+  /** Players' things, by player name (agents keep theirs in Profile.inv). */
+  readonly pinv = new Map<string, Inv>();
+  /** The player's name of a character slot (set by the app). */
+  playerName: (i: number) => string = () => '';
   /** Each map's storage crate (made at the camp the first time someone stores something). */
   readonly stash: (Stash | null)[];
   /** Planted fields: `${map}:${tile}` -> game second of the next harvest (berries appear around it). */
@@ -58,7 +64,8 @@ export class Survival {
 
   constructor(private w: World) {
     const id = (n: string) => w.sc.tiles.find((t) => t.name === n)?.id ?? -1;
-    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm') };
+    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door') };
+    for (const n of PLACEABLE) if (id(n) >= 0) this.placeTile.set(n, id(n));
     for (const n of ['grass', 'dirt', 'sand', 'ashes']) if (id(n) >= 0) this.buildable.add(id(n));
     this.huts = w.maps.map(() => []);
     this.camp = w.maps.map(() => null);
@@ -67,10 +74,10 @@ export class Survival {
 
   /** What snapshots keep (fires, camps, crates, fields, huts). */
   save(): unknown {
-    return { fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts };
+    return { fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, pinv: [...this.pinv] };
   }
   load(d: unknown): void {
-    const v = d as { fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
+    const v = d as { pinv?: [string, Inv][]; fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
     if (!v) return;
     this.init();
     this.fires.clear(); for (const [k, t] of v.fires ?? []) this.fires.set(k, t);
@@ -79,6 +86,7 @@ export class Survival {
     v.camp?.forEach((c, m) => { if (m < this.camp.length && c) this.camp[m] = c; });
     v.stash?.forEach((c, m) => { if (m < this.stash.length) this.stash[m] = c; });
     v.huts?.forEach((h, m) => { if (m < this.huts.length) this.huts[m] = h; });
+    this.pinv.clear(); for (const [k, x] of v.pinv ?? []) this.pinv.set(k, x);
   }
   campOf(m: number): { x: number; y: number } | null { return this.camp[m] ?? null; }
   private setCamp(m: number, x: number, y: number): void { if (!this.camp[m]) { this.camp[m] = { x, y }; this.w.emit('camp', { map: this.w.maps[m]!.def.id, x, y }); } }
@@ -104,26 +112,148 @@ export class Survival {
     this.lastTick = w.tick;
   }
 
-  inv(i: number): Inv { const p = this.w.profileOf(i); if (!p) return {}; return (p.inv ??= {}); }
+  inv(i: number): Inv {
+    if (this.w.e.kind[i] === Kind.Player) {
+      const n = this.playerName(i);
+      if (!n) return {};
+      let v = this.pinv.get(n);
+      if (!v) this.pinv.set(n, (v = {}));
+      return v;
+    }
+    const p = this.w.profileOf(i); if (!p) return {}; return (p.inv ??= {});
+  }
+  /** Meat goes into the hands (it is food), leather and claws into the bag. */
+  gain(i: number, d: Partial<Record<string, number>>): void {
+    const e = this.w.e;
+    for (const [k, n] of Object.entries(d)) {
+      if (!n) continue;
+      if (k === 'meat') e.carry[i] = Math.min(5, e.carry[i]! + n);
+      else this.add(i, k, n);
+    }
+  }
+  /** What worn clothes take off a bite (0..0.5). */
+  defence(i: number): number {
+    const v = this.inv(i);
+    const body = Math.max((v.armor ?? 0) > 0 ? DEFENCE.armor! : 0, (v.clothes ?? 0) > 0 ? DEFENCE.clothes! : 0);
+    return Math.min(0.5, body + ((v.helmet ?? 0) > 0 ? DEFENCE.helmet! : 0));
+  }
+  /** The best weapon carried and how hard it hits (0 = none). */
+  weapon(i: number): [string, number] {
+    const v = this.inv(i);
+    let best: [string, number] = ['', 0];
+    for (const [k, d] of Object.entries(WEAPONS)) if ((v[k] ?? 0) > 0 && d > best[1]) best = [k, d];
+    return best;
+  }
+  /** A lamp burns within r metres of (x, y): zombies and wolves keep away. */
+  lampNear(m: number, x: number, y: number, r: number): boolean {
+    if (this.T.lamp < 0) return false;
+    const tm = this.w.maps[m]!.tiles, R = Math.ceil(r);
+    const cx = Math.floor(x), cy = Math.floor(y);
+    for (let yy = cy - R; yy <= cy + R; yy++) for (let xx = cx - R; xx <= cx + R; xx++) {
+      if (tm.inside(xx, yy) && tm.tiles[yy * tm.w + xx] === this.T.lamp && Math.hypot(xx + 0.5 - x, yy + 0.5 - y) <= r) return true;
+    }
+    return false;
+  }
+  /** Sleeping on a bed: rest comes twice as fast. */
+  onBed(m: number, x: number, y: number): boolean {
+    if (this.T.bed < 0) return false;
+    const tm = this.w.maps[m]!.tiles, cx = Math.floor(x), cy = Math.floor(y);
+    for (let yy = cy - 1; yy <= cy + 1; yy++) for (let xx = cx - 1; xx <= cx + 1; xx++) {
+      if (tm.inside(xx, yy) && tm.tiles[yy * tm.w + xx] === this.T.bed && Math.hypot(xx + 0.5 - x, yy + 0.5 - y) <= BED_R) return true;
+    }
+    return false;
+  }
+
+  /** A player's craft: the category and what they put in. The thing made, or why not. */
+  craftPut(i: number, cat: string, put: Partial<Record<string, number>>): { ok: true; r: Recipe } | { ok: false; code: string } {
+    const r = matchRecipe(cat, put);
+    if (!r) return { ok: false, code: 'noRecipe' };
+    if (!this.has(i, r.need)) return { ok: false, code: 'noMat' };
+    const cap = r.what === 'arrows' ? 30 : CAP;
+    if ((this.inv(i)[r.what] ?? 0) >= cap) return { ok: false, code: 'full' };
+    this.use(i, r.need);
+    const v = this.inv(i); v[r.what] = Math.min(cap, (v[r.what] ?? 0) + (r.n ?? 1));
+    this.w.emit('craft', { id: this.w.e.id(i), what: r.what, player: this.w.e.kind[i] === Kind.Player });
+    return { ok: true, r };
+  }
+
+  /** A player puts a thing down on the tile in front (a door or a window may go into a wall). */
+  placeFront(i: number, what: string): string {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
+    const tile = this.placeTile.get(what);
+    if (tile === undefined) return 'nothing';
+    if ((this.inv(i)[what] ?? 0) < 1) return 'noItem';
+    const a = e.angle[i]!;
+    const tx = Math.floor(e.x[i]! + Math.cos(a) * 1.1), ty = Math.floor(e.y[i]! + Math.sin(a) * 1.1);
+    if (!tm.inside(tx, ty) || w.land.inRing(m, tx, ty)) return 'noRoom';
+    const t = tm.get(tx, ty), wallish = t === this.T.woodwall || t === this.placeTile.get('palisade') || t === this.placeTile.get('stonewall') || t === this.T.floor;
+    const ok = this.buildable.has(t) || t === this.T.floor || t === 3 /* road */ || ((what === 'door' || what === 'window') && wallish);
+    if (!ok || (tm.solid[tile] || what === 'door' ? this.occupied(m, tx, ty) : false)) return 'noRoom';
+    for (const p of w.portals) if (p.from === m && Math.hypot(p.x - tx, p.y - ty) < 4) return 'noRoom';
+    this.putDown(i, m, tx, ty, what);
+    return 'placed';
+  }
+  private putDown(i: number, m: number, tx: number, ty: number, what: string): void {
+    const w = this.w, tm = w.maps[m]!.tiles, tile = this.placeTile.get(what)!;
+    this.add(i, what, -1);
+    tm.set(tx, ty, tile);
+    const k = ty * tm.w + tx;
+    if (what === 'campfire') { this.fires.set(`${m}:${k}`, w.gameSec + FIRE_START); this.setCamp(m, tx + 0.5, ty + 0.5); }
+    if (what === 'bed') w.brain.addShelter(m, k);
+    w.emit('build', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx, ty });
+  }
+
+  /** A player's "use" by a tree, a rock or rubble: one piece of it now. Code, or '' (none in front). */
+  playerWork(i: number): { code: string; got?: Record<string, number> } | null {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
+    let best = -1, bd = 1.6;
+    for (let yy = Math.floor(e.y[i]!) - 2; yy <= Math.floor(e.y[i]!) + 2; yy++) for (let xx = Math.floor(e.x[i]!) - 2; xx <= Math.floor(e.x[i]!) + 2; xx++) {
+      if (!tm.inside(xx, yy)) continue;
+      const t = tm.get(xx, yy);
+      if (t !== this.T.tree && t !== this.T.rock && t !== this.T.rubble) continue;
+      const d = Math.hypot(xx + 0.5 - e.x[i]!, yy + 0.5 - e.y[i]!);
+      if (d < bd) { bd = d; best = yy * tm.w + xx; }
+    }
+    if (best < 0) return null;
+    const tx = best % tm.w, ty = (best / tm.w) | 0, t = tm.tiles[best]!;
+    if (t === this.T.tree && w.land.inRing(m, tx, ty)) return { code: 'tooThick' };
+    const got = this.take1(i, m, tx, ty, t);
+    return { code: t === this.T.tree ? 'chopped' : 'mined', got };
+  }
+  /** One piece from a tree / rock / rubble tile (it wears down): what was got. */
+  private take1(i: number, m: number, tx: number, ty: number, t: number): Record<string, number> {
+    const w = this.w, tm = w.maps[m]!.tiles, got: Record<string, number> = {};
+    if (t === this.T.tree) { tm.damage(tx, ty, 20); got.wood = (this.inv(i).axe ?? 0) > 0 ? 2 : 1; }
+    else if (t === this.T.rock) { tm.damage(tx, ty, 30); got.stone = 1; if (w.rng.chance(0.4)) got.ore = 1; }
+    else { tm.damage(tx, ty, 10); if (w.rng.chance(0.5)) got.brick = 1; else got.stone = 1; if (w.rng.chance(0.3)) got.scrap = 1; }
+    for (const [k, n] of Object.entries(got)) this.add(i, k, n);
+    w.emit('gather', { id: w.e.id(i), what: Object.keys(got).join('+'), n: 1, map: w.maps[m]!.def.id });
+    return got;
+  }
   has(i: number, need: Inv): boolean { const v = this.inv(i); return Object.entries(need).every(([k, n]) => (v[k as Res] ?? 0) >= n!); }
   /** What is missing for a recipe: [[res, count], ...]. */
   missing(i: number, what: string): [Res, number][] {
-    const need = RECIPES[what] ?? {}, v = this.inv(i), out: [Res, number][] = [];
+    const v = this.inv(i), out: [Res, number][] = [];
+    const lack = (nd: Inv) => Object.entries(nd).reduce((s, [k, n]) => s + Math.max(0, n! - (v[k] ?? 0)), 0);
+    let need = RECIPES[what] ?? {};
+    for (const r of RECIPES_ALL) if (r.what === what && lack(r.need) < lack(need)) need = r.need;
     for (const [k, n] of Object.entries(need)) if ((v[k as Res] ?? 0) < n!) out.push([k as Res, n! - (v[k as Res] ?? 0)]);
     return out;
   }
-  private add(i: number, k: keyof Inv, n: number): void { const v = this.inv(i); v[k] = Math.max(0, Math.min(CAP, (v[k] ?? 0) + n)); }
-  private use(i: number, need: Inv): void { for (const [k, n] of Object.entries(need)) this.add(i, k as Res, -n!); }
+  add(i: number, k: string, n: number): void { const v = this.inv(i); v[k] = Math.max(0, Math.min(k === 'arrows' ? 30 : CAP, (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
+  private use(i: number, need: Inv): void { for (const [k, n] of Object.entries(need)) this.add(i, k, -n!); }
 
   /** Make a tool now (materials are used up). True or why not. */
   craft(i: number, what: string): true | string {
-    if (!(TOOLS as readonly string[]).includes(what)) return `I can't make ${what}`;
+    const list = RECIPES_ALL.filter((r) => r.what === what);
+    if (!list.length) return `I can't make ${what}`;
     const rule = this.w.rules.forbidden(i, 'craft');
     if (rule) return `I must not: "${rule}"`;
-    if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
-    if ((this.inv(i)[what as 'axe'] ?? 0) >= 1) return true;
-    this.use(i, RECIPES[what]!);
-    this.add(i, what as 'axe', 1);
+    const r = list.find((x) => this.has(i, x.need));
+    if (!r) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
+    if (KEEP.has(what) && what !== 'arrows' && (this.inv(i)[what] ?? 0) >= 1) return true;
+    this.use(i, r.need);
+    this.add(i, what, r.n ?? 1);
     this.w.emit('craft', { id: this.w.e.id(i), what });
     return true;
   }
@@ -134,16 +264,36 @@ export class Survival {
 
   /** Start getting one piece of a resource: the nearest tree (wood) or rubble (stone, scrap). True or why not. */
   gather(i: number, what: Res): true | string {
-    const tile = what === 'wood' ? this.T.tree : this.T.rubble;
-    if (tile < 0) return `there is no ${what} here`;
-    const t = this.nearestTile(i, tile, 60);
-    if (t < 0) return what === 'wood' ? 'there are no trees near here' : 'there is no rubble near here';
-    return this.begin(i, { kind: what === 'wood' ? 'chop' : 'dig', m: this.w.e.map[i]!, tx: t % this.W(i), ty: (t / this.W(i)) | 0, work: 0 });
+    if (what === 'leather' || what === 'claw') return this.hunt(i, what === 'claw' ? 'wolf' : '');
+    const tiles = what === 'wood' ? [this.T.tree] : what === 'ore' ? [this.T.rock] : what === 'stone' ? [this.T.rubble, this.T.rock] : [this.T.rubble];
+    let t = -1, bd = Infinity;
+    const e = this.w.e, W = this.W(i);
+    for (const tile of tiles) {
+      if (tile < 0) continue;
+      const k = this.nearestTile(i, tile, 60);
+      if (k >= 0) { const d = Math.hypot((k % W) - e.x[i]!, ((k / W) | 0) - e.y[i]!); if (d < bd) { bd = d; t = k; } }
+    }
+    if (t < 0) return what === 'wood' ? 'there are no trees near here' : what === 'ore' ? 'there are no rocks near here' : 'there is no rubble near here';
+    return this.begin(i, { kind: what === 'wood' ? 'chop' : 'dig', m: this.w.e.map[i]!, tx: t % W, ty: (t / W) | 0, work: 0 });
+  }
+
+  /** Go hunting: the nearest animal (of that kind) within 90 m. The brain does the chase (Brain.hunt). */
+  hunt(i: number, what: string): true | string {
+    const w = this.w, e = w.e, q = what.toLowerCase();
+    const rule = w.rules.forbidden(i, 'hunt') ?? w.rules.forbidden(i, 'fight');
+    if (rule) return `I must not: "${rule}"`;
+    const type = /rabbit|lapin|conejo|أرنب/.test(q) ? 0 : /deer|cerf|ciervo|غزال/.test(q) ? 1 : /boar|sanglier|jabal|خنزير/.test(q) ? 2 : /wolf|loup|lobo|ذئب/.test(q) ? 3 : /bear|ours|oso|دب/.test(q) ? 4 : -1;
+    let a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90, type);
+    if (a < 0 && type >= 0) a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90);
+    if (a < 0) return 'I found no animals near here';
+    if (e.sub[a] === 4 && this.weapon(i)[1] < 30 && type !== 4) { const b = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90, w.rng.chance(0.5) ? 0 : 1); if (b >= 0) a = b; } // not a bear with bare hands
+    return w.brain.hunt(i, e.id(a)) ? true : 'I cannot get to it';
   }
 
   /** Start building a campfire or a hut near (x, y) (default: where they stand). Materials are used when it is done. */
-  build(i: number, what: 'campfire' | 'hut', x?: number, y?: number): true | string {
+  build(i: number, what: string, x?: number, y?: number): true | string {
     if (!this.enabled) return 'this world has no buildings';
+    if (what !== 'campfire' && what !== 'hut') return this.buildThing(i, what);
     if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
     const e = this.w.e, m = e.map[i]!, camp = this.camp[m];
     // Near the camp when there is one (a village grows), else where they stand.
@@ -168,6 +318,28 @@ export class Survival {
     }
     // Stand just outside the door, at (x0 + 2, y0 + 5).
     return this.begin(i, { kind: 'hut', m, tx: x0 + 2, ty: y0 + 5, work: 0, tiles: [...floor, ...walls] });
+  }
+
+  /** Put down a palisade / spikes / wall / door / window / bed / lamp near the camp (a bed: inside a hut). Made first if needed. */
+  private buildThing(i: number, what: string): true | string {
+    if (!this.placeTile.has(what)) return `I can't build ${what}`;
+    if ((this.inv(i)[what] ?? 0) < 1 && !this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, camp = this.camp[m];
+    let s = -1;
+    if (what === 'bed') { // a hut's floor with nothing on it
+      for (const door of this.huts[m]!) {
+        if (door < 0) continue;
+        const x0 = (door % tm.w) - 1, y0 = ((door / tm.w) | 0) - 4;
+        for (let yy = 0; yy < 3 && s < 0; yy++) for (let xx = 0; xx < 3 && s < 0; xx++) {
+          const k = (y0 + yy) * tm.w + x0 + xx;
+          if (tm.tiles[k] === this.T.floor && !(xx === 1 && yy === 2)) s = k;
+        }
+        if (s >= 0) break;
+      }
+    }
+    if (s < 0) s = this.site(m, camp?.x ?? e.x[i]!, camp?.y ?? e.y[i]!, 1, 1, what === 'lamp' ? 10 : 16);
+    if (s < 0) return 'I found no place for it';
+    return this.begin(i, { kind: 'place', m, tx: s % tm.w, ty: (s / tm.w) | 0, work: 0, what });
   }
 
   /** Put wood on the nearest fire (within 40 m). */
@@ -224,7 +396,7 @@ export class Survival {
   /** Take n of something from the camp's crate. */
   take(i: number, what: StashKey, n: number): true | string {
     const e = this.w.e, m = e.map[i]!, st = this.stash[m];
-    if (!st || st[what] <= 0) return `there is no ${what} in the store`;
+    if (!st || (st[what] ?? 0) <= 0) return `there is no ${what} in the store`;
     const W = this.W(i);
     return this.begin(i, { kind: 'take', m, tx: st.t % W, ty: (st.t / W) | 0, work: 0, what, n });
   }
@@ -398,19 +570,20 @@ export class Survival {
     switch (j.kind) {
       case 'chop': {
         if (tm.tiles[k] !== this.T.tree) return 'someone else cut that tree';
-        tm.damage(j.tx, j.ty, 20);
-        const n = (this.inv(i).axe ?? 0) > 0 ? 2 : 1;
-        this.add(i, 'wood', n);
-        w.emit('gather', { id, what: 'wood', n, map: mapId });
+        this.take1(i, j.m, j.tx, j.ty, this.T.tree);
+        return true;
+      }
+      case 'place': {
+        if (!this.buildable.has(tm.tiles[k]!) && tm.tiles[k] !== this.T.floor) return 'the ground there is taken';
+        if (this.occupied(j.m, j.tx, j.ty) && j.what !== 'bed') return 'someone is in the way';
+        if ((this.inv(i)[j.what!] ?? 0) < 1) { const r = this.craft(i, j.what!); if (r !== true) return r; }
+        this.putDown(i, j.m, j.tx, j.ty, j.what!);
         return true;
       }
       case 'dig': {
-        if (tm.tiles[k] !== this.T.rubble) return 'that rubble is gone';
-        tm.damage(j.tx, j.ty, 10);
-        this.add(i, 'stone', 1);
-        const scrap = w.rng.chance(0.35);
-        if (scrap) this.add(i, 'scrap', 1);
-        w.emit('gather', { id, what: scrap ? 'stone+scrap' : 'stone', n: 1, map: mapId });
+        if (tm.tiles[k] !== this.T.rubble && tm.tiles[k] !== this.T.rock) return 'that is gone';
+        this.take1(i, j.m, j.tx, j.ty, tm.tiles[k]!);
+        void mapId;
         return true;
       }
       case 'fire': {
@@ -449,13 +622,13 @@ export class Survival {
           const n = what === 'food' ? e.carry[i]! : this.inv(i)[what as Res] ?? 0;
           if (n <= 0) return `I have no ${what}`;
           if (what === 'food') e.carry[i] = 0; else this.add(i, what as Res, -n);
-          st[what] += n;
+          st[what] = (st[what] ?? 0) + n;
           w.emit('store', { id, what, n, total: st[what], map: mapId });
           return true;
         }
         const room = what === 'food' ? 5 - e.carry[i]! : CAP - (this.inv(i)[what as Res] ?? 0);
-        const n = Math.min(j.n ?? 1, st[what], room);
-        if (n <= 0) return st[what] <= 0 ? `there is no ${what} left in the store` : 'my hands are full';
+        const n = Math.min(j.n ?? 1, st[what] ?? 0, room);
+        if (n <= 0) return (st[what] ?? 0) <= 0 ? `there is no ${what} left in the store` : 'my hands are full';
         st[what] -= n;
         if (what === 'food') e.carry[i]! += n; else this.add(i, what as Res, n);
         w.emit('take', { id, what, n, left: st[what], map: mapId });
@@ -522,6 +695,8 @@ export class Survival {
     return 'nothing to do';
   }
 
+  private countTiles(m: number, t: number): number { if (t < 0) return 0; let n = 0; for (const x of this.w.maps[m]!.tiles.tiles) if (x === t) n++; return n; }
+
   // ------------------------------------------------------------------ where
   /** Someone (or something) is standing on that tile. */
   private occupied(m: number, tx: number, ty: number): boolean {
@@ -561,6 +736,7 @@ export class Survival {
     let best = -1, bd = r * r;
     for (let yy = Math.max(0, cy - r); yy <= Math.min(tm.h - 1, cy + r); yy++) for (let xx = Math.max(0, cx - r); xx <= Math.min(tm.w - 1, cx + r); xx++) {
       if (tm.tiles[yy * tm.w + xx] !== type) continue;
+      if (type === this.T.tree && this.w.land.inRing(e.map[i]!, xx, yy)) continue;
       const d = (xx - cx) ** 2 + (yy - cy) ** 2 + ((xx * 31 + yy * 17) % 7); // a little spread so not everyone picks the same tree
       if (d < bd) { bd = d; best = yy * tm.w + xx; }
     }
@@ -663,7 +839,14 @@ export class Survival {
       const fields = [...this.farms.keys()].filter((k) => k.startsWith(mi + ':')).length;
       if (camp && fields < Math.ceil(n / 2) && w.rng.chance(0.35)) { w.tasks.start(pick(), 'plant a field', 'myself', [{ do: 'farm' }]); if (!free.length) continue; }
       const i = pick();
-      if (!(this.inv(i).spear ?? 0) && (this.inv(i).scrap ?? 0) >= 1 && w.zombies.perNight > 0 && w.rng.chance(0.5)) w.tasks.start(i, 'make a spear', 'myself', [{ do: 'craft', what: 'spear' }]);
+      const v = this.inv(i), hasW = this.weapon(i)[1] > 0;
+      const prey = w.animals.nearest(mi, e.x[i]!, e.y[i]!, 70);
+      if ((v.leather ?? 0) >= 2 && !(v.clothes ?? 0) && !(v.armor ?? 0)) w.tasks.start(i, (v.ore ?? 0) >= 1 ? 'make armour' : 'make clothes', 'myself', [{ do: 'craft', what: (v.ore ?? 0) >= 1 ? 'armor' : 'clothes' }]);
+      else if ((v.ore ?? 0) >= 1 && (v.wood ?? 0) >= 1 && !(v.sword ?? 0)) w.tasks.start(i, 'make a sword', 'myself', [{ do: 'craft', what: 'sword' }]);
+      else if (prey >= 0 && (hasW || e.sub[prey]! < 2) && ((st?.food ?? 0) < n * 2 || e.hunger[i]! > 40) && w.rng.chance(0.45)) w.tasks.start(i, 'go hunting', 'myself', [{ do: 'hunt' }]);
+      else if (camp && this.huts[mi]!.length && w.rng.chance(0.12) && this.countTiles(mi, this.T.bed) < this.huts[mi]!.length) w.tasks.start(i, 'put a bed in a hut', 'myself', [{ do: 'build', what: 'bed' }]);
+      else if (camp && w.rng.chance(0.1) && !this.lampNear(mi, camp.x, camp.y, 10)) w.tasks.start(i, 'put a lamp at the camp', 'myself', [{ do: 'build', what: 'lamp' }]);
+      else if (!(this.inv(i).spear ?? 0) && (this.inv(i).scrap ?? 0) >= 1 && w.zombies.perNight > 0 && w.rng.chance(0.5)) w.tasks.start(i, 'make a spear', 'myself', [{ do: 'craft', what: 'spear' }]);
       else if (w.rng.chance(0.2)) w.tasks.start(i, 'search the ruins', 'myself', [{ do: 'loot', times: 2 }]);
       else if (!(this.inv(i).axe ?? 0) && w.rng.chance(0.5)) w.tasks.start(i, 'make an axe', 'myself', [{ do: 'craft', what: 'axe' }]);
       else if ((this.inv(i).wood ?? 0) < 6 && w.rng.chance(0.4)) w.tasks.start(i, 'gather firewood', 'myself', [{ do: 'gather', what: 'wood', times: 4 }]);

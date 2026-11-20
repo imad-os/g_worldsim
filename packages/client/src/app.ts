@@ -3,7 +3,8 @@ import {
   type ServerMsg, type Welcome,
 } from '@worldsim/protocol';
 import { Color, type Group } from 'three';
-import { t, tf, setLang } from './i18n.js';
+import { t, tf, setLang, type Key } from './i18n.js';
+import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, ANIMAL_NAMES, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { World3D, type Tier } from './gfx/world3d.js';
 import { buildChunk } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
@@ -58,7 +59,7 @@ let body = { radius: 0.3, walk: 1.4, run: 3.5 };
 
 const CAP = 4096;
 const eid = new Int32Array(CAP).fill(-1);
-const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP); // sub: item type / agent action
+const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP), atype = new Uint8Array(CAP); // sub: item type / agent action
 const px = new Float32Array(CAP), py = new Float32Array(CAP), nx = new Float32Array(CAP), ny = new Float32Array(CAP);
 const vx = new Float32Array(CAP), vy = new Float32Array(CAP), ang = new Float32Array(CAP);
 const face = new Float32Array(CAP), phase = new Float32Array(CAP), spd = new Float32Array(CAP), lastX = new Float32Array(CAP), lastY = new Float32Array(CAP);
@@ -81,7 +82,10 @@ let binds: Binds = cloneBinds(DEFAULT_BINDS);
 let capture: ActionId | null = null;
 let thoughtsOn = true;
 let seer = false, mindsAt = 0;
-let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number } | null = null;
+let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string } | null = null;
+/** The craft screen: the category open and what is put in. */
+let craftCat = '';
+const pot: Record<string, number> = {};
 /** Everyone I can go to (game menu > Go to someone): [entity id, name, map name]; null = asked, not answered yet. */
 let roster: [number, string, string][] | null = null;
 /** Past events (recorded zombie attacks): the list (null = asked), the one playing, the map to go back to. */
@@ -233,7 +237,8 @@ function onMsg(m: ServerMsg): void {
         note(`${d.name}: “${d.text}”`, 7000);
       }
       if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
-      if (m.kind === 'me') { meNeeds = m.data as typeof meNeeds; drawCard(); }
+      if (m.kind === 'me') { meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide')) menu.refresh(); }
+      if (m.kind === 'blocked') note(t('dBlocked'), 5000);
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
@@ -268,7 +273,7 @@ function onMsg(m: ServerMsg): void {
         const s = slotFor(r[o]!);
         if (s < 0) continue;
         const fresh = kind[s] === 0;
-        kind[s] = r[o + 1]! & 255; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255;
+        kind[s] = r[o + 1]! & 255; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255; atype[s] = (r[o + 1]! >>> 24) & 63;
         nx[s] = r[o + 2]! / POS_Q; ny[s] = r[o + 3]! / POS_Q; ang[s] = r[o + 4]! / ANG_Q;
         vx[s] = r[o + 5]! / POS_Q; vy[s] = r[o + 6]! / POS_Q;
         if (fresh) {
@@ -325,7 +330,7 @@ function buildOne(): void {
   const old = meshOf.get(k);
   if (old) g3.removeChunk(old);
   const geo = buildChunk(k & 0xffff, k >>> 16, (lx, ly) => tileAt(k, lx, ly), looks, tier === 'high');
-  meshOf.set(k, g3.addChunk(geo.ground, geo.props, geo.glow));
+  meshOf.set(k, g3.addChunk(geo.ground, geo.props, geo.glow, geo.pool));
 }
 
 function setMap(id: string): void {
@@ -574,6 +579,16 @@ function doAction(a: ActionId, pressed: boolean): void {
 }
 
 const ITEM_NAMES: Record<string, string> = {};
+const cap1 = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+/** A resource, a made thing or an animal, in the player's language. */
+function thing(k: string): string {
+  const key = (RESOURCES as readonly string[]).includes(k) || k === 'meat' ? 'r' + cap1(k) : (ANIMAL_NAMES as readonly string[]).includes(k) ? 'an' + cap1(k) : 'x' + cap1(k);
+  const v = t(key as Key);
+  return v === key ? k : v;
+}
+function needText(need: Partial<Record<string, number>>): string { return Object.entries(need).map(([k, n]) => `${n} ${thing(k)}`).join(' + '); }
+function gotText(got?: Record<string, number>): string { return got ? Object.entries(got).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${thing(k)}`).join(', ') : ''; }
+function catName(c: string): string { return t(('k' + cap1(c)) as Key); }
 // ------------------------------------------------------------ talking: speech (My PC API 24) or the keyboard
 let sttBusy = false;
 function sttOn(): boolean { try { return (MyPC.apiLevel ?? 0) >= 24 && !!MyPC.stt?.enabled?.(); } catch { return false; } }
@@ -628,6 +643,16 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
   if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); note(tf('dTp', d.name ?? ''), 3000); return; }
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code), 1800); return; }
+  const dd = d as typeof d & { got?: Record<string, number> };
+  if (d.code === 'aHit') { note(tf('aHit', thing(d.item ?? '')), 1500); return; }
+  if (d.code === 'aKilled') { note(tf('aKilled', thing(d.item ?? ''), gotText(dd.got)), 3500); return; }
+  if (d.code === 'chopped' || d.code === 'mined') { note(tf('dGot', gotText(dd.got)), 1500); return; }
+  if (d.code === 'crafted') { for (const k of Object.keys(pot)) delete pot[k]; note(tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
+  if (d.code === 'placed') { note(tf('dPlaced', thing(d.item ?? '')), 2500); return; }
+  const more: Record<string, Key> = { noRecipe: 'dNoRecipe', noMat: 'dNoMat', noRoom: 'dNoRoom', noItem: 'dNoItem', tooThick: 'dTooThick' };
+  if (more[d.code]) { note(t(more[d.code]!), 2800); return; }
+  if (d.code === 'wait') return;
+  if (d.code === 'full' && d.a === 'craft') { note(t('dBagFull'), 2500); return; }
   const map: Record<string, Parameters<typeof t>[0]> = {
     drank: 'dDrank', picked: 'dPicked', ate: 'dAte', sleep: 'dSleep', wake: 'dWake', noWater: 'dNoWater', nothing: 'dNothing',
     noFood: 'dNoFood', full: 'dFull', talk: 'dTalk', nobody: 'dNobody',
@@ -669,7 +694,7 @@ function buildPage(id: string): Page {
   switch (id) {
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
+      if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true }, { id: 'bag', label: t('mBag'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
@@ -687,6 +712,40 @@ function buildPage(id: string): Page {
       }
       if (past && !past.length) rows.push({ id: 'back', label: t('mBack') });
       return { id, title: t('mPast'), rows, wide: true, text: !past ? '…' : past.length ? t('pastHelp') : t('pastNone') };
+    case 'bag': {
+      const inv = meNeeds?.inv ?? {};
+      const items = Object.entries(inv).filter(([, n]) => n > 0);
+      const html = (items.length ? `<div class="bag">${items.map(([k, n]) => `<span class="bi"><b>${n}</b> ${esc(thing(k))}</span>`).join('')}</div>` : `<p>${esc(t('bagEmpty'))}</p>`)
+        + `<p class="dim">${meNeeds?.weapon ? esc(tf('cWeapon', thing(meNeeds.weapon))) + ' · ' : ''}${esc(tf('cDefence', String(meNeeds?.def ?? 0)))}${meNeeds?.carry ? ' · ' + esc(tf('carry', String(meNeeds.carry))) : ''}</p>`;
+      rows.push({ id: 'craft', label: t('mCraft'), sub: true }, { id: 'guide', label: t('mGuide'), sub: true });
+      for (const p of PLACEABLE) if ((inv[p] ?? 0) > 0) rows.push({ id: 'pl:' + p, label: tf('cPut', thing(p)), value: String(inv[p]) });
+      return { id, title: t('mBag'), rows, html, wide: true };
+    }
+    case 'craft':
+      for (const c of CATEGORIES) rows.push({ id: 'c:' + c, label: catName(c), sub: true });
+      return { id, title: t('mCraft'), rows, text: t('catHelp') };
+    case 'cat': {
+      const inv = meNeeds?.inv ?? {};
+      for (const r of RESOURCES) {
+        const have = inv[r] ?? 0;
+        if (!have && !pot[r]) continue;
+        rows.push({ id: 'r:' + r, label: cap1(thing(r)), value: `${pot[r] ?? 0} / ${have}` });
+      }
+      const rec = matchRecipe(craftCat, pot), inside = Object.entries(pot).filter(([, n]) => n > 0);
+      rows.push({ id: 'make', label: `${t('cMake')}: ${rec ? cap1(thing(rec.what)) + (rec.n && rec.n > 1 ? ' x' + rec.n : '') : t('cNoRecipe')}`, dim: !rec });
+      rows.push({ id: 'clear', label: t('cClear') }, { id: 'guide', label: t('mGuide'), sub: true });
+      const html = `<p>${esc(inside.length ? tf('cIn', needText(pot)) : t('cNothingIn'))}</p><p class="dim">${esc(t('catHelp'))}</p>`;
+      return { id, title: catName(craftCat), rows, html };
+    }
+    case 'guide': {
+      const inv = meNeeds?.inv ?? {};
+      RECIPES_ALL.forEach((r: Recipe, k: number) => {
+        if (craftCat && r.cat !== craftCat) return;
+        const ok = Object.entries(r.need).every(([x, n]) => (inv[x] ?? 0) >= n!);
+        rows.push({ id: 'g:' + k, label: `${craftCat ? '' : catName(r.cat) + ' · '}${cap1(thing(r.what))}${r.n && r.n > 1 ? ' x' + r.n : ''}`, value: `${needText(r.need)}${ok ? ' ' + t('cHave') : ''}` });
+      });
+      return { id, title: craftCat ? `${t('mGuide')} · ${catName(craftCat)}` : t('mGuide'), rows, wide: true, text: t('guideHelp') };
+    }
     case 'goto':
       for (const [id, name, map] of roster ?? []) rows.push({ id: 'p' + id, label: name, value: map });
       if (roster && !roster.length) rows.push({ id: 'back', label: t('mBack') });
@@ -713,6 +772,7 @@ function pickRow(page: string, row: string): void {
     if (row === 'resume') menu.close();
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
     else if (row === 'past') { past = null; send({ t: Msg.Do, a: 'replays' }); menu.push('past'); }
+    else if (row === 'bag') menu.push('bag');
     else if (row === 'goto') { roster = null; send({ t: Msg.Do, a: 'roster' }); menu.push('goto'); }
     else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
     else if (row === 'next') { menu.close(); followNext(); }
@@ -722,6 +782,30 @@ function pickRow(page: string, row: string): void {
   else if (page === 'past') {
     if (row === 'back') menu.back();
     else { menu.close(); note('…', 1500); send({ t: Msg.Do, a: 'replay', text: row.slice(1) }); }
+  }
+  else if (page === 'bag') {
+    if (row === 'craft') { craftCat = ''; menu.push('craft'); }
+    else if (row === 'guide') { craftCat = ''; menu.push('guide'); }
+    else if (row.startsWith('pl:')) { menu.close(); send({ t: Msg.Do, a: 'place', text: row.slice(3) }); }
+  }
+  else if (page === 'craft') { craftCat = row.slice(2); for (const k of Object.keys(pot)) delete pot[k]; menu.push('cat'); }
+  else if (page === 'cat') {
+    if (row.startsWith('r:')) { const r = row.slice(2), have = meNeeds?.inv?.[r] ?? 0; pot[r] = (pot[r] ?? 0) + 1 > Math.min(have, 4) ? 0 : (pot[r] ?? 0) + 1; menu.refresh(); }
+    else if (row === 'clear') { for (const k of Object.keys(pot)) delete pot[k]; menu.refresh(); }
+    else if (row === 'guide') menu.push('guide');
+    else if (row === 'make') {
+      const list = Object.entries(pot).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`).join(',');
+      if (!matchRecipe(craftCat, pot)) { note(t('dNoRecipe'), 2500); return; }
+      send({ t: Msg.Do, a: 'craft', text: `${craftCat}:${list}` });
+    }
+  }
+  else if (page === 'guide') {
+    const r = RECIPES_ALL[Number(row.slice(2))];
+    if (!r) return;
+    for (const k of Object.keys(pot)) delete pot[k];
+    for (const [k, n] of Object.entries(r.need)) pot[k] = n!;
+    if (craftCat === r.cat) menu.back(); // back to the craft screen, filled
+    else { craftCat = r.cat; menu.push('cat'); }
   }
   else if (page === 'goto') {
     if (row === 'back') menu.back();
@@ -804,11 +888,11 @@ function draw(now: number, dt: number): void {
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
   const r = g3.dist * 1.6 + 8;
   frameNo++;
-  P.begin(); g3.beginShots(); g3.beginItems();
+  P.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin();
   if (rp) { // a past event: only the recorded people and zombies
     rp.draw(P, dt, actName);
     g3.dist += (Math.max(16, Math.min(42, rp.span * 1.1 + 10)) - g3.dist) * Math.min(1, dt * 2);
-    P.end(); g3.endShots(); g3.endItems(); g3.render(); bubbles.hide();
+    P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.render(); bubbles.hide();
     return;
   }
   for (let i = 0; i < CAP; i++) {
@@ -818,7 +902,7 @@ function draw(now: number, dt: number): void {
     if (Math.abs(x - fx) > r || Math.abs(y - fy) > r) continue;
     if (kind[i] === Kind.Projectile) { g3.shot(x, y); continue; }
     if (kind[i] === Kind.Item) { g3.item(x, y, sub[i]!, eid[i]!); continue; }
-    if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat) continue;
+    if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat && kind[i] !== Kind.Animal) continue;
     // Walk cycle from the distance really covered on screen.
     const ddx = x - lastX[i]!, ddy = y - lastY[i]!, moved = Math.hypot(ddx, ddy);
     lastX[i] = x; lastY[i] = y;
@@ -832,6 +916,7 @@ function draw(now: number, dt: number): void {
     }
     phase[i] = (phase[i]! + moved * 4.2) % (Math.PI * 2);
     drawnX[i] = x; drawnY[i] = y; drawnF[i] = frameNo;
+    if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const zed = kind[i] === Kind.Threat;
     const look = zed ? ZOMBIE : i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
@@ -839,7 +924,7 @@ function draw(now: number, dt: number): void {
     if (kind[i] === Kind.Player) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
-  P.end(); g3.endShots(); g3.endItems();
+  P.end(); g3.endShots(); g3.endItems(); g3.animals.end();
   g3.render();
   // Thoughts over heads: only for players the owner allows (the server sends them to nobody else).
   if (seer && thoughtsOn && !menu.open && now - mindsAt < 4000) bubbles.draw(bubblePos, bubbleProject, fx, fy, actName);

@@ -103,6 +103,79 @@
       "solid": false,
       "cost": 1.5,
       "color": 6974014
+    },
+    {
+      "id": 15,
+      "name": "rock",
+      "solid": true,
+      "hp": 90,
+      "breaksTo": 2,
+      "color": 9078144
+    },
+    {
+      "id": 16,
+      "name": "wreck",
+      "solid": true,
+      "color": 8018504
+    },
+    {
+      "id": 17,
+      "name": "palisade",
+      "solid": true,
+      "hp": 200,
+      "breaksTo": 2,
+      "color": 9069632
+    },
+    {
+      "id": 18,
+      "name": "spikes",
+      "solid": true,
+      "hp": 120,
+      "breaksTo": 2,
+      "color": 8215354
+    },
+    {
+      "id": 19,
+      "name": "stonewall",
+      "solid": true,
+      "hp": 250,
+      "breaksTo": 8,
+      "color": 10130570
+    },
+    {
+      "id": 20,
+      "name": "door",
+      "solid": false,
+      "cost": 1,
+      "hp": 160,
+      "breaksTo": 4,
+      "color": 10119740
+    },
+    {
+      "id": 21,
+      "name": "window",
+      "solid": true,
+      "hp": 60,
+      "breaksTo": 8,
+      "color": 10470607
+    },
+    {
+      "id": 22,
+      "name": "bed",
+      "solid": false,
+      "cost": 3,
+      "hp": 40,
+      "breaksTo": 4,
+      "color": 11554876
+    },
+    {
+      "id": 23,
+      "name": "lamp",
+      "solid": true,
+      "shape": "circle",
+      "hp": 40,
+      "breaksTo": 2,
+      "color": 15913082
     }
   ],
   "maps": [
@@ -139,7 +212,44 @@
       "toX": 5,
       "toY": 96,
       "travel": 600,
-      "r": 2
+      "r": 2,
+      "exit": "east"
+    },
+    {
+      "id": "town-north",
+      "map": "town",
+      "x": 128,
+      "y": 3,
+      "to": "woods",
+      "toX": 30,
+      "toY": 6,
+      "travel": 900,
+      "r": 2,
+      "exit": "north"
+    },
+    {
+      "id": "town-south",
+      "map": "town",
+      "x": 128,
+      "y": 252,
+      "to": "woods",
+      "toX": 160,
+      "toY": 185,
+      "travel": 900,
+      "r": 2,
+      "exit": "south"
+    },
+    {
+      "id": "town-west",
+      "map": "town",
+      "x": 3,
+      "y": 128,
+      "to": "woods",
+      "toX": 185,
+      "toY": 96,
+      "travel": 1200,
+      "r": 2,
+      "exit": "west"
     },
     {
       "id": "woods-west",
@@ -150,7 +260,44 @@
       "toX": 248,
       "toY": 130,
       "travel": 600,
-      "r": 2
+      "r": 2,
+      "exitTo": "east"
+    },
+    {
+      "id": "woods-north",
+      "map": "woods",
+      "x": 30,
+      "y": 3,
+      "to": "town",
+      "toX": 128,
+      "toY": 8,
+      "travel": 900,
+      "r": 2,
+      "exitTo": "north"
+    },
+    {
+      "id": "woods-south",
+      "map": "woods",
+      "x": 160,
+      "y": 188,
+      "to": "town",
+      "toX": 128,
+      "toY": 248,
+      "travel": 900,
+      "r": 2,
+      "exitTo": "south"
+    },
+    {
+      "id": "woods-east",
+      "map": "woods",
+      "x": 188,
+      "y": 96,
+      "to": "town",
+      "toX": 8,
+      "toY": 128,
+      "travel": 1200,
+      "r": 2,
+      "exitTo": "west"
     }
   ],
   "agents": {
@@ -179,7 +326,8 @@
       "water"
     ],
     "shelter": [
-      "floor"
+      "floor",
+      "bed"
     ],
     "difficulty": 1,
     "items": [
