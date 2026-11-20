@@ -636,6 +636,26 @@ export class App {
         this.db.setMeta('seers', JSON.stringify([...s]));
         return { seers: [...s] };
       }
+      case 'mergePlayer': { // two names of one person (imad 2026-11-20: "imad (2)" -> "imad"): one character, one bag, every TV under "into"
+        const from = String(c.from ?? '').trim(), into = String(c.into ?? '').trim();
+        if (!from || !into || from === into) throw new Error('from and into are needed');
+        const e = w.e, a = this.net.residents.get(from), b = this.net.residents.get(into);
+        const ia = a !== undefined ? e.slot(a) : -1, ib = b !== undefined ? e.slot(b) : -1;
+        // The bag: added together.
+        const bagA = w.survival.pinv.get(from);
+        if (bagA) { const bagB = w.survival.pinv.get(into) ?? {}; for (const [k, n] of Object.entries(bagA)) bagB[k as keyof typeof bagB] = Math.min(20, (bagB[k as keyof typeof bagB] ?? 0) + (n ?? 0)); w.survival.pinv.set(into, bagB); w.survival.pinv.delete(from); }
+        if (ia >= 0 && ib >= 0) { w.profiles.delete(a!); w.remove(ia, 'merged'); } // "into" keeps its character (place, family)
+        else if (ia >= 0) { const p = w.profileOf(ia); if (p) { p.player = into; p.name = into; } this.net.residents.set(into, a!); }
+        this.net.residents.delete(from);
+        const pos = this.db.getMeta('pos:' + from);
+        if (pos && !this.db.getMeta('pos:' + into)) this.db.setMeta('pos:' + into, pos);
+        this.db.delMeta('pos:' + from);
+        if (this.players.has(into)) this.players.revoke(into); // an old TV under that name: the TV in use takes it
+        const renamed = this.players.rename(from, into);
+        const again = this.net.reconnect(from) + this.net.reconnect(into);
+        w.emit('merged', { from, into });
+        return { renamed, characters: ia >= 0 && ib >= 0 ? 'kept into, removed from' : ia >= 0 ? 'from renamed' : 'none to move', reconnected: again };
+      }
       case 'revoke': {
         const ok = this.players.revoke(String(c.name));
         if (!ok) throw new Error('no such player (players from .env are removed there)');

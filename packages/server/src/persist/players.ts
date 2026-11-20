@@ -88,6 +88,11 @@ export class Players {
 
   has(name: string): boolean { return !!this.db.sql.prepare('SELECT 1 FROM players WHERE lower(name) = lower(?)').get(name) || [...this.envViewers.keys()].some((k) => k.toLowerCase() === name.toLowerCase()); }
 
+  /** A TV's player takes another name (merging two names of one person): that name's other TVs keep working under it. */
+  rename(from: string, to: string): boolean {
+    return Number(this.db.sql.prepare('UPDATE players SET name = ? WHERE name = ?').run(to, from).changes) > 0;
+  }
+
   revoke(name: string): boolean {
     return Number(this.db.sql.prepare('DELETE FROM players WHERE name = ?').run(name).changes) > 0;
   }

@@ -188,6 +188,11 @@ test('pairing: a TV gets a code, the admin approves it, the TV keeps its own tok
       assert.equal(got.name, want);
       t.ws.close();
     }
+    // Two names of one person are merged: the TV of "sara (2)" is now "Sara" (the old "Sara" TV row gives way).
+    adm.send({ t: Msg.Admin, id: 8, c: { cmd: 'mergePlayer', from: 'sara (2)', into: 'Sara' } });
+    const mg = await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 8) as { ok: boolean; data: { renamed: boolean } };
+    assert.equal(mg.ok, true); assert.equal(mg.data.renamed, true);
+    assert.deepEqual((app.db.sql.prepare('SELECT name FROM players ORDER BY name').all() as { name: string }[]).map((r) => r.name).filter((n) => /sara/i.test(n)), ['Sara']);
     adm.send({ t: Msg.Admin, id: 9, c: { cmd: 'autoJoin', on: false } });
     assert.equal(((await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 9)) as { data: { on: boolean } }).data.on, false);
     const tv = new Client(url);

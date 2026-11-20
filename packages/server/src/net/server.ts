@@ -498,6 +498,17 @@ export class NetServer {
     for (const s of this.sessions.values()) if (s.role === 'admin') this.send(s, { t: Msg.Notice, kind, data });
   }
 
+  /** Close a player's connections without an error: their TVs connect again by themselves (after a rename). */
+  reconnect(name: string): number {
+    let n = 0;
+    for (const [id, s] of this.sessions) {
+      if (s.role !== 'viewer' || s.name !== name) continue;
+      if (s.ws) { s.ws.close(1012, 'again'); n++; }
+      this.sessions.delete(id);
+    }
+    return n;
+  }
+
   /** Close every connection of a player (after its token was revoked). */
   kick(name: string): number {
     let n = 0;
