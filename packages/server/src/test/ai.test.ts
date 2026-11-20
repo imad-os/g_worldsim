@@ -12,7 +12,7 @@ const fake = createServer((req, res) => {
   req.on('end', () => {
     seen.push({ url: req.url!, headers: req.headers, body: b ? JSON.parse(b) : null });
     res.setHeader('content-type', 'application/json');
-    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:4b', size: 2.5e9 }, { name: 'nomic-embed-text', size: 2.7e8 }, { name: 'llama3.2:latest', size: 2.0e9 }] }));
+    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:4b', size: 2.5e9 }, { name: 'nomic-embed-text', size: 2.7e8 }, { name: 'glm-5.2:cloud', size: 338 }, { name: 'tinyllama:latest', size: 6.4e8 }, { name: 'llama3.2:latest', size: 2.0e9 }] }));
     if (req.url === '/think/api/chat') return res.end(JSON.stringify({ message: { role: 'assistant', content: '<think>let me see</think>\n\nHello!' } }));
     if (req.url === '/old/api/chat') {
       const j = JSON.parse(b);
@@ -37,7 +37,7 @@ test('ai: Ollama models and chat (system + user, JSON format), switch to Gemini,
   const ai = new Ai({ ...AI_DEFAULTS, provider: 'none', geminiBase: base }, { gemini: 'gkey' }, log);
   await assert.rejects(ai.generate({ prompt: 'x' }), /off/);
   ai.apply({ provider: 'ollama', ollamaUrl: base + '/', model: 'qwen3:4b' });
-  assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b']);
+  assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b', 'tinyllama:latest']);
   const r = await ai.generate({ system: 'be brief', prompt: 'hello', json: true, maxTokens: 50 });
   assert.equal(parseJsonReply<{ say: string }>(r.text)!.say, 'hi from ollama');
   const chat = seen.find((s) => s.url === '/api/chat')!;
@@ -101,7 +101,7 @@ test('ai: any pasted Ollama address works (API paths and missing http:// are fix
   const ai = new Ai({ ...AI_DEFAULTS, provider: 'none' }, {}, log);
   ai.apply({ provider: 'ollama', ollamaUrl: base + '/api/tags' });
   assert.equal(ai.settings.ollamaUrl, base);
-  assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b']);
+  assert.deepEqual(await ai.models(), ['llama3.2:latest', 'qwen3:4b', 'tinyllama:latest']);
   ai.apply({ ollamaUrl: base + '/nothing' });
   await assert.rejects(ai.models(), (e: Error) => e.message.includes(`${base}/nothing/api/tags`) && /404/.test(e.message));
 });

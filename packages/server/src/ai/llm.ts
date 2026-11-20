@@ -63,7 +63,10 @@ export class Ai {
     if (!this.auto || (this.autoModel && Date.now() - this.autoAt < 30 * 60_000)) return;
     try {
       const j = await this.http(`${this.s.ollamaUrl}/api/tags`, undefined, this.ollamaHeaders(), 15000) as { models?: { name: string; size?: number }[] };
-      const list = (j.models ?? []).filter((m) => !/embed/i.test(m.name)).sort((a, b) => (a.size ?? Infinity) - (b.size ?? Infinity));
+      // Skip what can't plan: embedding models, ":cloud" entries (a few hundred bytes, need ollama.com sign-in: HTTP 401),
+      // anything under 50 MB, and tinyllama (can't keep to the JSON format, measured on imad's server 2026-11-20).
+      const list = (j.models ?? []).filter((m) => !/embed|tinyllama/i.test(m.name) && !/:cloud$|-cloud$/i.test(m.name) && (m.size === undefined || m.size >= 50e6))
+        .sort((a, b) => (a.size ?? Infinity) - (b.size ?? Infinity));
       if (list[0]) { this.autoModel = list[0].name; this.autoAt = Date.now(); this.log.info('ai model picked', { model: this.autoModel, size: list[0].size }); }
     } catch (err) { this.log.warn('ai model lookup failed', { err: String(err) }); }
   }
@@ -97,7 +100,7 @@ export class Ai {
   async models(): Promise<string[]> {
     if (this.s.provider === 'ollama') {
       const j = await this.http(`${this.s.ollamaUrl}/api/tags`, undefined, this.ollamaHeaders(), 15000) as { models?: { name: string }[] };
-      return (j.models ?? []).map((m) => m.name).filter((n) => !/embed/i.test(n)).sort(); // embedding models can't chat
+      return (j.models ?? []).map((m) => m.name).filter((n) => !/embed/i.test(n) && !/:cloud$|-cloud$/i.test(n)).sort(); // embedding models can't chat; :cloud ones answer 401 here
     }
     if (this.s.provider === 'gemini') {
       if (!this.keys.gemini) throw new AiError('no-key', 'GEMINI_API_KEY is missing in .env');
