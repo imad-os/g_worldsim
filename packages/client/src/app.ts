@@ -8,6 +8,7 @@ import { World3D, type Tier } from './gfx/world3d.js';
 import { buildChunk } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
 import type { PersonLook } from './gfx/people.js';
+import { ReplayPlayer, gameTime, type ReplayRec, type ReplaySummary } from './replay.js';
 import {
   ACTIONS, DEFAULT_BINDS, cloneBinds, padAction, remoteAction, remoteName, actionLabel, Menu, Bubbles, bar, personHtml,
   type ActionId, type Binds, type Page, type Row, type PersonInfo,
@@ -83,6 +84,10 @@ let seer = false, mindsAt = 0;
 let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number } | null = null;
 /** Everyone I can go to (game menu > Go to someone): [entity id, name, map name]; null = asked, not answered yet. */
 let roster: [number, string, string][] | null = null;
+/** Past events (recorded zombie attacks): the list (null = asked), the one playing, the map to go back to. */
+let past: ReplaySummary[] | null = null;
+let rp: ReplayPlayer | null = null;
+let rpBackMap = '', rpDist = 24;
 let info: PersonInfo | null = null, infoFor = -1, infoAt = 0;
 const drawnX = new Float32Array(CAP), drawnY = new Float32Array(CAP), drawnF = new Uint32Array(CAP);
 let frameNo = 0;
@@ -342,8 +347,32 @@ function sendView(): void { if (welcome) send({ t: Msg.View, map, x: focusX(), y
 // ------------------------------------------------------------ play: my character
 function meSlot(): number { return meId >= 0 ? slotOf.get(meId) ?? -1 : -1; }
 function playing(): boolean { return how === 'play' && meId >= 0 && !meTransit; }
-function focusX(): number { return playing() && predOk ? predX : camX; }
-function focusY(): number { return playing() && predOk ? predY : camY; }
+function focusX(): number { return rp ? rp.cx : playing() && predOk ? predX : camX; }
+function focusY(): number { return rp ? rp.cy : playing() && predOk ? predY : camY; }
+
+// ------------------------------------------------------------ past events: a recorded zombie attack, played back
+function startReplay(rec: ReplayRec): void {
+  if (rp) rp.close();
+  if (!rpBackMap) rpBackMap = map;
+  if (rec.map !== map) setMap(rec.map);
+  if (how === 'play') send({ t: Msg.Input, mx: 0, my: 0, run: false, seq: ++seq });
+  held.left = held.right = held.up = held.down = false;
+  if (!rp && g3) rpDist = g3.dist;
+  rp = new ReplayPlayer(rec, mapName(rec.map), clockScale, (id) => lookFor(id), ZOMBIE);
+  document.body.classList.add('replaying');
+  snapCam = true; sendView();
+  MyPC.announce?.(t('rpTitle'));
+}
+function stopReplay(): void {
+  if (!rp) return;
+  rp.close(); rp = null;
+  if (g3) g3.dist = rpDist;
+  document.body.classList.remove('replaying');
+  if (rpBackMap && rpBackMap !== map) setMap(rpBackMap);
+  rpBackMap = '';
+  predOk = false; snapCam = true; sendView();
+  openMenu('past');
+}
 
 function solidAt(x: number, y: number): boolean {
   const tx = Math.floor(x), ty = Math.floor(y);
@@ -546,7 +575,10 @@ function doAction(a: ActionId, pressed: boolean): void {
 }
 
 const ITEM_NAMES: Record<string, string> = {};
-function onDid(d: { a: string; ok: boolean; code: string; item?: string; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+  if (d.code === 'replays') { past = d.list as never; if (menu.page === 'past') menu.refresh(); return; }
+  if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }
+  if (d.code === 'noReplay') { note(t('pastNone'), 2500); return; }
   if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
   if (d.code === 'tp') { predX = d.x ?? predX; predY = d.y ?? predY; snapCam = true; note(tf('dTp', d.name ?? ''), 3000); return; }
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code), 1800); return; }
@@ -594,6 +626,7 @@ function buildPage(id: string): Page {
       if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
+      rows.push({ id: 'past', label: t('mPast'), sub: true });
       rows.push({ id: 'how', label: t(how === 'play' ? 'mWatch' : 'mPlay') });
       rows.push({ id: 'settings', label: t('mSettings'), sub: true }, { id: 'controls', label: t('mControls'), sub: true });
       return { id, title: t('mTitle'), rows };
@@ -601,6 +634,13 @@ function buildPage(id: string): Page {
     case 'actions':
       for (const a of ['use', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
       return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
+    case 'past':
+      for (const r of past ?? []) {
+        rows.push({ id: 'r' + r.id, label: `${gameTime(r.start, t('day'))} · ${r.people.join(', ') || '—'}`,
+          value: `${r.zombies} ${t('pastZ')} · ${r.secs} s${r.deaths.length ? ' · ✝ ' + r.deaths.join(', ') : r.killed ? ' · ' + tf('pastKilled', String(r.killed)) : ''}` });
+      }
+      if (past && !past.length) rows.push({ id: 'back', label: t('mBack') });
+      return { id, title: t('mPast'), rows, wide: true, text: !past ? '…' : past.length ? t('pastHelp') : t('pastNone') };
     case 'goto':
       for (const [id, name, map] of roster ?? []) rows.push({ id: 'p' + id, label: name, value: map });
       if (roster && !roster.length) rows.push({ id: 'back', label: t('mBack') });
@@ -626,12 +666,17 @@ function pickRow(page: string, row: string): void {
   if (page === 'root') {
     if (row === 'resume') menu.close();
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
+    else if (row === 'past') { past = null; send({ t: Msg.Do, a: 'replays' }); menu.push('past'); }
     else if (row === 'goto') { roster = null; send({ t: Msg.Do, a: 'roster' }); menu.push('goto'); }
     else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
     else if (row === 'next') { menu.close(); followNext(); }
     else if (row === 'map') { menu.close(); nextMap(); }
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
   } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
+  else if (page === 'past') {
+    if (row === 'back') menu.back();
+    else { menu.close(); note('…', 1500); send({ t: Msg.Do, a: 'replay', text: row.slice(1) }); }
+  }
   else if (page === 'goto') {
     if (row === 'back') menu.back();
     else { menu.close(); send({ t: Msg.Do, a: 'tp', text: row.slice(1) }); }
@@ -697,6 +742,7 @@ let snapCam = true;
 
 function update(now: number): void {
   if (mode !== 'world') return;
+  if (rp) { rp.update(STEP / 1000); return; }
   if (how === 'play') updatePlay(STEP / 1000, now); else updateWatch();
 }
 
@@ -713,6 +759,12 @@ function draw(now: number, dt: number): void {
   const r = g3.dist * 1.6 + 8;
   frameNo++;
   P.begin(); g3.beginShots(); g3.beginItems();
+  if (rp) { // a past event: only the recorded people and zombies
+    rp.draw(P, dt, actName);
+    g3.dist += (Math.max(16, Math.min(42, rp.span * 1.1 + 10)) - g3.dist) * Math.min(1, dt * 2);
+    P.end(); g3.endShots(); g3.endItems(); g3.render(); bubbles.hide();
+    return;
+  }
   for (let i = 0; i < CAP; i++) {
     if (eid[i] === -1) continue;
     let x = px[i]! + (nx[i]! - px[i]!) * a, y = py[i]! + (ny[i]! - py[i]!) * a;
@@ -804,6 +856,7 @@ function stopLoop(): void {
 const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
 /** Arrows / D-pad / stick as directions: the menu when it is open, else moving. */
 function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean): void {
+  if (rp && !menu.open) { if (pressed) { if (d === 'left' || d === 'right') rp.seek(d === 'left' ? -5 : 5); else if (!repeat) rp.faster(d === 'up'); } return; }
   if (menu.open) { if (pressed && (d === 'up' || d === 'down')) menu.input(d); return; }
   if (!repeat) held[d] = pressed;
 }
@@ -819,6 +872,7 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
   if (name in DIRS) { direction(name as keyof typeof DIRS, pressed, repeat); return; }
   if (capture) { if (pressed && !repeat) captured('remote', name); return; }
   if (mode !== 'world') { if (pressed && name === 'ok') screenOk(); return; }
+  if (rp && !menu.open) { if (pressed && !repeat && name === 'ok') rp.toggle(); return; }
   if (menu.open) {
     if (!pressed || repeat) return;
     if (name === 'ok') menu.input('ok');
@@ -834,6 +888,7 @@ function onPad(i: number, pressed: boolean): void {
   if (i >= 12 && i <= 16) return; // D-pad (directions) and Home (My PC's)
   if (capture) { if (pressed) captured('pad', i); return; }
   if (mode !== 'world') { if (pressed && i === 0) screenOk(); return; }
+  if (rp && !menu.open) { if (pressed) { if (i === 0) rp.toggle(); else if (i === 1 || padAction(binds, i) === 'menu') stopReplay(); } return; }
   if (menu.open) {
     if (!pressed) return;
     if (i === 0) menu.input('ok');
@@ -901,6 +956,7 @@ MyPC.init({
       if (!pressed) return pad ? true : undefined;
       if (capture) { capture = null; note(t('mControls'), 800); return true; }
       if (menu.open) { menu.input('back'); return true; }
+      if (rp && !pad) { stopReplay(); return true; }
       if (pad) return true; // a controller's B is the player's own button (Run by default)
       if (mode !== 'world') return false; // nothing to close: My PC's menu
       openMenu(); // the remote's Back: the game menu (twice quickly = My PC's menu)
@@ -914,6 +970,7 @@ MyPC.init({
       if (!pressed) return;
       if (mode !== 'world') { screenOk(); return; }
       if (menu.open) { menu.input('ok'); return; }
+      if (rp) { rp.toggle(); return; }
       doAction(dev === 'touch' ? 'use' : remoteAction(binds, 'ok') ?? 'use', true);
       return;
     }

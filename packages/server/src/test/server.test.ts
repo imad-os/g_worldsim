@@ -406,3 +406,34 @@ test('owner tools: strict rules from the panel, zombies per night and spawned ne
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test('past events: finished replays are kept in the database (the last 20) and sent to a viewer who asks', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws-'));
+  try {
+    const app = makeApp(dir);
+    await app.start();
+    after(() => app.stop());
+    const url = app.net.address().replace('http', 'ws') + '/ws';
+    const fake = (id: number) => ({ id, map: 'town', start: id * 100, end: id * 100 + 50, secs: 10, people: ['Lina'], zombies: 1, bites: 1, killed: 0, deaths: [], hz: 5, who: [[1, 0, 'Lina']], frames: '', events: [] });
+    for (let k = 0; k < 23; k++) app.world.replays.onDone(fake(app.world.replays.nextId++) as never);
+    const list = app.replayList();
+    assert.equal(list.length, 20);
+    assert.equal(list[0]!.id, 23, 'newest first');
+    assert.equal(app.db.getMeta('replay:3'), undefined, 'the oldest dropped');
+    const me = await connect(url, VIEW1);
+    await me.wait((m) => m.t === Msg.Welcome);
+    me.send({ t: Msg.Join });
+    await me.wait((m) => m.t === Msg.You);
+    const did = (code: string) => me.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'did' && (m as { data: { code: string } }).data.code === code).then((m) => (m as { data: any }).data);
+    me.send({ t: Msg.Do, a: 'replays' });
+    assert.equal((await did('replays')).list.length, 20);
+    me.send({ t: Msg.Do, a: 'replay', text: '22' });
+    const r = (await did('replay')).rec;
+    assert.equal(r.id, 22);
+    assert.deepEqual(r.who, [[1, 0, 'Lina']]);
+    me.ws.close();
+    await app.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});

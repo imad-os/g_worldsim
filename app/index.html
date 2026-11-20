@@ -39,6 +39,18 @@
   #gmenu .mt { font-size: 2.3vw; font-weight: 600; margin-bottom: 0.8vw; color: #ffd166; }
   #gmenu .mx { font-size: 1.3vw; color: #c9d1d9; margin-bottom: 1vw; line-height: 1.5; max-height: 40vh; overflow: hidden; }
   #note { z-index: 5; }
+  #replay { position: fixed; left: 2vw; right: 2vw; top: 1.5vw; padding: 1vw 1.4vw; background: rgba(8, 10, 14, 0.8); border-radius: 1vw; font-size: 1.3vw; }
+  .rp-t { font-size: 1.7vw; font-weight: 600; color: #ffd166; }
+  .rp-bar { height: 0.6vw; background: rgba(255, 255, 255, 0.15); border-radius: 0.3vw; margin: 0.6vw 0; overflow: hidden; }
+  .rp-bar i { display: block; height: 100%; background: #ffd166; }
+  .rp-s { display: flex; justify-content: space-between; gap: 2vw; color: #c9d1d9; }
+  .rp-people { display: flex; flex-wrap: wrap; gap: 0.4vw 1.6vw; margin-top: 0.5vw; color: #c9d1d9; }
+  .rp-p b { color: #fff; }
+  .rp-ev { margin-top: 0.4vw; min-height: 1.5vw; }
+  .re-bite, .re-death { color: #ff8a80; }
+  .re-killed { color: #8fe3a7; }
+  .re-flee { color: #ffd166; }
+  .replaying #card, .replaying #hint, .replaying #top { display: none; }
   .menu-open #note { top: auto; bottom: 1.2vw; background: rgba(8, 10, 14, 0.92); }
   #gmenu .ml { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 0.3vw; }
   #gmenu .mr { display: flex; justify-content: space-between; gap: 2vw; font-size: 1.65vw; padding: 0.6vw 1vw; border-radius: 0.7vw; flex: none; }
@@ -62,6 +74,6 @@
 <div id="note" class="bar" hidden></div>
 <div id="card" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.7.4"></script>
+<script type="module" src="game.js?v=0.7.5"></script>
 </body>
 </html>

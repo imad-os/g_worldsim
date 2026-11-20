@@ -118,3 +118,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   compiled once by words (4 languages) and refined ONCE by the AI (`Planner.refineRule`, only adds), then enforced by the engine in
   choose / talk / orders / tasks / survival jobs / courting / babies / fights, and written in every prompt about that person. A player a
   rule forbids talking to gets no answer and no AI request. Panel Strict rules card; admin `rules` { id?, add?, remove? }.
+- **Past events = zombie attack replays** (imad 2026-11-20, app 0.7.5; `sim/replays.ts`, client `replay.ts`): when a zombie goes for
+  someone, everyone within 30 m is sampled 5 times a second (int16 dm positions, angle, act, hp, flags) + events (bite, killed, death,
+  fight, flee, say; fight / flee once per 5 s per person), from 5 s before until 10 s quiet (max 3 min). Recordings with no event are
+  dropped (a zombie at a hut wall all night). Last 20 in SQLite meta `replays` (list) + `replay:<id>` (never in snapshots / cloud).
+  Viewer: game menu > Past events (Do `replays` / `replay` text = id) plays it on the 3D view (other entities hidden, camera fits the
+  group): A pause, left / right 5 s, up / down speed 0.5-4x, B / Back = back to the list. Proof script idea: spawn zombies near a
+  name, speed 3, wait for timeline event `replay`, then open it on the TV.
+- imad 2026-11-20: "every time you update server dont wait for me": every push to main is deployed on his PC without asking.

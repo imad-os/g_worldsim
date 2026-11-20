@@ -128,6 +128,7 @@ function describe(e: { kind: string; data: Record<string, unknown> }): string {
     case 'craft': return `${who(d.id)} made ${d.what === 'axe' ? 'an axe' : 'a ' + d.what}`;
     case 'store': return `${who(d.id)} stored ${d.n} ${d.what} (store: ${d.total})`;
     case 'loot': return `${who(d.id)} searched a ruin: ${d.got}`;
+    case 'replay': return `Zombie attack recorded (${d.secs} s, ${d.zombies} zombies, ${d.people || 'nobody'}): watch it in the game menu, Past events`;
     case 'ruleSet': return `New rule for ${(d.id as number) >= 0 ? who(d.id) : 'everyone'}: "${d.text}"`;
     case 'rule': return `${who(d.id)} kept the rule "${d.rule}" and did not talk with ${who(d.with)}`;
     case 'zombie': return d.how === 'killed' ? `A zombie was killed${(d.by as number) >= 0 ? ' by ' + who(d.by) : ''}` : d.how === 'dawn' ? 'A zombie crumbled at dawn' : `A zombie appeared in ${d.map} (${d.x}, ${d.y})${d.how === 'spawned' ? ' (panel)' : ''}`;

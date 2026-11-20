@@ -38,6 +38,8 @@ export class Db {
     this.sql.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').run(k, v);
   }
 
+  delMeta(k: string): void { this.sql.prepare('DELETE FROM meta WHERE k = ?').run(k); }
+
   tx<T>(fn: () => T): T {
     this.sql.exec('BEGIN IMMEDIATE');
     try { const r = fn(); this.sql.exec('COMMIT'); return r; }

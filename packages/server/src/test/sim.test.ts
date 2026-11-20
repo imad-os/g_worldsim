@@ -465,3 +465,24 @@ test('work: "collect food and store it" fills the camp store; looting the ruins 
   assert.ok(done && (done as { ok: boolean }).ok, `task ended ok: ${JSON.stringify(done)} ${JSON.stringify(ev)}`);
   assert.ok((ev.store ?? 0) >= 1 && (ev.loot ?? 0) >= 1, JSON.stringify(ev));
 });
+
+test('replays: a zombie attack is recorded (everyone near it, bites, kills), compact; quiet zombies make none', () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'zz' });
+  w.populate();
+  const e = w.e, reps: import('../sim/replays.js').Replay[] = [];
+  w.replays.onDone = (r) => reps.push(r);
+  w.zombies.spawn(e.map[0]!, e.x[0]! + 8, e.y[0]!, true);
+  for (let k = 0; k < (2 * 3600) / 30 * 20; k++) w.step();
+  assert.ok(reps.length >= 1, 'one recorded');
+  const r = reps[0]!;
+  assert.ok(r.secs >= 3 && r.secs <= 180, `${r.secs} s`);
+  assert.ok(r.people.length >= 1 && r.zombies >= 1, JSON.stringify(r.who));
+  assert.ok(r.bites + r.killed >= 1 && r.events.some((x) => x[1] === 'bite' || x[1] === 'killed'), JSON.stringify(r.events.slice(0, 5)));
+  // Frames decode: count, then rows of 7 int16; positions near where it happened.
+  const a = new Int16Array(new Uint8Array(Buffer.from(r.frames, 'base64')).buffer);
+  let k = 0, frames = 0;
+  while (k < a.length) { assert.ok(a[k]! >= 1 && a[k]! < 60); k += 1 + a[k]! * 7; frames++; }
+  assert.equal(k, a.length);
+  assert.equal(Math.round(frames / r.hz), r.secs);
+  assert.ok(JSON.stringify(r).length < 120_000, 'small');
+});

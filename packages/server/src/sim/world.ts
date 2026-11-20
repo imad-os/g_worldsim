@@ -11,6 +11,7 @@ import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Survival } from './survival.js';
 import { Rules } from './rules.js';
+import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
 import type { TileMap } from './tilemap.js';
 
@@ -68,6 +69,8 @@ export class World {
   readonly zombies: Zombies;
   /** The owner's strict rules (sim/rules.ts). */
   readonly rules: Rules;
+  /** Zombie attacks recorded for viewers to play back (sim/replays.ts). */
+  readonly replays: Replays;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -95,6 +98,7 @@ export class World {
     this.survival = new Survival(this);
     this.zombies = new Zombies(this);
     this.rules = new Rules(this);
+    this.replays = new Replays(this);
   }
   /** Game seconds per year of age. */
   get yearSec(): number { return this.brain.life.yearDays * 86400; }
@@ -295,6 +299,7 @@ export class World {
     this.life.tick();
     if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); }
     this.zombies.update();
+    this.replays.update();
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
       const k = e.kind[i]!;

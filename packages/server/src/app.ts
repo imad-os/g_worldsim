@@ -17,10 +17,11 @@ import { Ai, type AiSettings } from './ai/llm.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
+import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
-const LOGGED = new Set(['ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+const LOGGED = new Set(['replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
@@ -136,6 +137,8 @@ export class App {
     // Players do what people do; the owner (and whoever they allow) sees thoughts and plans.
     this.net.onDo = (name, player, a, text) => {
       const e = w.e;
+      if (a === 'replays') return { ok: true, code: 'replays', list: this.replayList() };
+      if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
       if (a === 'tp') return this.teleport(player, Number(text));
       if ((a === 'use' || a === 'hit') && e.map[player] !== NO_MAP) { // a zombie within reach: hit it
@@ -159,6 +162,15 @@ export class App {
     // The owner's strict rules (sim/rules.ts): everyone's are in the database, each person's in their profile.
     { const r = this.db.getMeta('rules_all'); if (r) { try { this.world.rules.all = JSON.parse(r) as Rule[]; } catch { /* broken: none */ } } }
     this.world.rules.resolve((n) => this.planner.whoIs(n));
+    // Zombie attacks as replays (sim/replays.ts): the last 20 in SQLite (never in snapshots or the cloud backup).
+    w.replays.nextId = (this.replayList()[0]?.id ?? 0) + 1;
+    w.replays.nameOf = (id) => { const s = w.e.slot(id); return this.net.characters().find(([, k]) => k === s)?.[0] ?? ''; };
+    w.replays.onDone = (r) => {
+      this.db.setMeta('replay:' + r.id, JSON.stringify(r));
+      const list = [summary(r), ...this.replayList()];
+      for (const old of list.splice(KEEP)) this.db.delMeta('replay:' + old.id);
+      this.db.setMeta('replays', JSON.stringify(list));
+    };
     await this.net.listen();
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
@@ -528,10 +540,16 @@ export class App {
     }
   }
 
+  /** The recorded zombie attacks, newest first (no frames). */
+  replayList(): ReplaySummary[] {
+    try { return JSON.parse(this.db.getMeta('replays') ?? '[]') as ReplaySummary[]; } catch { return []; }
+  }
+
   async stop(): Promise<void> {
     if (this.stopping) return;
     this.stopping = true;
     this.loop?.stop();
+    try { this.world?.replays.flush(); } catch { /* closing */ }
     for (const t of this.timers) clearInterval(t);
     await this.tunnel?.stop().catch(() => {});
     await this.net?.close();
