@@ -159,3 +159,16 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   a short press keeps it open (D-pad / arrows round it, A / OK do it, B / Back close). Items: use, eat, drink, sleep, pick up, put
   down (first placeable in the bag), bag, camera. Saved binds get new actions' default buttons when free.
 - Strings `i18n4.ts` (T4). Proof idea: fake pad with `__axis`, R3 x2 for the views, hold button 7 + axis for the wheel.
+
+## Control panel (imad 2026-11-20: "advanced, informative, '?' guides, responsive, hosted on GitHub")
+- Sources `packages/panel/src/` (no framework: `main.ts` shell + hash router, one `Screen` per page in `dashboard.ts`, `people.ts`,
+  `screens.ts`; `help.ts` = every "?" text; `charts.ts` SVG charts; `livemap.ts` canvas map), built by `npm run build` into
+  `panel/panel.js` (committed) next to `panel/index.html` + `panel/panel.css` (design tokens, dark / light, phone layout <= 900 px
+  with a bottom bar).
+- Hosted on GitHub Pages: https://imad-os.github.io/g_worldsim/panel/ (server address typed once, or `?server=<link>`), and by the
+  server itself at `/panel/`. It talks only over the WebSocket admin protocol, so ngrok's browser warning page never shows.
+- Server reads for it: `overview`, `history` (one row a minute, 24 h, memory only), `mapTiles`, `live`, `people`, `replays`,
+  `timeline { kind }`. Read-only admin commands are NOT written to the timeline (`READS` / `READ_BARE` in app.ts); changes are.
+- Dashboard widgets chosen in Settings (`ws_dash` in localStorage), theme / accent / compact / help buttons per browser.
+- Proof: `ADMIN_TOKEN=... node tools/panel-proof.mjs <server> <outdir>` (desktop + phone screenshots of every page;
+  `PANEL=<page url>` opens a copy from another origin, `DARK=1`).

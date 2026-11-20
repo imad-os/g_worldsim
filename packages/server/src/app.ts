@@ -21,6 +21,10 @@ import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
+/** Panel commands that only read: never written to the timeline. */
+const READS = new Set<string>(['stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+/** Commands that only read when they carry nothing but `cmd` (and `id`). */
+const READ_BARE = new Set<string>(['rules', 'zombies', 'life', 'planner']);
 const LOGGED = new Set(['replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
@@ -121,7 +125,7 @@ export class App {
       host: c.host, port: c.port, netHz: c.netHz, maxViewRadius: c.maxViewRadius, maxClients: c.maxClients,
       adminToken: this.secrets.adminToken, players: this.players,
       staticDirs: [
-        { prefix: '/panel/', dir: join(ROOT, 'packages/panel/www') },
+        { prefix: '/panel/', dir: join(ROOT, 'panel') }, // the same files GitHub Pages serves
         { prefix: '/app/', dir: join(ROOT, 'app') },
         { prefix: '/', dir: join(ROOT, 'packages/client/www') },
       ],
@@ -214,6 +218,8 @@ export class App {
     await this.net.listen();
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
+    this.sampleHistory();
+    this.timers.push(setInterval(() => this.sampleHistory(), 60_000));
     this.timers.push(setInterval(() => { void this.planner.tick(this.loop.paused).catch((err) => this.log.warn('planner', { err: String(err) })); }, 2000));
     this.timers.push(setInterval(() => { try { this.events.flush(); } catch (err) { this.log.error('event flush', { err: String(err) }); } }, 1000));
     if (c.cloud.enabled) {
@@ -266,6 +272,65 @@ export class App {
       zombies: { now: w.zombies.count(), perNight: w.zombies.perNight },
       camps: w.maps.flatMap((m, mi) => { const c = w.survival.campOf(mi); return c ? [{ map: m.def.id, x: Math.round(c.x), y: Math.round(c.y), huts: w.survival.huts[mi]!.length, fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length }] : []; }),
       ai: { ...(({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()), plans: this.planner.counts.plans, chats: this.planner.counts.chats, failures: this.planner.counts.failures },
+    };
+  }
+
+  /** The dashboard's history: one sample a minute, the last 24 hours (memory only: starts again with the server). */
+  readonly hist: number[][] = [];
+  sampleHistory(): void {
+    const w = this.world, e = w.e;
+    let n = 0, hu = 0, th = 0, ti = 0, lo = 0, hp = 0;
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] !== NO_MAP) { n++; hu += e.hunger[i]!; th += e.thirst[i]!; ti += e.tired[i]!; lo += e.lonely[i]!; hp += e.hp[i]!; }
+    const d = Math.max(1, n), m = this.monitor.sample(), r = (v: number) => Math.round(v * 10) / 10;
+    // [time ms, game sec, people, hunger, thirst, tired, lonely, hp, zombies, animals, ticks/s, cpu %, ram MB]
+    this.hist.push([Date.now(), Math.round(w.gameSec), n, r(hu / d), r(th / d), r(ti / d), r(lo / d), r(hp / d), w.zombies.count(), w.animals.count(), Math.round(this.loop.ticksLastSec), Math.round(m.cpuPct), Math.round(m.rssMb)]);
+    if (this.hist.length > 1440) this.hist.splice(0, this.hist.length - 1440);
+  }
+  /** The dashboard: who is alive, how they are, what each map holds. */
+  overview(): Record<string, unknown> {
+    const w = this.world, e = w.e;
+    let alive = 0, children = 0, pregnant = 0, partners = 0, asleep = 0, working = 0, talking = 0, hungry = 0, thirsty = 0, hurt = 0;
+    const need = { hunger: 0, thirst: 0, tired: 0, lonely: 0, hp: 0 }, acts: Record<number, number> = {};
+    const maps = w.maps.map((mp, mi) => ({ id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, type: mp.def.gen.type, people: 0, players: 0, online: 0, zombies: 0, animals: [0, 0, 0, 0, 0], items: 0,
+      camp: (() => { const c = w.survival.campOf(mi); return c ? [Math.round(c.x), Math.round(c.y)] : null; })(), huts: w.survival.huts[mi]?.length ?? 0,
+      fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length, store: w.survival.stash[mi] ?? null }));
+    for (let i = 0; i < e.hi; i++) {
+      const m = e.map[i]!; if (m === NO_MAP) continue;
+      const k = e.kind[i], mp = maps[m]!;
+      if (k === Kind.Agent) {
+        alive++; mp.people++;
+        need.hunger += e.hunger[i]!; need.thirst += e.thirst[i]!; need.tired += e.tired[i]!; need.lonely += e.lonely[i]!; need.hp += e.hp[i]!;
+        if (e.flags[i]! & EFlag.Child) children++;
+        if (e.flags[i]! & EFlag.Sleeping) asleep++;
+        if (e.hunger[i]! > 70) hungry++;
+        if (e.thirst[i]! > 70) thirsty++;
+        if (e.hp[i]! < 50) hurt++;
+        const a = e.act[i]!; acts[a] = (acts[a] ?? 0) + 1;
+        if (a === 11 || a === 12) working++;
+        if (a === 6) talking++;
+        const p = w.profiles.get(e.id(i));
+        if (p?.pregnant) pregnant++;
+        if (p && p.partner >= 0) partners++;
+      } else if (k === Kind.Threat) mp.zombies++;
+      else if (k === Kind.Animal) mp.animals[e.sub[i]!] = (mp.animals[e.sub[i]!] ?? 0) + 1;
+      else if (k === Kind.Item) mp.items++;
+    }
+    for (const [name, i] of this.net.characters()) { const m = e.map[i]!; if (m !== NO_MAP) { maps[m]!.players++; if (this.net.online(name)) maps[m]!.online++; } }
+    let dead = 0, born = 0, oldest = 0;
+    const causes: Record<string, number> = {};
+    for (const [, p] of w.profiles) {
+      if (p.died !== undefined) { dead++; causes[p.cause ?? '?'] = (causes[p.cause ?? '?'] ?? 0) + 1; }
+      if (p.generation > 0) born++;
+      oldest = Math.max(oldest, p.generation);
+    }
+    const d = Math.max(1, alive), r = (v: number) => Math.round((v / d) * 10) / 10;
+    return {
+      gameSec: w.gameSec, clockScale: w.opt.clockScale, yearDays: w.brain.life.yearDays, speed: this.loop.speed, paused: this.loop.paused,
+      alive, children, adults: alive - children, pregnant, couples: Math.floor(partners / 2), asleep, working, talking, hungry, thirsty, hurt,
+      needs: { hunger: r(need.hunger), thirst: r(need.thirst), tired: r(need.tired), lonely: r(need.lonely), hp: r(need.hp) }, acts,
+      dead, born, generations: oldest, causes, maps, animalNames: ANIMAL_NAMES, travelOpen: w.travelOpen,
+      rules: { all: w.rules.all.length, people: [...w.profiles.values()].reduce((s, p) => s + (p.rules?.length ?? 0), 0) },
+      zombiesNight: w.zombies.perNight, pairings: this.players.pending.size, replays: this.replayList().length,
     };
   }
 
@@ -353,7 +418,8 @@ export class App {
       return v;
     };
     const mapOf = (id: unknown) => { const m = w.mapIndex.get(String(id)); if (m === undefined) throw new Error('bad map'); return m; };
-    w.emit('admin', { who, cmd: c.cmd });
+    const reads = READS.has(c?.cmd) || (READ_BARE.has(c?.cmd) && Object.keys(c).every((k) => k === 'cmd' || k === 'id'));
+    if (!reads) w.emit('admin', { who, cmd: c.cmd }); // only changes are logged (the panel polls the reads)
     switch (c?.cmd) {
       case 'speed': this.loop.setSpeed(num(c.speed, 0.01, this.cfg.maxSpeed, 'speed')); return this.clock();
       case 'pause': this.loop.paused = !!c.paused; return this.clock();
@@ -496,10 +562,43 @@ export class App {
         this.db.setMeta('difficulty', String(w.brain.life.difficulty));
         return { value: w.brain.life.difficulty };
       }
+      case 'overview': return this.overview();
+      case 'history': return this.hist;
+      case 'replays': return this.replayList();
+      case 'mapTiles': {
+        const m = mapOf(c.map), mp = w.maps[m]!;
+        return { id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, tiles: mp.tiles.tiles, colors: w.sc.tiles.map((t) => t.color), names: w.sc.tiles.map((t) => t.name), solid: w.sc.tiles.map((t) => !!t.solid) };
+      }
+      case 'live': { // what moves on one map, for the panel's live map (small arrays, asked every few seconds)
+        const m = mapOf(c.map), e = w.e, r1 = (v: number) => Math.round(v * 10) / 10;
+        const people: [number, number, number, number, number][] = [], zombies: [number, number][] = [], animals: [number, number, number][] = [], items: [number, number][] = [];
+        for (let i = 0; i < e.hi; i++) {
+          if (e.map[i] !== m) continue;
+          const k = e.kind[i];
+          if (k === Kind.Agent) people.push([e.id(i), r1(e.x[i]!), r1(e.y[i]!), e.flags[i]!, e.act[i]!]);
+          else if (k === Kind.Threat) zombies.push([r1(e.x[i]!), r1(e.y[i]!)]);
+          else if (k === Kind.Animal) animals.push([e.sub[i]!, r1(e.x[i]!), r1(e.y[i]!)]);
+          else if (k === Kind.Item) items.push([r1(e.x[i]!), r1(e.y[i]!)]);
+        }
+        const players = this.net.characters().filter(([, i]) => e.map[i] === m).map(([name, i]) => [name, r1(e.x[i]!), r1(e.y[i]!), this.net.online(name) ? 1 : 0] as const);
+        const tw = w.maps[m]!.tiles.w, fires = [...w.survival.fires.keys()].filter((k) => k.startsWith(m + ':')).map((k) => { const t = Number(k.slice(String(m).length + 1)); return [t % tw, Math.floor(t / tw)]; });
+        const camp = w.survival.campOf(m);
+        return { map: w.maps[m]!.def.id, people, players, zombies, animals, items, fires, camp: camp ? [Math.round(camp.x), Math.round(camp.y)] : null, portals: w.portals.filter((p) => p.from === m).map((p) => [p.id, r1(p.x), r1(p.y)]) };
+      }
+      case 'people': { // everyone who ever lived (the dead too), for the People screen and family trees
+        const out = [];
+        for (const [id, p] of w.profiles) {
+          const i = w.e.slot(id), alive = i >= 0 && p.died === undefined && w.e.kind[i] === Kind.Agent;
+          out.push({ id, name: p.name, sex: p.sex, age: Math.floor(ageOf(p, p.died ?? w.gameSec, w.yearSec)), alive, died: p.died ?? null, cause: p.cause ?? null, generation: p.generation,
+            parents: p.parents.map((x) => this.nameOf(x)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null, children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).length,
+            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0 });
+        }
+        return out;
+      }
       case 'timeline': {
         const lim = c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 100;
         this.events.flush();
-        return this.events.recent(lim).map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
+        return this.events.recent(lim, typeof c.kind === 'string' && c.kind ? c.kind : undefined).map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
       }
       case 'life': {
         const L = w.brain.life;

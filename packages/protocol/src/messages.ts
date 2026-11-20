@@ -60,7 +60,7 @@ export type AdminCmd =
   /** World: drop food, difficulty (0.25 easy .. 3 hard), recent events. */
   | { cmd: 'supply'; map: string; x?: number; y?: number; n?: number }
   | { cmd: 'difficulty'; value: number }
-  | { cmd: 'timeline'; limit?: number }
+  | { cmd: 'timeline'; limit?: number; kind?: string }
   /** AI planner (milestone 6): settings, the last requests and answers, plan someone now, talk to someone. */
   | { cmd: 'planner'; on?: boolean; everyGameHours?: number; batch?: number; minGapSec?: number }
   | { cmd: 'aiLog' }
@@ -77,7 +77,14 @@ export type AdminCmd =
   | { cmd: 'planNow'; id: number }
   /** Tell a person what to do now (no AI): goto / follow (target = a name), stay, stop, or a goal (drink, forage...). */
   | { cmd: 'order'; id: number; kind: string; target?: string }
-  | { cmd: 'chat'; id: number; text: string };
+  | { cmd: 'chat'; id: number; text: string }
+  // Control panel 2 (2026-11-20): the dashboard's overview and history, a map's tiles, what moves on a map, everyone who ever lived, past events.
+  | { cmd: 'overview' }
+  | { cmd: 'history' }
+  | { cmd: 'mapTiles'; map: string }
+  | { cmd: 'live'; map: string }
+  | { cmd: 'people' }
+  | { cmd: 'replays' };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
 

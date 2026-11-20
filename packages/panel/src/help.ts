@@ -1,0 +1,84 @@
+import { icon } from './util.js';
+
+/** The "?" guides: one per card / setting. Short, plain words. */
+export const HELP: Record<string, [string, string]> = {
+  dashboard: ['Dashboard', 'What is going on right now. The tiles, charts and the live map refresh by themselves. Choose what this page shows in Settings > Dashboard.'],
+  kpiTime: ['Game time', 'The world has its own clock. At speed x1 one real minute is 10 game minutes. Change the speed or pause on the World page.'],
+  kpiPeople: ['People', 'People alive now (children are under 16). Couples can have babies when they are fed and fewer than the population limit are alive. Nobody new arrives: the town grows only by births.'],
+  kpiPlayers: ['Players', 'TVs paired to this world. Each player has a character that lives in the world all the time: asleep where they left it when the TV is off.'],
+  kpiZombies: ['Zombies', 'Zombies walking now. At 21:00 the number you set comes out and they crumble at dawn. The ones you spawn yourself stay until killed.'],
+  kpiAnimals: ['Animals', 'Rabbits, deer, boars, wolves and bears. Many in the woods, few in town. People and players hunt them for meat, leather and claws.'],
+  kpiDeaths: ['Births and deaths', 'Everyone who ever lived is kept, so family trees stay complete. See the People page, Dead tab.'],
+  kpiServer: ['Server', 'Ticks per second should stay at 20. If the PC is too slow the world runs slower than the speed you set. CPU and RAM are the server process on your PC.'],
+  kpiAi: ['AI brain', 'The model that plans for people and answers chats. Requests per hour are limited so the world never waits for it.'],
+  liveMap: ['Live map', 'Everything on the map, refreshed every few seconds. Blue = people, gold = players (dim when away), red = zombies, brown = animals, orange = fires, green ring = the camp, purple = roads out. Tap a person to open them.'],
+  needsChart: ['How people are', 'Average of everyone alive, one point a minute. Higher is better (food, water, rest are shown as how fine they are). The history starts again when the server restarts.'],
+  popChart: ['Population', 'People alive, zombies and animals over time, one point a minute.'],
+  acts: ['What people are doing', 'Everyone alive, by what they are doing right now.'],
+  alerts: ['Needs your attention', 'TVs waiting for a code, people starving or hurt, the AI failing, the world paused or the internet link down.'],
+  feed: ['Latest events', 'The newest things that happened. The Events page has all of them with filters.'],
+  mapsTable: ['Maps', 'Each map: who is there, zombies and animals, the camp (where the first fire or hut went up), huts, fires burning and the camp store.'],
+  people: ['People', 'Everyone alive, and the dead too (their family stays known). Tap someone for their page: needs, mind, talk, orders, family, rules and what happened to them.'],
+  person: ['Person', 'One person. Talk to them as if you were there, give orders they must obey, edit their needs and traits, see their memory and plans (from the AI).'],
+  pMind: ['Mind', 'Filled by the AI brain: mood, what they want to do now and why, and what they remember. Empty while the AI is off.'],
+  pTalk: ['Talk', 'You talk as the owner. They answer (with the AI, or built-in lines without it) and may do what you ask: "come to imad", "build a hut", "go and find a wife".'],
+  pOrder: ['Orders', 'An order is obeyed, not just suggested. Only being very thirsty or starving interrupts it. Work orders become a plan of steps (gather, craft, build).'],
+  pEdit: ['Edit', 'Needs are a lack: 0 = fine, 100 = desperate. hp is health (0 = dead). Traits shape how they act: strength, speed, bravery, sociability...'],
+  pFamily: ['Family', 'Parents, partner and children. Two single adults who talk a lot may become partners.'],
+  pRules: ['Their rules', 'Strict rules for this person only, in your own words. At most 5. The engine enforces them, and they are written in every AI prompt about this person.'],
+  world: ['World', 'The clock, how hard life is, ageing, the population limit, travel between maps, supply drops and saving.'],
+  speed: ['Speed', 'How fast the world runs. x1 = normal (1 real minute = 10 game minutes). High speeds need a fast PC: watch the Server tiles.'],
+  difficulty: ['Difficulty', 'How fast hunger, thirst and tiredness grow. 1 = normal, 0.5 = easy, 2 = hard.'],
+  ageing: ['Ageing', 'How many game days make one year of age. 1 day = a whole life in a few weeks of game time, 365 = real life.'],
+  maxPop: ['Population limit', 'No baby is conceived while this many people (or more) are alive.'],
+  travel: ['Travel', 'While closed, people stay in Old Town and wrecked cars block the 4 roads out. Players can always travel. Opening it clears the roads.'],
+  supply: ['Supply drop', 'Drops food portions on a map now, near its middle.'],
+  snapshot: ['Save now', 'The world is saved by itself every few minutes. This saves it right now.'],
+  zombies: ['Zombies', 'Set how many come out each night, spawn some now next to someone or at a place, or remove them all.'],
+  zSpawn: ['Spawn zombies', 'Next to a name (a person or a player), at a distance in metres, or at x / y on a map (empty = a random place). Spawned zombies stay until killed.'],
+  animals: ['Animals', 'How many of each animal live on each map. They come back by themselves every game hour, far from people.'],
+  animalTable: ['Animal guide', 'Health, speed, how they react and what a kill gives. Fire and lamps keep the dangerous ones away.'],
+  crafting: ['Crafting', 'Pick a category, put in the exact ingredients: the same ingredients make different things in different categories (1 wood + 1 ore = a sword in Weapons, a door in Furniture). People craft by themselves too.'],
+  stores: ['Camp stores', 'What people put in the crate at each camp.'],
+  holdings: ['Who has what', 'What each person carries in their bag.'],
+  rules: ['Strict rules', 'Your orders that are never broken, in your own words (any language): "never talk to Jade", "never leave the town". At most 5 for everyone and 5 per person. The AI reads each one once to understand it; then the engine enforces it.'],
+  ai: ['AI brain', 'Off = the built-in brain only. Gemini needs GEMINI_API_KEY in the server .env. Ollama = your own models at an address the server PC can reach.'],
+  aiUrl: ['Ollama address', 'The base address only, without /api, e.g. http://192.168.1.20:11434 or https://your-domain.com. It must work from the PC that runs the server (127.0.0.1 = that PC). A key for ollama.com goes in the server .env as OLLAMA_API_KEY.'],
+  aiModel: ['Model', 'A model name from "List models", e.g. qwen3:1.7b. Empty = the smallest installed model, the fastest.'],
+  planner: ['Planner', 'Every few game hours each person gets a plan from the AI: what to do, with whom, why, and what to remember. One request plans for several people of the same map.'],
+  aiLog: ['Requests and answers', 'The last requests sent to the AI and what it answered, with the time it took. Useful when people act strangely.'],
+  players: ['Players and TVs', 'A TV that opens the World app shows a 6-digit code: approve it here and give the player a name. "Sees thoughts" shows what people think over their heads on that TV.'],
+  pairings: ['TVs waiting', 'Codes shown on TVs right now. Approve with a name, or deny.'],
+  events: ['Events', 'Everything that happened, newest first. Filter by kind or search for a name.'],
+  replays: ['Past events', 'Zombie attacks recorded as replays (the last 20). Watch them on the TV: game menu > Past events.'],
+  server: ['Server', 'The server process on your PC: speed of the simulation, CPU and RAM, the internet link and saving.'],
+  tunnel: ['Internet link', 'How TVs and this panel reach your PC from outside. ngrok keeps the same address. Switching restarts the link (a few seconds offline).'],
+  settings: ['Settings', 'Settings of this panel on this device only: the server address, what the dashboard shows, the look.'],
+  address: ['Server address', 'The public link of your world server (the same one the TV app uses), e.g. https://something.ngrok-free.dev. This panel can be opened from GitHub and connects there.'],
+  token: ['Admin token', 'ADMIN_TOKEN in the server .env file on your PC. This device remembers it until you sign out.'],
+};
+
+export function help(key: string): string {
+  return HELP[key] ? `<button class="hq" data-help="${key}" aria-label="Help: ${HELP[key]![0]}" title="What is this?">${icon('help')}</button>` : '';
+}
+
+let open: HTMLElement | null = null;
+export function showHelp(btn: HTMLElement): void {
+  const key = btn.dataset.help!, h = HELP[key];
+  closeHelp();
+  if (!h) return;
+  const pop = document.createElement('div');
+  pop.className = 'pop';
+  pop.setAttribute('role', 'dialog');
+  pop.innerHTML = `<div class="pop-t">${h[0]}</div><div class="pop-b">${h[1]}</div>`;
+  document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect(), pw = Math.min(320, innerWidth - 24);
+  pop.style.width = pw + 'px';
+  let x = r.left + r.width / 2 - pw / 2;
+  x = Math.max(12, Math.min(innerWidth - pw - 12, x));
+  const below = r.bottom + 8 + pop.offsetHeight < innerHeight;
+  pop.style.left = x + 'px';
+  pop.style.top = (below ? r.bottom + 8 : Math.max(8, r.top - 8 - pop.offsetHeight)) + window.scrollY + 'px';
+  open = pop;
+}
+export function closeHelp(): void { open?.remove(); open = null; }

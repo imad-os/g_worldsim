@@ -126,6 +126,25 @@ test('server: viewers stream their area, auth and roles enforced, admin controls
     adm.send({ t: Msg.Admin, id: 11, c: { cmd: 'travel', open: true } });
     assert.deepEqual(((await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 11)) as { data: unknown }).data, { open: true });
 
+    // The control panel's reads: overview, live map, tiles, people, history; reads are not written to the timeline.
+    const ask = async (id: number, c: Record<string, unknown>) => {
+      adm.send({ t: Msg.Admin, id, c: c as never });
+      const r = (await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === id)) as unknown as { ok: boolean; data: never; error?: string };
+      assert.equal(r.ok, true, `${String(c.cmd)}: ${r.error}`);
+      return r.data as Record<string, unknown> & unknown[];
+    };
+    const ov = await ask(20, { cmd: 'overview' }) as unknown as { alive: number; maps: { id: string; people: number }[] };
+    assert.ok(ov.alive > 0 && ov.maps.length >= 2);
+    const live = await ask(21, { cmd: 'live', map: ov.maps[0]!.id }) as unknown as { people: unknown[] };
+    assert.ok(Array.isArray(live.people));
+    const tiles = await ask(22, { cmd: 'mapTiles', map: ov.maps[0]!.id }) as unknown as { w: number; h: number; tiles: Uint8Array };
+    assert.equal(tiles.tiles.length, tiles.w * tiles.h);
+    assert.ok((await ask(23, { cmd: 'people' })).length >= ov.alive);
+    assert.ok(Array.isArray(await ask(24, { cmd: 'history' })));
+    const adminRows = (await ask(25, { cmd: 'timeline', limit: 500, kind: 'admin' })) as { data: { cmd: string } }[];
+    assert.ok(!adminRows.some((e) => ['overview', 'live', 'mapTiles', 'people', 'history', 'timeline'].includes(e.data.cmd)), 'reads are not logged');
+    assert.ok(adminRows.some((e) => e.data.cmd === 'travel'), 'changes are logged');
+
     // Junk is refused.
     const junk = await connect(url, VIEW1);
     await junk.wait((m) => m.t === Msg.Welcome);
