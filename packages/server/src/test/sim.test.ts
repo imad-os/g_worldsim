@@ -395,3 +395,73 @@ test('survival: left alone for two game days, people make a camp, light a fire i
   assert.ok((ev.craft ?? 0) >= 1 && (ev.gather ?? 0) >= 20, `craft ${ev.craft} gather ${ev.gather}`);
   assert.ok((ev.drink ?? 0) >= 8 && (ev.sleep ?? 0) >= 6, `still drink ${ev.drink} and sleep ${ev.sleep}`);
 });
+
+test('zombies: released at night (the owner\'s number), people fight or flee, zombies die, the night ones crumble at dawn', () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'zz' });
+  w.populate();
+  w.zombies.perNight = 3;
+  const e = w.e, ev: Record<string, number> = {}, how: Record<string, number> = {};
+  let released = 0, sawFight = false;
+  w.listeners.push((x) => {
+    ev[x.kind] = (ev[x.kind] ?? 0) + 1;
+    if (x.kind === 'zombies') released += Number(x.data.n);
+    if (x.kind === 'zombie') how[String(x.data.how)] = (how[String(x.data.how)] ?? 0) + 1;
+  });
+  // One that stays, right next to the first person: they fight it or run.
+  const z = w.zombies.spawn(e.map[0]!, e.x[0]! + 6, e.y[0]!, true);
+  assert.ok(z >= 0);
+  for (let k = 0; k < (30 * 3600) / 30 * 20; k++) {
+    w.step();
+    if (!sawFight) for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && (e.act[i] === 13 || e.act[i] === 9)) { sawFight = true; break; }
+  }
+  assert.equal(released, 3, `3 released at night: ${JSON.stringify(ev)}`);
+  assert.ok(sawFight, 'someone fought or fled');
+  assert.ok((how.killed ?? 0) + (how.dawn ?? 0) >= 3, `killed or crumbled: ${JSON.stringify(how)}`);
+  let night = 0;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Threat && e.sub[i] !== 1) night++;
+  assert.equal(night, 0, 'no night zombie left after dawn');
+});
+
+test('rules: "never talk to X" holds (no talks, no courting, tasks refuse), in 4 languages; fights and travel can be forbidden', async () => {
+  const { compileRule } = await import('../sim/rules.js');
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'rr' });
+  w.populate();
+  const e = w.e, nameOf = (n: string) => { for (const [id, p] of w.profiles) if (p.name.toLowerCase() === n.toLowerCase()) return id; return -1; };
+  const ids = [...w.profiles.keys()], A = w.profiles.get(ids[0]!)!, B = w.profiles.get(ids[1]!)!;
+  for (const t of [`never talk to ${B.name}`, `ne parle jamais à ${B.name}`, `nunca hables con ${B.name}`, `لا تتكلم مع ${B.name}`]) {
+    const r = compileRule(w, t, nameOf);
+    assert.deepEqual([...r.forbid].sort(), ['child', 'court', 'talk'], t);
+    assert.equal(r.with, ids[1], t);
+  }
+  assert.deepEqual(compileRule(w, 'never leave the town', nameOf).forbid, ['travel']);
+  assert.ok(compileRule(w, `stay away from ${B.name}`, nameOf).forbid.includes('goto'));
+  A.rules = [compileRule(w, `never talk to ${B.name}`, nameOf)];
+  let ab = 0;
+  w.listeners.push((x) => { if (x.kind === 'talk' && new Set([x.data.a, x.data.b, ids[0], ids[1]]).size === 2) ab++; });
+  const ia = e.slot(ids[0]!), ib = e.slot(ids[1]!);
+  // A task to talk with B fails at once with the rule's words; the other way round too (talking takes two).
+  assert.ok(w.tasks.start(ia, 'talk to B', 'owner', [{ do: 'talk', who: ids[1]! }]));
+  let why = '';
+  w.listeners.push((x) => { if (x.kind === 'task' && x.data.id === ids[0] && !why) why = String(x.data.why); });
+  for (let k = 0; k < 2 * 86400 / 30 * 20; k++) w.step();
+  assert.equal(ab, 0, 'they never talked');
+  assert.match(why, /never talk to/);
+  assert.equal(w.rules.between(ib, ia, 'talk'), A.rules[0]!.text);
+  // Nobody fights when told not to; nobody leaves when travel is forbidden.
+  w.rules.all = [compileRule(w, "don't fight", nameOf)];
+  assert.ok(w.rules.forbidden(ib, 'fight'));
+  A.rules.push(compileRule(w, `stay away from ${B.name}`, nameOf));
+  assert.equal(w.brain.order(ia, 'follow', ids[1]!, -1, 60), false, 'an order that breaks a rule is refused');
+});
+
+test('work: "collect food and store it" fills the camp store; looting the ruins finds things', () => {
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'store1' });
+  w.populate();
+  const e = w.e, i = 0, ev: Record<string, number> = {};
+  let done: unknown = null;
+  w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; if (x.kind === 'task' && x.data.id === e.id(i)) done = x.data; });
+  assert.ok(w.tasks.start(i, 'stock the store', 'owner', [{ do: 'collect', what: 'food', times: 2 }, { do: 'store', what: 'food' }, { do: 'loot', times: 1 }]));
+  for (let k = 0; k < (8 * 3600) / 30 * 20 && !done; k++) w.step();
+  assert.ok(done && (done as { ok: boolean }).ok, `task ended ok: ${JSON.stringify(done)} ${JSON.stringify(ev)}`);
+  assert.ok((ev.store ?? 0) >= 1 && (ev.loot ?? 0) >= 1, JSON.stringify(ev));
+});

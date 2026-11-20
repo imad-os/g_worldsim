@@ -68,6 +68,12 @@ export type AdminCmd =
   | { cmd: 'seer'; name: string; on: boolean }
   /** Life cycle (milestone 7): game days per year of age, the most people alive for a baby to come. */
   | { cmd: 'life'; yearDays?: number; maxPopulation?: number }
+  /** Zombies (milestone 8): how many are released at random each night, clear them all; answers the ones out now. */
+  | { cmd: 'zombies'; perNight?: number; clear?: boolean }
+  /** One (or n) zombie now: next to someone (`near` = a name, `dist` metres), or at (x, y) on a map (random when empty). */
+  | { cmd: 'zombieSpawn'; map?: string; x?: number | string; y?: number | string; near?: string; dist?: number; n?: number; stays?: boolean }
+  /** The owner's strict rules (at most 5 each): for everyone (no id) or one person; `add` = the words, `remove` = an index. */
+  | { cmd: 'rules'; id?: number; add?: string; remove?: number }
   | { cmd: 'planNow'; id: number }
   /** Tell a person what to do now (no AI): goto / follow (target = a name), stay, stop, or a goal (drink, forage...). */
   | { cmd: 'order'; id: number; kind: string; target?: string }
@@ -147,11 +153,13 @@ export interface ServerStats {
   yearDays?: number;
   maxPopulation?: number;
   /** Per map: the camp (where the first fire or hut went up), huts and burning fires (milestone 8). */
+  zombies?: { now: number; perNight: number };
   camps?: { map: string; x: number; y: number; huts: number; fires: number }[];
   ai?: { provider: string; model: string; ready: boolean; why?: string; plans?: number; chats?: number; failures?: number };
 }
 
-export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number }
+/** x, y: where the character is now (the viewer's camera goes there). */
+export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number; x?: number; y?: number }
 
 export interface PairCode { t: typeof Msg.PairCode; code: string; exp: number }
 export interface Paired { t: typeof Msg.Paired; token: string; name: string }

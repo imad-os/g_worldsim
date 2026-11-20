@@ -20,11 +20,26 @@ import type { World } from './world.js';
  *  say text            say something aloud
  *  gather what times   wood (chop trees) / stone / scrap (search rubble) / food   craft what   make an axe or a spear
  *  build what          campfire / hut (gathers what is missing first)             tend         put wood on the fire
+ *  collect what times  pick up food (kept, not eaten) or gather a material        store what   put it in the camp's crate
+ *  take what times     take from the camp's crate                                 loot times   search ruins (food, scrap, stone)
+ *  farm                plant a berry field near the camp                          repair       mend a broken hut wall (1 wood)
+ *  heal who            dress someone's wounds                                     give who what  hand over food or a material
+ *  trade who what get  give one thing for another (they must have it)
  */
+/** Food, wood, stone, scrap from free words (4 languages). */
+export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'): 'food' | 'wood' | 'stone' | 'scrap' {
+  const q = (what ?? '').toLowerCase();
+  if (/wood|bois|madera|le[ñn]a|حطب|خشب|log/.test(q)) return 'wood';
+  if (/scrap|metal|ferraille|chatarra|خردة/.test(q)) return 'scrap';
+  if (/stone|rock|pierre|piedra|حجر/.test(q)) return 'stone';
+  if (/food|eat|berr|can|nourriture|manger|comida|طعام|أكل/.test(q)) return 'food';
+  return dflt;
+}
 export interface Step { do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string }
 
-export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend'] as const;
+export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -100,6 +115,12 @@ export class Tasks {
       if (b.orderOf(i).kind !== 'come') b.order(i, 'goto', id, -1, 180);
       return false;
     };
+    // The owner's strict rules come first: a step they forbid ends the task (sim/rules.ts).
+    if (first) {
+      const rn = s.do === 'find' || s.do === 'stay' || s.do === 'rest' || s.do === 'say' ? '' : s.do;
+      const rule = rn ? w.rules.forbidden(i, rn, alive(s.who) ? e.slot(s.who!) : -1) : null;
+      if (rule) return `I must not: "${rule}"`;
+    }
     switch (s.do) {
       case 'say':
         if (s.text) this.onSay(i, s.text.slice(0, 200));
@@ -150,9 +171,52 @@ export class Tasks {
         if (s.do === 'court') return w.life.court(e.id(i), who);
         return w.life.tryChild(e.id(i));
       }
-      case 'bring': case 'give': {
+      case 'give': case 'trade': {
+        const what = resOf(s.what);
+        if (s.do === 'give' && what === 'food' && !s.text) { s.do = 'bring'; return false; } // food: the bring order (fetches some if needed)
         if (!alive(s.who)) return 'they are not here any more';
-        if (s.do === 'give' && e.carry[i]! <= 0) return 'I have no food to give';
+        if (s.phase !== 2) { const r = reach(s.who!); if (r !== true) return r; s.phase = 2; }
+        const j = e.slot(s.who!), sv = w.survival;
+        const have = (k: number, r: string) => (r === 'food' ? e.carry[k]! : (sv.inv(k) as Record<string, number>)[r] ?? 0);
+        const move = (from: number, to: number, r: string, n: number) => {
+          if (r === 'food') { e.carry[from]! -= n; e.carry[to] = Math.min(5, e.carry[to]! + n); }
+          else { (sv.inv(from) as Record<string, number>)[r] = have(from, r) - n; (sv.inv(to) as Record<string, number>)[r] = Math.min(20, have(to, r) + n); }
+        };
+        const n = Math.max(1, Math.min(have(i, what), s.times ?? 1));
+        if (have(i, what) <= 0) return `I have no ${what}`;
+        if (s.do === 'trade') {
+          const get = resOf(s.text, 'food');
+          if (have(j, get) <= 0) return `${this.name(s.who!)} has no ${get}`;
+          move(j, i, get, 1);
+        }
+        move(i, j, what, n);
+        w.emit('give', { id: e.id(i), to: s.who, item: what, n, trade: s.do === 'trade' ? resOf(s.text, 'food') : undefined });
+        return true;
+      }
+      case 'collect': case 'store': case 'take': case 'loot': case 'farm': case 'repair': case 'heal': {
+        const sv = w.survival, id = e.id(i);
+        const what = resOf(s.what);
+        if (s.do === 'collect' && what !== 'food') { s.do = 'gather'; s.what = what; s.phase = 0; return false; }
+        if (s.do === 'repair' && first && (sv.inv(i).wood ?? 0) < 1 && t.steps.length < 12) { t.steps.splice(t.k, 0, { do: 'gather', what: 'wood', times: 2 }); s.t0 = undefined; return false; }
+        if (s.do === 'store' && what === 'food' && first && e.carry[i]! <= 0 && t.steps.length < 12) { t.steps.splice(t.k, 0, { do: 'collect', what: 'food', times: 3 }); s.t0 = undefined; return false; }
+        // Several times: collect / take / loot count down.
+        if (first) { s.phase = 1; s.n0 = Math.max(1, Math.min(s.do === 'take' ? 5 : 8, s.times ?? (s.do === 'collect' ? 3 : 1))); }
+        if (sv.busy(id)) return false;
+        const end = sv.ended.get(id);
+        if (end !== undefined && s.got) {
+          sv.ended.delete(id); s.got = false;
+          if (end !== true) return s.do === 'collect' && (s.fails = (s.fails ?? 0) + 1) < 3 ? false : end;
+          if (s.do === 'take' || s.do === 'store' || --s.n0! <= 0) return true;
+        }
+        if (s.do === 'collect' && e.carry[i]! >= 5) return true; // hands full
+        s.got = true;
+        const r = s.do === 'collect' ? sv.collect(i) : s.do === 'store' ? sv.store(i, what) : s.do === 'take' ? sv.take(i, what, s.n0!)
+          : s.do === 'loot' ? sv.loot(i) : s.do === 'farm' ? sv.plant(i) : s.do === 'repair' ? sv.repair(i) : sv.heal(i, s.who ?? -1);
+        if (r !== true) { s.got = false; return r; }
+        return false;
+      }
+      case 'bring': {
+        if (!alive(s.who)) return 'they are not here any more';
         if (first) { b.order(i, 'bring', s.who!, -1, 180); s.phase = 1; return false; }
         return b.orderOf(i).kind === 'bring' ? false : near(s.who!, 4) ? true : 'I could not reach them';
       }

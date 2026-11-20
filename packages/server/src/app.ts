@@ -17,9 +17,11 @@ import { Ai, type AiSettings } from './ai/llm.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
+import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
-const LOGGED = new Set(['spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant']);
+const LOGGED = new Set(['ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+  'build', 'craft', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
 export class App {
@@ -76,6 +78,7 @@ export class App {
     }
     // Owner settings kept in the database: travel between maps, and the population size of the scenario.
     this.world.travelOpen = this.db.getMeta('travel_open') === '1';
+    { const z = this.db.getMeta('zombies_night'); if (z !== null && z !== undefined) this.world.zombies.perNight = Number(z) || 0; }
     const want = sc.agents.count;
     if (this.db.getMeta('agents_count') !== String(want) || !this.world.travelOpen) {
       const r = this.world.fitPopulation(this.db.getMeta('agents_count') !== String(want) ? want : 1e9);
@@ -131,16 +134,31 @@ export class App {
     this.planner.players = () => this.net.characters();
     this.net.onHold = (player, i) => w.brain.listen(i, player, 60);
     // Players do what people do; the owner (and whoever they allow) sees thoughts and plans.
-    this.net.onDo = (_name, player, a) => w.brain.playerDo(player, a);
+    this.net.onDo = (name, player, a, text) => {
+      const e = w.e;
+      if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
+      if (a === 'tp') return this.teleport(player, Number(text));
+      if ((a === 'use' || a === 'hit') && e.map[player] !== NO_MAP) { // a zombie within reach: hit it
+        const z = w.zombies.nearest(e.map[player]!, e.x[player]!, e.y[player]!, 1.9);
+        if (z >= 0) return { ok: true, code: w.zombies.hit(z, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
+        if (a === 'hit') return { ok: false, code: 'nothing' };
+      }
+      return w.brain.playerDo(player, a);
+    };
     this.net.isSeer = (name) => this.seers().has(name.toLowerCase());
     this.net.info = (id, seer) => this.personInfo(id, seer);
     this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
-    this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0 });
+    this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0 });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     this.net.avatarStore = {
       get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },
       set: (name, p) => this.db.setMeta('pos:' + name, JSON.stringify(p)),
     };
+    // Every player's character lives in the world 24/7: asleep where they left it until they come back.
+    this.net.spawnResidents(this.players.list().map((p) => p.name));
+    // The owner's strict rules (sim/rules.ts): everyone's are in the database, each person's in their profile.
+    { const r = this.db.getMeta('rules_all'); if (r) { try { this.world.rules.all = JSON.parse(r) as Rule[]; } catch { /* broken: none */ } } }
+    this.world.rules.resolve((n) => this.planner.whoIs(n));
     await this.net.listen();
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
@@ -186,9 +204,29 @@ export class App {
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
       travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty, yearDays: w.brain.life.yearDays, maxPopulation: w.brain.life.maxPopulation,
+      zombies: { now: w.zombies.count(), perNight: w.zombies.perNight },
       camps: w.maps.flatMap((m, mi) => { const c = w.survival.campOf(mi); return c ? [{ map: m.def.id, x: Math.round(c.x), y: Math.round(c.y), huts: w.survival.huts[mi]!.length, fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length }] : []; }),
       ai: { ...(({ provider, model, ready, why }) => ({ provider, model, ready, why }))(this.ai.status()), plans: this.planner.counts.plans, chats: this.planner.counts.chats, failures: this.planner.counts.failures },
     };
+  }
+
+  /** Everyone a player can go to (game menu): [id, name, map name], people first, then other players. */
+  roster(me: string): [number, string, string][] {
+    const w = this.world, e = w.e, out: [number, string, string][] = [];
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] !== NO_MAP) out.push([e.id(i), this.nameOf(e.id(i)), w.maps[e.map[i]!]!.def.name]);
+    out.sort((a, b) => a[1].localeCompare(b[1]));
+    for (const [name, i] of this.net.characters()) if (name !== me && e.map[i] !== NO_MAP) out.push([e.id(i), name, w.maps[e.map[i]!]!.def.name]);
+    return out;
+  }
+  /** Put a player's character right next to someone (any map). */
+  teleport(player: number, id: number): Record<string, unknown> {
+    const w = this.world, e = w.e, j = Number.isInteger(id) ? e.slot(id) : -1;
+    if (j < 0 || j === player || e.map[j] === NO_MAP) return { ok: false, code: 'nobody' };
+    const m = e.map[j]!, s = w.freeSpot(m, e.x[j]! + 1.2, e.y[j]! + 0.6, 40) ?? { x: e.x[j]!, y: e.y[j]! };
+    w.place(player, m, s.x, s.y);
+    e.inX[player] = e.inY[player] = 0;
+    w.emit('teleport', { id: e.id(player), to: id, map: w.maps[m]!.def.id });
+    return { ok: true, code: 'tp', name: e.kind[j] === Kind.Agent ? this.nameOf(id) : this.net.characters().find(([, k]) => k === j)?.[0] ?? '', x: s.x, y: s.y, map: w.maps[m]!.def.id };
   }
 
   /** Players who see thoughts (lower case). imad asked to be the only one by default (2026-11-20). */
@@ -336,6 +374,11 @@ export class App {
       case 'agents': {
         const out = [];
         for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent) out.push(this.agentInfo(i));
+        // Players' characters too (they live in the world 24/7): people can be sent to them.
+        for (const [name, i] of this.net.characters()) {
+          const e = w.e, r1 = (v: number) => Math.round(v * 10) / 10;
+          out.push({ id: e.id(i), player: true, name, online: this.net.online(name), alive: true, map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i], asleep: (e.flags[i]! & EFlag.Sleeping) !== 0 } as never);
+        }
         return out;
       }
       case 'agent': {
@@ -430,6 +473,52 @@ export class App {
         const text = typeof c.text === 'string' ? c.text.trim().slice(0, 300) : '';
         if (!text) throw new Error('say something');
         return this.planner.chat(i, 'owner', text);
+      }
+      case 'rules': { // the owner's strict rules: for everyone (no id) or one person; add words, remove by index
+        const pid = c.id === undefined || c.id < 0 ? -1 : num(c.id, 0, 2 ** 31, 'id');
+        const prof = pid >= 0 ? w.profiles.get(pid) : undefined;
+        if (pid >= 0 && (!prof || prof.died !== undefined || w.e.slot(pid) < 0)) throw new Error('no such person');
+        const list = (): Rule[] => (pid >= 0 ? (prof!.rules ??= []) : w.rules.all);
+        if (typeof c.add === 'string' && c.add.trim()) {
+          if (list().length >= MAX_RULES) throw new Error(`at most ${MAX_RULES} rules`);
+          const r = compileRule(w, c.add.trim(), (n) => this.planner.whoIs(n, pid));
+          await this.planner.refineRule(r, pid >= 0 ? prof!.name : 'everyone');
+          list().push(r);
+          w.emit('ruleSet', { id: pid, text: r.text, forbid: r.forbid.join(','), with: r.withName ?? '' });
+        }
+        if (c.remove !== undefined) { const k = num(c.remove, 0, MAX_RULES - 1, 'remove'); list().splice(k, 1); }
+        if (pid >= 0 && prof && !prof.rules?.length) delete prof.rules;
+        if (pid < 0) this.db.setMeta('rules_all', JSON.stringify(w.rules.all));
+        const people: { id: number; name: string; rules: Rule[] }[] = [];
+        for (const [id, p] of w.profiles) if (p.died === undefined && w.e.slot(id) >= 0 && w.e.kind[w.e.slot(id)] === Kind.Agent) people.push({ id, name: p.name, rules: p.rules ?? [] });
+        return { all: w.rules.all, people, max: MAX_RULES };
+      }
+      case 'zombies': { // the owner's zombie controls: how many each night; the ones out now
+        if (c.perNight !== undefined) { w.zombies.perNight = num(c.perNight, 0, 50, 'perNight'); this.db.setMeta('zombies_night', String(w.zombies.perNight)); }
+        if (c.clear) w.zombies.clear();
+        const now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] = [];
+        for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Threat && w.e.map[i] !== NO_MAP) now.push({ id: w.e.id(i), map: w.maps[w.e.map[i]!]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!), hp: Math.round(w.e.hp[i]!), stays: w.e.sub[i] === 1 });
+        return { perNight: w.zombies.perNight, now };
+      }
+      case 'zombieSpawn': { // one zombie, now: at (x, y) on a map, or next to someone (a name), or at random
+        let m = 0, x = 0, y = 0;
+        const near = typeof c.near === 'string' ? c.near.trim() : '';
+        if (near) {
+          const id = this.planner.whoIs(near);
+          const j = id >= 0 ? w.e.slot(id) : -1;
+          if (j < 0 || w.e.map[j] === NO_MAP) throw new Error(`nobody called ${near}`);
+          const a = w.rng.next() * Math.PI * 2, d = num(c.dist ?? 8, 2, 60, 'dist');
+          m = w.e.map[j]!; x = w.e.x[j]! + Math.cos(a) * d; y = w.e.y[j]! + Math.sin(a) * d;
+        } else {
+          m = mapOf(c.map); const def = w.maps[m]!.def;
+          x = c.x !== undefined && c.x !== '' ? num(c.x, 0, def.w, 'x') : w.rng.range(8, def.w - 8);
+          y = c.y !== undefined && c.y !== '' ? num(c.y, 0, def.h, 'y') : w.rng.range(8, def.h - 8);
+        }
+        const n = Math.max(1, Math.min(20, Math.round(Number(c.n ?? 1)) || 1));
+        const out = [];
+        for (let k = 0; k < n; k++) { const i = w.zombies.spawn(m, x + (k ? w.rng.range(-2, 2) : 0), y + (k ? w.rng.range(-2, 2) : 0), c.stays !== false); if (i >= 0) out.push({ id: w.e.id(i), map: w.maps[m]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!) }); }
+        if (!out.length) throw new Error('no room there');
+        return out;
       }
       case 'order': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));

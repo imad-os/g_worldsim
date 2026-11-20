@@ -80,7 +80,9 @@ let binds: Binds = cloneBinds(DEFAULT_BINDS);
 let capture: ActionId | null = null;
 let thoughtsOn = true;
 let seer = false, mindsAt = 0;
-let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean } | null = null;
+let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number } | null = null;
+/** Everyone I can go to (game menu > Go to someone): [entity id, name, map name]; null = asked, not answered yet. */
+let roster: [number, string, string][] | null = null;
 let info: PersonInfo | null = null, infoFor = -1, infoAt = 0;
 const drawnX = new Float32Array(CAP), drawnY = new Float32Array(CAP), drawnF = new Uint32Array(CAP);
 let frameNo = 0;
@@ -92,6 +94,8 @@ const TUNICS = [0x8b5a3c, 0x6b7d4a, 0x5a6f86, 0x9a7b4f, 0x7a4b4b, 0x5e5e6e, 0xa0
 const SKINS = [0xf1c9a5, 0xe0ac82, 0xc68b5e, 0x9c6a43, 0x6e4a2f].map(C);
 const HAIRS = [0x2b1d14, 0x4a3020, 0x7a5230, 0xc9a46a, 0x1a1a1a, 0x8a8a8a].map(C);
 const PANTS = [0x3b3a40, 0x4a3d30, 0x2f3b4a, 0x50483d].map(C);
+/** Zombies: grey-green skin, torn dark clothes, arms out (drawn by People.add with reach). */
+const ZOMBIE: PersonLook = { tunic: C(0x6b6650), skin: C(0x9fbf7f), hair: C(0x56604a), pants: C(0x3e4436) };
 const ME: PersonLook = { tunic: C(0x2fa36b), skin: C(0xe8b890), hair: C(0x3a2416), pants: C(0x3a3f5a) };
 const OTHER_PLAYER: PersonLook = { tunic: C(0xd9822b), skin: C(0xd8a27a), hair: C(0x2b1d14), pants: C(0x40404a) };
 const GOLD = C(0xffd166), WHITE = C(0xffffff);
@@ -206,6 +210,8 @@ function onMsg(m: ServerMsg): void {
       meArrive = m.arrive ?? 0;
       predOk = false;
       if (!m.transit && m.map !== map) setMap(m.map);
+      // The camera goes to my character (it may be far from where I was watching), so its frames come in.
+      if (how === 'play' && m.x !== undefined && m.y !== undefined) { camX = m.x; camY = m.y; snapCam = true; follow = -1; sendView(); }
       if (m.transit) note(tf('travelling', mapName(m.map)), 0);
       else noteEl.hidden = true;
       break;
@@ -284,7 +290,7 @@ function slotFor(id: number): number {
   return -1;
 }
 function clearEntities(): void { eid.fill(-1); kind.fill(0); slotOf.clear(); follow = -1; }
-const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee', 'actGo', 'actGather', 'actBuild'] as const)[a] ?? 'actIdle');
+const actName = (a: number) => t((['actIdle', 'actWander', 'actDrink', 'actEat', 'actForage', 'actSleep', 'actTalk', 'actTravel', 'actRest', 'actFlee', 'actGo', 'actGather', 'actBuild', 'actFight'] as const)[a] ?? 'actIdle');
 const mapName = (id: string) => welcome?.maps.find((x) => x.id === id)?.name ?? id;
 
 // ------------------------------------------------------------ chunks
@@ -540,7 +546,10 @@ function doAction(a: ActionId, pressed: boolean): void {
 }
 
 const ITEM_NAMES: Record<string, string> = {};
-function onDid(d: { a: string; ok: boolean; code: string; item?: string }): void {
+function onDid(d: { a: string; ok: boolean; code: string; item?: string; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+  if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
+  if (d.code === 'tp') { predX = d.x ?? predX; predY = d.y ?? predY; snapCam = true; note(tf('dTp', d.name ?? ''), 3000); return; }
+  if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code), 1800); return; }
   const map: Record<string, Parameters<typeof t>[0]> = {
     drank: 'dDrank', picked: 'dPicked', ate: 'dAte', sleep: 'dSleep', wake: 'dWake', noWater: 'dNoWater', nothing: 'dNothing',
     noFood: 'dNoFood', full: 'dFull', talk: 'dTalk', nobody: 'dNobody',
@@ -556,7 +565,7 @@ function drawCard(): void {
   let html = '';
   if (mode === 'world' && !menu.open) {
     if (how === 'play' && meNeeds) {
-      html = `<div class="pn">${esc(profileName())}</div><div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>`
+      html = `<div class="pn">${esc(profileName())}</div><div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}${meNeeds.hp !== undefined && meNeeds.hp < 100 ? bar(t('nHp'), 100 - meNeeds.hp) : ''}</div>`
         + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry)) : ''}</div>`;
     } else if (how === 'watch' && follow >= 0 && info && info.id === follow) html = personHtml(info, actName, false);
   }
@@ -582,7 +591,7 @@ function buildPage(id: string): Page {
   switch (id) {
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true });
+      if (how === 'play') rows.push({ id: 'actions', label: t('mActions'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'how', label: t(how === 'play' ? 'mWatch' : 'mPlay') });
@@ -592,6 +601,10 @@ function buildPage(id: string): Page {
     case 'actions':
       for (const a of ['use', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
       return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
+    case 'goto':
+      for (const [id, name, map] of roster ?? []) rows.push({ id: 'p' + id, label: name, value: map });
+      if (roster && !roster.length) rows.push({ id: 'back', label: t('mBack') });
+      return { id, title: t('mGoTo'), rows, text: roster ? t('mGoToHelp') : '…' };
     case 'person': {
       rows.push({ id: 'back', label: t('mBack') });
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') });
@@ -613,11 +626,16 @@ function pickRow(page: string, row: string): void {
   if (page === 'root') {
     if (row === 'resume') menu.close();
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
+    else if (row === 'goto') { roster = null; send({ t: Msg.Do, a: 'roster' }); menu.push('goto'); }
     else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
     else if (row === 'next') { menu.close(); followNext(); }
     else if (row === 'map') { menu.close(); nextMap(); }
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
   } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
+  else if (page === 'goto') {
+    if (row === 'back') menu.back();
+    else { menu.close(); send({ t: Msg.Do, a: 'tp', text: row.slice(1) }); }
+  }
   else if (page === 'person') {
     if (row === 'back') menu.back();
     else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
@@ -702,7 +720,7 @@ function draw(now: number, dt: number): void {
     if (Math.abs(x - fx) > r || Math.abs(y - fy) > r) continue;
     if (kind[i] === Kind.Projectile) { g3.shot(x, y); continue; }
     if (kind[i] === Kind.Item) { g3.item(x, y, sub[i]!, eid[i]!); continue; }
-    if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player) continue;
+    if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat) continue;
     // Walk cycle from the distance really covered on screen.
     const ddx = x - lastX[i]!, ddy = y - lastY[i]!, moved = Math.hypot(ddx, ddy);
     lastX[i] = x; lastY[i] = y;
@@ -717,8 +735,9 @@ function draw(now: number, dt: number): void {
     phase[i] = (phase[i]! + moved * 4.2) % (Math.PI * 2);
     drawnX[i] = x; drawnY[i] = y; drawnF[i] = frameNo;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
-    const look = i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / 2.2), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1);
+    const zed = kind[i] === Kind.Threat;
+    const look = zed ? ZOMBIE : i === me || eid[i] === meId ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
+    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1, zed);
     if (kind[i] === Kind.Player) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }

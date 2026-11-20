@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
-import { Msg, PROTOCOL_VERSION, ENT_REC, encode, decode, unpackI32, type ServerMsg, type ClientMsg } from '@worldsim/protocol';
+import { Msg, EFlag, PROTOCOL_VERSION, ENT_REC, encode, decode, unpackI32, type ServerMsg, type ClientMsg } from '@worldsim/protocol';
 import { App } from '../app.js';
 import { DEFAULTS, type Config } from '../config.js';
 import { Logger } from '../log.js';
@@ -236,12 +236,17 @@ test('players: join puts my character in the world, input moves it, leaving keep
     const xs = e.x[i]!, ys = e.y[i]!;
     c.ws.close();
     await new Promise((r) => setTimeout(r, 300));
-    assert.equal(e.slot(you.id), -1, 'character removed when the player leaves');
+    // imad 2026-11-20: my character lives in the world 24/7, asleep while I am away; people can still find it.
+    assert.equal(e.slot(you.id), i, 'character stays when the player leaves');
+    assert.ok(e.flags[i]! & EFlag.Sleeping, 'asleep while away');
+    assert.ok(app.world.away.has(you.id));
     const c2 = await connect(url, VIEW1);
     await c2.wait((m) => m.t === Msg.Welcome);
     c2.send({ t: Msg.Join });
     const you2 = await c2.wait((m) => m.t === Msg.You) as { id: number };
     const j = e.slot(you2.id);
+    assert.equal(you2.id, you.id, 'the same character back');
+    assert.ok(!(e.flags[j]! & EFlag.Sleeping) && !app.world.away.has(j), 'awake again when I come back');
     assert.ok(Math.hypot(e.x[j]! - xs, e.y[j]! - ys) < 1.5, `back where it left: ${xs},${ys} -> ${e.x[j]},${e.y[j]} saved ${app.db.getMeta('pos:imad')}`);
     // Admins have no character.
     const adm = await connect(url, ADMIN);
@@ -331,6 +336,71 @@ test('players do what people do; only allowed players see thoughts; person info'
     const pl = (await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === 8)) as { data: { name: string; seer: boolean }[] };
     assert.equal(pl.data.find((p) => p.name === 'guest')?.seer, true);
     me.ws.close(); guest.ws.close(); adm.ws.close();
+    await app.stop();
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test('owner tools: strict rules from the panel, zombies per night and spawned next to someone, players go to anyone and are listed', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws-'));
+  try {
+    const app = makeApp(dir);
+    await app.start();
+    after(() => app.stop());
+    const url = app.net.address().replace('http', 'ws') + '/ws';
+    const adm = await connect(url, ADMIN);
+    await adm.wait((m) => m.t === Msg.Welcome);
+    let n = 100;
+    const admin = async (c: Record<string, unknown>) => {
+      const id = ++n;
+      adm.send({ t: Msg.Admin, id, c } as ClientMsg);
+      const r = await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === id) as { ok: boolean; data: any; err?: string };
+      if (!r.ok) throw new Error(r.err);
+      return r.data;
+    };
+    const w = app.world, e = w.e;
+    const [aId, bId] = [...w.profiles.keys()];
+    const bName = w.profiles.get(bId!)!.name;
+    // Rules: one for a person, one for everyone; kept after a restart of the rules list; at most 5.
+    let r = await admin({ cmd: 'rules', id: aId, add: `never talk to ${bName}` });
+    const mine = r.people.find((p: { id: number }) => p.id === aId).rules;
+    assert.deepEqual([...mine[0].forbid].sort(), ['child', 'court', 'talk']);
+    assert.equal(mine[0].withName, bName);
+    r = await admin({ cmd: 'rules', add: 'never leave the town' });
+    assert.deepEqual(r.all[0].forbid, ['travel']);
+    assert.ok(w.rules.forbidden(e.slot(aId!), 'talk', e.slot(bId!)));
+    assert.equal(app.db.getMeta('rules_all'), JSON.stringify(r.all));
+    for (let k = 0; k < 4; k++) await admin({ cmd: 'rules', id: aId, add: `rule ${k}` });
+    await assert.rejects(admin({ cmd: 'rules', id: aId, add: 'one too many' }), /at most 5/);
+    r = await admin({ cmd: 'rules', id: aId, remove: 0 });
+    assert.equal(w.rules.forbidden(e.slot(aId!), 'talk', e.slot(bId!)), null, 'removed');
+    // Zombies.
+    assert.equal((await admin({ cmd: 'zombies', perNight: 4 })).perNight, 4);
+    assert.equal(app.db.getMeta('zombies_night'), '4');
+    const z = await admin({ cmd: 'zombieSpawn', near: bName, dist: 6, n: 2 });
+    assert.equal(z.length, 2);
+    assert.equal((await admin({ cmd: 'zombies' })).now.length, 2);
+    await admin({ cmd: 'zombies', clear: true });
+    assert.equal(w.zombies.count(), 0);
+    // A player: listed in the panel with a position, goes to anyone from the game menu.
+    const me = await connect(url, VIEW1);
+    await me.wait((m) => m.t === Msg.Welcome);
+    me.send({ t: Msg.Join });
+    const you = await me.wait((m) => m.t === Msg.You) as { id: number };
+    const people = await admin({ cmd: 'agents' });
+    assert.ok(people.some((p: { player?: boolean; name: string }) => p.player && p.name === 'imad'), 'imad is in the panel list');
+    const did = (code: string) => me.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'did' && (m as { data: { code: string } }).data.code === code).then((m) => (m as { data: any }).data);
+    me.send({ t: Msg.Do, a: 'roster' });
+    const roster = (await did('roster')).list as [number, string, string][];
+    assert.ok(roster.some(([id]) => id === bId));
+    me.send({ t: Msg.Do, a: 'tp', text: String(bId) });
+    const tp = await did('tp');
+    assert.equal(tp.name, bName);
+    const i = e.slot(you.id), j = e.slot(bId!);
+    await new Promise((ok) => setTimeout(ok, 200));
+    assert.ok(Math.hypot(e.x[i]! - e.x[j]!, e.y[i]! - e.y[j]!) < 6, 'next to them');
+    me.ws.close(); adm.ws.close();
     await app.stop();
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

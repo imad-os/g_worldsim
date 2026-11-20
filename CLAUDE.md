@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 part 1 (tasks) + part 2 (survival) done, app 0.7.3; next part 3 (zombies), then weather, polish.
+simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules done, app 0.7.4; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -103,3 +103,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 ## Commands
 `npm install`, `npm run build`, `npm test` (node:test: sim, persistence with a fake Firestore, server end to end),
 `npm run bench -- 20 100`, `npm start -- --speed 5`. Docs: README.md, docs/ARCHITECTURE.md.
+
+## Residents, zombies, more work, strict rules (imad 2026-11-20, app 0.7.4)
+- **Players' characters live 24/7** (`NetServer.residents`, spawned at start for every paired player): away = asleep where left
+  (`World.away` holds ENTITY IDS, needs wait, zombies ignore them); watching = awake, standing; Play = camera jumps to it (`You` x / y).
+  Listed in the panel People card with positions; `whoIs` finds them, so people can be sent to imad. Player wounds heal 20 hp / game hour.
+- **Game menu > Go to someone** (play): Do `roster` -> list, Do `tp` text = entity id -> next to them (any map).
+- **Zombies** (`sim/zombies.ts`, Kind.Threat, Act.Fight 13): `perNight` (meta `zombies_night`, panel Zombies card) released at 21:00,
+  crumble at dawn; panel spawn next to a name or at x / y (stay). Chase prey not near a fire, bite (players floored at 5 hp), claw walls;
+  people fight (armed / strong + brave) or flee to the camp fire. Player A next to one hits it. TV draws them grey-green, arms out.
+- **More work** (`sim/survival.ts` + task skills): collect, store (camp crate tile 13), take, loot (ruins), farm (tile 14, berries every 12 h),
+  repair, heal, trade, give materials; own plans stock the store, plant, mend, treat, make spears when zombies are on.
+- **Strict rules** (`sim/rules.ts`): owner's words, at most 5 for everyone (meta `rules_all`) and 5 per person (`Profile.rules`). Each is
+  compiled once by words (4 languages) and refined ONCE by the AI (`Planner.refineRule`, only adds), then enforced by the engine in
+  choose / talk / orders / tasks / survival jobs / courting / babies / fights, and written in every prompt about that person. A player a
+  rule forbids talking to gets no answer and no AI request. Panel Strict rules card; admin `rules` { id?, add?, remove? }.

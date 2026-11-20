@@ -20,6 +20,7 @@ import type { World, WorldEvent } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
 import { ageOf, type Mind } from '../sim/people.js';
 import { SKILLS, type Step } from '../sim/tasks.js';
+import { RULE_ACTS, type Rule } from '../sim/rules.js';
 
 export interface PlannerConfig {
   on: boolean;
@@ -32,7 +33,7 @@ export interface PlannerConfig {
 }
 export const PLANNER_DEFAULTS: PlannerConfig = { on: true, everyGameHours: 3, batch: 5, minGapSec: 20 };
 
-export interface Exchange { at: number; kind: 'plan' | 'chat'; who: string; prompt: string; reply: string; ms: number; err?: string }
+export interface Exchange { at: number; kind: 'plan' | 'chat' | 'rule'; who: string; prompt: string; reply: string; ms: number; err?: string }
 
 const GOALS: Record<string, number> = {
   drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, talk: Act.Talk, wander: Act.Wander, rest: Act.Rest, travel: Act.Travel,
@@ -44,6 +45,8 @@ const WORK_GOALS: Record<string, Step[]> = {
   'gather scrap': [{ do: 'gather', what: 'scrap', times: 2 }], 'make an axe': [{ do: 'craft', what: 'axe' }],
   'make a spear': [{ do: 'craft', what: 'spear' }], 'build a campfire': [{ do: 'build', what: 'campfire' }],
   'build a hut': [{ do: 'build', what: 'hut' }], 'feed the fire': [{ do: 'tend' }],
+  'collect food and store it': [{ do: 'collect', what: 'food', times: 4 }, { do: 'store', what: 'food' }],
+  'search the ruins': [{ do: 'loot', times: 3 }], 'plant a field': [{ do: 'farm' }], 'repair the huts': [{ do: 'repair' }],
 };
 const NOTES_MAX = 12;
 const HOUR = 3600;
@@ -77,6 +80,11 @@ export function askedWork(text: string): { task: string; steps: Step[] } | null 
     if (/\b(feed|keep|add wood|alimente|entretiens|mets du bois|aviva|mant[eé]n)\b|زد|أضف/.test(t)) return { task: 'keep the fire going', steps: [{ do: 'tend' }] };
     return { task: 'make a campfire', steps: [{ do: 'build', what: 'campfire' }] };
   }
+  if (/\b(store|stock|stash|keep|save|ranger|stocke|garde|guarda|almacena)\b|خزن|احفظ|خزّن/.test(t) && /\b(food|eat|berr\w*|cans?|nourriture|manger|comida)\b|طعام|أكل/.test(t)) return { task: 'collect food and store it', steps: [{ do: 'collect', what: 'food', times: 4 }, { do: 'store', what: 'food' }] };
+  if (/\b(collect|gather|pick up|find|ramasse|cueille|recoge|busca)\b|اجمع|جمع/.test(t) && /\b(food|berr\w*|cans?|nourriture|comida)\b|طعام|أكل/.test(t)) return { task: 'collect food', steps: [{ do: 'collect', what: 'food', times: 4 }] };
+  if (/\b(loot|scavenge|search the ruins|fouille|saquea|registra)\b|فتش|ابحث في الأنقاض/.test(t)) return { task: 'search the ruins', steps: [{ do: 'loot', times: 3 }] };
+  if (/\b(plant|farm|grow|field|planter|cultive|champ|siembra|cultiva|huerto)\b|ازرع|زراعة|حقل/.test(t)) return { task: 'plant a field', steps: [{ do: 'farm' }] };
+  if (/\b(repair|fix|mend|répare|reparar|arregla)\b|أصلح|اصلح|صلح/.test(t)) return { task: 'repair the huts', steps: [{ do: 'repair' }] };
   if (/\b(axe|hache|hacha)\b|فأس/.test(t)) return { task: 'make an axe', steps: [{ do: 'craft', what: 'axe' }] };
   if (/\b(spear|weapon|lance|arme|lanza|arma)\b|رمح|سلاح/.test(t)) return { task: 'make a spear', steps: [{ do: 'craft', what: 'spear' }] };
   if (/\b(wood|firewood|logs|bois|madera|le[ñn]a)\b|حطب|خشب/.test(t)) return { task: 'gather wood', steps: [{ do: 'gather', what: 'wood', times: 4 }] };
@@ -301,6 +309,7 @@ export class Planner {
       `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
+      ...(w.rules.text(i) ? [w.rules.text(i)] : []),
       `Memory: ${mind.summary || 'nothing yet'}`,
       `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,
     ].join('\n');
@@ -315,7 +324,8 @@ export class Planner {
     if (!s.enabled) return '';
     const f = s.nearestFire(i, 60), camp = s.campOf(m);
     const fire = f >= 0 ? ` A campfire burns ${Math.round(Math.hypot((f % w.maps[m]!.tiles.w) + 0.5 - e.x[i]!, ((f / w.maps[m]!.tiles.w) | 0) + 0.5 - e.y[i]!))} m away (${Math.round(s.fuel(m, f))} h of wood left).` : ' No fire nearby.';
-    return `${fire} Huts here: ${s.huts[m]!.length}.${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} Recipes: axe = 2 wood + 1 stone, spear = 2 wood + 1 scrap, campfire = 3 wood + 2 stone, hut = 12 wood + 4 stone.`;
+    const st = s.stash[m];
+    return `${fire} Huts here: ${s.huts[m]!.length}. Fields: ${[...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length}.${st ? ` The camp's store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap.` : ' No store yet.'}${w.zombies.count(m) ? ` ${w.zombies.count(m)} zombies are out.` : ''}${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} Recipes: axe = 2 wood + 1 stone, spear = 2 wood + 1 scrap, campfire = 3 wood + 2 stone, hut = 12 wood + 4 stone.`;
   }
 
   /** "day 2 14:30 (afternoon)" — the day starts at 08:00 like the viewers show. */
@@ -363,6 +373,9 @@ export class Planner {
     if (i < 0 || e.kind[i] !== Kind.Agent) throw new Error('no such person');
     const id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!;
     const owner = from === 'owner';
+    // The owner's strict rule (sim/rules.ts): they do not talk with that player at all, and no AI request is spent.
+    const rule = player >= 0 ? w.rules.between(i, player, 'talk') : null;
+    if (rule) { w.emit('rule', { id, rule, with: e.id(player) }); return { reply: '', ai: false, did: `rule: ${rule}` }; }
     if (player >= 0) w.brain.listen(i, player, 30);
     const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
     const key = '@' + from;
@@ -383,10 +396,13 @@ export class Planner {
         + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (ask them to be your partner), child {} (have a baby with your partner), '
         + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
         + 'gather {"what": "wood" | "stone" | "scrap", "times"}, craft {"what": "axe" | "spear"}, build {"what": "campfire" | "hut"} (it gathers what is missing by itself), '
-        + 'tend {} (put wood on the fire). '
+        + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
+        + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), '
+        + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}. If a request needs something you have no skill for, combine these skills into a plan. '
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
         + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'
         + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}. '
+        + 'Example for "collect food and store it": {"say":"I\'ll fill the store.","task":"stock the store","plan":[{"do":"collect","what":"food","times":4},{"do":"store","what":"food"}]}. '
         + 'Example for "build us a house": {"say":"Good idea, I\'ll get wood.","task":"build a hut","plan":[{"do":"build","what":"hut"}]}';
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
       try {
@@ -448,10 +464,14 @@ export class Planner {
       if (!r || typeof r !== 'object') continue;
       const o = r as Record<string, unknown>;
       let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
-      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend' } as Record<string, string>)[d] ?? d;
+      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
+        pick: 'collect', pick_up: 'collect', pickup: 'collect', stock: 'store', deposit: 'store', put: 'store', stash: 'store', scavenge: 'loot',
+        plant: 'farm', grow: 'farm', fix: 'repair', mend: 'repair', treat: 'heal', bandage: 'heal', exchange: 'trade', swap: 'trade', withdraw: 'take' } as Record<string, string>)[d] ?? d;
       if (!(SKILLS as readonly string[]).includes(d)) continue;
       const st: Step = { do: d };
       const whoRaw = String(o.who ?? o.with ?? o.target ?? (o.do === 'come' ? 'me' : '')).trim();
+      if (d === 'give' || d === 'trade' || d === 'collect' || d === 'store' || d === 'take') st.what = String(o.what ?? o.item ?? (d === 'collect' || d === 'store' || d === 'take' ? 'food' : '')).slice(0, 40);
+      if (d === 'trade') st.text = String(o.get ?? o.for ?? 'food').slice(0, 40);
       if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
       else if (whoRaw) {
         const w = whoRaw.toLowerCase();
@@ -459,10 +479,10 @@ export class Planner {
         else if (['found', 'them', 'they', 'it', 'she', 'he'].includes(w)) { if (foundStep) { st.who = -2; } }
         else st.who = this.whoIs(whoRaw, id);
       } else if (d === 'goto' || d === 'follow' || d === 'bring' || d === 'give') st.who = speaker;
-      if (typeof o.times === 'number') st.times = Math.max(1, Math.min(d === 'gather' ? 12 : 4, Math.round(o.times)));
+      if (typeof o.times === 'number') st.times = Math.max(1, Math.min(d === 'gather' ? 12 : d === 'collect' || d === 'loot' ? 8 : d === 'take' ? 5 : 4, Math.round(o.times)));
       if (typeof o.minutes === 'number') st.minutes = Math.max(5, Math.min(600, Math.round(o.minutes)));
       if (d === 'say') st.text = String(o.text ?? o.say ?? '').slice(0, 200);
-      if ((d === 'goto' || d === 'follow' || d === 'talk' || d === 'court' || d === 'bring' || d === 'give') && (st.who === undefined || st.who === -1)) continue; // nobody to do it with
+      if ((d === 'goto' || d === 'follow' || d === 'talk' || d === 'court' || d === 'bring' || d === 'give' || d === 'heal' || d === 'trade') && (st.who === undefined || st.who === -1)) continue; // nobody to do it with
       out.push(st);
       if (d === 'find') { foundStep = st; found = -2; }
     }
@@ -544,6 +564,39 @@ export class Planner {
     if (e.lonely[i]! > 50) return r < 0.5 ? 'Good to see a friendly face out here.' : "Stay a while. It's been lonely.";
     const lines = ['Stay safe out there.', 'Quiet day. I like it that way.', 'Keep an eye out for supply drops.', 'The old town still has a few roofs left.'];
     return lines[Math.floor(r * lines.length)]!;
+  }
+
+  /**
+   * Make a rule smart: the model reads the owner's words once and says what they forbid and about whom, so any
+   * wording works (not only the words compileRule knows). One request per rule, never again. Keeps the word check's
+   * findings too (both are forbidden), so a confused answer can only add, never let something through.
+   */
+  async refineRule(r: Rule, about: string): Promise<Rule> {
+    if (!this.ai.status().ready) return r;
+    const names = [...new Set([...this.w.profiles.values()].filter((p) => p.died === undefined).map((p) => p.name).concat([...this.players()].map(([n]) => n)))];
+    const prompt = `The owner of a world gave ${about} this strict rule: "${r.text}".\nPeople: ${names.join(', ')}.\n`
+      + `Things a person can do: ${RULE_ACTS.join(', ')}.\nWhich of those things does the rule forbid, and is it about one person (a name from the list) or nobody in particular?`;
+    const system = 'Answer ONLY with JSON: {"forbid":["things from the list"],"with":"a name or empty"}. Forbid everything the rule means: '
+      + '"never talk to X" forbids talk, court and child with X; "stay away from X" forbids goto, follow, talk, give, trade, bring, heal, court, child with X; '
+      + '"never leave the town" forbids travel. If the rule forbids nothing on the list, answer {"forbid":[],"with":""}.';
+    const ex: Exchange = { at: Date.now(), kind: 'rule', who: about, prompt, reply: '', ms: 0 };
+    try {
+      const a = await this.ai.generate({ system, prompt, json: true, maxTokens: 120, temperature: 0.1 });
+      ex.reply = a.text.slice(0, 1000); ex.ms = a.ms;
+      const j = parseJsonReply<{ forbid?: unknown; with?: unknown }>(a.text.replace(/<think>[\s\S]*?<\/think>/gi, ''));
+      if (j && Array.isArray(j.forbid)) {
+        const add = j.forbid.map((x) => String(x).trim().toLowerCase()).filter((x) => (RULE_ACTS as readonly string[]).includes(x));
+        r.forbid = [...new Set([...r.forbid, ...add])];
+        const wn = typeof j.with === 'string' ? j.with.trim() : '';
+        if (r.with < 0 && wn) { const id = this.whoIs(wn); if (id >= 0) { r.with = id; r.withName = this.nameOfId(id); } }
+        r.ai = true;
+      } else ex.err = 'no JSON';
+    } catch (err) {
+      ex.err = err instanceof Error ? err.message : String(err);
+      this.counts.failures++;
+    }
+    this.keep(ex);
+    return r;
   }
 
   private keep(ex: Exchange): void {

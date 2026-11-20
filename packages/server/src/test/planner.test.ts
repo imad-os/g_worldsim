@@ -24,6 +24,11 @@ const fake = createServer((req, res) => {
     const names = [...user.matchAll(/^Person: (\S+)/gm)].map((m: RegExpMatchArray) => m[1]);
     let content: string;
     const sys = body.messages?.find((m: any) => m.role === 'system')?.content ?? '';
+    if (/"forbid"/.test(sys)) { // a rule to understand: "keep your distance from X" = goto, follow, talk with X
+      const who = /from (\w+)/.exec(user)?.[1] ?? '';
+      res.end(JSON.stringify({ message: { role: 'assistant', content: JSON.stringify({ forbid: ['goto', 'follow', 'talk', 'dance'], with: who }) } }));
+      return;
+    }
     if (/"say":"the words you say"/.test(sys)) { // a chat
       content = mode === 'think' ? '<think>hmm, who is this</think>Mira: "Hello there, stranger."' // forgot the JSON
         : mode === 'order' ? JSON.stringify({ say: "On my way!", do: 'goto', target: orderTarget })
@@ -256,4 +261,24 @@ test('work requests: "build us a house" (the model\'s plan) and "make a fire" (n
   assert.equal(p.orderFromPanel(agents[2]!, 'make an axe', ''), 'make an axe');
   assert.equal(w.profileOf(agents[2]!)!.mind!.task!.steps.at(-1)!.do, 'craft');
   mode = 'ok';
+});
+
+test('rules are smart: the model understands words the engine does not know, once; the rule is in every prompt about that person', async () => {
+  const { compileRule } = await import('../sim/rules.js');
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  const e = w.e, ids = [...w.profiles.keys()], A = w.profiles.get(ids[0]!)!, B = w.profiles.get(ids[1]!)!;
+  const r = compileRule(w, `keep your distance from ${B.name}`, (n) => p.whoIs(n));
+  assert.deepEqual(r.forbid, [], 'the words alone: nothing known');
+  await p.refineRule(r, A.name);
+  assert.deepEqual(r.forbid, ['goto', 'follow', 'talk'], 'the model\'s answer, only things that exist');
+  assert.equal(r.with, ids[1]);
+  assert.equal(r.ai, true);
+  A.rules = [r];
+  const ia = e.slot(ids[0]!), ib = e.slot(ids[1]!);
+  assert.equal(w.brain.order(ia, 'goto', ids[1]!, -1, 60), false, 'an order to go to them is refused');
+  assert.ok(w.brain.order(ib, 'goto', ids[0]!, -1, 60), 'the rule is only for A');
+  mode = 'ok';
+  await p.chat(ia, 'owner', 'hello');
+  assert.match(prompts[prompts.length - 1]!, /Rules you must NEVER break.*keep your distance/);
 });

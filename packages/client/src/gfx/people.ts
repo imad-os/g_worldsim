@@ -48,7 +48,8 @@ export class People {
    * (amp 0 standing .. 1 running); lying = asleep or dead.
    */
   /** `size` 1 = adult; children are drawn smaller (0.6). */
-  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean, size = 1): void {
+  /** `reach` = arms held out in front (a zombie). */
+  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean, size = 1, reach = false): void {
     if (this.n >= this.cap) return;
     const i = this.n++;
     const bob = Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
@@ -66,7 +67,7 @@ export class People {
       this.part.compose(this.v.set(side * 0.1, 0.52, 0), this.q.setFromEuler(this.e.set(sw * side, 0, 0)), this.s.set(1, 1, 1));
       this.m.multiplyMatrices(this.base, this.part);
       this.legs.setMatrixAt(i * 2 + k, this.m); this.legs.setColorAt(i * 2 + k, look.pants);
-      this.part.compose(this.v.set(side * 0.25, 1.07, 0), this.q.setFromEuler(this.e.set(-sw * side * 0.8, 0, side * 0.12)), this.s.set(1, 1, 1));
+      this.part.compose(this.v.set(side * 0.25, 1.07, 0), this.q.setFromEuler(reach ? this.e.set(-1.35 + sw * side * 0.15, 0, side * 0.05) : this.e.set(-sw * side * 0.8, 0, side * 0.12)), this.s.set(1, 1, 1));
       this.m.multiplyMatrices(this.base, this.part);
       this.arms.setMatrixAt(i * 2 + k, this.m); this.arms.setColorAt(i * 2 + k, look.tunic);
     }

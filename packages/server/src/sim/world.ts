@@ -10,6 +10,8 @@ import { randomProfile, type Profile } from './people.js';
 import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Survival } from './survival.js';
+import { Rules } from './rules.js';
+import { Zombies } from './zombies.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -63,6 +65,9 @@ export class World {
   readonly life: Life;
   readonly tasks: Tasks;
   readonly survival: Survival;
+  readonly zombies: Zombies;
+  /** The owner's strict rules (sim/rules.ts). */
+  readonly rules: Rules;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -88,6 +93,8 @@ export class World {
     this.life = new Life(this);
     this.tasks = new Tasks(this);
     this.survival = new Survival(this);
+    this.zombies = new Zombies(this);
+    this.rules = new Rules(this);
   }
   /** Game seconds per year of age. */
   get yearSec(): number { return this.brain.life.yearDays * 86400; }
@@ -176,6 +183,9 @@ export class World {
     this.emit('spawn', { id: e.id(i), map: this.maps[map]!.def.id, x, y });
     return i;
   }
+
+  /** Characters whose player is away (entity ids): they sleep and their needs wait. */
+  readonly away = new Set<number>();
 
   /** A person's character. Same body as an agent; moved by their controls, never by the AI. */
   spawnPlayer(map: number, x: number, y: number): number {
@@ -284,6 +294,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); }
+    this.zombies.update();
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
       const k = e.kind[i]!;
@@ -292,7 +303,7 @@ export class World {
         if (e.life[i]! <= 0) this.remove(i, 'expired');
         continue;
       }
-      if ((k !== Kind.Agent && k !== Kind.Player) || e.map[i] === NO_MAP) continue;
+      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Threat) || e.map[i] === NO_MAP) continue;
       const b = this.bodies[i]!;
       const dx = e.tx[i]! - e.x[i]!, dy = e.ty[i]! - e.y[i]!;
       const d = Math.hypot(dx, dy);
@@ -422,7 +433,7 @@ export class World {
     for (let i = 0; i < e.hi; i++) {
       if (!e.alive(i) || e.map[i] === NO_MAP) continue;
       const ph = this.maps[e.map[i]!]!.phys;
-      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
+      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player || e.kind[i] === Kind.Threat) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
       else if (e.kind[i] === Kind.Projectile) this.bodies[i] = ph.createProjectileBody(i, e.owner[i]!, e.x[i]!, e.y[i]!, e.radius[i]!);
       const b = this.bodies[i];
       if (b) { this.vel.x = e.vx[i]!; this.vel.y = e.vy[i]!; b.setLinearVelocity(this.vel); }

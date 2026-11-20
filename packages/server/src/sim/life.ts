@@ -49,6 +49,7 @@ export class Life {
     if (ageOf(a, now, y) < ADULT + 2 || ageOf(b, now, y) < ADULT + 2) return;
     if (a.parents.some((x) => b.parents.includes(x)) || a.parents.includes(idb) || b.parents.includes(ida)) return; // family
     if ((a.bonds?.['#' + idb] ?? 0) < BOND_TALKS) return;
+    if (w.rules.forbiddenId(ida, 'court', idb) ?? w.rules.forbiddenId(idb, 'court', ida)) return; // the owner's rule
     if (!w.rng.chance(0.35)) return;
     a.partner = idb; b.partner = ida;
     w.emit('partner', { a: ida, b: idb });
@@ -63,6 +64,8 @@ export class Life {
     const w = this.w, a = w.profiles.get(ida), b = w.profiles.get(idb), now = w.gameSec, y = this.yearSec;
     if (!a || !b) return 'they are not here';
     if (a.partner === idb) return true;
+    const rule = w.rules.forbiddenId(ida, 'court', idb) ?? w.rules.forbiddenId(idb, 'court', ida);
+    if (rule) return `I must not: "${rule}"`;
     if (a.partner >= 0) return 'I already have a partner';
     if (b.partner >= 0) return `${b.name} already has a partner`;
     if (a.sex === b.sex) return `${b.name} is not interested`;
@@ -86,6 +89,7 @@ export class Life {
     if (!q) return 'my partner is gone';
     const mother = p.sex === 'f' ? p : q, mid = p.sex === 'f' ? id : p.partner;
     if (mother.sex !== 'f') return 'we cannot have a child together';
+    { const rule = w.rules.forbiddenId(id, 'child', p.partner) ?? w.rules.forbiddenId(p.partner, 'child', id); if (rule) return `I must not: "${rule}"`; }
     if (mother.pregnant) return `${mother.name} is already expecting`;
     const age = ageOf(mother, now, y);
     if (age < ADULT + 2 || age > 45) return `${mother.name} is not of age to have a child`;
@@ -149,6 +153,7 @@ export class Life {
         const j = e.slot(p.partner);
         if (j < 0 || e.map[j] !== e.map[i] || e.map[i] === NO_MAP) continue;
         if (e.hunger[i]! > 70 || e.thirst[i]! > 70 || e.hunger[j]! > 70 || e.thirst[j]! > 70) continue;
+        if (w.rules.between(i, j, 'child')) continue; // the owner's rule
         if (w.rng.chance(CONCEIVE_PER_YEAR * perHour)) {
           p.pregnant = { father: p.partner, due: now + GESTATION_YEARS * y };
           w.emit('pregnant', { id, father: p.partner });

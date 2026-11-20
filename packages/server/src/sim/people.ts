@@ -33,6 +33,8 @@ export interface Profile {
   pregnant?: { father: number; due: number };
   /** What they carry besides food: wood, stone, scrap, axe, spear (milestone 8, sim/survival.ts). */
   inv?: import('./survival.js').Inv;
+  /** The owner's strict rules for this person (at most 5, sim/rules.ts). */
+  rules?: import('./rules.js').Rule[];
 }
 
 /** A person's mind for the LLM planner (milestone 6). Times are game seconds. */

@@ -129,7 +129,8 @@ export function bar(label: string, lack: number): string {
 export interface MindRow { id: number; act: number; to: string; dist: number; wish: string; wishWith: string; why: string; mood: string; said: string }
 
 const GOAL_KEY: Record<string, Key> = { drink: 'gDrink', eat: 'gEat', forage: 'gForage', sleep: 'gSleep', talk: 'gTalk', wander: 'gWander', rest: 'gRest', travel: 'gTravel',
-  'gather wood': 'wGatherWood', 'gather stone': 'wGatherStone', 'gather scrap': 'wGatherScrap', 'make an axe': 'wAxe', 'make a spear': 'wSpear', 'build a campfire': 'wFire', 'build a hut': 'wHut', 'feed the fire': 'wTend' };
+  'gather wood': 'wGatherWood', 'gather stone': 'wGatherStone', 'gather scrap': 'wGatherScrap', 'make an axe': 'wAxe', 'make a spear': 'wSpear', 'build a campfire': 'wFire', 'build a hut': 'wHut', 'feed the fire': 'wTend',
+  'collect food and store it': 'wStore', 'search the ruins': 'wLoot', 'plant a field': 'wFarm', 'repair the huts': 'wRepair' };
 /** "3 wood, 1 stone, an axe" in the viewer's language. */
 export function invWords(v?: Record<string, number>): string {
   const K: Record<string, Key> = { wood: 'iWood', stone: 'iStone', scrap: 'iScrap', axe: 'iAxe', spear: 'iSpear' };

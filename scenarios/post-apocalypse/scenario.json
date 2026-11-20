@@ -88,6 +88,21 @@
       "name": "ashes",
       "solid": false,
       "color": 5592405
+    },
+    {
+      "id": 13,
+      "name": "crate",
+      "solid": true,
+      "hp": 60,
+      "breaksTo": 2,
+      "color": 10057539
+    },
+    {
+      "id": 14,
+      "name": "farm",
+      "solid": false,
+      "cost": 1.5,
+      "color": 6974014
     }
   ],
   "maps": [

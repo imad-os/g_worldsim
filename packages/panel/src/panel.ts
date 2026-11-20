@@ -68,10 +68,12 @@ const bar = (lack: number, good = false) => {
 };
 async function refreshPeople(): Promise<void> {
   try {
-    const list = (await cmd({ cmd: 'agents' })) as Person[];
-    for (const p of list) names.set(p.id, p.name);
-    $('people').innerHTML = list.length ? list.map((p) => `<div class="row person" data-id="${p.id}"><div><b>${esc(p.name)}</b> <span class="dim">${p.sex === 'f' ? '♀' : '♂'} ${p.age}${p.child ? ' (child)' : ''}${p.pregnant ? ' · expecting' : ''}${p.partner ? ' · with ' + esc(p.partner) : ''} · ${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''} · ${esc(p.map ?? 'on the road')}</span></div>
-      <div class="dim">food ${bar(p.hunger)} water ${bar(p.thirst)} rest ${bar(p.tired)} hp ${bar(p.hp, true)}</div></div>`).join('') : '<p class="dim">Nobody is alive.</p>';
+    const all = (await cmd({ cmd: 'agents' })) as (Person & { player?: boolean; online?: boolean; asleep?: boolean })[];
+    const list = all.filter((p) => !p.player);
+    for (const p of all) names.set(p.id, p.name);
+    const players = all.filter((p) => p.player).map((p) => `<div class="row"><div><b>${esc(p.name)}</b> <span class="dim">player · ${p.online ? (p.asleep ? 'here, asleep' : 'here') : 'away (asleep)'} · ${esc(p.map ?? 'on the road')} (${p.x}, ${p.y})</span></div></div>`).join('');
+    $('people').innerHTML = players + (list.length ? list.map((p) => `<div class="row person" data-id="${p.id}"><div><b>${esc(p.name)}</b> <span class="dim">${p.sex === 'f' ? '♀' : '♂'} ${p.age}${p.child ? ' (child)' : ''}${p.pregnant ? ' · expecting' : ''}${p.partner ? ' · with ' + esc(p.partner) : ''} · ${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''} · ${esc(p.map ?? 'on the road')} (${p.x}, ${p.y})</span></div>
+      <div class="dim">food ${bar(p.hunger)} water ${bar(p.thirst)} rest ${bar(p.tired)} hp ${bar(p.hp, true)}</div></div>`).join('') : '<p class="dim">Nobody is alive.</p>');
     for (const r of $('people').querySelectorAll<HTMLElement>('[data-id]')) r.onclick = () => void openPerson(Number(r.dataset.id));
   } catch (e) { log(String(e)); }
 }
@@ -82,7 +84,7 @@ async function openPerson(id: number): Promise<void> {
     $('personCard').hidden = false;
     $('pName').textContent = d.name;
     try {
-      const names = ((await cmd({ cmd: 'agents' })) as { name: string }[]).map((x) => x.name).concat(((await cmd({ cmd: 'players' })) as { name: string }[]).map((x) => x.name));
+      const names = [...new Set(((await cmd({ cmd: 'agents' })) as { name: string }[]).map((x) => x.name).concat(((await cmd({ cmd: 'players' })) as { name: string }[]).map((x) => x.name)))];
       $('pOrdNames').innerHTML = names.filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('');
     } catch { /* names are only a help */ }
     const ord = (d as { order?: string | null }).order;
@@ -122,6 +124,21 @@ function describe(e: { kind: string; data: Record<string, unknown> }): string {
     case 'pregnant': return `${who(d.id)} is expecting a baby with ${who(d.father)}`;
     case 'admin': return `Panel: ${d.cmd}`;
     case 'say': return `${who(d.id)}: “${d.text}”`;
+    case 'build': return `${d.id !== undefined ? who(d.id) + ' built' : 'Built'} a ${d.what} in ${d.map} (${d.tx}, ${d.ty})`;
+    case 'craft': return `${who(d.id)} made ${d.what === 'axe' ? 'an axe' : 'a ' + d.what}`;
+    case 'store': return `${who(d.id)} stored ${d.n} ${d.what} (store: ${d.total})`;
+    case 'loot': return `${who(d.id)} searched a ruin: ${d.got}`;
+    case 'ruleSet': return `New rule for ${(d.id as number) >= 0 ? who(d.id) : 'everyone'}: "${d.text}"`;
+    case 'rule': return `${who(d.id)} kept the rule "${d.rule}" and did not talk with ${who(d.with)}`;
+    case 'zombie': return d.how === 'killed' ? `A zombie was killed${(d.by as number) >= 0 ? ' by ' + who(d.by) : ''}` : d.how === 'dawn' ? 'A zombie crumbled at dawn' : `A zombie appeared in ${d.map} (${d.x}, ${d.y})${d.how === 'spawned' ? ' (panel)' : ''}`;
+    case 'zombies': return `${d.n} zombies came out in ${d.map}`;
+    case 'fight': return `${who(d.id)} fights a zombie`;
+    case 'heal': return `${who(d.id)} treated ${who(d.who)} (health ${d.hp})`;
+    case 'repair': return `${who(d.id)} repaired a hut wall`;
+    case 'task': return `${who(d.id)} ${d.ok ? 'finished' : 'gave up'}: ${d.text}${d.why ? ' (' + d.why + ')' : ''}`;
+    case 'camp': return `A camp was set up in ${d.map} (${Math.round(d.x as number)}, ${Math.round(d.y as number)})`;
+    case 'teleport': return `A player jumped next to ${who(d.to)}`;
+    case 'give': return `${who(d.id)} gave ${d.n ?? 1} ${d.item} to ${who(d.to)}${d.trade ? ' for ' + d.trade : ''}`;
     default: return `${e.kind} ${JSON.stringify(d)}`;
   }
 }
@@ -235,7 +252,7 @@ function connect(token: string): void {
         if (s.yearDays !== undefined && document.activeElement !== $('yearDays')) ($('yearDays') as HTMLSelectElement).value = String(s.yearDays);
         if (s.maxPopulation !== undefined && document.activeElement !== $('maxPop')) ($('maxPop') as HTMLInputElement).value = String(s.maxPopulation);
         if (s.difficulty !== undefined && document.activeElement !== $('diff')) { ($('diff') as HTMLInputElement).value = String(s.difficulty); $('diffV').textContent = String(s.difficulty); }
-        if (++statsN % 3 === 0) { void refreshPeople(); if (statsN % 15 === 0) { void refreshTimeline(); void refreshPlanner(); } }
+        if (++statsN % 3 === 0) { void refreshPeople(); void refreshZombies(); if (statsN === 3) void refreshRules(); if (statsN % 15 === 0) { void refreshRules(); void refreshTimeline(); void refreshPlanner(); } }
         if (s.travelOpen !== undefined && s.travelOpen !== travelOpen) showTravel(s.travelOpen);
         else if ($('travelBtn').textContent === '-') showTravel(!!s.travelOpen);
         const t = s.tunnel;
@@ -367,6 +384,50 @@ $('addPerson').onclick = async () => {
 };
 ($('diff') as HTMLInputElement).oninput = () => { $('diffV').textContent = ($('diff') as HTMLInputElement).value; };
 ($('diff') as HTMLInputElement).onchange = async () => { try { await cmd({ cmd: 'difficulty', value: Number(($('diff') as HTMLInputElement).value) }); log('difficulty changed'); } catch (e) { log(String(e)); } };
+async function refreshZombies(r?: { perNight: number; now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] }): Promise<void> {
+  try {
+    r ??= (await cmd({ cmd: 'zombies' })) as NonNullable<typeof r>;
+    if (document.activeElement !== $('zNight')) ($('zNight') as HTMLInputElement).value = String(r.perNight);
+    $('zState').textContent = `${r.now.length} out now · ${r.perNight} each night`;
+    $('zList').textContent = r.now.slice(0, 12).map((z) => `${z.map} (${z.x}, ${z.y}) hp ${z.hp}${z.stays ? '' : ' · leaves at dawn'}`).join(' · ');
+    $('zNames').innerHTML = [...new Set(names.values())].map((n) => `<option value="${esc(n)}">`).join('');
+  } catch (e) { log(String(e)); }
+}
+($('zNight') as HTMLInputElement).onchange = async () => { try { await refreshZombies((await cmd({ cmd: 'zombies', perNight: Number(($('zNight') as HTMLInputElement).value) })) as never); log('zombies per night changed'); } catch (e) { log(String(e)); } };
+$('zClear').onclick = async () => { try { await refreshZombies((await cmd({ cmd: 'zombies', clear: true })) as never); log('zombies removed'); } catch (e) { log(String(e)); } };
+$('zGo').onclick = async () => {
+  try {
+    const v = (id: string) => ($(id) as HTMLInputElement).value.trim();
+    const near = v('zNear');
+    const r = (await cmd(near ? { cmd: 'zombieSpawn', near, dist: Number(v('zDist') || 8), n: Number(v('zN') || 1) }
+      : { cmd: 'zombieSpawn', map: v('zMap'), x: v('zX'), y: v('zY'), n: Number(v('zN') || 1) })) as { map: string; x: number; y: number }[];
+    log(`spawned ${r.length} zombie${r.length > 1 ? 's' : ''} in ${r[0]!.map} (${r[0]!.x}, ${r[0]!.y})`);
+    void refreshZombies(); void refreshTimeline();
+  } catch (e) { log(String(e)); }
+};
+type RuleRow = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean };
+type RulesAns = { all: RuleRow[]; people: { id: number; name: string; rules: RuleRow[] }[]; max: number };
+async function refreshRules(r?: RulesAns): Promise<void> {
+  try {
+    r ??= (await cmd({ cmd: 'rules' })) as RulesAns;
+    const sel = $('rFor') as HTMLSelectElement, cur = sel.value;
+    sel.innerHTML = `<option value="-1">Everyone (${r.all.length}/${r.max})</option>` + r.people.map((p) => `<option value="${p.id}">${esc(p.name)} (${p.rules.length}/${r!.max})</option>`).join('');
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '-1';
+    const id = Number(sel.value), list = id < 0 ? r.all : r.people.find((p) => p.id === id)?.rules ?? [];
+    $('rList').innerHTML = list.length ? list.map((x, k) => `<div class="row"><span>"${esc(x.text)}"<br><small class="dim">${x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only'}${x.ai ? ' · understood by the AI' : ''}</small></span><button data-rm="${k}">Remove</button></div>`).join('') : '<p class="dim">No rules.</p>';
+    for (const b of $('rList').querySelectorAll<HTMLButtonElement>('[data-rm]')) b.onclick = async () => { try { await refreshRules((await cmd({ cmd: 'rules', id, remove: Number(b.dataset.rm) })) as RulesAns); log('rule removed'); } catch (e) { log(String(e)); } };
+    ($('rAdd') as HTMLButtonElement).disabled = list.length >= r.max;
+  } catch (e) { log(String(e)); }
+}
+($('rFor') as HTMLSelectElement).onchange = () => void refreshRules();
+$('rAdd').onclick = async () => {
+  const t = ($('rText') as HTMLInputElement).value.trim();
+  if (!t) return;
+  ($('rAdd') as HTMLButtonElement).disabled = true;
+  try { await refreshRules((await cmd({ cmd: 'rules', id: Number(($('rFor') as HTMLSelectElement).value), add: t })) as RulesAns); ($('rText') as HTMLInputElement).value = ''; log('rule added'); }
+  catch (e) { log(String(e)); ($('rAdd') as HTMLButtonElement).disabled = false; }
+};
+($('rText') as HTMLInputElement).onkeydown = (e) => { if (e.key === 'Enter') $('rAdd').click(); };
 $('supply').onclick = async () => { try { const r = (await cmd({ cmd: 'supply', map: ($('supMap') as HTMLSelectElement).value })) as { n: number }; log(`supply drop: ${r.n} food`); void refreshTimeline(); } catch (e) { log(String(e)); } };
 $('tlMore').onclick = () => void refreshTimeline();
 ($('yearDays') as HTMLSelectElement).onchange = async () => { try { await cmd({ cmd: 'life', yearDays: Number(($('yearDays') as HTMLSelectElement).value) }); log('ageing speed changed'); } catch (e) { log(String(e)); } };

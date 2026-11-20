@@ -71,5 +71,7 @@ export const Act = {
   Gather: 11,
   /** Building a campfire or a hut, feeding a fire. */
   Build: 12,
+  /** Fighting a zombie (a zombie: going for someone). */
+  Fight: 13,
 } as const;
 export type ActId = (typeof Act)[keyof typeof Act];

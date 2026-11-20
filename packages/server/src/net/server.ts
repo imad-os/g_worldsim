@@ -4,7 +4,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
-  Msg, Kind, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
+  Msg, Kind, EFlag, Act, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
   type AdminCmd, type ClientMsg, type Role, type ServerMsg, type ServerStats,
 } from '@worldsim/protocol';
 import type { World } from '../sim/world.js';
@@ -90,7 +90,7 @@ export class NetServer {
   /** A viewer is typing to person `agent`: they wait. */
   onHold: (player: number, agent: number) => void = () => {};
   /** A viewer's character does something (see Msg.Do). */
-  onDo: (name: string, player: number, a: string) => Record<string, unknown> = () => ({ ok: false });
+  onDo: (name: string, player: number, a: string, text?: string) => Record<string, unknown> = () => ({ ok: false });
   /** About one person; `seer` adds their thoughts and memory. */
   info: (id: number, seer: boolean) => unknown = () => null;
   /** Who may see thoughts (the owner's choice). */
@@ -308,9 +308,11 @@ export class NetServer {
   /** Players' characters in the world: [name, slot]. */
   characters(): [string, number][] {
     const out: [string, number][] = [];
-    for (const s of this.sessions.values()) if (s.role === 'viewer' && s.avatar >= 0 && this.ownsAvatar(s)) out.push([s.name, s.avatar]);
+    for (const [name, id] of this.residents) { const i = this.world.e.slot(id); if (i >= 0 && this.world.e.kind[i] === Kind.Player) out.push([name, i]); }
     return out;
   }
+  /** Is this player here now (a screen connected)? */
+  online(name: string): boolean { for (const s of this.sessions.values()) if (s.ws && s.name === name && s.avatar >= 0) return true; return false; }
 
   private ownsAvatar(s: Session): boolean {
     return s.avatar >= 0 && this.world.e.id(s.avatar) === s.avatarId && this.world.e.alive(s.avatar);
@@ -322,6 +324,11 @@ export class NetServer {
       // One character per player name, even with two TVs.
       for (const o of this.sessions.values()) if (o !== s && o.name === s.name && this.ownsAvatar(o)) { s.avatar = o.avatar; s.avatarId = o.avatarId; o.avatar = -1; }
     }
+    if (!this.ownsAvatar(s)) { // the character kept in the world while the player was away
+      const r = this.residents.get(s.name);
+      const i = r !== undefined ? w.e.slot(r) : -1;
+      if (i >= 0 && w.e.kind[i] === Kind.Player) { s.avatar = i; s.avatarId = r!; }
+    }
     if (!this.ownsAvatar(s)) {
       const p = this.avatarStore.get(s.name);
       const mi = p ? w.mapIndex.get(p.map) ?? 0 : 0;
@@ -329,8 +336,13 @@ export class NetServer {
       const slot = w.spawnPlayer(mi, p?.x ?? def.w / 2, p?.y ?? def.h / 2);
       if (slot < 0) { this.send(s, { t: Msg.Error, code: 'full' }); return; }
       s.avatar = slot; s.avatarId = w.e.id(slot);
+      this.residents.set(s.name, s.avatarId);
       this.log.info('player joined the world', { name: s.name, map: w.maps[mi]!.def.id });
     }
+    // Awake and standing: the player is here (in watch mode it stays like that, doing nothing).
+    const e = w.e, i = s.avatar;
+    w.away.delete(s.avatarId);
+    if (e.flags[i]! & EFlag.Sleeping) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
     s.lastMap = -2;
     this.sendYou(s);
   }
@@ -340,28 +352,58 @@ export class NetServer {
     const m = e.map[i]!, transit = m === NO_MAP;
     const mi = transit ? e.toMap[i]! : m;
     s.lastMap = m;
-    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined });
+    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined, x: transit ? e.ax[i] : e.x[i], y: transit ? e.ay[i] : e.y[i] });
     if (!transit) s.view = { map: m, x: e.x[i]!, y: e.y[i]!, r: s.view?.r ?? 40 };
   }
 
-  /** The player left: keep where they were, take the character out of the world. */
+  /** Players' characters stay in the world 24/7 (imad 2026-11-20): name -> entity id. */
+  readonly residents = new Map<string, number>();
+
+  /** At start: every known player's character lies asleep where they left it. */
+  spawnResidents(names: string[]): void {
+    const w = this.world;
+    for (const name of new Set(names)) {
+      if (this.residents.has(name)) continue;
+      const p = this.avatarStore.get(name);
+      const mi = p ? w.mapIndex.get(p.map) ?? 0 : 0;
+      const def = w.maps[mi]!.def;
+      const i = w.spawnPlayer(mi, p?.x ?? def.w / 2, p?.y ?? def.h / 2);
+      if (i < 0) continue;
+      this.residents.set(name, w.e.id(i));
+      this.sleepAway(i);
+    }
+  }
+
+  /** The player is away: the character lies down and sleeps until they come back. */
+  private sleepAway(i: number): void {
+    const w = this.world, e = w.e;
+    w.setInput(i, 0, 0, false);
+    e.inX[i] = e.inY[i] = 0;
+    e.flags[i] = e.flags[i]! | EFlag.Sleeping; e.act[i] = Act.Sleep;
+    w.away.add(e.id(i));
+  }
+
+  /** The player left: the character stays where it is and falls asleep (unless another of their screens is still here). */
   private leave(s: Session): void {
     if (this.closing) return; // the final snapshot saves every character's place
     if (!this.ownsAvatar(s)) { s.avatar = -1; return; }
     const w = this.world, e = w.e, i = s.avatar;
+    for (const o of this.sessions.values()) if (o !== s && o.ws && o.name === s.name) { o.avatar = i; o.avatarId = s.avatarId; s.avatar = -1; return; }
     const mi = e.map[i] === NO_MAP ? e.toMap[i]! : e.map[i]!;
     const x = e.map[i] === NO_MAP ? e.ax[i]! : e.x[i]!, y = e.map[i] === NO_MAP ? e.ay[i]! : e.y[i]!;
     this.avatarStore.set(s.name, { map: w.maps[mi]!.def.id, x, y });
-    w.remove(i, 'left');
+    this.residents.set(s.name, s.avatarId);
+    this.sleepAway(i);
     s.avatar = -1;
   }
 
   /** Save every connected character's position (snapshots, shutdown). */
   saveAvatars(): void {
     const w = this.world, e = w.e;
-    for (const s of this.sessions.values()) {
-      if (!this.ownsAvatar(s)) continue;
-      const i = s.avatar;
+    for (const [name, id] of this.residents) {
+      const i = e.slot(id);
+      if (i < 0 || e.kind[i] !== Kind.Player) continue;
+      const s = { name };
       if (e.map[i] === NO_MAP) this.avatarStore.set(s.name, { map: w.maps[e.toMap[i]!]!.def.id, x: e.ax[i]!, y: e.ay[i]! });
       else this.avatarStore.set(s.name, { map: w.maps[e.map[i]!]!.def.id, x: e.x[i]!, y: e.y[i]! });
     }
@@ -461,7 +503,7 @@ export class NetServer {
           this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
           return;
         }
-        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a) } });
+        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, 40) : undefined) } });
         this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
         return;
       }

@@ -1,6 +1,7 @@
 import { Act, EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { Pathfinder } from './pathfind.js';
+import { ACT_RULE } from './rules.js';
 import type { World } from './world.js';
 
 /**
@@ -161,6 +162,9 @@ export class Brain {
     if (kind === 'stop') { this.ordKind[i] = 0; this.wishUntil[i] = 0; if (e.act[i] === Act.Go) { this.stop(i); this.setAct(i, Act.Idle); } e.nextThink[i] = w.tick + 1; return true; }
     if ((kind === 'come' || kind === 'goto' || kind === 'follow' || kind === 'bring') && (who < 0 || e.slot(who) < 0 || e.slot(who) === i)) return false;
     if (kind === 'act' && act < 0) return false;
+    // The owner's strict rules win over any order (sim/rules.ts).
+    const rn = kind === 'come' || kind === 'goto' ? 'goto' : kind === 'act' ? ACT_RULE[act] : kind === 'stay' ? '' : kind;
+    if (rn && w.rules.forbidden(i, rn, who >= 0 ? e.slot(who) : -1)) return false;
     this.ordKind[i] = kind === 'come' || kind === 'goto' ? 1 : kind === 'follow' ? 2 : kind === 'stay' ? 3 : kind === 'bring' ? 5 : 4;
     this.ordWho[i] = who; this.ordAct[i] = act;
     this.ordUntil[i] = w.gameSec + Math.max(5, Math.min(24 * 60, gameMinutes)) * 60;
@@ -247,6 +251,57 @@ export class Brain {
     return true;
   }
 
+  /**
+   * A zombie in sight (10 m, 6 m when asleep: it wakes them): fight it (a spear or an axe, or strong, and brave enough,
+   * and not badly hurt) or run: to the camp's fire when there is one within 80 m (zombies keep away from fire), else away.
+   * True = handled. When it is gone (16 m+), they carry on.
+   */
+  private danger(i: number): boolean {
+    const w = this.w, e = w.e, m = e.map[i]!;
+    const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
+    const fighting = e.act[i] === Act.Fight, fleeing = e.act[i] === Act.Flee;
+    const z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? 6 : 10);
+    if (z < 0) {
+      if (fighting || fleeing) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; }
+      return false;
+    }
+    if (asleep) { this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i), why: 'zombie' }); }
+    const p = w.profileOf(i), v = w.survival.inv(i);
+    const armed = (v.spear ?? 0) > 0 || (v.axe ?? 0) > 0;
+    const brave = (p?.traits.courage ?? 0.5) > (armed ? 0.3 : 0.55) && (armed || (p?.traits.strength ?? 0.5) > 0.6) && e.hp[i]! > 45 && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight');
+    const zx = e.x[z]!, zy = e.y[z]!, d = Math.hypot(zx - e.x[i]!, zy - e.y[i]!);
+    if (brave) {
+      if (!fighting) w.emit('fight', { id: e.id(i), zombie: e.id(z) });
+      this.setAct(i, Act.Fight); e.target[i] = e.id(z);
+      if (d > 1.2) { if (!this.walking(i) || Math.hypot(this.gx[i]! - zx, this.gy[i]! - zy) > 1.5) this.goTo(i, zx, zy, true); }
+      else { this.stop(i); e.angle[i] = Math.atan2(zy - e.y[i]!, zx - e.x[i]!); }
+      this.schedule(i, 0, 5);
+      return true;
+    }
+    // Run.
+    if (fleeing && this.walking(i) && d > 4) { this.schedule(i, 0, 8); return true; }
+    if (!fleeing) w.emit('flee', { id: e.id(i), zombie: e.id(z) });
+    this.setAct(i, Act.Flee); e.target[i] = e.id(z);
+    const camp = w.survival.campOf(m), f = camp ? w.survival.fireNear(m, camp.x, camp.y, 20) : -1;
+    const W = w.maps[m]!.tiles.w;
+    let ok = false;
+    if (f >= 0) {
+      const fx = (f % W) + 0.5, fy = ((f / W) | 0) + 0.5;
+      if (Math.hypot(fx - e.x[i]!, fy - e.y[i]!) < 80 && Math.hypot(fx - e.x[i]!, fy - e.y[i]!) > 2.5) {
+        const s = w.freeSpot(m, fx + w.rng.range(-1.8, 1.8), fy + w.rng.range(-1.8, 1.8), 10);
+        if (s) ok = this.goTo(i, s.x, s.y, true);
+      } else if (Math.hypot(fx - e.x[i]!, fy - e.y[i]!) <= 2.5) { this.stop(i); this.schedule(i, 0, 10); return true; } // safe by the fire
+    }
+    if (!ok) {
+      const dx = e.x[i]! - zx, dy = e.y[i]! - zy, l = Math.hypot(dx, dy) || 1;
+      const s = w.freeSpot(m, e.x[i]! + (dx / l) * 14, e.y[i]! + (dy / l) * 14, 10);
+      if (s) ok = this.goTo(i, s.x, s.y, true);
+    }
+    if (!ok && !w.rules.forbidden(i, 'fight')) { this.setAct(i, Act.Fight); e.target[i] = e.id(z); this.stop(i); } // cornered: fight back
+    this.schedule(i, 0, 8);
+    return true;
+  }
+
   /** For a "bring food" order with empty hands: walk to the nearest food and pick it up (not eat it). */
   private fetchFood(i: number): boolean {
     const w = this.w, e = w.e;
@@ -284,12 +339,14 @@ export class Brain {
     const w = this.w, e = w.e, N = this.life.needs, k = this.life.difficulty;
     const h = (20 * w.dt * w.opt.clockScale) / HOUR;
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Player || e.map[i] === NO_MAP) continue;
+      if (e.kind[i] !== Kind.Player || e.map[i] === NO_MAP || w.away.has(e.id(i))) continue; // away: asleep, needs wait
       const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
       e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * h * (asleep ? 0.5 : 1));
       e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * h * (asleep ? 0.5 : 1));
       e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * h) : Math.min(100, e.tired[i]! + N.tired * k * h);
       if (asleep && e.tired[i]! <= 0) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
+      // Wounds (zombie bites) heal: 20 a game hour when fed and watered, twice that asleep.
+      if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 20 * h * (asleep ? 2 : 1));
     }
   }
 
@@ -384,6 +441,7 @@ export class Brain {
       return;
     }
     if (!this.walking(i)) e.actT[i] = Math.max(0, e.actT[i]! - since * HOUR / w.opt.clockScale); // timers run once there
+    if (this.danger(i)) return;
     if (this.obey(i)) return;
     if (e.act[i] === Act.Go || ((e.act[i] === Act.Gather || e.act[i] === Act.Build) && this.ordKind[i] !== 6)) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
 
@@ -437,6 +495,7 @@ export class Brain {
     const wish = this.wishOf(i);
     let best = -1, bs = -1;
     for (let k = 0; k < scores.length; k++) {
+      if (acts[k] !== Act.Rest && acts[k] !== Act.Talk && w.rules.forbidden(i, ACT_RULE[acts[k]!]!)) { scores[k] = -1; continue; } // the owner's rule
       if (acts[k] === wish && !(wish === Act.Travel && !w.travelOpen) && !(wish === Act.Eat && e.carry[i]! <= 0)) scores[k]! += 0.32;
       const s = scores[k]! + (acts[k] === e.act[i] ? 0.08 : 0) + jitter * 0.04 * ((k * 7 + 3) % 5) / 5;
       if (s > bs) { bs = s; best = k; }
@@ -461,6 +520,12 @@ export class Brain {
         if (e.carry[i]! <= 0) return false;
         this.stop(i); this.setAct(i, Act.Eat, 12); this.schedule(i, 2, this.ticksLeft(i)); return true;
       case Act.Forage: {
+        // Food in the camp's store is the first place to look when it is near (people stock it for this).
+        const st = e.carry[i]! <= 0 && e.hunger[i]! > 40 ? w.survival.stashFood(i, 150) : -1;
+        if (st >= 0) {
+          const W = w.maps[m]!.tiles.w, sp = w.freeSpot(m, (st % W) + 0.5, ((st / W) | 0) + 1.5, 6);
+          if (sp && this.goTo(i, sp.x, sp.y, e.hunger[i]! > 85)) { this.setAct(i, Act.Forage); e.goal[i] = -3; this.schedule(i, 1); return true; }
+        }
         const t = this.nearestItem(i, 90);
         if (t < 0) { // nothing known nearby: search a little further away
           if (!this.wanderGo(i, 30)) return false;
@@ -488,9 +553,9 @@ export class Brain {
         let j = -1;
         if (this.wishOf(i) === Act.Talk && this.wishWith[i]! >= 0) { // the planner named someone
           const k = e.slot(this.wishWith[i]!);
-          if (k >= 0 && k !== i && e.kind[k] === Kind.Agent && e.map[k] === m && e.act[k] !== Act.Sleep && Math.hypot(e.x[k]! - e.x[i]!, e.y[k]! - e.y[i]!) < 150) j = k;
+          if (k >= 0 && k !== i && e.kind[k] === Kind.Agent && e.map[k] === m && e.act[k] !== Act.Sleep && Math.hypot(e.x[k]! - e.x[i]!, e.y[k]! - e.y[i]!) < 150 && !w.rules.between(i, k, 'talk')) j = k;
         }
-        if (j < 0) j = this.nearestAgent(i, 60);
+        if (j < 0) j = this.nearestAgent(i, 60, 'talk');
         if (j < 0) return false;
         if (!this.goTo(i, e.x[j]!, e.y[j]!)) return false;
         this.setAct(i, Act.Talk); e.target[i] = e.id(j); this.schedule(i, 1); return true;
@@ -534,6 +599,11 @@ export class Brain {
         return false;
       case Act.Forage: {
         if (e.actT[i]! > 0) { this.schedule(i, 2, this.ticksLeft(i)); return true; } // eating what was found
+        if (e.goal[i] === -3) { // at the camp's store
+          e.goal[i] = -1;
+          if (w.survival.eatFromStash(i)) { this.stop(i); e.actT[i] = 10; this.schedule(i, 2, this.ticksLeft(i)); return true; }
+          return false;
+        }
         const t = e.target[i]! >= 0 ? e.slot(e.target[i]!) : -1;
         e.target[i] = -1;
         if (t < 0 || e.map[t] !== e.map[i]) return false; // gone (someone else took it) or was exploring
@@ -569,6 +639,7 @@ export class Brain {
           this.schedule(i, 0, Math.min(20, this.ticksLeft(i)));
           return true;
         }
+        if (w.rules.between(i, j, 'talk')) { e.target[i] = -1; e.goal[i] = -1; return false; } // a rule: they don't talk
         if (d <= 1.9) {
           // Start talking: both stop and face each other for 20-40 s.
           const secs = 20 + w.rng.next() * 20;
@@ -625,11 +696,13 @@ export class Brain {
     return best;
   }
 
-  private nearestAgent(i: number, r: number): number {
+  /** The nearest person awake within r metres (`rule` = skip those a rule keeps them from doing that with). */
+  private nearestAgent(i: number, r: number, rule = ''): number {
     const e = this.w.e, m = e.map[i]!;
     let best = -1, bd = r * r;
     for (let j = 0; j < e.hi; j++) {
       if (j === i || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.map[j] !== m || e.act[j] === Act.Sleep) continue;
+      if (rule && this.w.rules.between(i, j, rule)) continue;
       const dx = e.x[j]! - e.x[i]!, dy = e.y[j]! - e.y[i]!, d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = j; }
     }
