@@ -644,8 +644,15 @@ export class App {
         // The bag: added together.
         const bagA = w.survival.pinv.get(from);
         if (bagA) { const bagB = w.survival.pinv.get(into) ?? {}; for (const [k, n] of Object.entries(bagA)) bagB[k as keyof typeof bagB] = Math.min(20, (bagB[k as keyof typeof bagB] ?? 0) + (n ?? 0)); w.survival.pinv.set(into, bagB); w.survival.pinv.delete(from); }
-        if (ia >= 0 && ib >= 0) { w.profiles.delete(a!); w.remove(ia, 'merged'); } // "into" keeps its character (place, family)
-        else if (ia >= 0) { const p = w.profileOf(ia); if (p) { p.player = into; p.name = into; } this.net.residents.set(into, a!); }
+        // The character in use ("from", unless keep: 'into') stays, with its place, look and family; the other goes.
+        const keepInto = c.keep === 'into' && ib >= 0;
+        if (keepInto) { if (ia >= 0) { w.profiles.delete(a!); w.remove(ia, 'merged'); } }
+        else if (ia >= 0) {
+          if (ib >= 0) { w.profiles.delete(b!); w.remove(ib, 'merged'); }
+          const p = w.profileOf(ia); if (p) { p.player = into; p.name = into; }
+          this.net.residents.set(into, a!);
+          const pos = this.db.getMeta('pos:' + from); if (pos) this.db.setMeta('pos:' + into, pos);
+        }
         this.net.residents.delete(from);
         const pos = this.db.getMeta('pos:' + from);
         if (pos && !this.db.getMeta('pos:' + into)) this.db.setMeta('pos:' + into, pos);
@@ -654,7 +661,7 @@ export class App {
         const renamed = this.players.rename(from, into);
         const again = this.net.reconnect(from) + this.net.reconnect(into);
         w.emit('merged', { from, into });
-        return { renamed, characters: ia >= 0 && ib >= 0 ? 'kept into, removed from' : ia >= 0 ? 'from renamed' : 'none to move', reconnected: again };
+        return { renamed, characters: keepInto ? 'kept into' : ia >= 0 ? 'from kept, now called into' : 'none to move', reconnected: again };
       }
       case 'revoke': {
         const ok = this.players.revoke(String(c.name));

@@ -54,7 +54,7 @@ export type AdminCmd =
   | { cmd: 'deny'; code: string }
   | { cmd: 'players' }
   | { cmd: 'revoke'; name: string }
-  | { cmd: 'mergePlayer'; from: string; into: string }
+  | { cmd: 'mergePlayer'; from: string; into: string; keep?: 'from' | 'into' }
   | { cmd: 'tunnel' }
   | { cmd: 'tunnelSwitch'; provider: 'ngrok' | 'tailscale' | 'cloudflare' | 'cloudflare-quick' | 'none' }
   /** Let agents take portals to other maps (players always can). */

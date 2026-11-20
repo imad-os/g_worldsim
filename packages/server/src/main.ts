@@ -3,7 +3,7 @@ import { App } from './app.js';
 
 const { cfg, secrets } = loadConfig(process.argv.slice(2));
 if (!secrets.adminToken) console.warn('ADMIN_TOKEN is not set in .env: the control panel is disabled.');
-if (secrets.viewers.size === 0) console.warn('VIEWER_TOKENS is not set in .env: no viewer can connect.');
+if (secrets.viewers.size === 0) console.log('No fixed viewer tokens in .env: TVs join by themselves or pair from the panel.');
 
 const app = new App(cfg, secrets);
 let stopping = false;
