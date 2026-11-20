@@ -1,7 +1,7 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Color, Fog, Mesh, Group,
   PlaneGeometry, MeshLambertMaterial, MeshPhongMaterial, MeshBasicMaterial, TorusGeometry, CircleGeometry, SphereGeometry,
-  InstancedMesh, Matrix4, Vector3, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
+  InstancedMesh, Matrix4, Vector3, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
   type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
@@ -65,7 +65,7 @@ export class World3D {
     const shadows = tier !== 'low';
     if (shadows) {
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = PCFSoftShadowMap;
+      this.renderer.shadowMap.type = tier === 'high' ? PCFSoftShadowMap : PCFShadowMap; // soft edges only on strong screens
       this.sun.castShadow = true;
       const s = tier === 'high' ? 2048 : 1024;
       this.sun.shadow.mapSize.set(s, s);
@@ -177,7 +177,16 @@ export class World3D {
   }
 
   /** How far a person sees in 'third' / 'first' (fog hides the rest: fewer chunks and shadows to draw). */
-  get sight(): number { return this.tier === 'low' ? 42 : this.tier === 'mid' ? 52 : 64; }
+  get sight(): number { return (this.tier === 'low' ? 42 : this.tier === 'mid' ? 52 : 64) * this.distK; }
+  /** Graphics settings (player's choice): view distance x0.7 / 1 / 1.4; fog 0 = off, else x1.6 light / 1 normal / 0.6 thick. */
+  distK = 1;
+  fogK = 1;
+  private fogAt(near: number, far: number): void {
+    if (!this.fogK) { this.fog.near = 1e5; this.fog.far = 1e6; return; }
+    this.fog.near = near * this.fogK; this.fog.far = far * this.fogK;
+  }
+  /** Settings changed: the camera picks them up at the next frame. */
+  settingsChanged(): void { this.viewSet = ''; }
 
   /** Camera follows target (x, z) smoothly; `snap` jumps there. */
   follow(x: number, z: number, dt: number, snap: boolean): void {
@@ -188,14 +197,14 @@ export class World3D {
     if (this.view !== this.viewSet) {
       this.viewSet = this.view;
       const cam = this.camera;
-      if (this.view === 'top') { cam.fov = 30; cam.near = 1; cam.far = 400; } else { cam.fov = this.view === 'first' ? 62 : 55; cam.near = 0.12; cam.far = this.sight + 6; }
+      if (this.view === 'top') { cam.fov = 30; cam.near = 1; cam.far = 400; } else { cam.fov = this.view === 'first' ? 62 : 55; cam.near = 0.12; cam.far = this.sight * (this.fogK ? Math.max(1, this.fogK) : 1.6) + 6; }
       cam.updateProjectionMatrix();
     }
     let sx0 = this.look.x, sz0 = this.look.z;
     if (this.view === 'top') {
       this.camera.position.set(this.look.x, Math.sin(PITCH) * d, this.look.z + Math.cos(PITCH) * d);
       this.camera.lookAt(this.look.x, 0, this.look.z);
-      this.fog.near = d * 1.6; this.fog.far = d * 3.6;
+      this.fogAt(d * 1.6 * this.distK, d * 3.6 * this.distK);
     } else {
       // Forward on the ground: yaw 0 = north (-z).
       const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
@@ -207,7 +216,7 @@ export class World3D {
         this.camera.position.set(this.look.x + fx * 0.18, 1.55, this.look.z + fz * 0.18);
         this.camera.lookAt(this.look.x + fx * 10, 0.9, this.look.z + fz * 10);
       }
-      this.fog.near = this.sight * 0.35; this.fog.far = this.sight;
+      this.fogAt(this.sight * 0.35, this.sight);
       d = this.sight * 0.4;
       // Shadows where the eye is: a box ahead of the character.
       sx0 = this.look.x + fx * d * 0.8; sz0 = this.look.z + fz * d * 0.8;

@@ -19,7 +19,7 @@ export interface Join { t: typeof Msg.Join }
  * Client -> server: my controls, sent on change and at least every 250 ms while held.
  * mx, my = stick -1..1 (screen up = -y), run, act = interact pressed (edge), seq = counter.
  */
-export interface Input { t: typeof Msg.Input; mx: number; my: number; run?: boolean; act?: boolean; seq?: number }
+export interface Input { t: typeof Msg.Input; mx: number; my: number; run?: boolean; act?: boolean; seq?: number; /** where the screen has my character now (it moves it at once) */ x?: number; y?: number }
 
 /** Client -> server: my character does something (answer: Notice 'did' { a, ok, code }, then Notice 'me'). */
 export interface Do { t: typeof Msg.Do; a: string; /** 'talk': what I say (typed on the TV). */ text?: string }

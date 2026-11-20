@@ -47,6 +47,21 @@ let map = '';
 let mapW = 256, mapH = 256;
 let camX = 128, camY = 128;
 let tier: Tier = 'mid';
+/** Graphics settings (imad 2026-11-20), saved per My PC profile: quality (auto = My PC's), fog, view distance, fps counter. */
+interface Gfx { q: 'auto' | Tier; fog: number; dist: number; fps: boolean }
+let gfx: Gfx = { q: 'auto', fog: 2, dist: 1, fps: false };
+const FOG_K = [0, 1.6, 1, 0.6], DIST_K = [0.7, 1, 1.4];
+function applyGfx(): void {
+  if (!g3) return;
+  g3.fogK = FOG_K[gfx.fog] ?? 1; g3.distK = DIST_K[gfx.dist] ?? 1;
+  g3.settingsChanged();
+  fpsEl.hidden = !gfx.fps || mode !== 'world';
+  sendView();
+}
+const fpsEl = document.createElement('div');
+fpsEl.id = 'fps'; fpsEl.hidden = true;
+document.body.appendChild(fpsEl);
+let fpsN = 0, fpsAt = 0, drawAt = 0;
 let remoteOnly = true;
 let g3: World3D | null = null;
 let looks: Look[] = [];
@@ -142,6 +157,7 @@ function show(m: typeof mode, extra = ''): void {
   mode = m;
   canvas.style.visibility = m === 'world' ? 'visible' : 'hidden';
   hudTop.hidden = hudHint.hidden = m !== 'world';
+  fpsEl.hidden = !gfx.fps || m !== 'world';
   if (m !== 'world') { noteEl.hidden = true; cardEl.hidden = true; cardHtml = ''; if (menu?.open) menu.close(); bubbles?.hide(); }
   screenEl.hidden = m === 'world';
   let html = '';
@@ -228,7 +244,7 @@ function onMsg(m: ServerMsg): void {
       gameSec = m.clock.gameSec; tickAt = performance.now(); clockScale = m.clock.clockScale; simSpeed = m.clock.paused ? 0 : m.clock.speed;
       if (!g3) {
         try { g3 = new World3D(canvas, tier); } catch { show('nogl'); return; }
-        resize();
+        resize(); applyGfx();
       }
       if (!map || !m.maps.some((x) => x.id === map)) setMap(String(MyPC.load('map', m.maps[0]!.id)));
       else setMap(map);
@@ -370,7 +386,7 @@ function setMap(id: string): void {
   sendView();
 }
 
-function viewRadius(): number { return g3 && g3.view !== 'top' ? Math.min(96, g3.sight + 10) : Math.min(96, (g3?.dist ?? 24) * 1.2 + 14); }
+function viewRadius(): number { return g3 && g3.view !== 'top' ? Math.min(96, g3.sight + 10) : Math.min(96, ((g3?.dist ?? 24) * 1.2 + 14) * (g3?.distK ?? 1)); }
 function sendView(): void { if (welcome) send({ t: Msg.View, map, x: focusX(), y: focusY(), r: viewRadius() }); }
 
 // ------------------------------------------------------------ play: my character
@@ -499,16 +515,11 @@ function updatePlay(dt: number, now: number): void {
   const [mx, my] = g3 && g3.view !== 'top' ? viewStick(dt) : stick();
   STICK[0] = mx; STICK[1] = my;
   const run = runHeld && !menu.open;
-  // Send controls on change, and every 200 ms while held.
-  const qx = Math.round(mx * 50) / 50, qy = Math.round(my * 50) / 50;
-  if (((qx !== sentMx || qy !== sentMy) && (now - sentAt > 50 || (!qx && !qy) || (!sentMx && !sentMy))) || run !== sentRun || ((qx || qy) && now - sentAt > 200)) {
-    sentMx = qx; sentMy = qy; sentRun = run; sentAt = now;
-    send({ t: Msg.Input, mx: qx, my: qy, run, seq: ++seq });
-  }
   const s = meSlot();
   if (s < 0) return;
   if (!predOk) { predX = nx[s]!; predY = ny[s]!; pvx = pvy = 0; predOk = true; }
-  // Same rule as the server: velocity eases towards the wish at 8 m/s^2 at most.
+  // My character moves on this screen at once (same rule as the server: velocity eases towards the wish at 8 m/s^2 at most);
+  // the server is told where it is and takes it (imad 2026-11-20: "move my character immediately, not after the server").
   const sp = run ? body.run : body.walk;
   const wx = mx * sp, wy = my * sp, ax = wx - pvx, ay = wy - pvy, a = Math.hypot(ax, ay), mdv = 8 * dt;
   const f = a > mdv ? mdv / a : 1;
@@ -517,12 +528,20 @@ function updatePlay(dt: number, now: number): void {
   if (!blocked(nxp, predY)) predX = nxp; else pvx = 0;
   const nyp = predY + pvy * dt;
   if (!blocked(predX, nyp)) predY = nyp; else pvy = 0;
-  // Correct softly towards where the server says I am (moved on by the time since that frame).
+  const moving = Math.abs(pvx) + Math.abs(pvy) > 0.01;
+  // Controls + my place: on change, every 100 ms while moving, once more when I stop.
+  const qx = Math.round(mx * 50) / 50, qy = Math.round(my * 50) / 50;
+  if (((qx !== sentMx || qy !== sentMy) && (now - sentAt > 50 || (!qx && !qy) || (!sentMx && !sentMy))) || run !== sentRun || ((moving || wasMoving) && now - sentAt > 100)) {
+    sentMx = qx; sentMy = qy; sentRun = run; sentAt = now; wasMoving = moving;
+    send({ t: Msg.Input, mx: qx, my: qy, run, seq: ++seq, x: Math.round(predX * 100) / 100, y: Math.round(predY * 100) / 100 });
+  }
+  // The server only overrules me when it really disagrees (a portal, a wall it knows, a push): far off = jump there,
+  // standing still and a little off = ease there. Small differences while walking are just the network's delay.
   const lag = Math.min(0.5, (now - frameAt) / 1000 + rtt / 2000);
   const sx = nx[s]! + vx[s]! * lag, sy = ny[s]! + vy[s]! * lag;
   const ex = sx - predX, ey = sy - predY, e = Math.hypot(ex, ey);
-  if (e > 2.5) { predX = sx; predY = sy; }
-  else { const k = 1 - Math.exp(-dt * (e > 0.6 ? 6 : 2.5)); predX += ex * k; predY += ey * k; }
+  if (e > 3) { predX = sx; predY = sy; pvx = pvy = 0; }
+  else if (!moving && !qx && !qy && e > 0.4 && now - sentAt > 600) { const k = 1 - Math.exp(-dt * 2); predX += ex * k; predY += ey * k; }
 }
 
 // ------------------------------------------------------------ watch
@@ -902,8 +921,16 @@ function buildPage(id: string): Page {
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
       if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
+      rows.push({ id: 'gfx', label: t('gTitle'), sub: true });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
+    case 'gfx':
+      rows.push({ id: 'q', label: t('gQuality'), value: t(gfx.q === 'auto' ? 'gAuto' : gfx.q === 'low' ? 'gLow' : gfx.q === 'mid' ? 'gMid' : 'gHigh') + (gfx.q !== 'auto' && gfx.q !== tier ? ' *' : '') },
+        { id: 'fog', label: t('gFog'), value: t((['gOff', 'gLight', 'gNormal', 'gThick'] as const)[gfx.fog] ?? 'gNormal') },
+        { id: 'dist', label: t('gDist'), value: t((['gNear', 'gNormal', 'gFar'] as const)[gfx.dist] ?? 'gNormal') },
+        { id: 'fps', label: t('gFps'), value: onOff(gfx.fps) });
+      if (gfx.q !== 'auto' && gfx.q !== tier) rows.push({ id: 'restart', label: t('gRestart') });
+      return { id, title: t('gTitle'), rows, text: t('gHelp') };
     case 'controls':
       for (const a of ACTIONS) rows.push({ id: a, label: actionLabel(a), value: bindText(a) });
       rows.push({ id: 'reset', label: t('cReset') });
@@ -984,10 +1011,18 @@ function pickRow(page: string, row: string): void {
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
     else if (row === 'cam') { nextCamera(); menu.refresh(); }
+    else if (row === 'gfx') menu.push('gfx');
     else if (row === 'zin') zoomBy(1 / 1.2);
     else if (row === 'zout') zoomBy(1.2);
     else if (row === 'server') { menu.close(); void askServer(); }
     else if (row === 'unpair') { menu.close(); unpair(); }
+  } else if (page === 'gfx') {
+    if (row === 'q') { const o: Gfx['q'][] = ['auto', 'low', 'mid', 'high']; gfx.q = o[(o.indexOf(gfx.q) + 1) % o.length]!; }
+    else if (row === 'fog') gfx.fog = (gfx.fog + 1) % 4;
+    else if (row === 'dist') gfx.dist = (gfx.dist + 1) % 3;
+    else if (row === 'fps') { gfx.fps = !gfx.fps; fpsN = 0; fpsAt = performance.now(); fpsEl.textContent = ''; }
+    else if (row === 'restart') { MyPC.save('gfx', gfx); location.reload(); return; }
+    MyPC.save('gfx', gfx); applyGfx(); menu.refresh();
   } else if (page === 'controls') {
     if (row === 'reset') { binds = cloneBinds(DEFAULT_BINDS); MyPC.save('binds', binds); menu.refresh(); updateHints(); return; }
     capture = row as ActionId;
@@ -1036,7 +1071,7 @@ function captured(kindOf: 'pad' | 'remote', b: number | string): void {
 
 // ------------------------------------------------------------ loop
 const STEP = 1000 / 60;
-let raf = 0, last = 0, acc = 0, viewAt = 0, hudAt = 0, pingAt = 0;
+let raf = 0, last = 0, acc = 0, viewAt = 0, hudAt = 0, pingAt = 0, wasMoving = false;
 let snapCam = true;
 
 function update(now: number): void {
@@ -1058,7 +1093,7 @@ function draw(now: number, dt: number): void {
   g3.setHour(((gs / 3600 + 8) % 24 + 24) % 24, now / 1000);
   const a = Math.min(1.25, (now - frameAt) / frameGap);
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
-  const r = g3.view === 'top' ? g3.dist * 1.6 + 8 : g3.sight + 4, eyes = g3.view === 'first';
+  const r = g3.view === 'top' ? (g3.dist * 1.6 + 8) * g3.distK : g3.sight + 4, eyes = g3.view === 'first';
   frameNo++;
   P.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin();
   if (rp) { // a past event: only the recorded people and zombies
@@ -1118,7 +1153,9 @@ function frame(ts: number): void {
   const dt = Math.min(0.1, (ts - last) / 1000);
   acc += Math.min(250, ts - last); last = ts;
   while (acc >= STEP) { update(ts); acc -= STEP; }
-  draw(ts, dt);
+  // Under the game menu the world is only drawn 10 times a second: the menu answers at once on small TVs.
+  if (!menu.open || ts - drawAt > 100) { draw(ts, ts - drawAt > 200 ? dt : Math.min(0.1, (ts - drawAt) / 1000)); drawAt = ts; fpsN++; }
+  if (gfx.fps && ts - fpsAt > 500) { fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms`; fpsN = 0; fpsAt = ts; }
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
   if (ts - pingAt > 3000) { pingAt = ts; send({ t: Msg.Ping, c: ts }); }
   if (ts - hudAt > 500 && mode === 'world') {
@@ -1229,6 +1266,8 @@ MyPC.init({
     document.documentElement.lang = info.lang;
     document.documentElement.dir = info.lang === 'ar' ? 'rtl' : 'ltr';
     tier = info.quality?.tier ?? 'mid';
+    gfx = { ...gfx, ...(MyPC.load('gfx', {}) as Partial<Gfx>) };
+    if (gfx.q !== 'auto') tier = gfx.q;
     const q = new URLSearchParams(location.search);
     if (q.get('tier') === 'low' || q.get('tier') === 'mid' || q.get('tier') === 'high') tier = q.get('tier') as Tier;
     const cfg = (MyPC.app_config ?? {}) as { server?: string };

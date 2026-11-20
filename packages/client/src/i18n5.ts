@@ -1,6 +1,9 @@
 /** Texts of objectives, families, the character set-up, autopilot and the player's own rules (en, fr, es, ar). */
 export const T5 = {
   en: {
+    gTitle: 'Graphics', gQuality: 'Quality', gAuto: 'Automatic', gLow: 'Low (fastest)', gMid: 'Medium', gHigh: 'High', gFog: 'Fog', gOff: 'Off', gLight: 'Light', gNormal: 'Normal', gThick: 'Thick',
+    gDist: 'View distance', gNear: 'Near (faster)', gFar: 'Far', gFps: 'Show fps', gRestart: 'Apply the new quality now (reloads the view)',
+    gHelp: 'Low quality, thick fog and a near view make the game faster on small TVs. A new quality needs the view to reload.',
     pGoal: 'Objective', pLevel: 'Level {0} · {1} points',
     mMe: 'Me', meTitle: 'My character', lookTitle: 'How I look', lookHelp: 'Welcome! Choose your character: woman or man, and a skin tone. Then Save.',
     lookWoman: 'Woman', lookMan: 'Man', lookSkin: 'Skin tone', lookSave: 'Save', lookSexNote: 'You can change between woman and man once a week.',
@@ -15,6 +18,9 @@ export const T5 = {
     askPartner: 'Ask to be my partner', tryChild: 'Try for a child', partners: '{0} said yes: you are partners now.', expecting: 'A baby is on the way!', tooFar: 'Get closer first.',
   },
   fr: {
+    gTitle: 'Graphismes', gQuality: 'Qualité', gAuto: 'Automatique', gLow: 'Basse (la plus rapide)', gMid: 'Moyenne', gHigh: 'Haute', gFog: 'Brouillard', gOff: 'Aucun', gLight: 'Léger', gNormal: 'Normal', gThick: 'Épais',
+    gDist: 'Distance de vue', gNear: 'Proche (plus rapide)', gFar: 'Loin', gFps: 'Afficher les fps', gRestart: 'Appliquer la nouvelle qualité maintenant (recharge la vue)',
+    gHelp: 'Une qualité basse, un brouillard épais et une vue proche rendent le jeu plus rapide sur les petites TV. Une nouvelle qualité demande de recharger la vue.',
     pGoal: 'Objectif', pLevel: 'Niveau {0} · {1} points',
     mMe: 'Moi', meTitle: 'Mon personnage', lookTitle: 'Mon apparence', lookHelp: 'Bienvenue ! Choisissez votre personnage : femme ou homme, et une couleur de peau. Puis Enregistrer.',
     lookWoman: 'Femme', lookMan: 'Homme', lookSkin: 'Couleur de peau', lookSave: 'Enregistrer', lookSexNote: 'Vous pouvez changer entre femme et homme une fois par semaine.',
@@ -29,6 +35,9 @@ export const T5 = {
     askPartner: 'Demander d’être mon partenaire', tryChild: 'Essayer d’avoir un enfant', partners: '{0} a dit oui : vous êtes partenaires.', expecting: 'Un bébé est en route !', tooFar: 'Approchez-vous d’abord.',
   },
   es: {
+    gTitle: 'Gráficos', gQuality: 'Calidad', gAuto: 'Automática', gLow: 'Baja (la más rápida)', gMid: 'Media', gHigh: 'Alta', gFog: 'Niebla', gOff: 'No', gLight: 'Ligera', gNormal: 'Normal', gThick: 'Densa',
+    gDist: 'Distancia de vista', gNear: 'Cerca (más rápido)', gFar: 'Lejos', gFps: 'Mostrar fps', gRestart: 'Aplicar la nueva calidad ahora (recarga la vista)',
+    gHelp: 'Calidad baja, niebla densa y vista cercana hacen el juego más rápido en televisores pequeños. Una nueva calidad necesita recargar la vista.',
     pGoal: 'Objetivo', pLevel: 'Nivel {0} · {1} puntos',
     mMe: 'Yo', meTitle: 'Mi personaje', lookTitle: 'Mi aspecto', lookHelp: '¡Bienvenido! Elige tu personaje: mujer u hombre, y un tono de piel. Luego Guardar.',
     lookWoman: 'Mujer', lookMan: 'Hombre', lookSkin: 'Tono de piel', lookSave: 'Guardar', lookSexNote: 'Puedes cambiar entre mujer y hombre una vez por semana.',
@@ -43,6 +52,9 @@ export const T5 = {
     askPartner: 'Pedir que sea mi pareja', tryChild: 'Intentar tener un hijo', partners: '{0} dijo que sí: ahora sois pareja.', expecting: '¡Viene un bebé!', tooFar: 'Acércate primero.',
   },
   ar: {
+    gTitle: 'الرسومات', gQuality: 'الجودة', gAuto: 'تلقائي', gLow: 'منخفضة (الأسرع)', gMid: 'متوسطة', gHigh: 'عالية', gFog: 'الضباب', gOff: 'بدون', gLight: 'خفيف', gNormal: 'عادي', gThick: 'كثيف',
+    gDist: 'مسافة الرؤية', gNear: 'قريبة (أسرع)', gFar: 'بعيدة', gFps: 'إظهار عدد الإطارات', gRestart: 'تطبيق الجودة الجديدة الآن (يعيد تحميل العرض)',
+    gHelp: 'الجودة المنخفضة والضباب الكثيف والرؤية القريبة تجعل اللعبة أسرع على أجهزة التلفاز الصغيرة. الجودة الجديدة تحتاج إلى إعادة تحميل العرض.',
     pGoal: 'الهدف', pLevel: 'المستوى {0} · {1} نقطة',
     mMe: 'أنا', meTitle: 'شخصيتي', lookTitle: 'مظهري', lookHelp: 'مرحبًا! اختر شخصيتك: امرأة أو رجل، ولون البشرة. ثم احفظ.',
     lookWoman: 'امرأة', lookMan: 'رجل', lookSkin: 'لون البشرة', lookSave: 'حفظ', lookSexNote: 'يمكنك التبديل بين امرأة ورجل مرة واحدة في الأسبوع.',

@@ -540,6 +540,7 @@ export class NetServer {
         if (s.avatar < 0 || !this.ownsAvatar(s)) return;
         const mx = isNum(m.mx, -1, 1) ? m.mx : 0, my = isNum(m.my, -1, 1) ? m.my : 0;
         this.world.setInput(s.avatar, mx, my, m.run === true);
+        if (isNum(m.x, 0, 4096) && isNum(m.y, 0, 4096)) this.world.trustMove(s.avatar, m.x, m.y);
         if (m.act === true) {
           const j = this.world.nearest(s.avatar, 2.5);
           this.send(s, { t: Msg.Notice, kind: 'interact', data: j >= 0 ? { id: this.world.e.id(j), kind: this.world.e.kind[j] } : null });

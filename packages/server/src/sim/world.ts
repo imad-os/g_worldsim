@@ -226,6 +226,25 @@ export class World {
     e.speed[i] = run ? this.sc.agents.run : this.sc.agents.walk;
   }
 
+  /**
+   * The player's screen moves their character at once (imad 2026-11-20: "move my character immediately") and tells us where it
+   * is: accepted when it is close to where we have it (2.5 m) and on walkable ground, else our place stands (the screen is told).
+   */
+  trustMove(i: number, x: number, y: number): boolean {
+    const e = this.e, m = e.map[i]!;
+    if (e.kind[i] !== Kind.Player || m === NO_MAP || (e.flags[i]! & EFlag.Sleeping)) return false;
+    if (Math.hypot(x - e.x[i]!, y - e.y[i]!) > 2.5) return false;
+    const tm = this.maps[m]!.tiles, r = e.radius[i]! * 0.8;
+    for (const [dx, dy] of [[-r, -r], [r, -r], [-r, r], [r, r]] as const) {
+      const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
+      if (!tm.inside(tx, ty) || tm.cost[tm.get(tx, ty)]! <= 0) return false;
+    }
+    const b = this.bodies[i];
+    if (b) { this.pos.x = x; this.pos.y = y; b.setPosition(this.pos); }
+    e.x[i] = x; e.y[i] = y;
+    return true;
+  }
+
   /** Nearest agent or player within r metres of slot i (for "interact"), or -1. */
   nearest(i: number, r: number): number {
     const e = this.e, m = this.maps[e.map[i]!];
