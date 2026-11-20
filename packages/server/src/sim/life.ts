@@ -11,6 +11,8 @@ import type { World, WorldEvent } from './world.js';
 
 const HOUR = 3600;
 export const ADULT = 16;
+/** Children stay with their parents until this age, then go out on their own (imad 2026-11-20). */
+export const INDEPENDENT = 14;
 /** Talks before two people may become partners. */
 const BOND_TALKS = 4;
 /** Per year: chance a happy couple conceives; how long a pregnancy lasts (years). */
@@ -124,6 +126,7 @@ export class Life {
       const age = ageOf(p, now, y);
       // Children are small and slower; the flag tells the viewers.
       e.flags[i] = age < ADULT ? e.flags[i]! | EFlag.Child : e.flags[i]! & ~EFlag.Child;
+      if (age >= INDEPENDENT && p.parents.length && !p.grown) { p.grown = true; w.emit('grown', { id, age: INDEPENDENT }); }
       // Old age: past their lifespan the chance to die grows every year.
       const over = age - p.traits.lifespan;
       if (over > -3 && w.rng.chance(Math.min(1, (0.25 + Math.max(0, over) * 0.5) * perHour) )) {

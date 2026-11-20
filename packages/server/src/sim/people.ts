@@ -35,7 +35,15 @@ export interface Profile {
   inv?: import('./survival.js').Inv;
   /** The owner's strict rules for this person (at most 5, sim/rules.ts). */
   rules?: import('./rules.js').Rule[];
+  /** Objectives (imad 2026-11-20): points earned by finishing goals (orders count more), and the last ones finished. */
+  xp?: number;
+  /** Old enough (14) to leave their parents' side. */
+  grown?: boolean;
+  goals?: { text: string; from: string; ok: boolean; at: number; xp: number }[];
 }
+
+/** Level from objective points: 0, 1 at 50, 2 at 200, 3 at 450... */
+export function levelOf(xp = 0): number { return Math.floor(Math.sqrt(Math.max(0, xp) / 50)); }
 
 /** A person's mind for the LLM planner (milestone 6). Times are game seconds. */
 export interface Mind {

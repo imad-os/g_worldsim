@@ -1,6 +1,6 @@
 import { Act, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
-import { ageOf } from './people.js';
+import { ageOf, levelOf, TRAIT_KEYS } from './people.js';
 import { ADULT } from './life.js';
 import type { World } from './world.js';
 
@@ -113,6 +113,27 @@ export class Tasks {
   private end(i: number, t: Task, ok: boolean, why: string): void {
     const p = this.w.profileOf(i)!;
     delete p.mind!.task;
+    // Objectives reward (imad 2026-11-20: "make objectives rewarding, specially the ones I ordered"): points, a level now and
+    // then (a little stronger, braver, smarter), pride, more trust in who asked; failing still counts a little for trying.
+    const ordered = t.from !== 'myself', steps = Math.max(1, t.steps.length);
+    const xp = ok ? Math.round((ordered ? 25 : 10) + steps * (ordered ? 5 : 2)) : Math.min(5, t.k * 2);
+    const before = levelOf(p.xp);
+    p.xp = (p.xp ?? 0) + xp;
+    (p.goals ??= []).push({ text: t.text, from: t.from, ok, at: this.w.gameSec, xp });
+    if (p.goals.length > 10) p.goals.splice(0, p.goals.length - 10);
+    const e = this.w.e;
+    if (ok) {
+      p.mind!.mood = ordered ? 'proud' : 'satisfied';
+      e.lonely[i] = Math.max(0, e.lonely[i]! - (ordered ? 25 : 10));
+      e.hp[i] = Math.min(this.w.sc.agents.hp, e.hp[i]! + 10);
+      if (ordered && t.from !== 'owner') { const k = '@' + t.from; p.mind!.rel[k] = Math.min(5, (p.mind!.rel[k] ?? 0) + 1); }
+    }
+    const level = levelOf(p.xp);
+    if (level > before) {
+      for (const k of TRAIT_KEYS) if (k !== 'metabolism') p.traits[k] = Math.min(1, p.traits[k] + 0.02);
+      this.w.emit('levelup', { id: e.id(i), level });
+    }
+    if (xp && ordered) this.w.emit('reward', { id: e.id(i), text: t.text, from: t.from, ok, xp, total: p.xp });
     this.w.survival.cancel(this.w.e.id(i));
     this.w.brain.order(i, 'stop', -1, -1, 0);
     this.w.emit('task', { id: this.w.e.id(i), text: t.text, ok, why });
@@ -341,6 +362,14 @@ export class Tasks {
   }
 
   private name(id: number): string { return this.w.profiles.get(id)?.name ?? 'them'; }
+
+  /** The objective in progress: what, who asked, steps done / all, the step now, 0..100. */
+  progress(id: number): { text: string; from: string; k: number; n: number; step: string; pct: number } | null {
+    const t = this.taskOf(id);
+    if (!t) return null;
+    const s = t.steps[t.k], n = Math.max(1, t.steps.length);
+    return { text: t.text, from: t.from, k: t.k, n, step: s ? s.do + (s.who !== undefined && s.who >= 0 ? ' ' + this.name(s.who) : s.what ? ' ' + s.what : '') : 'done', pct: Math.round((t.k / n) * 100) };
+  }
 
   /** "find a wife: step 2 of 3, talk with Ines" for the panel and the bubbles. */
   describe(id: number): string {

@@ -19,7 +19,7 @@ import { TunnelManager } from './tunnel.js';
 import { Ai, keyList, type AiSettings, type Provider } from './ai/llm.js';
 import { Brains } from './ai/brains.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
-import { ageOf, TRAIT_KEYS, type Profile } from './sim/people.js';
+import { ageOf, levelOf, TRAIT_KEYS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
@@ -34,7 +34,7 @@ function firebaseProject(): string {
 const READS = new Set<string>(['brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner']);
-const LOGGED = new Set(['joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+const LOGGED = new Set(['grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
@@ -453,6 +453,7 @@ export class App {
       partner: p.partner >= 0 ? this.nameOf(p.partner) : null, parents: p.parents.map((x) => this.nameOf(x)),
       children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([, q]) => q.name),
       traits: Object.fromEntries(Object.entries(p.traits).map(([k, v]) => [k, k === 'lifespan' ? Math.round(v) : r2(v)])),
+      goal: w.tasks.progress(id), level: levelOf(p.xp), xp: p.xp ?? 0,
     };
     if (i >= 0) Object.assign(base, { act: e.act[i], hunger: Math.round(e.hunger[i]!), thirst: Math.round(e.thirst[i]!), tired: Math.round(e.tired[i]!), lonely: Math.round(e.lonely[i]!), hp: Math.round(e.hp[i]!), carry: e.carry[i], inv: w.survival.inv(i) });
     if (seer && p.mind) {
@@ -472,7 +473,9 @@ export class App {
       const to = (act === 6 && it.to >= 0) ? this.nameOf(it.to) : '';
       const plan = p?.mind?.plan && p.mind.plan.until > w.gameSec ? p.mind.plan : undefined;
       const task = w.tasks.describe(e.id(i));
-      out.push([e.id(i), act, to, Math.round(it.dist), task ? 'task' : plan ? plan.act : '', !task && plan?.with !== undefined ? this.nameOf(plan.with) : '', task || (plan?.why ?? ''), p?.mind?.mood ?? '', p?.mind?.said && w.gameSec - p.mind.said.at < 1800 ? p.mind.said.text : '']);
+      const g = w.tasks.progress(e.id(i));
+      out.push([e.id(i), act, to, Math.round(it.dist), task ? 'task' : plan ? plan.act : '', !task && plan?.with !== undefined ? this.nameOf(plan.with) : '', task || (plan?.why ?? ''), p?.mind?.mood ?? '', p?.mind?.said && w.gameSec - p.mind.said.at < 1800 ? p.mind.said.text : '',
+        g ? g.pct : -1, g ? (g.from === 'myself' ? '' : g.from === 'owner' ? '!' : g.from) : '']);
     }
     return out;
   }
@@ -488,6 +491,7 @@ export class App {
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
       task: w.tasks.describe(id) || null,
+      goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       carry: e.carry[i], inv: w.survival.inv(i), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };

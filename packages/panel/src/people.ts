@@ -1,7 +1,7 @@
 import { cmd } from './api.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, view, type Screen } from './screen.js';
-import { S, people, profiles, describe, who, mapName, overview, type Person } from './state.js';
+import { S, people, profiles, describe, who, mapName, overview, goalHtml, type Person } from './state.js';
 import { esc, gameTime, icon, meter, ACTS, ACT_COLORS, load, save, toast } from './util.js';
 
 const avatar = (name: string, sex?: string, size = '') => `<span class="av ${sex === 'f' ? 'f' : 'm'} ${size}">${esc(name.charAt(0).toUpperCase())}</span>`;
@@ -27,7 +27,7 @@ function listHtml(): string {
   const players = S.people.filter((p) => p.player && (!q || p.name.toLowerCase().includes(q)));
   return (list.length ? `<div class="pgrid">${list.map((p) => `<a class="pcard" href="#/person/${p.id}">
       <div class="pc-h">${avatar(p.name, p.sex)}<div><b>${esc(p.name)}</b><small>${p.sex === 'f' ? 'Woman' : 'Man'}, ${p.age}${p.child ? ' · child' : ''}${p.pregnant ? ' · expecting' : ''}</small></div></div>
-      <div class="pc-a"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}${p.task ? `<br><small>Task: ${esc(p.task)}</small>` : p.order ? `<br><small>Told to ${esc(p.order)}</small>` : ''}</div>
+      <div class="pc-a"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}${!p.goal && p.order ? `<br><small>Told to ${esc(p.order)}</small>` : ''}</div>${p.goal ? goalHtml(p.goal, esc) : ''}
       <div class="pc-m"><span>Food</span>${meter(p.hunger)}<span>Water</span>${meter(p.thirst)}<span>Rest</span>${meter(p.tired)}<span>Health</span>${meter(p.hp, false)}</div>
       <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
     + (players.length ? `<h4 class="sub">Players' characters</h4><div class="pgrid">${players.map((p) => `<div class="pcard player"><div class="pc-h">${avatar(p.name)}<div><b>${esc(p.name)}</b><small>player · ${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away (asleep)'}</small></div></div><div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})</div></div>`).join('')}</div>` : '');
@@ -91,9 +91,10 @@ function personHtml(d: Detail): string {
   if (ptab === 'overview') body = !d.alive ? card('Died', `<p>${p.died !== undefined ? gameTime(p.died) : ''}: ${esc(p.cause ?? '')}</p>`) : `<div class="grid2">
     ${card('Needs', `<div class="needs"><span>Food</span>${meter(d.hunger)}<b>${Math.round(100 - d.hunger)}%</b><span>Water</span>${meter(d.thirst)}<b>${Math.round(100 - d.thirst)}%</b><span>Rest</span>${meter(d.tired)}<b>${Math.round(100 - d.tired)}%</b><span>Company</span>${meter(d.lonely)}<b>${Math.round(100 - d.lonely)}%</b><span>Health</span>${meter(d.hp, false)}<b>${Math.round(d.hp)}</b></div>`)}
     ${card('Now', `<p><i class="dotc" style="background:${ACT_COLORS[d.act]}"></i> <b>${esc(ACTS[d.act] ?? '')}</b>${d.talkingTo ? ' with ' + esc(d.talkingTo) : ''}</p>
-      ${d.task ? `<p>Task: <b>${esc(d.task)}</b></p>` : ''}${d.order ? `<p>Told to <b>${esc(d.order)}</b></p>` : ''}
+      ${d.goal ? goalHtml(d.goal, esc) : ''}${d.order ? `<p>Told to <b>${esc(d.order)}</b></p>` : ''}
       <p>${icon('map')} ${esc(mapName(d.map))} at (${Math.round(d.x)}, ${Math.round(d.y)})</p>
       ${d.partner ? `<p>${icon('heart')} Partner: ${esc(d.partner)}${d.pregnant ? ' · expecting a baby' : ''}</p>` : ''}`)}
+    ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
     ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div>`).join('')}</div>`)}
     </div>`;

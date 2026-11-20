@@ -205,3 +205,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   every 20 ticks) starts a task (from 'owner') when the person is free, adult, not desperate, the goal not yet true, 2 game hours between
   tries; `when` ("when you see 'X', greet him with 'Y'") = the engine says Y within 7 m of X, once per 2 game hours, NOT in the prompt.
   Old saved rules get their kind at load (`resolve`). Prompt: never rules + "your owner's orders, your main goals".
+
+## Objectives and families (imad 2026-11-20)
+- **Objectives = tasks** (`sim/tasks.ts`): `Tasks.progress(id)` { text, from, k, n, step, pct }. Panel person card / detail "Objectives"
+  and TV bubbles show a progress bar (gold = ordered by someone). Rewards on task end: xp ordered 25 + 5 x steps, own 10 + 2 x steps,
+  failed max 5; `levelOf(xp) = floor(sqrt(xp / 50))`, each level +0.02 on every trait but metabolism; success = proud / satisfied,
+  +10 hp, less lonely, rel +1 with the asker. `Profile.xp`, `goals` (last 10). Events reward / levelup / grown.
+- **Families** (`life.ts INDEPENDENT = 14`, `Brain.guardian`): a child under 14 stays with a parent on its map (mother first):
+  follows past 7 m, wanders 6 m at most, sleeps next to them, never travels, forages only when very hungry. At 14: event `grown`.

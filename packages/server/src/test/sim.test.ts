@@ -522,3 +522,26 @@ test('rules that say what to DO are followed: "you must get married" -> find, ta
   assert.equal(said.filter((x) => x === `${A}:Hello my king`).length, 1, 'once per meeting');
   assert.doesNotMatch(w.rules.text(ia), /Hello my king/, 'the trigger is the engine\'s, not in the prompt');
 });
+
+test('families: a child under 14 stays near a parent; at 14 they are on their own', async () => {
+  const { inherit } = await import('../sim/people.js');
+  const { EFlag } = await import('@worldsim/protocol');
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'fam1' });
+  w.populate();
+  const e = w.e, ids = [...w.profiles.keys()];
+  const mum = w.profiles.get(ids[0]!)!, dad = w.profiles.get(ids[1]!)!;
+  mum.sex = 'f'; dad.sex = 'm';
+  const im = e.slot(ids[0]!);
+  const kid = inherit(w.rng, mum, dad, [ids[0]!, ids[1]!], w.gameSec - 6 * w.life.yearSec, w.livingNames());
+  const c = w.spawnAgent(e.map[im]!, e.x[im]! + 1, e.y[im]!, kid);
+  e.flags[c] = e.flags[c]! | EFlag.Child;
+  let far = 0, n = 0;
+  for (let k = 0; k < 86400 / 30 * 20; k++) {
+    w.step();
+    if (k % 100 === 0 && e.hunger[c]! < 70 && e.thirst[c]! < 70) { n++; if (Math.hypot(e.x[c]! - e.x[im]!, e.y[c]! - e.y[im]!) > 25) far++; }
+  }
+  assert.ok(n > 50 && far / n < 0.12, `the child stayed near mum (${far}/${n} samples far)`);
+  assert.equal(w.brain.guardian(c), im);
+  kid.born = w.gameSec - 14.2 * w.life.yearSec;
+  assert.equal(w.brain.guardian(c), -1, 'at 14: free');
+});

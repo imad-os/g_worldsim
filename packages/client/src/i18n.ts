@@ -1,6 +1,7 @@
 import { T2 } from './i18n2.js';
 import { T3 } from './i18n3.js';
 import { T4 } from './i18n4.js';
+import { T5 } from './i18n5.js';
 /** Texts in the 4 My PC languages (fall back to English). */
 const T = {
   en: {
@@ -121,13 +122,13 @@ const T = {
   },
 } as const;
 
-export type Key = keyof typeof T.en | keyof typeof T2.en | keyof typeof T3.en | keyof typeof T4.en;
+export type Key = keyof typeof T.en | keyof typeof T2.en | keyof typeof T3.en | keyof typeof T4.en | keyof typeof T5.en;
 let lang: keyof typeof T = 'en';
 export function setLang(l: string): void { lang = (l in T ? l : 'en') as keyof typeof T; }
 export function getLang(): string { return lang; }
 export function t(k: Key): string {
-  const a = T[lang] as Record<string, string>, b = T2[lang] as Record<string, string>, c = T3[lang] as Record<string, string>, d = T4[lang] as Record<string, string>;
-  return a[k] ?? b[k] ?? c[k] ?? d[k] ?? (T.en as Record<string, string>)[k] ?? (T2.en as Record<string, string>)[k] ?? (T3.en as Record<string, string>)[k] ?? (T4.en as Record<string, string>)[k] ?? k;
+  const a = T[lang] as Record<string, string>, b = T2[lang] as Record<string, string>, c = T3[lang] as Record<string, string>, d = T4[lang] as Record<string, string>, f = T5[lang] as Record<string, string>;
+  return a[k] ?? b[k] ?? c[k] ?? d[k] ?? f[k] ?? (T.en as Record<string, string>)[k] ?? (T2.en as Record<string, string>)[k] ?? (T3.en as Record<string, string>)[k] ?? (T4.en as Record<string, string>)[k] ?? (T5.en as Record<string, string>)[k] ?? k;
 }
 
 export function tf(k: Key, ...a: string[]): string { return t(k).replace(/\{(\d)\}/g, (_, i) => a[Number(i)] ?? ''); }

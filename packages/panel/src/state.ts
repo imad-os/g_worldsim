@@ -3,7 +3,11 @@ import { cmd } from './api.js';
 /** What several screens share: everyone (names), the overview, the history. Refreshed on demand, at most so often. */
 export type Person = { id: number; alive: boolean; player?: boolean; online?: boolean; asleep?: boolean; child?: boolean; pregnant?: boolean; partner?: string | null; name: string; sex?: string; age: number;
   map: string | null; x: number; y: number; act: number; hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; inv?: Record<string, number>;
-  talkingTo: string | null; task?: string | null; order?: string | null };
+  talkingTo: string | null; task?: string | null; order?: string | null;
+  goal?: Goal | null; xp?: number; level?: number; goals?: { text: string; from: string; ok: boolean; at: number; xp: number }[] };
+export type Goal = { text: string; from: string; k: number; n: number; step: string; pct: number };
+/** An objective with its progress bar; who asked it (the owner = you). */
+export const goalHtml = (g: Goal, esc: (s: unknown) => string) => `<div class="goal${g.from !== 'myself' ? ' ordered' : ''}"><div class="goal-t"><b>${esc(g.text)}</b><small>${g.from === 'myself' ? 'their own goal' : g.from === 'owner' ? 'your order' : 'asked by ' + esc(g.from)} · step ${Math.min(g.k + 1, g.n)}/${g.n}: ${esc(g.step)}</small></div><div class="meter good goal-m" role="progressbar" aria-valuenow="${g.pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.max(4, g.pct)}%"></i></div></div>`;
 export type Profile = { id: number; name: string; sex: string; age: number; alive: boolean; died: number | null; cause: string | null; generation: number; parents: string[]; partner: string | null; children: number; personality: string[]; mood: string | null; rules: number };
 export type MapOv = { id: string; name: string; w: number; h: number; type: string; people: number; players: number; online: number; zombies: number; animals: number[]; items: number;
   camp: [number, number] | null; huts: number; fires: number; store: Record<string, number> | null };

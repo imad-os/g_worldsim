@@ -225,3 +225,4 @@ a.pcard:hover{border-color:color-mix(in srgb,var(--acc) 55%,var(--line));transfo
 .si-links{display:flex;justify-content:space-between;gap:8px;margin-top:10px;font-size:13px}.si-links a{color:var(--acc);cursor:pointer}
 details.si-tok{margin-top:16px;font-size:13px;color:var(--dim)}details.si-tok summary{cursor:pointer}
 .keys{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.keys:empty{display:none}.keytag{display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,monospace}.keytag .iconbtn{width:22px;height:22px;padding:0}
+.goal{margin-top:8px}.goal-t{display:flex;flex-direction:column;gap:2px;font-size:13px;margin-bottom:4px}.goal-t small{color:var(--dim)}.goal.ordered .goal-m i{background:var(--accent)}.goal-m{height:8px}

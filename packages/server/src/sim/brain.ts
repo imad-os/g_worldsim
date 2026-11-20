@@ -2,6 +2,8 @@ import { Act, EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { Pathfinder } from './pathfind.js';
 import { ACT_RULE } from './rules.js';
+import { ageOf } from './people.js';
+import { INDEPENDENT } from './life.js';
 import type { World } from './world.js';
 
 /**
@@ -512,6 +514,17 @@ export class Brain {
   /** Score each action (0..~1.3) from the needs, with a bonus for the current one; pick the best. */
   private choose(i: number, jitter: number): void {
     const w = this.w, e = w.e;
+    // Families (imad 2026-11-20: "parents raise the kid till 14, then he can go out"): a child under 14 stays close to a
+    // parent (mother first) unless thirst or hunger are pressing; parents bring them food (sim/survival.ts).
+    const guard = this.guardian(i);
+    if (guard >= 0 && e.thirst[i]! < 70 && e.hunger[i]! < 80) {
+      const d = Math.hypot(e.x[guard]! - e.x[i]!, e.y[guard]! - e.y[i]!);
+      if (e.act[guard] === Act.Sleep && e.tired[i]! > 25 && d < 4) { this.start(i, Act.Sleep); return; }
+      if (d > 7) {
+        const s = w.freeSpot(e.map[i]!, e.x[guard]! + w.rng.range(-2.5, 2.5), e.y[guard]! + w.rng.range(-2.5, 2.5), 5);
+        if (s && this.goTo(i, s.x, s.y, d > 25)) { this.setAct(i, Act.Wander); this.schedule(i, 1); return; }
+      }
+    }
     const curve = (v: number, from: number, p: number) => (v <= from ? 0 : Math.pow((v - from) / (100 - from), p));
     const night = this.hour() >= 22 || this.hour() < 6;
     const sDrink = curve(e.thirst[i]!, 25, 1.3) * 1.25 + (e.thirst[i]! > 80 ? 0.6 : 0);
@@ -523,8 +536,8 @@ export class Brain {
     const sTalk = night ? 0 : curve(e.lonely[i]!, 20, 1.1) * (0.8 + emp * 0.5);
     const sWander = night ? 0.05 : 0.18;
     const sRest = 0.1;
-    const sTravel = w.travelOpen && !night ? 0.08 : 0;
-    const scores = [sDrink, sEat, sForage, sSleep, sTalk, sWander, sRest, sTravel];
+    const sTravel = w.travelOpen && !night && guard < 0 ? 0.08 : 0;
+    const scores = [sDrink, sEat, guard >= 0 && e.hunger[i]! < 80 ? 0 : sForage, sSleep, guard >= 0 ? sTalk * 0.3 : sTalk, sWander, sRest, sTravel];
     const acts = [Act.Drink, Act.Eat, Act.Forage, Act.Sleep, Act.Talk, Act.Wander, Act.Rest, Act.Travel];
     const wish = this.wishOf(i);
     let best = -1, bs = -1;
@@ -578,6 +591,10 @@ export class Brain {
           if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
         }
         if (t < 0) t = this.nearestSpot(this.shelterSpots[m]!, W, e.x[i]!, e.y[i]!, 30, rng.next() * 6);
+        { // a small child sleeps next to the parent looking after them
+          const g = this.guardian(i);
+          if (g >= 0) { const s = w.freeSpot(m, e.x[g]! + rng.range(-1.5, 1.5), e.y[g]! + rng.range(-1.5, 1.5), 4); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
+        }
         this.setAct(i, Act.Sleep);
         if (t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; this.schedule(i, 1); }
         else { this.stop(i); this.schedule(i, 3); }
@@ -653,6 +670,10 @@ export class Brain {
         if (!(e.flags[i]! & EFlag.Sleeping)) { this.stop(i); this.setAct(i, Act.Sleep); w.emit('sleep', { id: e.id(i) }); } // arrived at the bed
         const night = this.hour() >= 22 || this.hour() < 6;
         if (e.tired[i]! > 3 || (night && e.tired[i]! > 0)) {
+          const g = this.guardian(i);
+          if (g >= 0 && e.act[g] !== Act.Sleep && Math.hypot(e.x[g]! - e.x[i]!, e.y[g]! - e.y[i]!) > 10 && e.tired[i]! < 70) { // mum left: up and after her
+            this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) }); this.choose(i, 0); return true;
+          }
           if (e.thirst[i]! > 90 || e.hunger[i]! > 92) { // woken by need: go and fix it
             this.setAct(i, Act.Idle);
             if (!this.start(i, e.thirst[i]! > 90 ? Act.Drink : e.carry[i]! > 0 ? Act.Eat : Act.Forage)) this.choose(i, 0);
@@ -699,8 +720,22 @@ export class Brain {
   }
 
   // ------------------------------------------------------------------ helpers
+  /** The parent looking after a child under 14 on the same map (mother first), or -1. */
+  guardian(i: number): number {
+    const w = this.w, e = w.e, p = w.profileOf(i);
+    if (!p || !p.parents.length || !(e.flags[i]! & EFlag.Child) || ageOf(p, w.gameSec, w.life.yearSec) >= INDEPENDENT) return -1;
+    let best = -1;
+    for (const pid of p.parents) {
+      const j = e.slot(pid);
+      if (j < 0 || e.map[j] !== e.map[i] || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
+      if (best < 0 || w.profiles.get(pid)?.sex === 'f') best = j;
+    }
+    return best;
+  }
+
   private wanderGo(i: number, r: number): boolean {
     const w = this.w, e = w.e, m = e.map[i]!;
+    if (this.guardian(i) >= 0) r = Math.min(r, 6); // small children don't go far
     for (let k = 0; k < 4; k++) {
       const s = w.freeSpot(m, e.x[i]! + w.rng.range(-r, r), e.y[i]! + w.rng.range(-r, r), 6);
       if (s && this.goTo(i, s.x, s.y)) return true;
