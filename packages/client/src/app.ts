@@ -401,7 +401,7 @@ function startReplay(rec: ReplayRec): void {
   if (!rpBackMap) rpBackMap = map;
   if (rec.map !== map) setMap(rec.map);
   if (how === 'play') send({ t: Msg.Input, mx: 0, my: 0, run: false, seq: ++seq });
-  held.left = held.right = held.up = held.down = false;
+  held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false;
   if (!rp && g3) rpDist = g3.dist;
   rp = new ReplayPlayer(rec, mapName(rec.map), clockScale, (id) => lookFor(id), ZOMBIE);
   document.body.classList.add('replaying');
@@ -434,7 +434,7 @@ function stick(): [number, number] {
   if (menu.open || wheel.open) { STICK0[0] = STICK0[1] = 0; return STICK0; }
   let ax = MyPC.gamepad ? MyPC.gamepad.axis(0) : 0, ay = MyPC.gamepad ? MyPC.gamepad.axis(1) : 0;
   if (Math.hypot(ax, ay) < 0.18) { ax = 0; ay = 0; }
-  if (held.left) ax = -1; if (held.right) ax = 1; if (held.up) ay = -1; if (held.down) ay = 1;
+  if (held.left || padHeld.left) ax = -1; if (held.right || padHeld.right) ax = 1; if (held.up || padHeld.up) ay = -1; if (held.down || padHeld.down) ay = 1;
   const l = Math.hypot(ax, ay);
   if (l > 1) { ax /= l; ay /= l; }
   return [ax, ay];
@@ -451,6 +451,8 @@ function viewStick(dt: number): [number, number] {
   if (Math.abs(rx) < 0.2) rx = 0;
   const turn = rx * Math.abs(rx) + (held.right ? 1 : 0) - (held.left ? 1 : 0);
   yaw += turn * 2.4 * dt;
+  // The left stick (and a controller's D-pad) walks / runs along where I look and steps sideways; it never turns the camera.
+  if (!ax && !ay) { ax = (padHeld.right ? 1 : 0) - (padHeld.left ? 1 : 0); ay = (padHeld.down ? 1 : 0) - (padHeld.up ? 1 : 0); }
   const fwd = -ay + (held.up ? 1 : 0) - (held.down ? 1 : 0), side = ax;
   const fx = Math.sin(yaw), fy = -Math.cos(yaw);
   let mx = fx * fwd - fy * side, my = fy * fwd + fx * side;
@@ -472,7 +474,7 @@ function wheelButton(pressed: boolean, pad: boolean): void {
   if (pressed) {
     if (wheel.open) { if (!pad) wheel.close(); return; }
     if (how !== 'play' || !playing()) return;
-    held.left = held.right = held.up = held.down = false; runHeld = false;
+    held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
     const items: WheelItem[] = WHEEL_IDS.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : t(WHEEL_KEY[id]!) }));
     wheel.show(items, pad, t(pad ? 'wheelHelp' : 'wheelRemote'));
     return;
@@ -687,7 +689,7 @@ function doAction(a: ActionId, pressed: boolean): void {
     // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
     // empty = just say hello. They may do what you ask.
     send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I talk / type
-    held.left = held.right = held.up = held.down = false; runHeld = false;
+    held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
     if (sttOn()) { talkBySpeech(); return; }
     talkByKeyboard();
     return;
@@ -1036,7 +1038,7 @@ const bubbles = new Bubbles(8);
 function openMenu(page = 'root'): void {
   if (mode !== 'world') return;
   wheel.close();
-  held.left = held.right = held.up = held.down = false; runHeld = false;
+  held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
   if (page === 'person') {
     const id = personTarget();
     if (id < 0) { note(t('nobody'), 2000); return; }
@@ -1189,7 +1191,7 @@ function startLoop(): void { if (!raf) { last = 0; acc = 0; raf = requestAnimati
 function stopLoop(): void {
   if (raf) cancelAnimationFrame(raf);
   raf = 0;
-  held.left = held.right = held.up = held.down = false; runHeld = false;
+  held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
   if (how === 'play') send({ t: Msg.Input, mx: 0, my: 0, run: false, seq: ++seq });
   sentMx = sentMy = 0;
 }
@@ -1197,12 +1199,15 @@ function stopLoop(): void {
 // ------------------------------------------------------------ input
 const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
 /** Arrows / D-pad / stick as directions: the menu when it is open, else moving. */
-function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean): void {
+function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean, fromPad = false): void {
   if (rp && !menu.open) { if (pressed) { if (d === 'left' || d === 'right') rp.seek(d === 'left' ? -5 : 5); else if (!repeat) rp.faster(d === 'up'); } return; }
   if (menu.open) { if (pressed && (d === 'up' || d === 'down')) menu.input(d); return; }
   if (wheel.open) { if (pressed && !repeat) wheel.step(d); return; }
-  if (!repeat) held[d] = pressed;
+  if (repeat) return;
+  // A controller's stick / D-pad only moves (its right stick turns the camera); the remote's ◀ ▶ turn in third / first person.
+  if (fromPad) padHeld[d] = pressed; else held[d] = pressed;
 }
+const padHeld = { left: false, right: false, up: false, down: false };
 
 /** OK on the screens before the world (server address, pairing failed). */
 function screenOk(): void {
@@ -1298,7 +1303,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map], dbg: () => ({ how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
     MyPC.ready();
   },
   onStart() {
@@ -1320,8 +1325,8 @@ MyPC.init({
     else if (id === 'server') void askServer();
   },
   onInput(action: string, pressed: boolean, repeat?: boolean, dev?: string): boolean | void {
-    if (action in DIRS) { direction(action as keyof typeof DIRS, pressed, repeat); return; }
     const pad = !!dev && /^pad/.test(dev);
+    if (action in DIRS) { direction(action as keyof typeof DIRS, pressed, repeat, pad); return; }
     if (action === 'cancel') {
       if (!pressed) return pad ? true : undefined;
       if (capture) { capture = null; note(t('mControls'), 800); return true; }
