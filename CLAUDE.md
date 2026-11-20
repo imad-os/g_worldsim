@@ -15,7 +15,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Firestore: free tier only, never per-tick writes, batched outbox with a daily cap.
 
 ## Viewer app and access (2026-11-19)
-- `app/` = My PC app (built by `npm run build`, committed; Pages main / root -> https://imad-os.github.io/g_worldsim/app/).
+- `docs/` = My PC app (built by `npm run build`, committed; **Pages main / docs** -> https://imad-os.github.io/g_worldsim/, imad 2026-11-20:
+  the site holds only the game + `docs/panel/`; the repo stays public). `docs/app/index.html` only sends the old /app/ address on. Server: `/app/` = docs/.
   Config `server` = the public link. Pairing: TV shows a code, panel approves, token per My PC profile (`MyPC.save('auth')`),
   server keeps a SHA-256 in SQLite `players`. Never a login form of our own (GUIDE: My PC owns accounts).
 - Tunnel adapters in `packages/server/src/tunnel.ts` (ngrok / tailscale / cloudflare / cloudflare-quick / none).
@@ -102,7 +103,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 
 ## Commands
 `npm install`, `npm run build`, `npm test` (node:test: sim, persistence with a fake Firestore, server end to end),
-`npm run bench -- 20 100`, `npm start -- --speed 5`. Docs: README.md, docs/ARCHITECTURE.md.
+`npm run bench -- 20 100`, `npm start -- --speed 5`. Docs: README.md, ARCHITECTURE.md.
 
 ## Residents, zombies, more work, strict rules (imad 2026-11-20, app 0.7.4)
 - **Players' characters live 24/7** (`NetServer.residents`, spawned at start for every paired player): away = asleep where left
@@ -163,7 +164,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 ## Control panel (imad 2026-11-20: "advanced, informative, '?' guides, responsive, hosted on GitHub")
 - Sources `packages/panel/src/` (no framework: `main.ts` shell + hash router, one `Screen` per page in `dashboard.ts`, `people.ts`,
   `screens.ts`; `help.ts` = every "?" text; `charts.ts` SVG charts; `livemap.ts` canvas map), built by `npm run build` into
-  `panel/panel.js` (committed) next to `panel/index.html` + `panel/panel.css` (design tokens, dark / light, phone layout <= 900 px
+  `docs/panel/panel.js` (committed) next to `docs/panel/index.html` + `docs/panel/panel.css` (design tokens, dark / light, phone layout <= 900 px
   with a bottom bar).
 - Hosted on GitHub Pages: https://imad-os.github.io/g_worldsim/panel/ (server address typed once, or `?server=<link>`), and by the
   server itself at `/panel/`. It talks only over the WebSocket admin protocol, so ngrok's browser warning page never shows.

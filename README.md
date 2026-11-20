@@ -34,11 +34,12 @@ public link and switches providers live (the new one must answer before the old 
 
 ## The TV app (My PC)
 
-`app/` is the viewer as a My PC app (GitHub Pages: `https://imad-os.github.io/g_worldsim/app/`, also served by the
+`docs/` is the viewer as a My PC app (GitHub Pages, main / docs: `https://imad-os.github.io/g_worldsim/`; the control panel is
+`docs/panel/` at `https://imad-os.github.io/g_worldsim/panel/`; both also served by the
 server at `/app/`). Add it in the App Store Manager and set its config `server` to the public link. The first time,
 the TV shows a 6-digit code: approve it in the panel (TVs waiting). The TV keeps its own token per My PC profile, so it
-never asks again; Players in the panel removes a TV. Several players can pair. `npm run build` rebuilds `app/game.js`;
-bump `version` in `app/mypc-app.json` for each release.
+never asks again; Players in the panel removes a TV. Several players can pair. `npm run build` rebuilds `docs/game.js`;
+bump `version` in `docs/mypc-app.json` for each release.
 
 ## Layout
 
@@ -49,7 +50,7 @@ bump `version` in `app/mypc-app.json` for each release.
 | `packages/client` | Viewer. Now: a debug view that proves the stream end to end. Milestone 4: the PixiJS v8 My PC app. |
 | `packages/panel` | Control panel (now: time speed, pause, snapshot, live stats). Milestone 5 adds the rest. |
 | `scenarios/` | Scenario packs (`scenario.json`: tiles, maps, portals between maps, agent and projectile settings). |
-| `docs/ARCHITECTURE.md` | How the pieces work and the decisions behind them. |
+| `ARCHITECTURE.md` | How the pieces work and the decisions behind them. |
 
 ## Configuration
 

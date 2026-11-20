@@ -125,8 +125,8 @@ export class App {
       host: c.host, port: c.port, netHz: c.netHz, maxViewRadius: c.maxViewRadius, maxClients: c.maxClients,
       adminToken: this.secrets.adminToken, players: this.players,
       staticDirs: [
-        { prefix: '/panel/', dir: join(ROOT, 'panel') }, // the same files GitHub Pages serves
-        { prefix: '/app/', dir: join(ROOT, 'app') },
+        { prefix: '/panel/', dir: join(ROOT, 'docs', 'panel') }, // the same files GitHub Pages serves (main /docs)
+        { prefix: '/app/', dir: join(ROOT, 'docs') },
         { prefix: '/', dir: join(ROOT, 'packages/client/www') },
       ],
     }, this.log);
