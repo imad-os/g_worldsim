@@ -227,7 +227,7 @@ function provRows(): void {
   document.getElementById('aModelRow')!.hidden = p === 'none';
   document.getElementById('aKeyRow')!.hidden = p === 'none';
   (document.getElementById('aUrl') as HTMLInputElement).placeholder = p === 'openai' ? 'https://api.openai.com/v1' : 'https://your-ollama-server';
-  (document.getElementById('aModel') as HTMLInputElement).placeholder = p === 'ollama' ? 'fastest (automatic)' : p === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o-mini';
+  (document.getElementById('aModel') as HTMLInputElement).placeholder = p === 'ollama' ? 'fastest (automatic)' : p === 'gemini' ? 'gemini-flash-latest (newest Flash)' : 'gpt-4o-mini';
   const k = document.getElementById('aKey') as HTMLInputElement, env = brains.envKeys?.gemini ?? 0;
   k.placeholder = editing?.keys ? `saved (…${editing.keyEnd}): leave empty to keep it` : p === 'gemini' && env ? `empty = the ${env} keys in .env, taking turns` : 'optional';
   document.getElementById('aKeyRmL')!.hidden = !editing?.keys;

@@ -40,7 +40,7 @@ export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 export const AI_DEFAULTS: AiConfig = {
   provider: 'ollama', model: '', ollamaUrl: DEFAULT_OLLAMA_URL, maxCallsPerHour: 600, timeoutMs: 120_000,
 };
-export const DEFAULT_MODEL: Record<Provider, string> = { none: '', gemini: 'gemini-2.5-flash', ollama: 'llama3.2', openai: 'gpt-4o-mini' };
+export const DEFAULT_MODEL: Record<Provider, string> = { none: '', gemini: 'gemini-flash-latest', ollama: 'llama3.2', openai: 'gpt-4o-mini' };
 
 /** Keys from a field or .env: "k1, k2" -> ['k1', 'k2'] (no blanks, no repeats). */
 export function keyList(v: string | string[] | undefined): string[] {
@@ -182,8 +182,7 @@ export class Ai {
   }
 
   private async gemini(r: LlmRequest, model: string): Promise<string> {
-    const key = this.nextKey();
-    if (!key) throw new AiError('no-key', this.missingKey());
+    if (!this.keyCount) throw new AiError('no-key', this.missingKey());
     const body = {
       ...(r.system ? { systemInstruction: { parts: [{ text: r.system }] } } : {}),
       contents: [{ role: 'user', parts: [{ text: r.prompt }] }],
@@ -192,8 +191,17 @@ export class Ai {
         ...(r.json ? { responseMimeType: 'application/json' } : {}),
       },
     };
-    const j = await this.http(`${this.geminiBase()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, body,
-      { 'x-goog-api-key': key }, this.cfg.timeoutMs) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    // Busy (503) or over quota (429) on one key: try the next key once (each key has its own quota).
+    let j: { candidates?: { content?: { parts?: { text?: string }[] } }[] } = {};
+    for (let tries = Math.min(2, this.keyCount); ; tries--) {
+      try {
+        j = await this.http(`${this.geminiBase()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, body,
+          { 'x-goog-api-key': this.nextKey()! }, this.cfg.timeoutMs) as typeof j;
+        break;
+      } catch (err) {
+        if (tries <= 1 || !(err instanceof AiError) || !/HTTP (429|503)/.test(err.message)) throw err;
+      }
+    }
     const text = stripThinking((j.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join(''));
     if (!text) throw new AiError('bad-reply', 'empty answer from Gemini');
     return text;

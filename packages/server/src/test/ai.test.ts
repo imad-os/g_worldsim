@@ -27,6 +27,7 @@ const fake = createServer((req, res) => {
       return res.end(JSON.stringify({ choices: [{ message: { content: '{"say":"hi from openai"}' } }] }));
     }
     if (req.url!.includes(':generateContent')) {
+      if (req.headers['x-goog-api-key'] === 'busy') { res.statusCode = 503; return res.end(JSON.stringify({ error: { message: 'high demand' } })); }
       if (req.headers['x-goog-api-key'] === 'g1' || req.headers['x-goog-api-key'] === 'g2') return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'turn ' + req.headers['x-goog-api-key'] }] } }] }));
       if (req.headers['x-goog-api-key'] !== 'gkey') { res.statusCode = 403; return res.end(JSON.stringify({ error: { message: 'bad key' } })); }
       return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hello ' }, { text: 'from gemini' }] } }] }));
@@ -55,7 +56,7 @@ test('ai: Ollama models and chat (system + user, JSON format), switch to Gemini,
   assert.equal(chat.body.options.num_predict, 50);
 
   ai.apply({ provider: 'gemini' });
-  assert.equal(ai.model, 'gemini-2.5-flash', 'default model when switching provider');
+  assert.equal(ai.model, 'gemini-flash-latest', 'default model when switching provider');
   assert.deepEqual(await ai.models(), ['gemini-2.5-flash']);
   const g = await ai.generate({ prompt: 'hi', system: 'sys' });
   assert.equal(g.text, 'hello from gemini');
@@ -119,6 +120,8 @@ test('ai: Gemini keys take turns call by call; OpenAI-compatible APIs; a brain\'
   const used = [];
   for (let k = 0; k < 4; k++) used.push((await ai.generate({ prompt: 'x' })).text);
   assert.deepEqual(used, ['turn g1', 'turn g2', 'turn g1', 'turn g2']);
+  ai.apply({ key: 'busy,g2' }); // Google busy on one key: the next key answers
+  assert.equal((await ai.generate({ prompt: 'x' })).text, 'turn g2');
   ai.apply({ key: 'gkey' }); // the brain's own key
   assert.equal((await ai.generate({ prompt: 'x' })).text, 'hello from gemini');
   ai.apply({ provider: 'openai', ollamaUrl: base + '/oa/v1/chat/completions', model: 'gpt-x', key: 'sk-1' });

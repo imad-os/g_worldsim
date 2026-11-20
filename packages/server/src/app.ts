@@ -129,7 +129,7 @@ export class App {
     this.ai = new Ai(c.ai, this.aiKeys(), this.log, savedAi);
     // Saved brains (imad 2026-11-20): the AI in use becomes the first one; Gemini is offered when .env has its keys.
     this.brains = new Brains(() => this.db.getMeta('brains'), (j) => this.db.setMeta('brains', j), this.ai.settings,
-      this.secrets.geminiKey ? [{ provider: 'gemini', name: 'Gemini (keys in .env)', model: 'gemini-2.5-flash' }] : []);
+      this.secrets.geminiKey ? [{ provider: 'gemini', name: 'Gemini (keys in .env)' }] : []);
     try { this.ai.apply(this.brains.settingsOf(this.brains.active)); } catch (err) { this.log.warn('saved brain refused', { err: String(err) }); }
     const savedPlanner = this.db.getMeta('planner');
     this.planner = new Planner(this.world, this.ai, this.log, savedPlanner ? (JSON.parse(savedPlanner) as Partial<PlannerConfig>) : undefined);

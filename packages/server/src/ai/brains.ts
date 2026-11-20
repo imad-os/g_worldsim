@@ -27,6 +27,8 @@ export class Brains {
       this.write();
     } else this.s = s;
     if (!this.s.list.some((b) => b.id === this.s.active)) this.s.active = this.s.list[0]!.id;
+    // Google closed gemini-2.5-flash to new keys (2026-11-20): saved brains on it use the default (gemini-flash-latest).
+    for (const b of this.s.list) if (b.provider === 'gemini' && b.model === 'gemini-2.5-flash') { b.model = ''; this.write(); }
   }
 
   private write(): void { this.save(JSON.stringify(this.s)); }
