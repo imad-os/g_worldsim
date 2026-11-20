@@ -225,7 +225,8 @@ export class App {
       const act = it.act;
       const to = (act === 6 && it.to >= 0) ? this.nameOf(it.to) : '';
       const plan = p?.mind?.plan && p.mind.plan.until > w.gameSec ? p.mind.plan : undefined;
-      out.push([e.id(i), act, to, Math.round(it.dist), plan ? plan.act : '', plan?.with !== undefined ? this.nameOf(plan.with) : '', plan?.why ?? '', p?.mind?.mood ?? '', p?.mind?.said && w.gameSec - p.mind.said.at < 1800 ? p.mind.said.text : '']);
+      const task = w.tasks.describe(e.id(i));
+      out.push([e.id(i), act, to, Math.round(it.dist), task ? 'task' : plan ? plan.act : '', !task && plan?.with !== undefined ? this.nameOf(plan.with) : '', task || (plan?.why ?? ''), p?.mind?.mood ?? '', p?.mind?.said && w.gameSec - p.mind.said.at < 1800 ? p.mind.said.text : '']);
     }
     return out;
   }
@@ -240,6 +241,7 @@ export class App {
       id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec, w.yearSec)) : 0,
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
+      task: w.tasks.describe(id) || null,
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       carry: e.carry[i], lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };

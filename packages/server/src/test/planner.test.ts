@@ -10,7 +10,7 @@ import { serialize, restore } from '../persist/snapshot.js';
 import { newWorld } from './helpers.js';
 
 // A fake Ollama that plans like a model would: everyone named in the prompt wants to talk to the first person.
-let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' = 'ok';
+let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' | 'plan' = 'ok';
 let orderTarget = '';
 const prompts: string[] = [];
 const fake = createServer((req, res) => {
@@ -27,6 +27,8 @@ const fake = createServer((req, res) => {
     if (/"say":"the words you say"/.test(sys)) { // a chat
       content = mode === 'think' ? '<think>hmm, who is this</think>Mira: "Hello there, stranger."' // forgot the JSON
         : mode === 'order' ? JSON.stringify({ say: "On my way!", do: 'goto', target: orderTarget })
+        : mode === 'plan' ? JSON.stringify({ say: "Alright, I'll look around.", do: 'nothing', task: 'find a wife', plan: [
+          { do: 'find', what: 'single woman' }, { do: 'talk', who: 'found', times: 2 }, { do: 'court', who: 'found' }, { do: 'say', text: 'Done.' }] })
         : mode === 'forget' ? JSON.stringify({ say: "Sure, I'm coming." }) // agreed but forgot "do"
         : JSON.stringify({ say: 'Hello there, stranger.', do: 'nothing', target: '' });
       res.end(JSON.stringify({ message: { role: 'assistant', content } }));
@@ -195,5 +197,41 @@ test('chat orders: what people are asked to do, they do (model JSON, the speaker
   // Stop: the order ends.
   p.orderFromPanel(a, 'stop', '');
   assert.equal(w.brain.orderOf(a).kind, '');
+  mode = 'ok';
+});
+
+test('any request becomes a plan of steps the engine runs: "go and find a wife"', async () => {
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  const e = w.e;
+  const agents: number[] = [];
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent) agents.push(k);
+  // A single adult man, and single adult women on the same map; nobody partnered, nobody related.
+  for (const k of agents) { const pr = w.profileOf(k)!; pr.partner = -1; pr.parents = []; pr.born = w.gameSec - 25 * w.yearSec; }
+  const man = agents.find((k) => w.profileOf(k)!.sex === 'm')!;
+  const women = agents.filter((k) => w.profileOf(k)!.sex === 'f');
+  assert.ok(man !== undefined && women.length, 'a man and a woman in the world');
+  for (const k of women) w.place(k, e.map[man]!, e.x[man]! + 20, e.y[man]!);
+  const calm = () => { for (const k of agents) { e.hunger[k] = 0; e.thirst[k] = 0; e.tired[k] = 0; } };
+  calm();
+  mode = 'plan';
+  const r = await p.chat(man, 'owner', 'go and find a wife');
+  assert.match(r.did, /find a wife \(find > talk > court > say\)/);
+  const t0 = w.profileOf(man)!.mind!.task!;
+  assert.equal(t0.steps.length, 4);
+  const events: string[] = [];
+  w.listeners.push((ev) => { if (ev.kind === 'task' || ev.kind === 'partner' || ev.kind === 'talk') events.push(ev.kind); });
+  for (let t = 0; t < 20 * 900 && w.profileOf(man)!.mind!.task; t++) { calm(); w.step(); }
+  assert.equal(w.profileOf(man)!.mind!.task, undefined, 'the task ended');
+  assert.ok(events.includes('talk'), 'they talked');
+  const pr = w.profileOf(man)!;
+  const note = pr.mind!.notes.map((n) => n.text).join(' | ');
+  // Courting may succeed or be refused ("not yet"): either way it really happened, next to her.
+  if (pr.partner >= 0) {
+    assert.equal(w.profiles.get(pr.partner)!.sex, 'f');
+    assert.match(note, /I did what the voice from the sky asked: find a wife/);
+  } else assert.match(note, /could not find a wife: .*not yet/);
+  const her = women.map((k) => e.id(k)).find((id) => (pr.bonds?.['#' + id] ?? 0) >= 3);
+  assert.ok(her !== undefined, 'he talked with one of them three times (2 talks + courting)');
   mode = 'ok';
 });

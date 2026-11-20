@@ -188,7 +188,7 @@ export class Bubbles {
       if (!project(c.x, c.y, this.pt)) { b.el.hidden = true; continue; }
       if (b.id !== c.id || b.act !== m.act || b.ver !== this.ver) {
         const first = actName(m.act) + (m.to ? ' · ' + tf('bWith', m.to) : '') + (m.dist >= 3 ? ` · ${m.dist} m` : '');
-        const wish = m.wish ? tf('bWants', t(GOAL_KEY[m.wish] ?? 'gWander') + (m.wishWith ? ' ' + tf('bWith', m.wishWith) : '')) + (m.why ? ` (${m.why})` : '') : '';
+        const wish = m.wish === 'task' ? m.why : m.wish ? tf('bWants', t(GOAL_KEY[m.wish] ?? 'gWander') + (m.wishWith ? ' ' + tf('bWith', m.wishWith) : '')) + (m.why ? ` (${m.why})` : '') : '';
         const second = [m.said ? `“${m.said}”` : '', wish].filter(Boolean).join(' · ');
         const text = first + '|' + second;
         if (b.text !== text) { b.text = text; b.a.textContent = first; b.b.textContent = second; b.b.hidden = !second; }

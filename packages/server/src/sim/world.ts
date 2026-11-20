@@ -8,6 +8,7 @@ import { SpatialGrid } from './spatial.js';
 import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
 import { randomProfile, type Profile } from './people.js';
 import { Life } from './life.js';
+import { Tasks } from './tasks.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -59,6 +60,7 @@ export class World {
   readonly profiles = new Map<number, Profile>();
   /** Ageing, partners, babies, old age (milestone 7). */
   readonly life: Life;
+  readonly tasks: Tasks;
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -82,6 +84,7 @@ export class World {
     const life: LifeDef = { ...LIFE_DEFAULTS, ...L, needs: { ...LIFE_DEFAULTS.needs, ...L.needs } };
     this.brain = new Brain(this, life);
     this.life = new Life(this);
+    this.tasks = new Tasks(this);
   }
   /** Game seconds per year of age. */
   get yearSec(): number { return this.brain.life.yearDays * 86400; }
@@ -277,6 +280,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
+    if (this.tick % 20 === 0) this.tasks.update();
     // Steering: agents push toward their goal; physics resolves collisions.
     for (let i = 0; i < e.hi; i++) {
       const k = e.kind[i]!;

@@ -54,6 +54,52 @@ export class Life {
     w.emit('partner', { a: ida, b: idb });
   }
 
+  /**
+   * Someone asks another to be their partner (a task step). They must be single adults of opposite sex, not family,
+   * and know each other a little (bonds); the answer depends on how much they talked and on the other's empathy.
+   * True = partners now, else why not.
+   */
+  court(ida: number, idb: number): true | string {
+    const w = this.w, a = w.profiles.get(ida), b = w.profiles.get(idb), now = w.gameSec, y = this.yearSec;
+    if (!a || !b) return 'they are not here';
+    if (a.partner === idb) return true;
+    if (a.partner >= 0) return 'I already have a partner';
+    if (b.partner >= 0) return `${b.name} already has a partner`;
+    if (a.sex === b.sex) return `${b.name} is not interested`;
+    if (ageOf(a, now, y) < ADULT + 2 || ageOf(b, now, y) < ADULT + 2) return 'too young';
+    if (a.parents.some((x) => b.parents.includes(x)) || a.parents.includes(idb) || b.parents.includes(ida)) return `${b.name} is family`;
+    a.bonds ??= {}; b.bonds ??= {};
+    a.bonds['#' + idb] = (a.bonds['#' + idb] ?? 0) + 1; b.bonds['#' + ida] = (b.bonds['#' + ida] ?? 0) + 1;
+    const talks = a.bonds['#' + idb]!;
+    const chance = Math.min(0.9, 0.15 + talks * 0.12 + b.traits.empathy * 0.2);
+    if (!w.rng.chance(chance)) return `${b.name} said "not yet, I barely know you"`;
+    a.partner = idb; b.partner = ida;
+    w.emit('partner', { a: ida, b: idb });
+    return true;
+  }
+
+  /** A couple tries for a child now (a task step). True = expecting, else why not. */
+  tryChild(id: number): true | string {
+    const w = this.w, e = w.e, p = w.profiles.get(id), now = w.gameSec, y = this.yearSec;
+    if (!p || p.partner < 0) return 'I have no partner';
+    const q = w.profiles.get(p.partner);
+    if (!q) return 'my partner is gone';
+    const mother = p.sex === 'f' ? p : q, mid = p.sex === 'f' ? id : p.partner;
+    if (mother.sex !== 'f') return 'we cannot have a child together';
+    if (mother.pregnant) return `${mother.name} is already expecting`;
+    const age = ageOf(mother, now, y);
+    if (age < ADULT + 2 || age > 45) return `${mother.name} is not of age to have a child`;
+    let living = 0;
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) living++;
+    if (living >= w.brain.life.maxPopulation) return 'there is no room for more people in this world';
+    const i = e.slot(mid);
+    if (i >= 0 && (e.hunger[i]! > 70 || e.thirst[i]! > 70)) return 'we are too hungry and thirsty for a baby now';
+    if (!w.rng.chance(0.6)) return 'no baby this time';
+    mother.pregnant = { father: mid === id ? p.partner : id, due: now + GESTATION_YEARS * y };
+    w.emit('pregnant', { id: mid, father: mother.pregnant.father });
+    return true;
+  }
+
   /** Every tick: does the hourly work when a game hour has passed. */
   tick(): void {
     const h = Math.floor(this.w.gameSec / HOUR);

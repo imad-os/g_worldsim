@@ -85,7 +85,8 @@ async function openPerson(id: number): Promise<void> {
       $('pOrdNames').innerHTML = names.filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('');
     } catch { /* names are only a help */ }
     const ord = (d as { order?: string | null }).order;
-    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''}${ord ? ` (told to ${ord})` : ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
+    const task = (d as { task?: string | null }).task;
+    $('pSum').textContent = d.alive ? `${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)} · ${ACTS[d.act] ?? ''}${task ? ` (task: ${task})` : ord ? ` (told to ${ord})` : ''} · ${d.map} (${d.x}, ${d.y}) · carries ${d.carry} food · ${d.profile.personality.join(', ')}` : 'Dead';
     const f = (k: string, v: number | string, step = '1') => `<label>${k}<input data-k="${k}" value="${v}" ${typeof v === 'number' ? `type="number" step="${step}"` : ''}></label>`;
     $('pEdit').innerHTML = d.alive ? [f('name', d.name), f('personality', d.profile.personality.join(', ')),
       f('hunger', d.hunger), f('thirst', d.thirst), f('tired', d.tired), f('lonely', d.lonely), f('hp', d.hp), f('carry', d.carry),

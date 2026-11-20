@@ -19,6 +19,7 @@ import type { Logger } from '../log.js';
 import type { World, WorldEvent } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
 import { ageOf, type Mind } from '../sim/people.js';
+import { SKILLS, type Step } from '../sim/tasks.js';
 
 export interface PlannerConfig {
   on: boolean;
@@ -77,6 +78,13 @@ export class Planner {
 
   constructor(private w: World, private ai: Ai, private logger: Logger, cfg?: Partial<PlannerConfig>) {
     this.cfg = { ...PLANNER_DEFAULTS, ...cfg };
+    // Tasks (step plans) speak through the planner and end in memory.
+    w.tasks.onSay = (i, text) => this.say(i, text);
+    w.tasks.onEnd = (id, t, ok, why) => {
+      this.note(id, ok ? `I did what ${t.from === 'owner' ? 'the voice from the sky' : t.from} asked: ${t.text}.` : `I could not ${t.text}: ${why}.`, true);
+      const i = w.e.slot(id);
+      if (!ok && i >= 0) this.say(i, cleanLine(`I couldn't ${t.text.replace(/^(to )?/, '')}: ${why}.`, ''));
+    };
     // Wishes from before a restart still count.
     for (let i = 0; i < w.e.hi; i++) {
       const p = w.e.kind[i] === Kind.Agent ? w.profileOf(i) : undefined;
@@ -319,7 +327,7 @@ export class Planner {
     if (player >= 0) w.brain.listen(i, player, 30);
     const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
     const key = '@' + from;
-    let reply = '', usedAi = false, doRaw = '', target = '';
+    let reply = '', usedAi = false, doRaw = '', target = '', planRaw: unknown[] | null = null, taskText = '';
     const st = this.ai.status();
     if (st.ready && (e.act[i] !== Act.Sleep || owner)) {
       const present = this.presentNames(i);
@@ -330,7 +338,14 @@ export class Planner {
         + 'walking with someone; goto = walk to someone named in "target"; bring = bring food to someone (the speaker if no target); stay = stop and wait; stop = stop what you were told; or drink, eat, '
         + 'forage, sleep, talk, wander, rest). Otherwise "do" is "nothing".'].join('\n');
       const system = `You are ${p.name}, a survivor in a post-apocalyptic world. Speak naturally and briefly (one or two short sentences), in the `
-        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty"}';
+        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty",'
+        + '"task":"short name of what you will do, or empty","plan":[steps, or empty]}. When you agree to something that takes several steps, write "plan": '
+        + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
+        + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (ask them to be your partner), child {} (have a baby with your partner), '
+        + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}. '
+        + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
+        + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'
+        + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}';
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
       try {
         const r = await this.ai.generate({ system, prompt, json: true, maxTokens: 200, temperature: 0.8 });
@@ -341,6 +356,8 @@ export class Planner {
           reply = cleanLine(String(j.say ?? j.text ?? j.answer ?? ''), p.name);
           doRaw = String(j.do ?? j.action ?? '').trim().toLowerCase();
           target = String(j.target ?? j.with ?? '').trim();
+          if (Array.isArray(j.plan)) planRaw = j.plan as unknown[];
+          if (typeof j.task === 'string') taskText = j.task;
         } else reply = cleanLine(raw, p.name); // the model forgot the JSON: its words are still the answer
         usedAi = !!reply;
         if (!reply) ex.err = 'empty answer';
@@ -362,13 +379,51 @@ export class Planner {
       reply = doRaw === 'come' || doRaw === 'follow' ? (owner ? 'Yes. On my way.' : "Alright, I'm coming.") : doRaw === 'stay' ? "Okay, I'll wait here." : doRaw === 'bring' ? "I'll find you something to eat." : this.builtInLine(i);
       this.counts.builtIn++;
     }
-    const did = this.applyChatOrder(i, doRaw, target, player, owner);
+    // A plan of steps wins over a single "do": that is how any request becomes something they really do.
+    const steps = planRaw ? this.toSteps(i, planRaw, player) : [];
+    let did = '';
+    if (steps.length >= 1 && (steps.length > 1 || !doRaw || !['come', 'follow', 'goto', 'bring', 'stay', 'stop'].includes(doRaw))) {
+      const what = (taskText || (text ?? '') || steps.map((x) => x.do).join(', ')).slice(0, 100);
+      if (w.tasks.start(i, what, from, steps)) did = `${what} (${steps.map((x) => x.do).join(' > ')})`;
+    }
+    if (!did) did = this.applyChatOrder(i, doRaw, target, player, owner);
     this.counts.chats++;
     this.note(id, (text ? `${owner ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`)
-      + (did ? ` I ${did}.` : ''), !!text);
+      + (did ? ` I will ${did}.` : ''), !!text);
     this.feel(id, key, 0.5);
     if (e.slot(id) === i) this.say(i, reply);
     return { reply, ai: usedAi, did };
+  }
+
+  /** The model's plan as steps the engine runs (names -> people; unknown skills dropped). */
+  private toSteps(i: number, raw: unknown[], player: number): Step[] {
+    const e = this.w.e, id = e.id(i), speaker = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
+    const out: Step[] = [];
+    let found = -1, foundStep: Step | null = null;
+    for (const r of raw.slice(0, 8)) {
+      if (!r || typeof r !== 'object') continue;
+      const o = r as Record<string, unknown>;
+      let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
+      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', gather: 'forage', get_food: 'forage' } as Record<string, string>)[d] ?? d;
+      if (!(SKILLS as readonly string[]).includes(d)) continue;
+      const st: Step = { do: d };
+      const whoRaw = String(o.who ?? o.with ?? o.target ?? (o.do === 'come' ? 'me' : '')).trim();
+      if (d === 'find') st.what = String(o.what ?? o.who ?? o.target ?? '').slice(0, 40);
+      else if (whoRaw) {
+        const w = whoRaw.toLowerCase();
+        if (['me', 'you', 'him', 'her', 'the player', 'speaker'].includes(w)) st.who = speaker;
+        else if (['found', 'them', 'they', 'it', 'she', 'he'].includes(w)) { if (foundStep) { st.who = -2; } }
+        else st.who = this.whoIs(whoRaw, id);
+      } else if (d === 'goto' || d === 'follow' || d === 'bring' || d === 'give') st.who = speaker;
+      if (typeof o.times === 'number') st.times = Math.max(1, Math.min(4, Math.round(o.times)));
+      if (typeof o.minutes === 'number') st.minutes = Math.max(5, Math.min(600, Math.round(o.minutes)));
+      if (d === 'say') st.text = String(o.text ?? o.say ?? '').slice(0, 200);
+      if ((d === 'goto' || d === 'follow' || d === 'talk' || d === 'court' || d === 'bring' || d === 'give') && (st.who === undefined || st.who === -1)) continue; // nobody to do it with
+      out.push(st);
+      if (d === 'find') { foundStep = st; found = -2; }
+    }
+    void found;
+    return out;
   }
 
   /** Turn a chat's "do" into an order. Returns what they do, in words ('' = nothing). */

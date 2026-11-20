@@ -64,6 +64,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   applies when the speaker is the owner, the answer `agrees()`, or there is no AI. TV: A next to someone = type what to say
   (My PC keyboard, `Do hold` makes them wait, `Do talk text`). Panel person card: Order row (admin `order`), "told to ..." in the summary.
   Owner "come" (no body) = to the player on that map. Proof: `node tools/panel-order-proof.mjs <server> <png>`.
+- **Tasks = any request as a plan of steps (imad 2026-11-20: "intelligent, not predefined commands")**: `sim/tasks.ts`
+  (`World.tasks`, run every 20 ticks, stored in `Profile.mind.task`). Chat JSON may carry `"task"` + `"plan":[{"do":skill,...}]`;
+  skills = `SKILLS` (goto, find, follow, talk, court, child, bring, give, stay, drink, eat, forage, sleep, rest, wander, say;
+  `who: "me"` = speaker, `"found"` = the last find step's person). `Life.court` / `Life.tryChild` keep the real rules.
+  A failed step ends the task with a reason: memory note + they say "I couldn't ...". Panel summary "(task: ...)", bubbles
+  show it (wish `task`). Part 2 / 3 (milestone 8) add gather / craft / build / fire / zombies as more skills.
 - Proof: `ADMIN_TOKEN=... node tools/menu-proof.mjs <server> <sdk.js> <outdir>` (fake Xbox pad, `?dev` exposes `__dev.me()`).
 
 ## Life cycle (milestone 7, `sim/life.ts`, hourly)

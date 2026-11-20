@@ -49,6 +49,8 @@ export interface Mind {
   /** Something big happened: plan again soon. */
   urgent?: boolean;
   said?: { at: number; text: string };
+  /** What they are doing step by step (a command or their own decision): see sim/tasks.ts. */
+  task?: import('./tasks.js').Task;
 }
 
 export const TRAIT_KEYS = ['strength', 'speed', 'intelligence', 'courage', 'empathy', 'metabolism'] as const;
