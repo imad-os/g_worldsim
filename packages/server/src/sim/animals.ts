@@ -28,7 +28,49 @@ export class Animals {
   /** Kills: hunter id -> [game second, animal type]. */
   readonly kills = new Map<number, [number, number]>();
   private nextHour = 0;
+  /** The owner's counts per map (map id -> how many of each of the 5 animals; meta `animal_want`). None = the built-in mix. */
+  readonly want = new Map<string, number[]>();
   constructor(private w: World) {}
+
+  /** The built-in cap of a map (woods 16, town 4). */
+  capOf(m: number): number { return this.w.maps[m]!.def.gen.type === 'wilds' ? CAP_WOODS : CAP_TOWN; }
+
+  /** Bring map m to the owner's counts now (spawn the missing far from people, remove the extra). Returns how many changed. */
+  fill(m: number): number {
+    const want = this.want.get(this.w.maps[m]!.def.id);
+    if (!want) return 0;
+    let changed = 0;
+    for (let t = 0; t < ANIMALS.length; t++) changed += this.toward(m, t, want[t] ?? 0, 99);
+    return changed;
+  }
+  /** Spawn up to `max` of type t (or remove extras) towards `goal` on map m. */
+  private toward(m: number, t: number, goal: number, max: number): number {
+    const w = this.w, e = w.e, mp = w.maps[m]!;
+    let have = this.count(m, t), n = 0;
+    while (have > goal && n < max) {
+      // The extra ones farthest from any player go first.
+      let best = -1, bd = -1;
+      for (let i = 0; i < e.hi; i++) {
+        if (e.kind[i] !== Kind.Animal || e.map[i] !== m || e.sub[i] !== t) continue;
+        let near = Infinity;
+        for (let j = 0; j < e.hi; j++) if (e.kind[j] === Kind.Player && e.map[j] === m) near = Math.min(near, Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!));
+        if (near > bd) { bd = near; best = i; }
+      }
+      if (best < 0) break;
+      w.remove(best, 'owner'); have--; n++;
+    }
+    for (let tries = 0; have < goal && n < max && tries < (goal - have) * 40 + 40; tries++) {
+      const x = w.rng.range(10, mp.def.w - 10), y = w.rng.range(10, mp.def.h - 10);
+      if (mp.tiles.isSolidAt(x, y)) continue;
+      const tt = mp.tiles.get(Math.floor(x), Math.floor(y));
+      if (tt === w.survival.T.floor || tt === w.survival.T.water) continue;
+      let near = false;
+      for (let j = 0; j < e.hi && !near; j++) if ((e.kind[j] === Kind.Agent || e.kind[j] === Kind.Player) && e.map[j] === m && Math.hypot(e.x[j]! - x, e.y[j]! - y) < 25) near = true;
+      if (near) continue;
+      if (this.spawn(m, x, y, t) >= 0) { have++; n++; }
+    }
+    return n;
+  }
 
   count(m = -1, type = -1): number {
     const e = this.w.e;
@@ -53,6 +95,9 @@ export class Animals {
     const w = this.w, e = w.e;
     w.maps.forEach((mp, m) => {
       const wild = mp.def.gen.type === 'wilds', cap = wild ? CAP_WOODS : CAP_TOWN;
+      // The owner's counts: a few each hour towards them (all at once on the first hour).
+      const want = this.want.get(mp.def.id);
+      if (want) { for (let t = 0; t < ANIMALS.length; t++) this.toward(m, t, want[t] ?? 0, first ? 99 : wild ? 2 : 1); return; }
       let have = this.count(m);
       const tries = first ? cap : wild ? 3 : (w.rng.chance(0.4) ? 1 : 0);
       for (let k = 0; k < tries && have < cap; k++) {

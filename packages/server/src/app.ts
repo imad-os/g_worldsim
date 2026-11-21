@@ -16,6 +16,7 @@ import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
+import type { AttackPlan } from './sim/zombies.js';
 import { Ai, keyList, type AiSettings, type Provider } from './ai/llm.js';
 import { Brains } from './ai/brains.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
@@ -33,7 +34,7 @@ function firebaseProject(): string {
 /** Panel commands that only read: never written to the timeline. */
 const READS = new Set<string>(['brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
-const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner']);
+const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
@@ -103,6 +104,9 @@ export class App {
     // Owner settings kept in the database: travel between maps, and the population size of the scenario.
     this.world.travelOpen = this.db.getMeta('travel_open') === '1';
     { const z = this.db.getMeta('zombies_night'); if (z !== null && z !== undefined) this.world.zombies.perNight = Number(z) || 0; }
+    { const z = this.db.getMeta('zombie_plans'); if (z) { try { this.world.zombies.plans = JSON.parse(z) as AttackPlan[]; } catch { /* broken: none */ } } }
+    this.world.zombies.onPlans = () => this.db.setMeta('zombie_plans', JSON.stringify(this.world.zombies.plans));
+    { const a = this.db.getMeta('animal_want'); if (a) { try { for (const [k, v] of JSON.parse(a) as [string, number[]][]) this.world.animals.want.set(k, v); } catch { /* broken: built-in mix */ } } }
     this.world.land.setup(); // the town's ring of trees, its 4 roads out (wrecks while travel is closed), rocks
     const want = sc.agents.count;
     if (this.db.getMeta('agents_count') !== String(want) || !this.world.travelOpen) {
@@ -944,6 +948,35 @@ export class App {
         const now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] = [];
         for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Threat && w.e.map[i] !== NO_MAP) now.push({ id: w.e.id(i), map: w.maps[w.e.map[i]!]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!), hp: Math.round(w.e.hp[i]!), stays: w.e.sub[i] === 1 });
         return { perNight: w.zombies.perNight, now };
+      }
+      case 'animals': {
+        if (c.map !== undefined && (c.want !== undefined || c.fill)) {
+          const m = mapOf(c.map), id = w.maps[m]!.def.id;
+          if (c.want === null) w.animals.want.delete(id);
+          else if (Array.isArray(c.want)) w.animals.want.set(id, ANIMAL_NAMES.map((_, k) => num(c.want![k] ?? 0, 0, 40, 'count') | 0));
+          this.db.setMeta('animal_want', JSON.stringify([...w.animals.want]));
+          if (c.fill) w.animals.fill(m);
+        }
+        return { maps: w.maps.map((mp, m) => ({ id: mp.def.id, name: mp.def.name, now: ANIMAL_NAMES.map((_, k) => w.animals.count(m, k)), want: w.animals.want.get(mp.def.id) ?? null, cap: w.animals.capOf(m) })) };
+      }
+      case 'zombieAttack': {
+        if (c.add) {
+          const a = c.add, m = mapOf(a.map), where = (['near', 'edge', 'camp', 'random'] as const).find((x) => x === a.where) ?? 'edge';
+          if (where === 'near' && !String(a.near ?? '').trim()) throw new Error('who should they attack?');
+          // The game clock: day 1 starts at 08:00 (gameSec 0); the attack is in `days` days at hour:minute (today when still ahead).
+          const dayStart = Math.floor((w.gameSec + 8 * 3600) / 86400) * 86400 - 8 * 3600;
+          let at = dayStart + num(a.days ?? 0, 0, 30, 'days') * 86400 + num(a.hour ?? 21, 0, 23, 'hour') * 3600 + num(a.minute ?? 0, 0, 59, 'minute') * 60;
+          if (at <= w.gameSec) at += 86400;
+          w.zombies.plan({ at, map: w.maps[m]!.def.id, n: num(a.n ?? 6, 1, 40, 'n') | 0, where, near: where === 'near' ? String(a.near).trim().slice(0, 40) : undefined, daily: !!a.daily, stays: a.stays !== false });
+        }
+        if (c.remove !== undefined) w.zombies.unplan(Number(c.remove));
+        let ran: { map: string; n: number; why?: string } | undefined;
+        if (c.now) {
+          const a = c.now, where = (['near', 'edge', 'camp', 'random'] as const).find((x) => x === a.where) ?? 'edge';
+          ran = w.zombies.attack({ map: a.map ? w.maps[mapOf(a.map)]!.def.id : w.maps[0]!.def.id, n: num(a.n ?? 6, 1, 40, 'n'), where, near: a.near, stays: a.stays !== false });
+          if (!ran.n) throw new Error(ran.why ?? 'no room for them');
+        }
+        return { plans: w.zombies.plans, gameSec: w.gameSec, ran };
       }
       case 'zombieSpawn': { // one zombie, now: at (x, y) on a map, or next to someone (a name), or at random
         let m = 0, x = 0, y = 0;

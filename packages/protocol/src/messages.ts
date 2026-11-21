@@ -89,6 +89,10 @@ export type AdminCmd =
   /** Zombies (milestone 8): how many are released at random each night, clear them all; answers the ones out now. */
   | { cmd: 'zombies'; perNight?: number; clear?: boolean }
   /** One (or n) zombie now: next to someone (`near` = a name, `dist` metres), or at (x, y) on a map (random when empty). */
+  /** Animals per map: the owner's counts of each animal (null = back to the built-in mix), `fill` = now instead of a few each hour. */
+  | { cmd: 'animals'; map?: string; want?: number[] | null; fill?: boolean }
+  /** Planned zombie attacks: add one (in `days` days at hour:minute), remove one, or run one now. */
+  | { cmd: 'zombieAttack'; add?: { days?: number; hour?: number; minute?: number; map?: string; n?: number; where?: string; near?: string; daily?: boolean; stays?: boolean }; remove?: number; now?: { map?: string; n?: number; where?: string; near?: string; stays?: boolean } }
   | { cmd: 'zombieSpawn'; map?: string; x?: number | string; y?: number | string; near?: string; dist?: number; n?: number; stays?: boolean }
   /** The owner's strict rules (at most 5 each): for everyone (no id) or one person; `add` = the words, `remove` = an index. */
   | { cmd: 'rules'; id?: number; add?: string; remove?: number }

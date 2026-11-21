@@ -192,6 +192,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   with `wed`). `askedDivorce` ("I don't want a divorce" is not one) from her partner = `Life.divorce` (event `divorce`). The player's TV
   gets Notice `did` `married` / `divorced`. The panel's chat is the owner's voice: no marriages there. Test "marry and divorce by words".
 
+## Planned zombie attacks, animal counts per map (imad 2026-11-20, panel Zombies & animals)
+- Admin `zombieAttack { add: { days, hour, minute, map, n, where: edge | camp | near | random, near, daily, stays }, remove, now }`:
+  `Zombies.plans` (meta `zombie_plans`, saved through `onPlans`), run in `Zombies.update` when due (`attack()`: edge = inside the
+  ring on the roads in, camp = 30-45 m round it, near = 25-35 m from a named person; they head straight in). Daily ones move a day on.
+- Admin `animals { map, want: number[5] | null, fill }`: `Animals.want` (meta `animal_want`) replaces the built-in mix of that map;
+  `spawnSome` moves 1-2 per hour towards it (extras farthest from players go), `fill` = at once. Test in craft.test.ts.
+
 ## Control panel (imad 2026-11-20: "advanced, informative, '?' guides, responsive, hosted on GitHub")
 - Sources `packages/panel/src/` (no framework: `main.ts` shell + hash router, one `Screen` per page in `dashboard.ts`, `people.ts`,
   `screens.ts`; `help.ts` = every "?" text; `charts.ts` SVG charts; `livemap.ts` canvas map), built by `npm run build` into

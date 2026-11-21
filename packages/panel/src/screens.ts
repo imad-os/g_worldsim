@@ -90,7 +90,14 @@ export const zombies: Screen = {
       ${row('How many', `<input type="number" id="zN" min="1" max="20" value="1" style="width:80px">`)}
       <button class="btn primary" id="zGo">${icon('zombie')} Spawn</button>`, { help: help('zSpawn') })}
     ${card('Zombies out now', `<div id="zList"></div>`, { cls: 'span2' })}
-    ${card('Animals by map', `<div id="aMaps"></div>`, { help: help('animals') })}
+    ${card('Plan a zombie attack', `${row('When', `<select id="paDay"><option value="0">Today</option><option value="1">Tomorrow</option><option value="2">In 2 days</option><option value="3">In 3 days</option><option value="7">In a week</option></select> at <input type="time" id="paTime" value="21:00" style="width:110px">`)}
+      ${row('Map', `<select id="paMap">${mapOpts()}</select>`)}${row('How many', `<input type="number" id="paN" min="1" max="40" value="8" style="width:80px"> zombies`)}
+      ${row('From', `<select id="paWhere"><option value="edge">The roads at the edge of the map</option><option value="camp">All around the camp</option><option value="near">Next to someone</option><option value="random">Anywhere</option></select>`)}
+      <div id="paNearF" hidden>${row('Who', `<input id="paNear" list="zNames" placeholder="a name">`)}</div>
+      ${row('', `<label><input type="checkbox" id="paDaily"> Every day</label> <label><input type="checkbox" id="paStays" checked> Stay until killed</label>`)}
+      <div class="row"><button class="btn primary" id="paAdd">${icon('zombie')} Plan it</button><button class="btn danger ghost" id="paNow">Attack now</button></div>
+      <div id="paList"></div>`, { help: help('zAttack') })}
+    ${card('Animals by map', `<div id="aMaps"></div>`, { help: help('animals'), cls: 'span2' })}
     ${card('Animal guide', `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Animal</th><th>Health</th><th>Behaviour</th><th>A kill gives</th></tr></thead><tbody>${ANIMAL_INFO.map((a) => `<tr><td><b>${a[0]}</b></td><td>${a[1]}</td><td>${a[2]}</td><td>${a[3]}</td></tr>`).join('')}</tbody></table></div><p class="dim">A campfire within 5 m or a lamp within 3.5 m keeps dangerous animals and zombies away.</p>`, { help: help('animalTable') })}
     </div>`;
   },
@@ -99,6 +106,18 @@ export const zombies: Screen = {
     setHtml('zNames', names());
     on('#zHow button', 'click', (b) => { for (const x of document.querySelectorAll('#zHow button')) x.classList.toggle('on', x === b); document.getElementById('zNearF')!.hidden = b.dataset.h !== 'near'; document.getElementById('zAtF')!.hidden = b.dataset.h !== 'at'; });
     on('#zNight', 'change', (el) => void cmd<Zs>({ cmd: 'zombies', perNight: Number((el as HTMLInputElement).value) }).then((r) => { this.refresh!(r as never); toast('Zombies per night changed', 'ok'); }, err));
+    const attackArgs = () => ({ map: val('paMap'), n: Number(val('paN') || 8), where: val('paWhere'), near: val('paNear'), stays: (document.getElementById('paStays') as HTMLInputElement).checked });
+    on('#paWhere', 'change', () => { document.getElementById('paNearF')!.hidden = val('paWhere') !== 'near'; });
+    on('#paAdd', 'click', async () => {
+      const [h, mi] = (val('paTime') || '21:00').split(':').map(Number);
+      try { const r = await cmd<Plans>({ cmd: 'zombieAttack', add: { ...attackArgs(), days: Number(val('paDay') || 0), hour: h, minute: mi, daily: (document.getElementById('paDaily') as HTMLInputElement).checked } }); drawPlans(r); toast('Attack planned', 'ok'); } catch (e) { err(e); }
+    });
+    on('#paNow', 'click', async () => {
+      if (!confirm('Send the zombies now?')) return;
+      try { const r = await cmd<Plans>({ cmd: 'zombieAttack', now: attackArgs() }); toast(`${r.ran?.n ?? 0} zombies are coming (${r.ran?.map ?? ''})`, 'ok'); void this.refresh!(); } catch (e) { err(e); }
+    });
+    drawPlans(await cmd<Plans>({ cmd: 'zombieAttack' }));
+    await drawAnimals();
     on('#zClear', 'click', async () => { if (!confirm('Remove every zombie now?')) return; try { await cmd({ cmd: 'zombies', clear: true }); toast('Zombies removed', 'ok'); void this.refresh!(); } catch (e) { err(e); } });
     on('#zGo', 'click', async () => {
       const near = !document.getElementById('zNearF')!.hidden ? val('zNear') : '';
@@ -115,10 +134,30 @@ export const zombies: Screen = {
     if (n && document.activeElement !== n) n.value = String(r.perNight);
     setHtml('zNow', `${r.now.length}<small>out now · ${r.perNight} each night</small>`);
     setHtml('zList', r.now.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th><th>Where</th><th>Health</th><th>Leaves</th></tr></thead><tbody>${r.now.map((z) => `<tr><td>${esc(z.map)}</td><td>(${z.x}, ${z.y})</td><td>${z.hp}</td><td>${z.stays ? 'stays until killed' : 'at dawn'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No zombie is out.</div>');
-    const o = await overview();
-    setHtml('aMaps', `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th>${ANIMAL_NAMES.map((a) => `<th>${esc(a)}</th>`).join('')}</tr></thead><tbody>${o.maps.map((m) => `<tr><td><b>${esc(m.name)}</b></td>${ANIMAL_NAMES.map((_, k) => `<td>${m.animals[k] ?? 0}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    // Animals: only the "now" numbers change (the boxes being typed in stay).
+    const a = await cmd<AnimalsAns>({ cmd: 'animals' });
+    for (const m of a.maps) m.now.forEach((n, k) => { const el = document.getElementById(`an-${m.id}-${k}`); if (el) el.textContent = String(n); });
   },
 };
+
+type Plans = { plans: { id: number; at: number; map: string; n: number; where: string; near?: string; daily?: boolean; stays?: boolean }[]; gameSec: number; ran?: { map: string; n: number } };
+type AnimalsAns = { maps: { id: string; name: string; now: number[]; want: number[] | null; cap: number }[] };
+const WHERE_NAME: Record<string, string> = { edge: 'from the roads', camp: 'around the camp', near: 'next to', random: 'anywhere' };
+function drawPlans(r: Plans): void {
+  setHtml('paList', r.plans.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Map</th><th>How many</th><th>From</th><th></th></tr></thead><tbody>${r.plans.map((p) =>
+    `<tr><td>${gameTime(p.at)}${p.daily ? ' · every day' : ''}</td><td>${esc(p.map)}</td><td>${p.n}${p.stays === false ? '' : ' (stay)'}</td><td>${esc(WHERE_NAME[p.where] ?? p.where)}${p.near ? ' ' + esc(p.near) : ''}</td><td><button class="btn ghost" data-unplan="${p.id}">Remove</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="dim">No attack planned.</p>');
+  on('[data-unplan]', 'click', async (b) => { try { drawPlans(await cmd<Plans>({ cmd: 'zombieAttack', remove: Number(b.dataset.unplan) })); toast('Attack removed', 'ok'); } catch (e) { err(e); } });
+}
+async function drawAnimals(): Promise<void> {
+  const a = await cmd<AnimalsAns>({ cmd: 'animals' });
+  setHtml('aMaps', `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th>${ANIMAL_NAMES.map((n) => `<th>${esc(n)}<br><small>now · wanted</small></th>`).join('')}<th></th></tr></thead><tbody>${a.maps.map((m) => `<tr><td><b>${esc(m.name)}</b><br><small class="dim">${m.want ? 'your numbers' : `built-in mix (up to ${m.cap})`}</small></td>${ANIMAL_NAMES.map((_, k) =>
+    `<td><span id="an-${m.id}-${k}">${m.now[k] ?? 0}</span> · <input type="number" min="0" max="40" style="width:60px" data-am="${m.id}" data-ak="${k}" value="${m.want ? m.want[k] ?? 0 : ''}" placeholder="${m.now[k] ?? 0}"></td>`).join('')}
+    <td><button class="btn primary" data-asave="${m.id}">Save</button> <button class="btn" data-afill="${m.id}">Now</button> ${m.want ? `<button class="btn ghost" data-areset="${m.id}">Built-in mix</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`);
+  const wantOf = (id: string) => ANIMAL_NAMES.map((_, k) => { const el = document.querySelector<HTMLInputElement>(`[data-am="${id}"][data-ak="${k}"]`); return Number(el?.value === '' ? el?.placeholder : el?.value) || 0; });
+  on('[data-asave]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.asave, want: wantOf(b.dataset.asave!) }); toast('Saved: they come or go over the next game hours', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
+  on('[data-afill]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.afill, want: wantOf(b.dataset.afill!), fill: true }); toast('Done', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
+  on('[data-areset]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.areset, want: null }); toast('Back to the built-in mix', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
+}
 
 // ------------------------------------------------------------ crafting
 const CAT_NAME: Record<string, string> = { weapon: 'Weapons', clothing: 'Clothes and armour', defence: 'Defences', furniture: 'Furniture' };

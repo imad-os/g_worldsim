@@ -104,3 +104,31 @@ test('crafting: category + exact ingredients; a player makes a sword, armour, a 
   // People walk through it.
   void Act;
 });
+
+test('the owner plans zombie attacks (when, where, how many, every day) and sets animal counts per map', () => {
+  const w = mk('attack-test');
+  w.populate();
+  w.land.setup();
+  const town = w.mapIndex.get('town')!, woods = w.mapIndex.get('woods')!;
+  // A planned attack an hour from now, from the roads, 6 zombies, every day.
+  let saved = 0;
+  w.zombies.onPlans = () => saved++;
+  const p = w.zombies.plan({ at: w.gameSec + 3600, map: 'town', n: 6, where: 'edge', daily: true, stays: true });
+  assert.equal(w.zombies.count(town), 0);
+  for (let k = 0; k < 3000 && w.zombies.count(town) === 0; k++) w.step();
+  assert.equal(w.zombies.count(town), 6, 'they came');
+  assert.equal(w.zombies.plans.length, 1, 'a daily plan stays');
+  assert.ok(w.zombies.plans[0]!.at > w.gameSec, 'for tomorrow');
+  assert.ok(saved >= 2);
+  // Next to someone: within 40 m of them.
+  const e = w.e;
+  let a = -1; for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === town) { a = i; break; }
+  const r = w.zombies.attack({ map: 'town', n: 3, where: 'near', near: w.profileOf(a)!.name, stays: true });
+  assert.equal(r.n, 3);
+  assert.equal(w.zombies.attack({ map: 'town', n: 3, where: 'near', near: 'Nobody At All' }).n, 0);
+  assert.ok(w.zombies.unplan(p.id)); assert.equal(w.zombies.plans.length, 0);
+  // Animals: the owner's numbers per map, at once with fill.
+  w.animals.want.set('woods', [0, 2, 0, 0, 1]);
+  w.animals.fill(woods);
+  assert.deepEqual([0, 1, 2, 3, 4].map((t) => w.animals.count(woods, t)), [0, 2, 0, 0, 1]);
+});
