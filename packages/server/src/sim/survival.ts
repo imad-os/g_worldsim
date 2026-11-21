@@ -1,5 +1,6 @@
 import { Act, Kind, RECIPES_ALL, RESOURCES, PLACEABLE, WEAPONS, DEFENCE, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
+import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
 
 /**
@@ -43,6 +44,9 @@ export class Survival {
   readonly huts: number[][];
   /** Each map's camp: where the first fire or hut went up; later fires and huts go near it, people sleep there. */
   readonly camp: ({ x: number; y: number } | null)[];
+  /** Each map's leader (entity id, -1 = none): chosen every hour by courage, mind, kindness, strength and level (imad 2026-11-20: "social life and leaders"). */
+  readonly leader: number[] = [];
+  private toldAt: number[] = [];
   readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number };
   /** Tile id of each thing that is put down (palisade, door, bed...). */
   readonly placeTile = new Map<string, number>();
@@ -359,9 +363,67 @@ export class Survival {
         if (s >= 0) break;
       }
     }
+    if (what === 'door') s = this.doorSite(m); // the open doorway of a hut
+    if (s < 0 && camp && (what === 'palisade' || what === 'stonewall' || what === 'spikes')) s = this.defenceSite(m, what);
     if (s < 0) s = this.site(m, camp?.x ?? e.x[i]!, camp?.y ?? e.y[i]!, 1, 1, what === 'lamp' ? 10 : 16);
     if (s < 0) return 'I found no place for it';
     return this.begin(i, { kind: 'place', m, tx: s % tm.w, ty: (s / tm.w) | 0, work: 0, what });
+  }
+
+  /** Someone is already on the way to build there (so a crew spreads along the wall). */
+  private reserved(m: number, k: number): boolean {
+    const tm = this.w.maps[m]!.tiles;
+    for (const j of this.jobs.values()) if (j.kind === 'place' && j.m === m && j.ty * tm.w + j.tx === k) return true;
+    return false;
+  }
+  /** A hut's doorway with no door yet (tile index), or -1. */
+  doorSite(m: number): number {
+    const tm = this.w.maps[m]!.tiles;
+    for (const out of this.huts[m]!) {
+      if (out < 0) continue;
+      const k = out - tm.w; // the gap is just inside the spot in front of the hut
+      if (tm.tiles[k] === this.T.floor && !this.reserved(m, k)) return k;
+    }
+    return -1;
+  }
+  /**
+   * Where the next piece of the camp's defence goes (imad 2026-11-20: "people have no doors, walls or defences"): a ring of
+   * walls 9 tiles round the camp (4 ways in left open, north / east / south / west), spikes one tile outside it. -1 = done.
+   */
+  defenceSite(m: number, what: string): number {
+    const camp = this.camp[m];
+    if (!camp) return -1;
+    const tm = this.w.maps[m]!.tiles, R = what === 'spikes' ? 10 : 9, cx = Math.floor(camp.x), cy = Math.floor(camp.y);
+    const seen = new Set<number>();
+    for (let a = 0; a < 360; a += 3) {
+      const r = (a * Math.PI) / 180, x = Math.round(cx + Math.cos(r) * R), y = Math.round(cy + Math.sin(r) * R);
+      if (Math.abs(x - cx) <= 1 || Math.abs(y - cy) <= 1) continue; // the ways in
+      if (!tm.inside(x, y)) continue;
+      const k = y * tm.w + x;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (!this.buildable.has(tm.tiles[k]!) || this.occupied(m, x, y) || this.reserved(m, k) || this.w.land.inRing(m, x, y)) continue;
+      return k;
+    }
+    return -1;
+  }
+  /** How far the camp's defence is: [pieces up, pieces still to build] (walls only). */
+  campDefence(m: number): [number, number] {
+    const camp = this.camp[m];
+    if (!camp) return [0, 0];
+    const tm = this.w.maps[m]!.tiles, cx = Math.floor(camp.x), cy = Math.floor(camp.y), pal = this.placeTile.get('palisade'), sw = this.placeTile.get('stonewall');
+    let up = 0, left = 0;
+    const seen = new Set<number>();
+    for (let a = 0; a < 360; a += 3) {
+      const r = (a * Math.PI) / 180, x = Math.round(cx + Math.cos(r) * 9), y = Math.round(cy + Math.sin(r) * 9);
+      if (Math.abs(x - cx) <= 1 || Math.abs(y - cy) <= 1 || !tm.inside(x, y)) continue;
+      const k = y * tm.w + x;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const t = tm.tiles[k]!;
+      if (t === pal || t === sw) up++; else if (this.buildable.has(t)) left++;
+    }
+    return [up, left];
   }
 
   /** Put wood on the nearest fire (within 40 m). */
@@ -597,7 +659,7 @@ export class Survival {
       }
       case 'place': {
         if (!this.buildable.has(tm.tiles[k]!) && tm.tiles[k] !== this.T.floor) return 'the ground there is taken';
-        if (this.occupied(j.m, j.tx, j.ty) && j.what !== 'bed') return 'someone is in the way';
+        if (this.occupied(j.m, j.tx, j.ty) && j.what !== 'bed' && j.what !== 'door') return 'someone is in the way'; // people walk through doors
         if ((this.inv(i)[j.what!] ?? 0) < 1) { const r = this.craft(i, j.what!); if (r !== true) return r; }
         this.putDown(i, j.m, j.tx, j.ty, j.what!);
         return true;
@@ -717,7 +779,7 @@ export class Survival {
     return 'nothing to do';
   }
 
-  private countTiles(m: number, t: number): number { if (t < 0) return 0; let n = 0; for (const x of this.w.maps[m]!.tiles.tiles) if (x === t) n++; return n; }
+  countTiles(m: number, t: number): number { if (t < 0) return 0; let n = 0; for (const x of this.w.maps[m]!.tiles.tiles) if (x === t) n++; return n; }
 
   // ------------------------------------------------------------------ where
   /** Someone (or something) is standing on that tile. */
@@ -803,6 +865,32 @@ export class Survival {
   }
 
   /**
+   * The map's leader: the adult (16+) people would follow (courage, a good mind, kindness, strength, level). A leader stays
+   * until someone clearly better comes (or they die / leave). Event `leader` when it changes.
+   */
+  pickLeader(m: number): number {
+    const w = this.w, e = w.e, cur = this.leader[m] ?? -1;
+    const score = (i: number): number => {
+      const p = w.profileOf(i);
+      if (!p || ageOf(p, w.gameSec, w.yearSec) < 16 || p.player) return -1;
+      const t = p.traits;
+      return t.courage * 1.2 + t.intelligence + t.empathy * 0.8 + t.strength * 0.4 + levelOf(p.xp) * 0.15;
+    };
+    let best = -1, bs = -1, curScore = -1;
+    for (let i = 0; i < e.hi; i++) {
+      if (e.kind[i] !== Kind.Agent || e.map[i] !== m) continue;
+      const v = score(i);
+      if (e.id(i) === cur) curScore = v;
+      if (v > bs) { bs = v; best = e.id(i); }
+    }
+    const next = curScore >= 0 && bs < curScore + 0.25 ? cur : best;
+    if (next !== cur) { this.leader[m] = next; if (next >= 0) w.emit('leader', { id: next, map: w.maps[m]!.def.id, name: w.profiles.get(next)?.name ?? '' }); }
+    return next;
+  }
+  /** The leader of map m by name ('' = none). */
+  leaderName(m: number): string { const id = this.leader[m] ?? -1; return id >= 0 ? this.w.profiles.get(id)?.name ?? '' : ''; }
+
+  /**
    * People prepare on their own (no AI needed; the AI's plans and commands come on top): in the evening someone lights
    * a fire where the group is if none burns there, someone with wood feeds a fire that is low, by day the group builds
    * huts until there is a roof for about every two people, and the others make an axe or gather a wood pile.
@@ -823,7 +911,19 @@ export class Survival {
         if (e.hunger[i]! > 60 || e.thirst[i]! > 60 || e.tired[i]! > 75 || e.act[i] === Act.Sleep) continue;
         free.push(i);
       }
-      if (!n || !free.length) continue;
+      if (!n) { this.leader[mi] = -1; continue; }
+      const lid = this.pickLeader(mi), lname = lid >= 0 ? w.profiles.get(lid)?.name ?? '' : '';
+      if (!free.length) continue;
+      // The leader hands out the work: each job to who fits it best (strength builds, speed and courage hunt, kindness cares,
+      // a good mind farms and crafts); the leader's own work is their own.
+      const by = (i: number) => (lid >= 0 && e.id(i) !== lid ? lname : 'myself');
+      const start = (i: number, what: string, steps: Parameters<typeof w.tasks.start>[3]) => w.tasks.start(i, what, by(i), steps);
+      const best = (score: (x: number) => number) => {
+        let k = -1, bs = -Infinity;
+        free.forEach((x, j) => { const v = score(x) + w.rng.next() * 0.15; if (v > bs) { bs = v; k = j; } });
+        return k >= 0 ? free.splice(k, 1)[0]! : -1;
+      };
+      const tr = (x: number) => w.profileOf(x)?.traits ?? { strength: 0.5, speed: 0.5, intelligence: 0.5, courage: 0.5, empathy: 0.5, metabolism: 0.5 };
       const pick = () => free.splice(w.rng.int(free.length), 1)[0]!;
       const take = (pred: (i: number) => boolean) => { const k = free.findIndex(pred); return k >= 0 ? free.splice(k, 1)[0]! : -1; };
       // Care first: a hungry child gets food from a parent (or anyone free); the wounded get their wounds dressed.
@@ -831,47 +931,64 @@ export class Survival {
         if (e.kind[c] !== Kind.Agent || e.map[c] !== mi || !(e.flags[c]! & 32) || e.hunger[c]! < 45 || e.carry[c]! > 0) continue;
         const parents = w.profileOf(c)?.parents ?? [];
         let i = take((x) => parents.includes(e.id(x)));
-        if (i < 0) i = pick();
-        w.tasks.start(i, `feed ${w.profileOf(c)?.name ?? 'the child'}`, 'myself', [{ do: 'bring', who: e.id(c) }]);
+        if (i < 0) i = best((x) => tr(x).empathy);
+        start(i, `feed ${w.profileOf(c)?.name ?? 'the child'}`, [{ do: 'bring', who: e.id(c) }]);
       }
       for (let h = 0; h < e.hi && free.length; h++) {
         if (e.kind[h] !== Kind.Agent || e.map[h] !== mi || e.hp[h]! >= 60) continue;
-        const i = take((x) => x !== h);
-        if (i >= 0) w.tasks.start(i, `treat ${w.profileOf(h)?.name ?? 'the wounded'}`, 'myself', [{ do: 'heal', who: e.id(h) }]);
+        const i = (() => { const k = free.filter((x) => x !== h).sort((a, b) => tr(b).empathy - tr(a).empathy)[0]; if (k === undefined) return -1; free.splice(free.indexOf(k), 1); return k; })();
+        if (i >= 0) start(i, `treat ${w.profileOf(h)?.name ?? 'the wounded'}`, [{ do: 'heal', who: e.id(h) }]);
       }
       if (!free.length || building) continue;
       const camp = this.camp[mi], cx = camp?.x ?? sx / n, cy = camp?.y ?? sy / n;
       const evening = hour >= 16 && hour < 23;
       const fire = this.fireNear(mi, cx, cy, camp ? 15 : 30);
-      if (evening && fire < 0) { w.tasks.start(pick(), 'make a campfire for the night', 'myself', [{ do: 'build', what: 'campfire' }]); continue; }
+      if (evening && fire < 0) { start(pick(), 'make a campfire for the night', [{ do: 'build', what: 'campfire' }]); continue; }
       if (fire >= 0 && this.fuel(mi, fire) < 3 && free.length) {
         const k = free.findIndex((i) => (this.inv(i).wood ?? 0) > 0);
         const i = k >= 0 ? free.splice(k, 1)[0]! : pick();
-        w.tasks.start(i, 'keep the fire going', 'myself', [{ do: 'tend' }]);
+        start(i, 'keep the fire going', [{ do: 'tend' }]);
       }
       if (!free.length || hour < 7 || hour >= 18) continue;
-      if (this.huts[mi]!.length < Math.ceil(n / 2) && w.rng.chance(0.6)) { w.tasks.start(pick(), 'build a hut to sleep in', 'myself', [{ do: 'build', what: 'hut' }]); continue; }
+      if (this.huts[mi]!.length < Math.ceil(n / 2) && w.rng.chance(0.6)) { start(best((x) => tr(x).strength), 'build a hut to sleep in', [{ do: 'build', what: 'hut' }]); continue; }
       if (!free.length) continue;
       // Walls zombies broke are mended; a store of food for bad days; a field near the camp; ruins searched; spears.
-      if (camp && this.damaged(mi) >= 0) { w.tasks.start(pick(), 'repair the huts', 'myself', [{ do: 'repair' }]); if (!free.length) continue; }
+      if (camp && this.damaged(mi) >= 0) { start(best((x) => tr(x).strength), 'repair the huts', [{ do: 'repair' }]); if (!free.length) continue; }
+      // Doors on the huts, then a wall round the camp with 4 ways in, then spikes outside it (imad 2026-11-20). Faster when zombies come.
+      if (camp && this.huts[mi]!.length) {
+        const threat = w.zombies.perNight > 0 || w.zombies.plans.some((x) => x.map === w.maps[mi]!.def.id) || w.zombies.count(mi) > 0;
+        const [up, left] = this.campDefence(mi);
+        let jobs = 0;
+        if (this.doorSite(mi) >= 0 && free.length && w.rng.chance(threat ? 0.8 : 0.4)) { start(best((x) => tr(x).intelligence), 'put a door on a hut', [{ do: 'build', what: 'door' }]); jobs++; }
+        const crew = threat ? Math.min(3, Math.ceil(free.length / 2)) : w.rng.chance(0.3) ? 1 : 0;
+        for (let k = 0; k < crew && left > 0 && free.length; k++) { start(best((x) => tr(x).strength), 'build the wall round the camp', [{ do: 'build', what: (this.inv(free[0]!).brick ?? 0) >= 2 ? 'stonewall' : 'palisade' }]); jobs++; }
+        if (left === 0 && up > 0 && threat && free.length && this.defenceSite(mi, 'spikes') >= 0 && w.rng.chance(0.5)) { start(best((x) => tr(x).courage), 'put spikes outside the wall', [{ do: 'build', what: 'spikes' }]); jobs++; }
+        // The leader says what the day's work is, now and then.
+        const ls = lid >= 0 ? e.slot(lid) : -1;
+        if (jobs && ls >= 0 && e.map[ls] === mi && (this.toldAt[mi] ?? -1e9) < w.gameSec - 6 * HOUR) {
+          this.toldAt[mi] = w.gameSec;
+          w.speak(ls, threat ? (left > 0 ? 'Zombies are coming. Everyone: doors on the huts and a wall round the camp!' : 'The wall stands. Spikes outside it, and keep the fire going!') : 'Let us make the camp safe: doors first, then a wall.');
+        }
+        if (!free.length) continue;
+      }
       const carrier = take((x) => e.carry[x]! >= 3);
-      if (carrier >= 0 && camp) { w.tasks.start(carrier, 'put food in the store', 'myself', [{ do: 'store', what: 'food' }]); if (!free.length) continue; }
+      if (carrier >= 0 && camp) { start(carrier, 'put food in the store', [{ do: 'store', what: 'food' }]); if (!free.length) continue; }
       const st = this.stash[mi];
-      if (camp && (st?.food ?? 0) < n * 2 && w.rng.chance(0.5)) { w.tasks.start(pick(), 'collect food and store it', 'myself', [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]); if (!free.length) continue; }
+      if (camp && (st?.food ?? 0) < n * 2 && w.rng.chance(0.5)) { start(best((x) => tr(x).empathy), 'collect food and store it', [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]); if (!free.length) continue; }
       const fields = [...this.farms.keys()].filter((k) => k.startsWith(mi + ':')).length;
-      if (camp && fields < Math.ceil(n / 2) && w.rng.chance(0.35)) { w.tasks.start(pick(), 'plant a field', 'myself', [{ do: 'farm' }]); if (!free.length) continue; }
-      const i = pick();
+      if (camp && fields < Math.ceil(n / 2) && w.rng.chance(0.35)) { start(best((x) => tr(x).intelligence), 'plant a field', [{ do: 'farm' }]); if (!free.length) continue; }
+      const i = best((x) => (tr(x).speed + tr(x).courage) / 2 + (this.weapon(x)[1] > 0 ? 0.2 : 0));
       const v = this.inv(i), hasW = this.weapon(i)[1] > 0;
       const prey = w.animals.nearest(mi, e.x[i]!, e.y[i]!, 70);
       if ((v.leather ?? 0) >= 2 && !(v.clothes ?? 0) && !(v.armor ?? 0)) w.tasks.start(i, (v.ore ?? 0) >= 1 ? 'make armour' : 'make clothes', 'myself', [{ do: 'craft', what: (v.ore ?? 0) >= 1 ? 'armor' : 'clothes' }]);
-      else if ((v.ore ?? 0) >= 1 && (v.wood ?? 0) >= 1 && !(v.sword ?? 0)) w.tasks.start(i, 'make a sword', 'myself', [{ do: 'craft', what: 'sword' }]);
-      else if (prey >= 0 && (hasW || e.sub[prey]! < 2) && ((st?.food ?? 0) < n * 2 || e.hunger[i]! > 40) && w.rng.chance(0.45)) w.tasks.start(i, 'go hunting', 'myself', [{ do: 'hunt' }]);
-      else if (camp && this.huts[mi]!.length && w.rng.chance(0.12) && this.countTiles(mi, this.T.bed) < this.huts[mi]!.length) w.tasks.start(i, 'put a bed in a hut', 'myself', [{ do: 'build', what: 'bed' }]);
-      else if (camp && w.rng.chance(0.1) && !this.lampNear(mi, camp.x, camp.y, 10)) w.tasks.start(i, 'put a lamp at the camp', 'myself', [{ do: 'build', what: 'lamp' }]);
-      else if (!(this.inv(i).spear ?? 0) && (this.inv(i).scrap ?? 0) >= 1 && w.zombies.perNight > 0 && w.rng.chance(0.5)) w.tasks.start(i, 'make a spear', 'myself', [{ do: 'craft', what: 'spear' }]);
-      else if (w.rng.chance(0.2)) w.tasks.start(i, 'search the ruins', 'myself', [{ do: 'loot', times: 2 }]);
-      else if (!(this.inv(i).axe ?? 0) && w.rng.chance(0.5)) w.tasks.start(i, 'make an axe', 'myself', [{ do: 'craft', what: 'axe' }]);
-      else if ((this.inv(i).wood ?? 0) < 6 && w.rng.chance(0.4)) w.tasks.start(i, 'gather firewood', 'myself', [{ do: 'gather', what: 'wood', times: 4 }]);
+      else if ((v.ore ?? 0) >= 1 && (v.wood ?? 0) >= 1 && !(v.sword ?? 0)) start(i, 'make a sword', [{ do: 'craft', what: 'sword' }]);
+      else if (prey >= 0 && (hasW || e.sub[prey]! < 2) && ((st?.food ?? 0) < n * 2 || e.hunger[i]! > 40) && w.rng.chance(0.45)) start(i, 'go hunting', [{ do: 'hunt' }]);
+      else if (camp && this.huts[mi]!.length && w.rng.chance(0.12) && this.countTiles(mi, this.T.bed) < this.huts[mi]!.length) start(i, 'put a bed in a hut', [{ do: 'build', what: 'bed' }]);
+      else if (camp && w.rng.chance(0.1) && !this.lampNear(mi, camp.x, camp.y, 10)) start(i, 'put a lamp at the camp', [{ do: 'build', what: 'lamp' }]);
+      else if (!(this.inv(i).spear ?? 0) && (this.inv(i).scrap ?? 0) >= 1 && w.zombies.perNight > 0 && w.rng.chance(0.5)) start(i, 'make a spear', [{ do: 'craft', what: 'spear' }]);
+      else if (w.rng.chance(0.2)) start(i, 'search the ruins', [{ do: 'loot', times: 2 }]);
+      else if (!(this.inv(i).axe ?? 0) && w.rng.chance(0.5)) start(i, 'make an axe', [{ do: 'craft', what: 'axe' }]);
+      else if ((this.inv(i).wood ?? 0) < 6 && w.rng.chance(0.4)) start(i, 'gather firewood', [{ do: 'gather', what: 'wood', times: 4 }]);
     }
   }
 }

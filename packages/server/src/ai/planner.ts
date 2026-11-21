@@ -124,6 +124,7 @@ export class Planner {
 
   constructor(private w: World, private ai: Ai, private logger: Logger, cfg?: Partial<PlannerConfig>) {
     this.cfg = { ...PLANNER_DEFAULTS, ...cfg };
+    w.speak = (i, text) => this.say(i, text);
     // Tasks (step plans) speak through the planner and end in memory.
     w.tasks.onSay = (i, text) => this.say(i, text);
     w.rules.onSay = (i, text) => this.say(i, text);
@@ -327,6 +328,7 @@ export class Planner {
       `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
+      ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),
       ...(w.rules.text(i) ? [w.rules.text(i)] : []),
       `Memory: ${mind.summary || 'nothing yet'}`,
       `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,

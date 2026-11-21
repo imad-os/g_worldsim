@@ -388,7 +388,8 @@ export class App {
     const need = { hunger: 0, thirst: 0, tired: 0, lonely: 0, hp: 0 }, acts: Record<number, number> = {};
     const maps = w.maps.map((mp, mi) => ({ id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, type: mp.def.gen.type, people: 0, players: 0, online: 0, zombies: 0, animals: [0, 0, 0, 0, 0], items: 0,
       camp: (() => { const c = w.survival.campOf(mi); return c ? [Math.round(c.x), Math.round(c.y)] : null; })(), huts: w.survival.huts[mi]?.length ?? 0,
-      fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length, store: w.survival.stash[mi] ?? null }));
+      fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length, store: w.survival.stash[mi] ?? null,
+      leader: w.survival.leaderName(mi), defence: w.survival.campDefence(mi), doors: w.survival.countTiles(mi, w.survival.T.door) }));
     for (let i = 0; i < e.hi; i++) {
       const m = e.map[i]!; if (m === NO_MAP) continue;
       const k = e.kind[i], mp = maps[m]!;

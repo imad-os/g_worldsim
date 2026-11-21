@@ -244,7 +244,8 @@ test('life: in one game day 5 people drink, find food, sleep and talk; nobody di
   }
   let items = 0;
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Item) items++;
-  assert.ok(items > 10 && items <= 84, `food on the maps ${items}`);
+  // The spawn cap is 84; fields people plant grow berries on top of it.
+  assert.ok(items > 10 && items <= 100, `food on the maps ${items}`);
 });
 
 test('pathfinding: around walls, through the door, straight lines kept, unreachable = closest point', () => {

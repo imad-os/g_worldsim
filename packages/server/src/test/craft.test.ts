@@ -132,3 +132,34 @@ test('the owner plans zombie attacks (when, where, how many, every day) and sets
   w.animals.fill(woods);
   assert.deepEqual([0, 1, 2, 3, 4].map((t) => w.animals.count(woods, t)), [0, 2, 0, 0, 1]);
 });
+
+test('a leader hands out the work: doors on the huts and a wall round the camp when zombies come', () => {
+  const w = mk('society-test');
+  w.populate();
+  w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!;
+  const people: number[] = [];
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === town) people.push(i);
+  // A hut (and so a camp) built by the first person; everyone has wood and stone; zombies are expected tonight.
+  const a = people[0]!;
+  w.survival.inv(a).wood = 20; w.survival.inv(a).stone = 10;
+  e.angle[a] = 0;
+  assert.equal(w.survival.playerHut(a), 'built');
+  for (const i of people) { w.survival.inv(i).wood = 20; w.survival.inv(i).ore = 4; }
+  w.zombies.perNight = 3;
+  const said: string[] = [];
+  w.speak = (_i, t) => said.push(t);
+  const leaders: string[] = [];
+  w.listeners.push((ev) => { if (ev.kind === 'leader') leaders.push(String(ev.data.name)); });
+  // About 8 game hours by day.
+  for (let k = 0; k < 20 * 3600 * 8 / 30 && (w.survival.countTiles(town, w.survival.T.door) === 0 || w.survival.campDefence(town)[0] < 3); k++) {
+    for (const i of people) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; }
+    w.step();
+  }
+  assert.ok(leaders.length >= 1, 'a leader was chosen');
+  assert.ok(w.survival.leaderName(town), 'the town has a leader');
+  assert.ok(w.survival.countTiles(town, w.survival.T.door) >= 1, 'a door on the hut');
+  const [up] = w.survival.campDefence(town);
+  assert.ok(up >= 3, `wall pieces up: ${up}`);
+  assert.ok(said.some((t) => /wall/.test(t)), 'the leader told everyone');
+});

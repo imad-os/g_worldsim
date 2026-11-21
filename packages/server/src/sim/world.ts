@@ -68,6 +68,8 @@ export class World {
   readonly life: Life;
   readonly tasks: Tasks;
   readonly survival: Survival;
+  /** A person says a line aloud (the planner sets it: viewers, memory of those near). */
+  speak: (i: number, text: string) => void = () => {};
   readonly zombies: Zombies;
   /** The owner's strict rules (sim/rules.ts). */
   readonly rules: Rules;

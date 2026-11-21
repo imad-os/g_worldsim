@@ -267,3 +267,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `compileRule` + `refineRule` as the owner's).
 - Do `mine` -> the TV "Me" page (level, objective, partner, children, traits, look, autopilot, rules); first entry opens "How I look".
   Do `hut` = a hut right ahead (`Survival.playerHut`, 12 wood + 4 stone). Strings `i18n5.ts`. Proof: `node tools/me-proof.mjs`.
+
+## Leaders and camp defences (imad 2026-11-20: "no doors, walls or defences", "leaders", "stats not well used")
+- `Survival.pickLeader(m)` (hourly in `ownPlans`): the adult (16+, not a player) with the best courage x1.2 + intelligence + empathy x0.8
+  + strength x0.4 + level x0.15; the leader stays unless beaten by 0.25 (event `leader`). Planner prompts and the panel (Maps table,
+  Leader / Wall columns) show it. The leader hands out the work by traits (`best(score)`): strength builds / repairs, speed + courage
+  hunt, empathy feeds / treats / stores food, intelligence farms / puts doors; tasks say "from <leader>". The leader speaks
+  (`w.speak`) at most every 6 game hours about the day's work.
+- Defences: doors in hut doorways (`doorSite`; people stand in doorways, so a door goes in anyway), a wall ring 9 tiles round the camp
+  with 4 ways in (`defenceSite` / `campDefence` = [up, left]), spikes at 10 after the wall. Under threat (zombies per night, a planned
+  attack, zombies on the map) a crew of up to 3; else now and then 1. `reserved()` keeps a crew on different tiles.
+- Test craft.test "a leader hands out the work...".

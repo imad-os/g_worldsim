@@ -72,8 +72,8 @@ function actsHtml(): string {
 function mapsTable(): string {
   const o = S.ov; if (!o) return '';
   const store = (st: Record<string, number> | null) => !st ? '-' : Object.entries(st).filter(([k, v]) => k !== 't' && v > 0).map(([k, v]) => `${v} ${k}`).join(', ') || 'empty';
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th><th>People</th><th>Players</th><th>Zombies</th><th>Animals</th><th>Camp</th><th>Huts</th><th>Fires</th><th>Store</th></tr></thead><tbody>${o.maps.map((m) =>
-    `<tr><td><b>${esc(m.name)}</b><br><small>${m.w}×${m.h} · ${esc(m.type)}</small></td><td>${m.people}</td><td>${m.online}/${m.players}</td><td>${m.zombies}</td><td title="${o.animalNames.map((a, k) => `${a} ${m.animals[k] ?? 0}`).join(', ')}">${m.animals.reduce((x, y) => x + y, 0)}</td><td>${m.camp ? `(${m.camp[0]}, ${m.camp[1]})` : '-'}</td><td>${m.huts}</td><td>${m.fires}</td><td><small>${esc(store(m.store))}</small></td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th><th>People</th><th>Players</th><th>Zombies</th><th>Animals</th><th>Camp</th><th>Huts</th><th>Fires</th><th>Leader</th><th>Wall</th><th>Store</th></tr></thead><tbody>${o.maps.map((m) =>
+    `<tr><td><b>${esc(m.name)}</b><br><small>${m.w}×${m.h} · ${esc(m.type)}</small></td><td>${m.people}</td><td>${m.online}/${m.players}</td><td>${m.zombies}</td><td title="${o.animalNames.map((a, k) => `${a} ${m.animals[k] ?? 0}`).join(', ')}">${m.animals.reduce((x, y) => x + y, 0)}</td><td>${m.camp ? `(${m.camp[0]}, ${m.camp[1]})` : '-'}</td><td>${m.huts}${m.doors ? ` <small>(${m.doors} doors)</small>` : ''}</td><td>${m.fires}</td><td>${m.leader ? `<b>${esc(m.leader)}</b>` : '-'}</td><td>${m.defence && (m.defence[0] || m.camp) ? `${m.defence[0]} / ${m.defence[0] + m.defence[1]}` : '-'}</td><td><small>${esc(store(m.store))}</small></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 async function feed(): Promise<void> {
