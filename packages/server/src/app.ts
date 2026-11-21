@@ -642,6 +642,7 @@ export class App {
       task: w.tasks.describe(id) || null,
       goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
+      player: p?.player ?? null, auto: !!p?.auto, manual: e.kind[i] === Kind.Player, online: p?.player ? this.net.online(p.player) : false,
       carry: e.carry[i], inv: w.survival.inv(i), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
@@ -799,7 +800,9 @@ export class App {
         const out = [];
         for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent) out.push(this.agentInfo(i));
         // Players' characters too (they live in the world 24/7): people can be sent to them.
+        const seen = new Set(out.map((o) => o.id));
         for (const [name, i] of this.net.characters()) {
+          if (seen.has(w.e.id(i))) continue;
           const e = w.e, r1 = (v: number) => Math.round(v * 10) / 10;
           out.push({ id: e.id(i), player: true, name, online: this.net.online(name), alive: true, map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i], asleep: (e.flags[i]! & EFlag.Sleeping) !== 0 } as never);
         }
@@ -818,7 +821,7 @@ export class App {
       }
       case 'agentSet': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
-        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const p = w.profileOf(i)!, e = w.e;
         for (const [k, v] of Object.entries(c.set ?? {})) {
           if (k === 'name') { const n = String(v).trim().slice(0, 30); if (!n) throw new Error('bad name'); p.name = n; continue; }
@@ -835,7 +838,7 @@ export class App {
       }
       case 'agentMove': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
-        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const m = mapOf(c.map), def = w.maps[m]!.def;
         w.place(i, m, c.x !== undefined ? num(c.x, 0, def.w, 'x') : def.w / 2, c.y !== undefined ? num(c.y, 0, def.h, 'y') : def.h / 2);
         return this.agentInfo(i);
@@ -917,6 +920,7 @@ export class App {
       case 'aiLog': return { ai: this.ai.status(), planner: this.planner.status(), log: [...this.planner.log].reverse() };
       case 'planNow': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to plan for them');
         if (i < 0 || w.e.kind[i] !== Kind.Agent || w.e.map[i] === NO_MAP) throw new Error('no such person here');
         if (!this.ai.status().ready) throw new Error('AI is off: choose Gemini or Ollama in the AI brain card');
         const n = await this.planner.plan([i]);
@@ -926,7 +930,7 @@ export class App {
       }
       case 'chat': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
-        if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
+        if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const text = typeof c.text === 'string' ? c.text.trim().slice(0, 300) : '';
         if (!text) throw new Error('say something');
         return this.planner.chat(i, 'owner', text);
@@ -947,7 +951,7 @@ export class App {
         if (pid >= 0 && prof && !prof.rules?.length) delete prof.rules;
         if (pid < 0) this.db.setMeta('rules_all', JSON.stringify(w.rules.all));
         const people: { id: number; name: string; rules: Rule[] }[] = [];
-        for (const [id, p] of w.profiles) if (p.died === undefined && w.e.slot(id) >= 0 && w.e.kind[w.e.slot(id)] === Kind.Agent) people.push({ id, name: p.name, rules: p.rules ?? [] });
+        for (const [id, p] of w.profiles) if (p.died === undefined && w.e.slot(id) >= 0 && (w.e.kind[w.e.slot(id)] === Kind.Agent || w.isChar(w.e.slot(id)))) people.push({ id, name: p.name, rules: p.rules ?? [] });
         return { all: w.rules.all, people, max: MAX_RULES };
       }
       case 'zombies': { // the owner's zombie controls: how many each night; the ones out now
@@ -1008,6 +1012,7 @@ export class App {
       }
       case 'order': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to give orders');
         return { did: this.planner.orderFromPanel(i, String(c.kind ?? ''), String(c.target ?? '')) };
       }
       default: throw new Error('unknown command');

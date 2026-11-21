@@ -30,7 +30,7 @@ function listHtml(): string {
       <div class="pc-a"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}${!p.goal && p.order ? `<br><small>Told to ${esc(p.order)}</small>` : ''}</div>${p.goal ? goalHtml(p.goal, esc) : ''}
       <div class="pc-m"><span>Food</span>${meter(p.hunger)}<span>Water</span>${meter(p.thirst)}<span>Rest</span>${meter(p.tired)}<span>Health</span>${meter(p.hp, false)}</div>
       <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
-    + (players.length ? `<h4 class="sub">Players' characters</h4><div class="pgrid">${players.map((p) => `<div class="pcard player"><div class="pc-h">${avatar(p.name)}<div><b>${esc(p.name)}</b><small>player · ${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away (asleep)'}</small></div></div><div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})</div></div>`).join('')}</div>` : '');
+    + (players.length ? `<h4 class="sub">Players' characters</h4><div class="pgrid">${players.map((p) => `<a class="pcard player" href="#/person/${p.id}"><div class="pc-h">${avatar(p.name)}<div><b>${esc(p.name)}</b><small>player · ${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away (asleep)'}</small></div></div><div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})</div></a>`).join('')}</div>` : '');
 }
 
 export const peopleScreen: Screen = {
@@ -88,7 +88,8 @@ function personHtml(d: Detail): string {
   const p = d.profile, mind = p.mind;
   const head = `<div class="phead">${avatar(d.name, d.sex, 'lg')}<div class="ph-t"><h2>${esc(d.name)}</h2>
     <div class="chips">${d.alive ? `<span class="tag ok">alive</span>` : `<span class="tag bad">dead${p.cause ? ': ' + esc(p.cause) : ''}</span>`}<span class="chip">${d.sex === 'f' ? 'Woman' : 'Man'}, ${Math.floor(d.age)}</span><span class="chip">Generation ${p.generation}</span>${p.personality.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}${mind?.mood ? `<span class="chip mood">${esc(mind.mood)}</span>` : ''}</div></div>
-    <div class="ph-act">${d.alive ? `<button class="btn" id="xPlan">${icon('ai')} Plan now</button><button class="btn ghost" id="xMove">${icon('map')} To the town centre</button><button class="btn danger ghost" id="xKill">Kill</button>` : ''}</div></div>
+    ${(d as { player?: string | null }).player ? `<div class="chips"><span class="tag ok">Player: ${esc(String((d as { player?: string }).player))}</span><span class="chip">${(d as { manual?: boolean }).manual ? ((d as { online?: boolean }).online ? 'played by hand now: it answers, but orders and plans wait for autopilot (watch mode or the Me page)' : 'asleep (away): it answers, orders wait until autopilot is on') : 'on AI autopilot: orders and plans work'}</span></div>` : ''}
+    <div class="ph-act">${d.alive ? `<button class="btn" id="xPlan">${icon('ai')} Plan now</button><button class="btn ghost" id="xMove">${icon('map')} To the town centre</button>${(d as { player?: string | null }).player ? '' : '<button class="btn danger ghost" id="xKill">Kill</button>'}` : ''}</div></div>
     <div class="tabs" id="xTabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${ptab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   let body = '';
   if (ptab === 'overview') body = !d.alive ? card('Died', `<p>${p.died !== undefined ? gameTime(p.died) : ''}: ${esc(p.cause ?? '')}</p>`) : `<div class="grid2">

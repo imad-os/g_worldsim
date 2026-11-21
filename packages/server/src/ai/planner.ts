@@ -390,13 +390,14 @@ export class Planner {
    */
   async chat(i: number, from: string, text: string | null, player = -1): Promise<{ reply: string; ai: boolean; did: string }> {
     const w = this.w, e = w.e;
-    if (i < 0 || e.kind[i] !== Kind.Agent) throw new Error('no such person');
+    if (i < 0 || (e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
     const id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!;
     const owner = from === 'owner';
+    const byHand = e.kind[i] === Kind.Player; // a player's character played by hand (or asleep): it answers but no one drives it
     // The owner's strict rule (sim/rules.ts): they do not talk with that player at all, and no AI request is spent.
     const rule = player >= 0 ? w.rules.between(i, player, 'talk') : null;
     if (rule) { w.emit('rule', { id, rule, with: e.id(player) }); return { reply: '', ai: false, did: `rule: ${rule}` }; }
-    if (player >= 0) w.brain.listen(i, player, 30);
+    if (player >= 0 && !byHand) w.brain.listen(i, player, 30);
     const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
     const key = '@' + from;
     let reply = '', usedAi = false, doRaw = '', target = '', planRaw: unknown[] | null = null, taskText = '';
@@ -494,10 +495,10 @@ export class Planner {
     let did = '';
     if (steps.length >= 1 && (steps.length > 1 || !doRaw || !['come', 'follow', 'goto', 'bring', 'stay', 'stop'].includes(doRaw))) {
       const what = (taskText || (text ?? '') || steps.map((x) => x.do).join(', ')).slice(0, 100);
-      if (w.tasks.start(i, what, from, steps)) did = `${what} (${steps.map((x) => x.do).join(' > ')})`;
+      if (!byHand && w.tasks.start(i, what, from, steps)) did = `${what} (${steps.map((x) => x.do).join(' > ')})`;
     }
     if (!did && marriage) did = marriage === 'married' ? `marry ${sp!.name}` : `divorce ${sp!.name}`;
-    if (!did) did = this.applyChatOrder(i, doRaw, target, player, owner);
+    if (!did && !byHand) did = this.applyChatOrder(i, doRaw, target, player, owner);
     this.counts.chats++;
     this.note(id, (text ? `${owner ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`)
       + (did ? ` I will ${did}.` : ''), !!text);

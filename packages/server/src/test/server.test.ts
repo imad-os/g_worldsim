@@ -296,6 +296,20 @@ test('players: join puts my character in the world, input moves it, leaving keep
     await adm.wait((m) => m.t === Msg.Welcome);
     adm.send({ t: Msg.Join });
     assert.equal(((await adm.wait((m) => m.t === Msg.Error)) as { code: string }).code, 'forbidden');
+    // The panel treats a player's character like any person (imad 2026-11-21): details, stats, rules, talk; orders wait for autopilot.
+    const adc = async (id: number, c: Record<string, unknown>) => {
+      adm.send({ t: Msg.Admin, id, c: c as never });
+      return (await adm.wait((m) => m.t === Msg.AdminResult && (m as { id: number }).id === id)) as unknown as { ok: boolean; data: never; error?: string };
+    };
+    const pa = await adc(70, { cmd: 'agent', id: you.id });
+    assert.equal((pa.data as { player: string }).player, 'imad');
+    assert.equal((await adc(71, { cmd: 'agentSet', id: you.id, set: { hunger: 40 } })).ok, true, 'edit a player');
+    assert.equal(e.hunger[j], 40);
+    const talk = await adc(72, { cmd: 'chat', id: you.id, text: 'hello' });
+    assert.equal(talk.ok, true, talk.error);
+    assert.equal((await adc(73, { cmd: 'order', id: you.id, kind: 'wander', target: '' })).ok, false, 'played by hand: no orders');
+    const list = (await adc(74, { cmd: 'agents' })).data as { id: number }[];
+    assert.equal(list.filter((x) => x.id === you.id).length, 1, 'listed once');
     c2.ws.close(); adm.ws.close();
     await app.stop();
   } finally {

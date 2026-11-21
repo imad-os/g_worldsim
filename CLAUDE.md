@@ -286,3 +286,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Admin `linkPlayer { uid, name }` (name '' detaches; one account per name; the name must be a real character): panel Users & roles has a
   Player picker per account (`accounts` returns `free` = characters with no account). A linked character is staff (owner / admin tools such
   as Go to someone) via `Accounts.isStaff(name)`. Tests: auth.test (link), server.test "players" (watch).
+- **Players' characters in the panel (imad 2026-11-21)**: the People screen's player cards open the same person page (`#/person/<id>`):
+  `agent`, `agentSet` (stats / needs / traits), `agentMove`, `chat` (talk), `rules` accept a character of kind Player or Agent
+  (`agentInfo` carries `player`, `auto`, `manual`, `online`). A character played by hand (Kind.Player: online or asleep away) answers
+  chat but is not driven: `order` / `planNow` say so; chat orders and plans apply only on autopilot (watch mode or its own `auto`).
