@@ -1,0 +1,651 @@
+{
+ "v": 1,
+ "sounds": [
+  {
+   "id": "step_dirt",
+   "files": [
+    "steps/step_dirt_1.ogg",
+    "steps/step_dirt_2.ogg",
+    "steps/step_dirt_3.ogg",
+    "steps/step_dirt_4.ogg"
+   ],
+   "cat": "steps",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantozzis-footsteps-grasssand-stone"
+  },
+  {
+   "id": "step_grass",
+   "files": [
+    "steps/step_grass_1.ogg",
+    "steps/step_grass_2.ogg",
+    "steps/step_grass_3.ogg"
+   ],
+   "cat": "steps",
+   "loop": false,
+   "gain": 0.4,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "step_wood",
+   "files": [
+    "steps/step_wood_1.ogg",
+    "steps/step_wood_2.ogg",
+    "steps/step_wood_3.ogg"
+   ],
+   "cat": "steps",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/footsteps-leather-cloth-armor"
+  },
+  {
+   "id": "step_stone",
+   "files": [
+    "steps/step_stone_1.ogg",
+    "steps/step_stone_2.ogg",
+    "steps/step_stone_3.ogg",
+    "steps/step_stone_4.ogg"
+   ],
+   "cat": "steps",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantozzis-footsteps-grasssand-stone"
+  },
+  {
+   "id": "step_water",
+   "files": [
+    "steps/step_water_1.ogg",
+    "steps/step_water_2.ogg",
+    "steps/step_water_3.ogg"
+   ],
+   "cat": "steps",
+   "loop": false,
+   "gain": 0.4,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/40-cc0-water-splash-slime-sfx"
+  },
+  {
+   "id": "swing",
+   "files": [
+    "action/swing_1.ogg",
+    "action/swing_2.ogg",
+    "action/swing_3.ogg",
+    "action/swing_4.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/swishes-sound-pack https://opengameart.org/content/rpg-sound-pack"
+  },
+  {
+   "id": "hit",
+   "files": [
+    "action/hit_1.ogg",
+    "action/hit_2.ogg",
+    "action/hit_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/3-melee-sounds https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "hurt",
+   "files": [
+    "action/hurt_1.ogg",
+    "action/hurt_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.7,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/3-melee-sounds https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "eat",
+   "files": [
+    "action/eat_1.ogg",
+    "action/eat_2.ogg",
+    "action/eat_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/7-eating-crunches"
+  },
+  {
+   "id": "drink",
+   "files": [
+    "action/drink_1.ogg",
+    "action/drink_2.ogg",
+    "action/drink_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.55,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/rpg-sound-pack https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "pickup",
+   "files": [
+    "action/pickup_1.ogg",
+    "action/pickup_2.ogg",
+    "action/pickup_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.55,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "drop",
+   "files": [
+    "action/drop_1.ogg",
+    "action/drop_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "chop",
+   "files": [
+    "action/chop_1.ogg",
+    "action/chop_2.ogg",
+    "action/chop_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "tree_fall",
+   "files": [
+    "action/tree_fall.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.8,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/tree-chop-fall-thud"
+  },
+  {
+   "id": "mine",
+   "files": [
+    "action/mine_1.ogg",
+    "action/mine_2.ogg",
+    "action/mine_3.ogg",
+    "action/mine_4.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx https://opengameart.org/content/breaking-rock"
+  },
+  {
+   "id": "dig",
+   "files": [
+    "action/dig_1.ogg",
+    "action/dig_2.ogg",
+    "action/dig_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "craft",
+   "files": [
+    "action/craft_1.ogg",
+    "action/craft_2.ogg",
+    "action/craft_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "build",
+   "files": [
+    "action/build_1.ogg",
+    "action/build_2.ogg",
+    "action/build_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.7,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "place",
+   "files": [
+    "action/place_1.ogg",
+    "action/place_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "door_open",
+   "files": [
+    "action/door_open_1.ogg",
+    "action/door_open_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/rpg-sound-pack https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "door_close",
+   "files": [
+    "action/door_close.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "bow_shot",
+   "files": [
+    "action/bow_shot_1.ogg",
+    "action/bow_shot_2.ogg",
+    "action/bow_shot_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.65,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "arrow_hit",
+   "files": [
+    "action/arrow_hit_1.ogg",
+    "action/arrow_hit_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.7,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "fire_light",
+   "files": [
+    "action/fire_light_1.ogg",
+    "action/fire_light_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx"
+  },
+  {
+   "id": "splash",
+   "files": [
+    "action/splash_1.ogg",
+    "action/splash_2.ogg",
+    "action/splash_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/40-cc0-water-splash-slime-sfx"
+  },
+  {
+   "id": "equip",
+   "files": [
+    "action/equip_1.ogg",
+    "action/equip_2.ogg",
+    "action/equip_3.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.55,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fantasy-sound-effects-tinysized-sfx https://opengameart.org/content/rpg-sound-pack"
+  },
+  {
+   "id": "ui_move",
+   "files": [
+    "ui/ui_move_1.ogg",
+    "ui/ui_move_2.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.35,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "ui_ok",
+   "files": [
+    "ui/ui_ok.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "ui_back",
+   "files": [
+    "ui/ui_back.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "ui_open",
+   "files": [
+    "ui/ui_open.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "ui_close",
+   "files": [
+    "ui/ui_close.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "ui_error",
+   "files": [
+    "ui/ui_error.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "notify",
+   "files": [
+    "ui/notify.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "levelup",
+   "files": [
+    "ui/levelup_1.ogg",
+    "ui/levelup_2.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/interface-sounds"
+  },
+  {
+   "id": "reward",
+   "files": [
+    "ui/reward_1.ogg",
+    "ui/reward_2.ogg"
+   ],
+   "cat": "ui",
+   "loop": false,
+   "gain": 0.55,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "zombie_groan",
+   "files": [
+    "zombie/zombie_groan_1.ogg",
+    "zombie/zombie_groan_2.ogg",
+    "zombie/zombie_groan_3.ogg",
+    "zombie/zombie_groan_4.ogg"
+   ],
+   "cat": "zombie",
+   "loop": false,
+   "gain": 0.7,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/zombies-sound-pack"
+  },
+  {
+   "id": "zombie_attack",
+   "files": [
+    "zombie/zombie_attack_1.ogg",
+    "zombie/zombie_attack_2.ogg",
+    "zombie/zombie_attack_3.ogg",
+    "zombie/zombie_attack_4.ogg"
+   ],
+   "cat": "zombie",
+   "loop": false,
+   "gain": 0.8,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/zombies-sound-pack"
+  },
+  {
+   "id": "zombie_hurt",
+   "files": [
+    "zombie/zombie_hurt_1.ogg",
+    "zombie/zombie_hurt_2.ogg",
+    "zombie/zombie_hurt_3.ogg"
+   ],
+   "cat": "zombie",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/zombies-sound-pack"
+  },
+  {
+   "id": "zombie_die",
+   "files": [
+    "zombie/zombie_die_1.ogg",
+    "zombie/zombie_die_2.ogg"
+   ],
+   "cat": "zombie",
+   "loop": false,
+   "gain": 0.8,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/zombies-sound-pack"
+  },
+  {
+   "id": "rabbit",
+   "files": [
+    "animal/rabbit_1.ogg",
+    "animal/rabbit_2.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/rabbit-eating"
+  },
+  {
+   "id": "boar",
+   "files": [
+    "animal/boar.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.65,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/boar-0"
+  },
+  {
+   "id": "boar_attack",
+   "files": [
+    "animal/boar_attack.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/dog-snarl-grunt-grumble"
+  },
+  {
+   "id": "wolf_growl",
+   "files": [
+    "animal/wolf_growl_1.ogg",
+    "animal/wolf_growl_2.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/dog-snarl-grunt-grumble"
+  },
+  {
+   "id": "bear_roar",
+   "files": [
+    "animal/bear_roar_1.ogg",
+    "animal/bear_roar_2.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.85,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/bear-growls"
+  },
+  {
+   "id": "animal_hurt",
+   "files": [
+    "animal/animal_hurt_1.ogg",
+    "animal/animal_hurt_2.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.7,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "animal_die",
+   "files": [
+    "animal/animal_die.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.75,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/80-cc0-rpg-sfx"
+  },
+  {
+   "id": "bird",
+   "files": [
+    "animal/bird_1.ogg",
+    "animal/bird_2.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.4,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/bird-chirping-sounds"
+  },
+  {
+   "id": "amb_day",
+   "files": [
+    "ambience/amb_day.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.35,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/ambient-bird-sounds"
+  },
+  {
+   "id": "amb_woods",
+   "files": [
+    "ambience/amb_woods.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.35,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/ambient-bird-sounds https://opengameart.org/content/wind1"
+  },
+  {
+   "id": "amb_night",
+   "files": [
+    "ambience/amb_night.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.35,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/crickets-ambient-noise-loopable"
+  },
+  {
+   "id": "fire_loop",
+   "files": [
+    "ambience/fire_loop.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/fire-crackling"
+  },
+  {
+   "id": "rain_loop",
+   "files": [
+    "ambience/rain_loop.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/rain-loopable"
+  },
+  {
+   "id": "wind_loop",
+   "files": [
+    "ambience/wind_loop.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.4,
+   "license": "CC0",
+   "source": "https://opengameart.org/content/wind1"
+  }
+ ]
+}
