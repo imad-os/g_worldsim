@@ -8,21 +8,28 @@
 import { t, tf, type Key } from './i18n.js';
 
 // ------------------------------------------------------------ actions and buttons
-export const ACTIONS = ['use', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel'] as const;
+export const ACTIONS = ['use', 'talk', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel'] as const;
 export type ActionId = (typeof ACTIONS)[number];
 const ACTION_KEY: Record<ActionId, Key> = {
   use: 'aUse', run: 'aRun', eat: 'aEat', drink: 'aDrink', pickup: 'aPickup', sleep: 'aSleep', zoomIn: 'aZoomIn', zoomOut: 'aZoomOut',
-  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel',
+  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', talk: 'aTalk', attack: 'aAttack', aim: 'aAim', build: 'aBuild',
 };
 export const actionLabel = (a: ActionId) => t(ACTION_KEY[a]);
 
-export interface Binds { pad: Partial<Record<ActionId, number>>; remote: Partial<Record<ActionId, string>> }
-/** Defaults: A use, B run, X eat, Y sleep, L / R zoom, ZR quick actions (hold), − thoughts, + menu, R3 camera; remote: OK use, colour keys, CH + / −, Info, ⏯ quick actions. */
+export interface Binds { pad: Partial<Record<ActionId, number>>; remote: Partial<Record<ActionId, string>>; v?: number }
+/** Version of the default layout: saved binds from an older one are replaced once (imad 2026-11-20: interact / talk / attack). */
+export const BINDS_V = 2;
+/**
+ * Defaults (imad 2026-11-20): A interact (take, gather, drink...), B run, X attack, Y talk to the person next to me,
+ * L / R zoom, ZL aim the bow (hold), ZR quick actions (hold), − thoughts, + menu, L3 build, R3 camera. Eat / sleep are on the wheel.
+ * Remote: OK interact, red attack, green talk, yellow thoughts, blue person, CH + / − zoom, Info menu, ⏯ quick actions, ⏩ aim, Tools build.
+ */
 export const DEFAULT_BINDS: Binds = {
-  pad: { use: 0, run: 1, eat: 2, sleep: 3, zoomIn: 4, zoomOut: 5, wheel: 7, thoughts: 8, menu: 9, camera: 11 },
-  remote: { use: 'ok', eat: 'red', sleep: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause' },
+  pad: { use: 0, run: 1, attack: 2, talk: 3, zoomIn: 4, zoomOut: 5, aim: 6, wheel: 7, thoughts: 8, menu: 9, build: 10, camera: 11 },
+  remote: { use: 'ok', attack: 'red', talk: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause', aim: 'ff', build: 'tools' },
+  v: BINDS_V,
 };
-export function cloneBinds(b: Binds): Binds { return { pad: { ...b.pad }, remote: { ...b.remote } }; }
+export function cloneBinds(b: Binds): Binds { return { pad: { ...b.pad }, remote: { ...b.remote }, v: b.v }; }
 /** The action on pad button i / remote button name (undefined = none). */
 export function padAction(b: Binds, i: number): ActionId | undefined { for (const a of ACTIONS) if (b.pad[a] === i) return a; return undefined; }
 export function remoteAction(b: Binds, name: string): ActionId | undefined { for (const a of ACTIONS) if (b.remote[a] === name) return a; return undefined; }

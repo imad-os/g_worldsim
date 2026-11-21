@@ -473,3 +473,44 @@ test('past events: finished replays are kept in the database (the last 20) and s
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test('player buttons: attack hits what is in front, the bow shoots along the aim, build makes and puts things down', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ws-'));
+  try {
+    const app = makeApp(dir);
+    await app.start();
+    const w = app.world, e = w.e, town = w.mapIndex.get('town')!, sv = w.survival;
+    const spot = w.freeSpot(town, 60, 60)!;
+    const p = w.spawnPlayer(town, spot.x, spot.y);
+    const x = e.x[p]!, y = e.y[p]!;
+    for (let i = 0; i < e.hi; i++) if (i !== p && (e.kind[i] === 5 || e.kind[i] === 7) && e.map[i] === town && Math.hypot(e.x[i]! - x, e.y[i]! - y) < 30) w.remove(i, 'test');
+    const z = w.zombies.spawn(town, x + 2.3, y, true);
+    const place = () => { e.x[z] = x + 2.3; e.y[z] = y; };
+    place();
+    // Melee: facing away = a swing at nothing; facing it = a hit.
+    assert.equal(app.net.onDo('tester', p, 'hit', String(Math.PI)).code, 'swing');
+    const hp0 = e.hp[z]!;
+    assert.equal(app.net.onDo('tester', p, 'hit', '0').code, 'zHit');
+    assert.ok(e.hp[z]! < hp0, 'it lost health');
+    // Interact never fights.
+    assert.notEqual(app.net.onDo('tester', p, 'take').code, 'zHit');
+    // Bow: no bow, then a shot along the aim hits what is on that line; a shot elsewhere misses and uses the arrow.
+    assert.equal(app.net.onDo('tester', p, 'shoot', '0').code, 'noBow');
+    sv.inv(p).bow = 1; sv.inv(p).arrows = 3;
+    e.x[z] = x + 12; e.y[z] = y + 0.4;
+    const hp1 = e.hp[z]!;
+    const r = app.net.onDo('tester', p, 'shoot', '0');
+    assert.equal(r.code, 'zHit'); assert.equal(r.left, 2);
+    assert.ok(e.hp[z]! < hp1);
+    assert.equal(app.net.onDo('tester', p, 'shoot', String(Math.PI / 2)).code, 'missed');
+    assert.equal(sv.inv(p).arrows, 1);
+    // Build: not enough wood = told what is missing; with it the thing is made and put down (or kept when there is no room).
+    sv.inv(p).wood = 0;
+    assert.equal(app.net.onDo('tester', p, 'build', 'palisade@0').code, 'buildNeed');
+    sv.inv(p).wood = 2;
+    const b = app.net.onDo('tester', p, 'build', 'palisade@' + String(-Math.PI / 2));
+    assert.ok(b.code === 'placed' || (b.code === 'noRoom' && b.kept), `built: ${JSON.stringify(b)}`);
+    assert.equal(sv.inv(p).wood ?? 0, 0, 'the wood was used');
+    await app.stop();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

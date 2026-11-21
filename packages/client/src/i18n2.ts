@@ -3,7 +3,7 @@ export const T2 = {
   en: {
     mResume: 'Resume', mActions: 'Actions', mSettings: 'Settings', mControls: 'Buttons', mPerson: 'This person', mNextPerson: 'Next person',
     mNextMap: 'Next map', mPlay: 'Play (my character)', mWatch: 'Watch the world', mBack: 'Back', mTitle: 'World',
-    aUse: 'Use / talk', aRun: 'Run', aEat: 'Eat', aDrink: 'Drink', aPickup: 'Pick up food', aSleep: 'Sleep / wake up', aTalk: 'Talk',
+    aUse: 'Interact (take, gather)', aRun: 'Run', aEat: 'Eat', aDrink: 'Drink', aPickup: 'Pick up food', aSleep: 'Sleep / wake up', aTalk: 'Talk',
     aZoomIn: 'Zoom in', aZoomOut: 'Zoom out', aThoughts: 'Show / hide thoughts', aMenu: 'Game menu', aPerson: 'Person card',
     sThoughts: 'Thoughts over heads', on: 'On', off: 'Off', sServer: 'Server address', sUnpair: 'Unpair this TV',
     cHelp: 'Choose an action, press A / OK, then press the button you want for it.', cPad: 'Controller', cRemote: 'Remote',
@@ -26,7 +26,7 @@ export const T2 = {
   fr: {
     mResume: 'Reprendre', mActions: 'Actions', mSettings: 'Réglages', mControls: 'Boutons', mPerson: 'Cette personne', mNextPerson: 'Personne suivante',
     mNextMap: 'Carte suivante', mPlay: 'Jouer (mon personnage)', mWatch: 'Regarder le monde', mBack: 'Retour', mTitle: 'Monde',
-    aUse: 'Utiliser / parler', aRun: 'Courir', aEat: 'Manger', aDrink: 'Boire', aPickup: 'Ramasser de la nourriture', aSleep: 'Dormir / se réveiller', aTalk: 'Parler',
+    aUse: 'Interagir (prendre, récolter)', aRun: 'Courir', aEat: 'Manger', aDrink: 'Boire', aPickup: 'Ramasser de la nourriture', aSleep: 'Dormir / se réveiller', aTalk: 'Parler',
     aZoomIn: 'Zoom avant', aZoomOut: 'Zoom arrière', aThoughts: 'Afficher / masquer les pensées', aMenu: 'Menu du jeu', aPerson: 'Fiche de la personne',
     sThoughts: 'Pensées au-dessus des têtes', on: 'Oui', off: 'Non', sServer: 'Adresse du serveur', sUnpair: 'Dissocier cette TV',
     cHelp: 'Choisissez une action, appuyez sur A / OK, puis sur le bouton voulu.', cPad: 'Manette', cRemote: 'Télécommande',
@@ -49,7 +49,7 @@ export const T2 = {
   es: {
     mResume: 'Continuar', mActions: 'Acciones', mSettings: 'Ajustes', mControls: 'Botones', mPerson: 'Esta persona', mNextPerson: 'Siguiente persona',
     mNextMap: 'Siguiente mapa', mPlay: 'Jugar (mi personaje)', mWatch: 'Mirar el mundo', mBack: 'Atrás', mTitle: 'Mundo',
-    aUse: 'Usar / hablar', aRun: 'Correr', aEat: 'Comer', aDrink: 'Beber', aPickup: 'Recoger comida', aSleep: 'Dormir / despertar', aTalk: 'Hablar',
+    aUse: 'Interactuar (tomar, recoger)', aRun: 'Correr', aEat: 'Comer', aDrink: 'Beber', aPickup: 'Recoger comida', aSleep: 'Dormir / despertar', aTalk: 'Hablar',
     aZoomIn: 'Acercar', aZoomOut: 'Alejar', aThoughts: 'Mostrar / ocultar pensamientos', aMenu: 'Menú del juego', aPerson: 'Ficha de la persona',
     sThoughts: 'Pensamientos sobre las cabezas', on: 'Sí', off: 'No', sServer: 'Dirección del servidor', sUnpair: 'Desvincular esta TV',
     cHelp: 'Elige una acción, pulsa A / OK y luego el botón que quieras.', cPad: 'Mando', cRemote: 'Mando a distancia',
@@ -72,7 +72,7 @@ export const T2 = {
   ar: {
     mResume: 'متابعة', mActions: 'الأفعال', mSettings: 'الإعدادات', mControls: 'الأزرار', mPerson: 'هذا الشخص', mNextPerson: 'الشخص التالي',
     mNextMap: 'الخريطة التالية', mPlay: 'العب (شخصيتي)', mWatch: 'شاهد العالم', mBack: 'رجوع', mTitle: 'العالم',
-    aUse: 'استخدام / تحدث', aRun: 'جري', aEat: 'أكل', aDrink: 'شرب', aPickup: 'التقاط طعام', aSleep: 'نوم / استيقاظ', aTalk: 'تحدث',
+    aUse: 'تفاعل (أخذ، جمع)', aRun: 'جري', aEat: 'أكل', aDrink: 'شرب', aPickup: 'التقاط طعام', aSleep: 'نوم / استيقاظ', aTalk: 'تحدث',
     aZoomIn: 'تكبير', aZoomOut: 'تصغير', aThoughts: 'إظهار / إخفاء الأفكار', aMenu: 'قائمة اللعبة', aPerson: 'بطاقة الشخص',
     sThoughts: 'الأفكار فوق الرؤوس', on: 'نعم', off: 'لا', sServer: 'عنوان الخادم', sUnpair: 'إلغاء ربط هذا التلفاز',
     cHelp: 'اختر فعلاً، اضغط A / OK، ثم اضغط الزر الذي تريده له.', cPad: 'ذراع التحكم', cRemote: 'جهاز التحكم',

@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, ANIMAL_NAMES, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -181,27 +181,59 @@ export class App {
         return r.ok ? { ok: true, code: 'crafted', item: r.r.what } : { ok: false, code: r.code };
       }
       if (a === 'place') { const c = sv.placeFront(player, String(text ?? '')); return { ok: c === 'placed', code: c, item: String(text ?? '') }; }
-      if (a === 'use' || a === 'hit') {
-        const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!;
-        // A zombie or an animal within reach: hit it.
-        const z = w.zombies.nearest(m, x, y, 1.9);
-        if (z >= 0) return { ok: true, code: w.zombies.hit(z, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
-        const an = w.animals.nearest(m, x, y, 2.4);
-        if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
-        // A bow and arrows: shoot the nearest zombie or animal within 14 m.
-        const inv = sv.inv(player);
-        if ((inv.bow ?? 0) > 0 && (inv.arrows ?? 0) > 0) {
-          const tz = w.zombies.nearest(m, x, y, 14), ta = tz >= 0 ? -1 : w.animals.nearest(m, x, y, 14), t = tz >= 0 ? tz : ta;
-          if (t >= 0) {
-            sv.add(player, 'arrows', -1);
-            e.angle[player] = Math.atan2(e.y[t]! - y, e.x[t]! - x);
-            const p = w.shoot(m, x + Math.cos(e.angle[player]!) * 0.5, y + Math.sin(e.angle[player]!) * 0.5, e.x[t]! - x, e.y[t]! - y, player);
-            if (p >= 0) e.hp[p] = 0; // the arrow is drawn flying; the hit is counted here
-            if (tz >= 0) return { ok: true, code: w.zombies.hit(tz, 26, player) ? 'zKilled' : 'zHit' };
-            return this.hitAnimal(player, ta, 26);
-          }
+      // The player's buttons (imad 2026-11-20): Interact = things (take / gather / drink...), Talk = people (on the TV),
+      // Attack = hit what is in front, Aim + Attack = a bow shot along the aim. The angle comes from the TV (where I face / aim).
+      const ang = (v: unknown) => { const n = Number(String(v ?? '').split('@').pop()); return Number.isFinite(n) && String(v ?? '').trim() !== '' ? n : NaN; };
+      if (a === 'hit') {
+        const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, an0 = ang(text);
+        if (Number.isFinite(an0)) e.angle[player] = an0;
+        const t = this.frontTarget(player, e.angle[player]!, 2.6, 1.2) ;
+        const near = t >= 0 ? t : (() => { const z = w.zombies.nearest(m, x, y, 1.9); return z >= 0 ? z : w.animals.nearest(m, x, y, 2.2); })();
+        if (near < 0) return { ok: false, code: 'swing', weapon: sv.weapon(player)[0] };
+        e.angle[player] = Math.atan2(e.y[near]! - y, e.x[near]! - x);
+        if (e.kind[near] === Kind.Threat) return { ok: true, code: w.zombies.hit(near, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
+        return this.hitAnimal(player, near, w.zombies.damageOf(player));
+      }
+      if (a === 'shoot') {
+        const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, inv = sv.inv(player);
+        if ((inv.bow ?? 0) < 1) return { ok: false, code: 'noBow' };
+        if ((inv.arrows ?? 0) < 1) return { ok: false, code: 'noArrows' };
+        const an0 = ang(text), aim = Number.isFinite(an0) ? an0 : e.angle[player]!;
+        e.angle[player] = aim;
+        sv.add(player, 'arrows', -1);
+        // The arrow flies along the aim; it hits the first zombie or animal within 0.9 m of that line, up to 22 m.
+        const t = this.lineTarget(player, aim, 22, 0.9);
+        const dx = Math.cos(aim), dy = Math.sin(aim);
+        w.shoot(m, x + dx * 0.6, y + dy * 0.6, dx * 30, dy * 30, player);
+        if (t < 0) return { ok: false, code: 'missed', left: inv.arrows ?? 0 };
+        const d = Math.hypot(e.x[t]! - x, e.y[t]! - y), dmg = d < 10 ? 30 : d < 16 ? 24 : 18;
+        if (e.kind[t] === Kind.Threat) return { ok: true, code: w.zombies.hit(t, dmg, player) ? 'zKilled' : 'zHit', left: inv.arrows ?? 0 };
+        return { ...this.hitAnimal(player, t, dmg), left: inv.arrows ?? 0 };
+      }
+      if (a === 'build') { // "what" or "what@angle": a hut, or a thing put down in front (made from the bag first when needed)
+        const what = String(text ?? '').split('@')[0]!.trim(), an0 = ang(String(text ?? '').includes('@') ? text : '');
+        if (Number.isFinite(an0)) e.angle[player] = an0;
+        if (what === 'hut') { const c = sv.playerHut(player); return { ok: c === 'built', code: c, item: what }; }
+        if ((sv.inv(player)[what] ?? 0) < 1) {
+          const r = RECIPES_ALL.find((q) => q.what === what && (PLACEABLE as readonly string[]).includes(q.what));
+          if (!r) return { ok: false, code: 'nothing', item: what };
+          const c = sv.craftPut(player, r.cat, r.need);
+          if (!c.ok) return { ok: false, code: c.code === 'noMat' ? 'buildNeed' : c.code, item: what, need: r.need };
+          const pc = sv.placeFront(player, what);
+          if (pc !== 'placed') return { ok: false, code: pc, item: what, kept: true }; // made, kept in the bag
+          return { ok: true, code: 'placed', item: what };
         }
-        if (a === 'hit') return { ok: false, code: 'nothing' };
+        const pc = sv.placeFront(player, what);
+        return { ok: pc === 'placed', code: pc, item: what };
+      }
+      if (a === 'use' || a === 'take') {
+        if (a === 'use') { // older TVs: "use" also hits what is next to me
+          const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!;
+          const z = w.zombies.nearest(m, x, y, 1.9);
+          if (z >= 0) return { ok: true, code: w.zombies.hit(z, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
+          const an = w.animals.nearest(m, x, y, 2.4);
+          if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
+        }
         const r0 = w.brain.playerDo(player, 'use');
         if (r0.ok) return r0;
         // A tree, a rock or rubble next to me: chop / mine one piece (at most one a second).
@@ -266,6 +298,30 @@ export class App {
   }
 
   private readonly workAt = new Map<string, number>();
+  /** The nearest zombie or animal in front of player i (within `r` m and `cone` radians either side of angle `a`), or -1. */
+  private frontTarget(i: number, a: number, r: number, cone: number): number {
+    const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!;
+    let best = -1, bd = r;
+    for (let j = 0; j < e.hi; j++) {
+      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0) continue;
+      const dx = e.x[j]! - x, dy = e.y[j]! - y, d = Math.hypot(dx, dy);
+      if (d >= bd) continue;
+      let da = Math.atan2(dy, dx) - a; da = Math.atan2(Math.sin(da), Math.cos(da));
+      if (Math.abs(da) <= cone || d < 0.9) { bd = d; best = j; }
+    }
+    return best;
+  }
+  /** The first zombie or animal an arrow along angle `a` meets (closer than `side` m to the line, ahead, within `r` m), or -1. */
+  private lineTarget(i: number, a: number, r: number, side: number): number {
+    const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!, cx = Math.cos(a), cy = Math.sin(a);
+    let best = -1, bd = r;
+    for (let j = 0; j < e.hi; j++) {
+      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0) continue;
+      const dx = e.x[j]! - x, dy = e.y[j]! - y, along = dx * cx + dy * cy, off = Math.abs(dx * cy - dy * cx);
+      if (along > 0.3 && along < bd && off <= side + along * 0.02) { bd = along; best = j; }
+    }
+    return best;
+  }
   private hitAnimal(player: number, a: number, dmg: number): { ok: boolean; code: string; got?: Record<string, number>; item?: string } {
     const w = this.world, type = w.e.sub[a]!;
     const d = w.animals.hit(a, dmg, player);

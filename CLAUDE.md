@@ -166,6 +166,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   down (first placeable in the bag), bag, camera. Saved binds get new actions' default buttons when free.
 - Strings `i18n4.ts` (T4). Proof idea: fake pad with `__axis`, R3 x2 for the views, hold button 7 + axis for the wheel.
 
+## Buttons: interact, talk, attack, aim, build (imad 2026-11-20, binds v2)
+- `DEFAULT_BINDS` v2 (`BINDS_V`; older saved binds are replaced once, the TV says the new layout): A interact (Do `take`: pick up /
+  gather / drink, never people or fights), Y talk (person within 3.5 m), X attack (Do `hit` text = my angle: zombie / animal in a
+  70 deg cone 2.6 m, else within 1.9 m any side; with a bow and nothing in reach it shoots at the target the facing points to),
+  ZL aim (held: the stick turns the aim, line + red ring on the locked target, X shoots: Do `shoot` text = angle, first target
+  within 0.9 m of the line up to 22 m, 30 / 24 / 18 damage by range), L3 build (page Build: hut + every PLACEABLE, made from the
+  bag's materials first: Do `build` "what@angle"). Game menu > How to fight = the weapon guide from `WEAPONS` / recipes.
+  Angles sent by the TV use the server's convention (0 = east). Server test "player buttons"; proof `node tools/buttons-proof.mjs`.
+
 ## Control panel (imad 2026-11-20: "advanced, informative, '?' guides, responsive, hosted on GitHub")
 - Sources `packages/panel/src/` (no framework: `main.ts` shell + hash router, one `Screen` per page in `dashboard.ts`, `people.ts`,
   `screens.ts`; `help.ts` = every "?" text; `charts.ts` SVG charts; `livemap.ts` canvas map), built by `npm run build` into

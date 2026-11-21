@@ -103,6 +103,27 @@ export class World3D {
     this.crates = inst(new CylinderGeometry(0.2, 0.2, 0.3, 4).rotateY(Math.PI / 4).translate(0, 0.15, 0), 0x9a7448, 128);
   }
 
+  /** The bow's aim: a line on the ground from my character, and a ring on the target it locks on. */
+  private aimLine: Mesh | null = null;
+  private aimRing: Mesh | null = null;
+  aim(on: boolean, x = 0, z = 0, ang = 0, len = 20, tx = NaN, tz = NaN): void {
+    if (!on) { if (this.aimLine) this.aimLine.visible = false; if (this.aimRing) this.aimRing.visible = false; return; }
+    if (!this.aimLine) {
+      const mat = new MeshBasicMaterial({ color: 0xffe07a, transparent: true, opacity: 0.75, depthWrite: false });
+      this.aimLine = new Mesh(new PlaneGeometry(1, 0.09).rotateX(-Math.PI / 2).translate(0.5, 0, 0), mat);
+      this.aimRing = new Mesh(new TorusGeometry(0.55, 0.06, 6, 24).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: 0xff5a3c, depthWrite: false }));
+      this.aimLine.renderOrder = this.aimRing.renderOrder = 5;
+      this.scene.add(this.aimLine, this.aimRing);
+    }
+    this.aimLine.visible = true;
+    this.aimLine.position.set(x + Math.cos(ang) * 0.5, 0.06, z + Math.sin(ang) * 0.5);
+    this.aimLine.rotation.set(0, -ang, 0);
+    this.aimLine.scale.set(len, 1, 1);
+    const hit = Number.isFinite(tx);
+    this.aimRing!.visible = hit;
+    if (hit) this.aimRing!.position.set(tx, 0.08, tz);
+  }
+
   beginItems(): void { this.nCan = this.nBush = this.nCrate = 0; }
   item(x: number, z: number, type: number, id: number): void {
     const r = ((id * 2654435761) >>> 0) / 4294967296;
