@@ -105,6 +105,18 @@ test('firebase accounts: owner gets the admin tools, a player only joins as a pe
     const tv2 = await signIn(url, tok);
     assert.equal(((await tv2.wait((m) => m.t === Msg.Welcome)) as { role: string }).role, 'viewer');
 
+    // Link a player to an account (imad 2026-11-21): the owner's account takes a character that has no account and gets staff tools.
+    app.net.spawnResidents(['Spare']);
+    const accs = (await owner.cmd(30, { cmd: 'accounts' })).data as { list: { uid: string; name: string }[]; free: string[] };
+    assert.ok(accs.free.includes('Spare') && !accs.free.includes('Sara'), 'free = characters no account has');
+    const ownerUid = accs.list.find((a) => a.name === 'Boss')!.uid;
+    assert.equal((await owner.cmd(31, { cmd: 'linkPlayer', uid: ownerUid, name: 'Sara' })).ok, false, 'a name belongs to one account');
+    assert.equal((await owner.cmd(32, { cmd: 'linkPlayer', uid: ownerUid, name: 'Nobody' })).ok, false, 'must be a real character');
+    assert.equal((await owner.cmd(33, { cmd: 'linkPlayer', uid: ownerUid, name: 'Spare' })).ok, true, 'attach');
+    assert.equal(app.isStaff('Spare'), true, 'the character now has the owner abilities');
+    assert.equal((await owner.cmd(34, { cmd: 'linkPlayer', uid: ownerUid, name: '' })).ok, true, 'detach');
+    assert.equal(app.isStaff('Spare'), false);
+
     // A bad token is refused.
     const bad = await signIn(url, 'fb:' + idToken('u_x', 'x@example.com', { aud: 'nope' }));
     assert.equal(await new Promise<number>((ok) => bad.ws.once('close', (c) => ok(c))), 4004);

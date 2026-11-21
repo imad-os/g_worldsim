@@ -690,7 +690,7 @@ export class App {
         if (typeof c.on === 'boolean') { this.db.setMeta('auto_join', c.on ? '1' : '0'); this.log.info(c.on ? 'TVs join by themselves' : 'TVs need approval', { who }); }
         return { on: this.db.getMeta('auto_join') !== '0' };
       }
-      case 'accounts': return { signIn: this.auth.enabled, project: this.auth.projectId, list: this.accounts.list().map((a) => ({ ...a, online: !!a.name && this.net.online(a.name), tv: !!a.name && this.players.has(a.name) })) };
+      case 'accounts': return { signIn: this.auth.enabled, project: this.auth.projectId, list: this.accounts.list().map((a) => ({ ...a, online: !!a.name && this.net.online(a.name), tv: !!a.name && this.players.has(a.name) })), free: [...this.net.residents.keys()].filter((n) => !this.accounts.byName(n)).sort() };
       case 'approve': {
         if (typeof c.code !== 'string' || !/^\d{6}$/.test(c.code)) throw new Error('bad code');
         return this.players.approve(c.code, typeof c.name === 'string' ? c.name : undefined);
@@ -704,6 +704,13 @@ export class App {
         if (c.on === true) s.add(name); else s.delete(name);
         this.db.setMeta('seers', JSON.stringify([...s]));
         return { seers: [...s] };
+      }
+      case 'linkPlayer': { // imad 2026-11-21: attach my character to my account to get the owner's abilities
+        const uid = String(c.uid ?? ''), name = String(c.name ?? '').trim();
+        if (!this.accounts.get(uid)) throw new Error('no such account');
+        if (name && !this.net.residents.has(name)) throw new Error('that player has no character');
+        this.accounts.link(uid, name);
+        return { uid, name };
       }
       case 'mergePlayer': { // two names of one person (imad 2026-11-20: "imad (2)" -> "imad"): one character, one bag, every TV under "into"
         const from = String(c.from ?? '').trim(), into = String(c.into ?? '').trim();

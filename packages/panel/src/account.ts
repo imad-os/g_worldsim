@@ -86,7 +86,7 @@ export const usersScreen: Screen = {
     let roles: fb.Doc[] = [];
     let fsErr = '';
     try { roles = await fb.list('roles'); } catch (e) { fsErr = String((e as Error).message ?? e); }
-    const srv = await cmd<{ signIn: boolean; list: { uid: string; name: string; email: string; role: string; lastSeen: number; online: boolean; tv: boolean }[] }>({ cmd: 'accounts' });
+    const srv = await cmd<{ signIn: boolean; list: { uid: string; name: string; email: string; role: string; lastSeen: number; online: boolean; tv: boolean }[]; free: string[] }>({ cmd: 'accounts' });
     const byUid = new Map(srv.list.map((a) => [a.uid, a]));
     const uids = [...new Set([...roles.map((r) => r.id), ...srv.list.map((a) => a.uid)])];
     const rows = uids.map((uid) => {
@@ -95,11 +95,21 @@ export const usersScreen: Screen = {
       const sel = owner && uid !== account?.uid
         ? `<select data-uid="${esc(uid)}" aria-label="Role">${['player', 'admin', 'owner'].map((x) => `<option value="${x}"${x === role ? ' selected' : ''}>${x[0]!.toUpperCase() + x.slice(1)}</option>`).join('')}</select>`
         : `<span class="tag ${role === 'player' ? '' : 'ok'}">${esc(role)}</span>`;
-      return `<tr><td><b>${esc(a?.name || '-')}</b>${uid === account?.uid ? ' <small class="dim">(you)</small>' : ''}</td><td>${esc(email)}</td><td>${sel}</td>
+      const canLink = (owner || account?.role === 'admin') && a;
+      const who = canLink
+        ? `<select data-link="${esc(uid)}" aria-label="Player"><option value="">${a!.name ? esc(a!.name) : '- no player -'}</option>${srv.free.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}${a!.name ? '<option value="-">Detach</option>' : ''}</select>`
+        : `<b>${esc(a?.name || '-')}</b>`;
+      return `<tr><td>${who}${uid === account?.uid ? ' <small class="dim">(you)</small>' : ''}</td><td>${esc(email)}</td><td>${sel}</td>
         <td>${a?.online ? '<span class="tag ok">playing</span>' : a?.lastSeen ? ago(a.lastSeen) : '-'}</td><td>${a?.tv ? icon('tv') : ''}</td></tr>`;
     });
-    setHtml('uList', (fsErr ? `<p class="bad small">${esc(fsErr)}</p>` : '') + (rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Character</th><th>Email</th><th>Role</th><th>Last seen</th><th>TV</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+    setHtml('uList', (fsErr ? `<p class="bad small">${esc(fsErr)}</p>` : '') + (rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Player</th><th>Email</th><th>Role</th><th>Last seen</th><th>TV</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
       : '<div class="empty">Nobody has signed in yet.</div>'));
+    on('#uList select[data-link]', 'change', async (el) => {
+      const s = el as HTMLSelectElement;
+      if (!s.value) return;
+      try { await cmd({ cmd: 'linkPlayer', uid: s.dataset.link!, name: s.value === '-' ? '' : s.value }); toast(s.value === '-' ? 'Player detached' : `Linked to ${s.value}`, 'ok'); } catch (e) { err(e); }
+      void this.refresh!();
+    });
     on('#uList select[data-uid]', 'change', async (el) => {
       const s = el as HTMLSelectElement;
       if (s.value === 'owner' && !confirm('Make them an owner too? They could then change everyone\'s role, yours included.')) { void this.refresh!(); return; }

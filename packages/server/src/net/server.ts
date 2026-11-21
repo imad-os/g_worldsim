@@ -441,6 +441,7 @@ export class NetServer {
     const x = e.map[i] === NO_MAP ? e.ax[i]! : e.x[i]!, y = e.map[i] === NO_MAP ? e.ay[i]! : e.y[i]!;
     this.avatarStore.set(s.name, { map: w.maps[mi]!.def.id, x, y });
     this.residents.set(s.name, s.avatarId);
+    if (e.kind[i] === Kind.Agent && !w.profileOf(i)?.auto) w.toPlayer(i); // the watch-mode autopilot ends with the screen
     this.goAway(i);
     s.avatar = -1;
   }
@@ -545,6 +546,7 @@ export class NetServer {
       case Msg.Join: {
         if (s.role !== 'viewer') { this.send(s, { t: Msg.Error, code: 'forbidden' }); return; }
         this.join(s);
+        if (m.watch === true && this.ownsAvatar(s)) { this.world.toAgent(s.avatar); this.world.away.delete(s.avatarId); } // watching: the AI plays my character
         return;
       }
       case Msg.Input: {

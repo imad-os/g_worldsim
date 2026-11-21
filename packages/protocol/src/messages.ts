@@ -14,7 +14,7 @@ export interface View { t: typeof Msg.View; map: string; x: number; y: number; r
 export interface Pair { t: typeof Msg.Pair; v: number; name: string; dev?: string }
 
 /** Client -> server: spawn (or take back) my character. */
-export interface Join { t: typeof Msg.Join }
+export interface Join { t: typeof Msg.Join; /** In watch mode: my character goes on AI autopilot until I play again. */ watch?: boolean }
 /**
  * Client -> server: my controls, sent on change and at least every 250 ms while held.
  * mx, my = stick -1..1 (screen up = -y), run, act = interact pressed (edge), seq = counter.
@@ -50,6 +50,8 @@ export type AdminCmd =
   | { cmd: 'pairings' }
   /** TVs join at once under their My PC username (default) or wait for approval. */
   | { cmd: 'autoJoin'; on?: boolean }
+  /** Attach a player (character name) to an account, so that account has the character; name '' detaches. */
+  | { cmd: 'linkPlayer'; uid: string; name: string }
   | { cmd: 'approve'; code: string; name?: string }
   | { cmd: 'deny'; code: string }
   | { cmd: 'players' }

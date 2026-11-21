@@ -278,3 +278,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   with 4 ways in (`defenceSite` / `campDefence` = [up, left]), spikes at 10 after the wall. Under threat (zombies per night, a planned
   attack, zombies on the map) a crew of up to 3; else now and then 1. `reserved()` keeps a crew on different tiles.
 - Test craft.test "a leader hands out the work...".
+
+## Watch = autopilot, link a player to an account (imad 2026-11-21)
+- Client sends `Join { watch: true }` when it connects in watch mode / switches to it: the character becomes an agent (`World.toAgent`, the
+  brain, planner and his 5 rules drive it); `Join` without it (play) = `toPlayer`. `leave()` ends the watch autopilot (sleeps) unless the
+  player's own `auto` is on.
+- Admin `linkPlayer { uid, name }` (name '' detaches; one account per name; the name must be a real character): panel Users & roles has a
+  Player picker per account (`accounts` returns `free` = characters with no account). A linked character is staff (owner / admin tools such
+  as Go to someone) via `Accounts.isStaff(name)`. Tests: auth.test (link), server.test "players" (watch).

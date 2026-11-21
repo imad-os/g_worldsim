@@ -38,6 +38,13 @@ export class Accounts {
 
   setName(uid: string, name: string): void { this.db.sql.prepare('UPDATE accounts SET name = ? WHERE uid = ?').run(name, uid); }
 
+  /** Attach a character name to an account (name '' = detach). A name belongs to one account only. */
+  link(uid: string, name: string): void {
+    const other = name ? this.byName(name) : null;
+    if (other && other.uid !== uid) throw new Error(`${name} is already linked to ${other.email || other.uid}`);
+    this.setName(uid, name);
+  }
+
   list(): Account[] {
     return (this.db.sql.prepare('SELECT * FROM accounts ORDER BY created_at').all() as never[]).map((r) => this.row(r)!);
   }

@@ -254,6 +254,13 @@ test('players: join puts my character in the world, input moves it, leaving keep
     assert.ok(moved > 0.5, `moved ${moved.toFixed(2)} m`);
     // Our own character appears in our frames.
     await c.wait((m) => m.t === Msg.Frame && unpackI32((m as { upd: Uint8Array }).upd).some((v, k) => k % ENT_REC === 0 && v === you.id));
+    // Watch mode: my character goes on AI autopilot; playing again gives the controls back.
+    c.send({ t: Msg.Join, watch: true });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(e.kind[i], 1, 'autopilot: an agent for the brain');
+    c.send({ t: Msg.Join });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(e.kind[i], 6, 'back under my control');
     // Bad input is ignored, not a crash.
     c.send({ t: Msg.Input, mx: 1e9, my: Number.NaN as unknown as number });
     // A next to a person: they stop, face me and answer (built-in line: the AI is off), and everyone looking hears it.

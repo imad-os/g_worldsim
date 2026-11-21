@@ -288,7 +288,7 @@ function onMsg(m: ServerMsg): void {
       if (!map || !m.maps.some((x) => x.id === map)) setMap(String(MyPC.load('map', m.maps[0]!.id)));
       else setMap(map);
       show('world');
-      if (how === 'play') send({ t: Msg.Join });
+      send({ t: Msg.Join, watch: how === 'watch' });
       sendView();
       break;
     }
@@ -686,6 +686,7 @@ function setHow(h: typeof how): void {
   updateHints();
   if (h === 'play') { send({ t: Msg.Join }); predOk = false; snapCam = true; }
   else {
+    send({ t: Msg.Join, watch: true }); // my character goes on autopilot while I watch
     send({ t: Msg.Input, mx: 0, my: 0, run: false, seq: ++seq });
     const s = meSlot();
     if (s >= 0) { camX = nx[s]!; camY = ny[s]!; }
