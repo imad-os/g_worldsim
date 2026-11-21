@@ -134,6 +134,13 @@ async function loadPerson(): Promise<void> {
   bindPerson();
   if (ptab === 'rules') void loadRules();
 }
+/** After a chat or an order: what changed (married, divorced, a task...) is fetched again; the box being typed in is not redrawn. */
+async function touchPerson(): Promise<void> {
+  try {
+    detail = await cmd<Detail>({ cmd: 'agent', id: pid });
+    if (ptab === 'family' || ptab === 'overview' || ptab === 'mind') { setHtml('xPage', personHtml(detail)); bindPerson(); }
+  } catch { /* next time */ }
+}
 type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[] }[]; max: number };
 async function loadRules(r?: RulesAns): Promise<void> {
   r ??= await cmd<RulesAns>({ cmd: 'rules' });
@@ -158,7 +165,7 @@ function bindPerson(): void {
     const t = val('xSay'); if (!t) return;
     draft = ''; const box = document.getElementById('xSay') as HTMLInputElement | null; if (box) { box.value = ''; box.focus(); }
     addChat('You', t);
-    try { const r = await cmd<{ reply: string; ai: boolean; did?: string }>({ cmd: 'chat', id: pid, text: t }, 120000); if (!r.ai) addChat('', 'Answered without AI: turn on Gemini or Ollama on the AI page.'); if (r.did) addChat('', `→ will ${r.did}`); } catch (e) { addChat('', String(e)); }
+    try { const r = await cmd<{ reply: string; ai: boolean; did?: string }>({ cmd: 'chat', id: pid, text: t }, 120000); if (!r.ai) addChat('', 'Answered without AI: turn on Gemini or Ollama on the AI page.'); if (r.did) addChat('', `→ will ${r.did}`); window.setTimeout(() => void touchPerson(), 1500); } catch (e) { addChat('', String(e)); }
   };
   on('#xTalk', 'click', () => void talk());
   on('#xSay', 'input', (el) => { draft = (el as HTMLInputElement).value; });
@@ -166,7 +173,7 @@ function bindPerson(): void {
   on('#xSay', 'keydown', (_el, e) => { if ((e as KeyboardEvent).key === 'Enter') void talk(); });
   const syncWho = () => { const o = ORDERS.find((x) => x[0] === val('xOrd')); const f = document.getElementById('xWhoF'); if (f) f.hidden = !o?.[2]; };
   on('#xOrd', 'change', syncWho); syncWho();
-  on('#xOrdGo', 'click', async () => { try { const r = await cmd<{ did: string }>({ cmd: 'order', id: pid, kind: val('xOrd'), target: val('xWho') }); addChat('', `→ will ${r.did}`); toast(`Order given: ${r.did}`, 'ok'); } catch (e) { toast(String(e), 'err'); } });
+  on('#xOrdGo', 'click', async () => { try { const r = await cmd<{ did: string }>({ cmd: 'order', id: pid, kind: val('xOrd'), target: val('xWho') }); addChat('', `→ will ${r.did}`); toast(`Order given: ${r.did}`, 'ok'); window.setTimeout(() => void touchPerson(), 1500); } catch (e) { toast(String(e), 'err'); } });
   on('#xSave', 'click', async () => {
     const set: Record<string, number | string> = {};
     for (const i of view().querySelectorAll<HTMLInputElement>('#xBody input[data-k]')) set[i.dataset.k!] = i.type === 'number' ? Number(i.value) : i.value;
@@ -181,7 +188,7 @@ export const personScreen: Screen = {
   async mount(arg) { if (Number(arg) !== pid) { chat = []; draft = ''; } pid = Number(arg); try { await loadPerson(); } catch (e) { setHtml('xPage', `<div class="empty">${esc(String(e))}</div>`); } },
   async refresh() {
     // Live tabs only: never while typing in a form.
-    if (ptab !== 'overview' && ptab !== 'mind' && ptab !== 'events') return;
+    if (ptab !== 'overview' && ptab !== 'mind' && ptab !== 'events' && ptab !== 'family') return;
     try { await loadPerson(); } catch { /* next time */ }
   },
 };
