@@ -15,6 +15,20 @@ import {
   type ActionId, type Binds, type Page, type Row, type PersonInfo,
 } from './ui.js';
 import { Wheel, type WheelItem } from './wheel.js';
+import { Sound, SOUND_DEFAULTS, type SoundPrefs } from './audio.js';
+
+// ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
+const sound = new Sound();
+/** Footsteps by the ground under me. */
+const STEP_OF: Record<string, string> = { grass: 'step_grass', dirt: 'step_dirt', sand: 'step_dirt', farm: 'step_dirt', ashes: 'step_dirt', berries: 'step_grass',
+  road: 'step_stone', rubble: 'step_stone', rock: 'step_stone', floor: 'step_wood', bed: 'step_wood', door: 'step_wood', water: 'step_water' };
+let stepName: string[] = [];
+let stepDist = 0, lastHp = -1, ambAt = 0, campfireTile = -1;
+/** What each answer from the server sounds like. */
+const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', drank: 'drink',
+  ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', expecting: 'reward',
+  noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
+const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar'];
 
 /**
  * The world, as a My PC app. 3D low-poly with a tilted camera. Two ways to be there:
@@ -78,6 +92,7 @@ const eid = new Int32Array(CAP).fill(-1);
 const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP), atype = new Uint8Array(CAP); // sub: item type / agent action
 const px = new Float32Array(CAP), py = new Float32Array(CAP), nx = new Float32Array(CAP), ny = new Float32Array(CAP);
 const vx = new Float32Array(CAP), vy = new Float32Array(CAP), ang = new Float32Array(CAP);
+const nextCry = new Float64Array(256 * 64);
 const face = new Float32Array(CAP), phase = new Float32Array(CAP), spd = new Float32Array(CAP), lastX = new Float32Array(CAP), lastY = new Float32Array(CAP);
 const lookOf: PersonLook[] = [];
 const slotOf = new Map<number, number>();
@@ -262,6 +277,8 @@ function onMsg(m: ServerMsg): void {
       looks = looksFor(m.tiles);
       solid.fill(0);
       for (const x of m.tiles) if (x.solid) solid[x.id] = 1;
+      stepName = []; campfireTile = -1;
+      for (const x of m.tiles) { stepName[x.id] = STEP_OF[x.name] ?? 'step_dirt'; if (x.name === 'campfire') campfireTile = x.id; }
       if (m.body) body = m.body;
       gameSec = m.clock.gameSec; tickAt = performance.now(); clockScale = m.clock.clockScale; simSpeed = m.clock.paused ? 0 : m.clock.speed;
       if (!g3) {
@@ -299,7 +316,11 @@ function onMsg(m: ServerMsg): void {
         note(`${d.name}: “${d.text}”`, 7000);
       }
       if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
-      if (m.kind === 'me') { meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide')) menu.refresh(); }
+      if (m.kind === 'me') {
+        const hp = (m.data as { hp?: number }).hp ?? 100;
+        if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
+        lastHp = hp;
+        meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide')) menu.refresh(); }
       if (m.kind === 'blocked') note(t('dBlocked'), 5000);
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
@@ -447,6 +468,30 @@ function solidAt(x: number, y: number): boolean {
   const t = tilesOf.get(chunkKey((tx / CHUNK_TILES) | 0, (ty / CHUNK_TILES) | 0));
   return t ? solid[t[(ty % CHUNK_TILES) * CHUNK_TILES + (tx % CHUNK_TILES)]!] === 1 : false;
 }
+function tileUnder(x: number, y: number): number {
+  const tx = Math.floor(x), ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= mapW || ty >= mapH) return -1;
+  const t = tilesOf.get(chunkKey((tx / CHUNK_TILES) | 0, (ty / CHUNK_TILES) | 0));
+  return t ? t[(ty % CHUNK_TILES) * CHUNK_TILES + (tx % CHUNK_TILES)]! : -1;
+}
+function stepUnder(x: number, y: number): string { const t = tileUnder(x, y); return stepName[t] ?? 'step_dirt'; }
+/** Every second: ambience by the hour and the map, the campfire's crackle by how near the nearest one is. */
+function ambience(now: number): void {
+  if (now - ambAt < 1000) return;
+  ambAt = now;
+  if (mode !== 'world' || rp) { for (const id of ['amb_day', 'amb_night', 'amb_woods', 'fire_loop']) sound.loop(id, 0); return; }
+  const h = (((gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed) / 3600 + 8) % 24 + 24) % 24;
+  const night = h < 5.5 || h >= 20.5, woods = /wood|forest/i.test(map);
+  sound.loop('amb_night', night ? 0.8 : 0);
+  sound.loop('amb_woods', !night && woods ? 0.8 : 0);
+  sound.loop('amb_day', !night && !woods ? 0.6 : 0);
+  let fd = 99;
+  if (campfireTile >= 0) {
+    const cx = Math.floor(focusX()), cy = Math.floor(focusY());
+    for (let yy = cy - 9; yy <= cy + 9; yy++) for (let xx = cx - 9; xx <= cx + 9; xx++) if (tileUnder(xx + 0.5, yy + 0.5) === campfireTile) fd = Math.min(fd, Math.hypot(xx + 0.5 - focusX(), yy + 0.5 - focusY()));
+  }
+  sound.loop('fire_loop', fd < 9 ? Math.min(1, (1 - fd / 9) * 1.2) : 0);
+}
 function blocked(x: number, y: number): boolean {
   const r = body.radius * 0.9;
   return solidAt(x - r, y - r) || solidAt(x + r, y - r) || solidAt(x - r, y + r) || solidAt(x + r, y + r);
@@ -560,6 +605,10 @@ function updatePlay(dt: number, now: number): void {
   const nyp = predY + pvy * dt;
   if (!blocked(predX, nyp)) predY = nyp; else pvy = 0;
   const moving = Math.abs(pvx) + Math.abs(pvy) > 0.01;
+  if (moving) {
+    stepDist += Math.hypot(pvx, pvy) * dt;
+    if (stepDist > (run ? 0.9 : 0.68)) { stepDist = 0; sound.play(stepUnder(predX, predY), undefined, undefined, run ? 0.6 : 0.42); }
+  }
   if (Math.abs(pvx) + Math.abs(pvy) > 0.3) moveAng = Math.atan2(pvy, pvx);
   // Controls + my place: on change, every 100 ms while moving, once more when I stop.
   const qx = Math.round(mx * 50) / 50, qy = Math.round(my * 50) / 50;
@@ -825,6 +874,9 @@ function onSttText(e: { text: string }): void {
 }
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+  if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 180); }
+  else if (DID_SOUND[d.code]) sound.play(DID_SOUND[d.code]!, undefined, undefined, d.code === 'zKilled' ? 0.9 : 1);
+  if (d.code === 'chopped' && (d as { got?: Record<string, number> }).got?.wood && Math.random() < 0.25) sound.play('tree_fall', undefined, undefined, 0.6);
   const dm = d as typeof d & { me?: MeChar; days?: number; why?: string };
   if (dm.me) {
     meChar = dm.me;
@@ -1021,9 +1073,15 @@ function buildPage(id: string): Page {
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
       if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
-      rows.push({ id: 'gfx', label: t('gTitle'), sub: true });
+      rows.push({ id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
+    case 'snd': {
+      const pc = (v: number) => `${Math.round(v * 100)} %`, sp = sound.prefs;
+      rows.push({ id: 'on', label: t('sndOn'), value: onOff(sp.on) }, { id: 'master', label: t('sndMaster'), value: pc(sp.master), dim: !sp.on },
+        { id: 'fx', label: t('sndFx'), value: pc(sp.fx), dim: !sp.on }, { id: 'amb', label: t('sndAmb'), value: pc(sp.amb), dim: !sp.on }, { id: 'ui', label: t('sndUi'), value: pc(sp.ui), dim: !sp.on });
+      return { id, title: t('sndTitle'), rows, text: t('sndHelp') };
+    }
     case 'gfx':
       rows.push({ id: 'q', label: t('gQuality'), value: t(gfx.q === 'auto' ? 'gAuto' : gfx.q === 'low' ? 'gLow' : gfx.q === 'mid' ? 'gMid' : 'gHigh') + (gfx.q !== 'auto' && gfx.q !== tier ? ' *' : '') },
         { id: 'fog', label: t('gFog'), value: t((['gOff', 'gLight', 'gNormal', 'gThick'] as const)[gfx.fog] ?? 'gNormal') },
@@ -1113,11 +1171,17 @@ function pickRow(page: string, row: string): void {
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
     else if (row === 'cam') { nextCamera(); menu.refresh(); }
-    else if (row === 'gfx') menu.push('gfx');
+    else if (row === 'gfx' || row === 'snd') menu.push(row);
     else if (row === 'zin') zoomBy(1 / 1.2);
     else if (row === 'zout') zoomBy(1.2);
     else if (row === 'server') { menu.close(); void askServer(); }
     else if (row === 'unpair') { menu.close(); unpair(); }
+  } else if (page === 'snd') {
+    const sp = sound.prefs;
+    if (row === 'on') sp.on = !sp.on;
+    else if (row === 'master' || row === 'fx' || row === 'amb' || row === 'ui') { const v = Math.round(sp[row] * 10); sp[row] = (v >= 10 ? 0 : v + 1) / 10; }
+    sound.apply(); MyPC.save('sound', sp); menu.refresh();
+    if (row !== 'on') sound.play(row === 'ui' ? 'ui_ok' : row === 'amb' ? 'bird' : 'hit');
   } else if (page === 'gfx') {
     if (row === 'q') { const o: Gfx['q'][] = ['auto', 'low', 'mid', 'high']; gfx.q = o[(o.indexOf(gfx.q) + 1) % o.length]!; }
     else if (row === 'fog') gfx.fog = (gfx.fog + 1) % 4;
@@ -1133,6 +1197,7 @@ function pickRow(page: string, row: string): void {
 }
 
 const menu = new Menu(buildPage, pickRow, () => { capture = null; noteEl.hidden = true; drawCard(); MyPC.back?.(false); });
+menu.onSound = (id) => sound.play(id);
 const bubbles = new Bubbles(8);
 
 function openMenu(page = 'root'): void {
@@ -1186,6 +1251,8 @@ function update(now: number): void {
 function draw(now: number, dt: number): void {
   if (mode !== 'world' || !g3) return;
   buildOne();
+  sound.lx = focusX(); sound.ly = focusY(); sound.yaw = yaw; sound.topView = g3.view === 'top';
+  sound.tick(dt); ambience(now);
   if (bindsNews && playing() && predOk) {
     bindsNews = false;
     const parts = (['use', 'talk', 'attack', 'aim', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
@@ -1230,6 +1297,16 @@ function draw(now: number, dt: number): void {
     }
     phase[i] = (phase[i]! + moved * 4.2) % (Math.PI * 2);
     drawnX[i] = x; drawnY[i] = y; drawnF[i] = frameNo;
+    if ((kind[i] === Kind.Animal || kind[i] === Kind.Threat) && !(flags[i]! & EFlag.Dead)) {
+      // Now and then a zombie groans, an animal calls (from where it is: quieter far away, left / right of the camera).
+      const k = eid[i]! & 16383;
+      if (!nextCry[k]) nextCry[k] = now + 1500 + Math.random() * 6000;
+      else if (now > nextCry[k]!) {
+        const zed = kind[i] === Kind.Threat;
+        nextCry[k] = now + (zed ? 5000 + Math.random() * 7000 : 9000 + Math.random() * 14000);
+        sound.play(zed ? (Math.hypot(x - fx, y - fy) < 2.5 ? 'zombie_attack' : 'zombie_groan') : ANIMAL_CRY[atype[i]!] ?? 'bird', x, y, zed ? 0.9 : 0.7);
+      }
+    }
     if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
     if (eyes && i === me) continue;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
@@ -1327,6 +1404,7 @@ function screenOk(): void {
 
 /** Every remote button by name (API 19): OK and the arrows keep their jobs, the rest is the player's map. */
 function onRemote(name: string, pressed: boolean, repeat: boolean): void {
+  if (pressed) sound.unlock();
   if (name in DIRS) { direction(name as keyof typeof DIRS, pressed, repeat); return; }
   if (capture) { if (pressed && !repeat) captured('remote', name); return; }
   if (mode !== 'world') { if (pressed && name === 'ok') screenOk(); return; }
@@ -1350,6 +1428,7 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
 
 /** Controller buttons (by letter: 0 = A). The D-pad and the stick come through onInput as directions. */
 function onPad(i: number, pressed: boolean): void {
+  if (pressed) sound.unlock();
   if (i >= 12 && i <= 16) return; // D-pad (directions) and Home (My PC's)
   if (capture) { if (pressed) captured('pad', i); return; }
   if (mode !== 'world') { if (pressed && i === 0) screenOk(); return; }
@@ -1405,6 +1484,10 @@ MyPC.init({
         if (!(a in b.remote) && dr !== undefined && remoteAction(binds, dr) === undefined) binds.remote[a] = dr;
       }
     }
+    { const sp = MyPC.load('sound', null) as Partial<SoundPrefs> | null; sound.prefs = { ...SOUND_DEFAULTS, ...(sp && typeof sp === 'object' ? sp : {}) }; }
+    void sound.load(new URL('audio/', location.href).href);
+    // Browsers and TVs let sound start only after a button press.
+    for (const ev of ['keydown', 'pointerdown', 'touchstart'] as const) window.addEventListener(ev, () => sound.unlock(), { passive: true });
     const cv = MyPC.load('cam', 'top');
     camView = CAM_VIEWS.includes(cv) ? cv : 'top';
     thoughtsOn = MyPC.load('thoughts', true) !== false;
@@ -1416,7 +1499,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { act: (a: ActionId, on = true) => doAction(a, on), aim: () => ({ aimOn, aimAng, aimLock }), me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: () => ({ aimOn, aimAng, aimLock }), me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
     MyPC.ready();
   },
   onStart() {
@@ -1425,10 +1508,10 @@ MyPC.init({
     queueMicrotask(() => { if (g3) { g3.dist = d; g3.back = bk; } });
     startDist = d;
   },
-  onPause: stopLoop,
-  onResume: startLoop,
+  onPause() { stopLoop(); sound.pause(true); },
+  onResume() { sound.pause(false); startLoop(); },
   onDestroy() {
-    stopLoop(); clearTimeout(retryTimer);
+    stopLoop(); sound.pause(true); clearTimeout(retryTimer);
     window.removeEventListener('resize', resize);
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
     g3?.dispose(); g3 = null;
@@ -1438,6 +1521,7 @@ MyPC.init({
     else if (id === 'server') void askServer();
   },
   onInput(action: string, pressed: boolean, repeat?: boolean, dev?: string): boolean | void {
+    if (pressed) sound.unlock();
     const pad = !!dev && /^pad/.test(dev);
     if (action in DIRS) { direction(action as keyof typeof DIRS, pressed, repeat, pad); return; }
     if (action === 'cancel') {

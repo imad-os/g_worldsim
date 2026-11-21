@@ -69,7 +69,7 @@ export class Menu {
 
   get page(): string { return this.stack.length ? this.stack[this.stack.length - 1]!.id : ''; }
 
-  show(id = 'root'): void { this.stack = [{ id, sel: 0 }]; this.open = true; this.el.hidden = false; document.body.classList.add('menu-open'); this.render(); }
+  show(id = 'root'): void { this.onSound('ui_open'); this.stack = [{ id, sel: 0 }]; this.open = true; this.el.hidden = false; document.body.classList.add('menu-open'); this.render(); }
   push(id: string): void { if (this.stack.length) this.stack[this.stack.length - 1]!.sel = this.sel; this.stack.push({ id, sel: 0 }); this.render(); }
   /** Back: previous page, or close. */
   back(): void {
@@ -118,11 +118,14 @@ export class Menu {
   input(a: 'up' | 'down' | 'ok' | 'back'): void {
     if (!this.open) return;
     const n = this.rows.length;
+    this.onSound(a === 'up' || a === 'down' ? 'ui_move' : a === 'ok' ? 'ui_ok' : this.stack.length > 1 ? 'ui_back' : 'ui_close');
     if (a === 'up' && n) this.select((this.sel + n - 1) % n);
     else if (a === 'down' && n) this.select((this.sel + 1) % n);
     else if (a === 'back') this.back();
     else if (a === 'ok' && n) { const r = this.rows[this.sel]!; this.onPick(this.page, r.id); }
   }
+  /** Menu sounds (set by the app). */
+  onSound: (id: string) => void = () => {};
 }
 
 // ------------------------------------------------------------ needs bars (mine in play, the followed person's in watch)

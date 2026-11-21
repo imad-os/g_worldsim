@@ -71,6 +71,9 @@ const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say 
   : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
 type Detail = Person & { now: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
 let pid = -1, ptab = load('ptab', 'overview'), chat: [string, string][] = [];
+/** What is typed in the Talk box, kept while answers arrive and pages redraw (imad 2026-11-20: it emptied on every answer). */
+let draft = '';
+const chatHtml = () => chat.map(([w, t]) => `<div class="msg ${w === 'You' ? 'me' : w ? '' : 'sys'}">${w ? `<b>${esc(w)}</b>` : ''}${esc(t)}</div>`).join('') || '<div class="empty">Say something: they answer as themselves.</div>';
 const ORDERS: [string, string, boolean][] = [
   ['goto', 'Go to…', true], ['follow', 'Follow…', true], ['bring', 'Bring food to…', true], ['talk', 'Talk with…', true], ['stay', 'Stay where you are', false], ['stop', 'Stop the order', false],
   ['drink', 'Drink', false], ['eat', 'Eat', false], ['forage', 'Find food', false], ['sleep', 'Sleep', false], ['wander', 'Walk around', false], ['rest', 'Rest', false],
@@ -104,8 +107,8 @@ function personHtml(d: Detail): string {
     ${mind.said ? `<p>Last said: “${esc(mind.said.text)}”</p>` : ''}
     <h4 class="sub">Memory</h4><p>${esc(mind.summary || 'nothing yet')}</p>
     <h4 class="sub">Recent notes</h4>${mind.notes.length ? mind.notes.slice().reverse().map((n) => `<div class="ev"><span class="ev-t">${gameTime(n.at)}</span><span>${esc(n.text)}</span></div>`).join('') : '<div class="empty">None.</div>'}`, { help: help('pMind') });
-  else if (ptab === 'talk') body = `<div class="grid2">${card('Talk', `<div class="chat" id="xChat">${chat.map(([w, t]) => `<div class="msg ${w === 'You' ? 'me' : w ? '' : 'sys'}">${w ? `<b>${esc(w)}</b>` : ''}${esc(t)}</div>`).join('') || '<div class="empty">Say something: they answer as themselves.</div>'}</div>
-      <div class="row"><input id="xSay" maxlength="300" placeholder="Say something to ${esc(d.name)}…"><button class="btn primary" id="xTalk">${icon('chat')} Talk</button></div>`, { help: help('pTalk') })}
+  else if (ptab === 'talk') body = `<div class="grid2">${card('Talk', `<div class="chat" id="xChat">${chatHtml()}</div>
+      <div class="row"><input id="xSay" maxlength="300" value="${esc(draft)}" placeholder="Say something to ${esc(d.name)}…"><button class="btn primary" id="xTalk">${icon('chat')} Talk</button></div>`, { help: help('pTalk') })}
     ${card('Give an order', `<label class="fld">What<select id="xOrd">${ORDERS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
       <label class="fld" id="xWhoF">Who<input id="xWho" list="xNames" placeholder="a name"><datalist id="xNames">${[...new Set(S.people.map((x) => x.name))].filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('')}</datalist></label>
       <button class="btn primary" id="xOrdGo">Do it</button>`, { help: help('pOrder') })}</div>`;
@@ -136,7 +139,12 @@ async function loadRules(r?: RulesAns): Promise<void> {
   setHtml('xRules', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${ruleWhat(x)}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules for them.</div>');
   on('#xRules [data-rm]', 'click', async (b) => { try { await loadRules(await cmd<RulesAns>({ cmd: 'rules', id: pid, remove: Number(b.dataset.rm) })); toast('Rule removed', 'ok'); } catch (e) { toast(String(e), 'err'); } });
 }
-function addChat(w: string, t: string): void { chat.push([w, t]); if (chat.length > 40) chat.shift(); if (ptab === 'talk' && detail) { setHtml('xPage', personHtml(detail)); bindPerson(); const c = document.getElementById('xChat'); if (c) c.scrollTop = c.scrollHeight; } }
+/** A new line in the conversation: only the messages are redrawn, never the box being typed in. */
+function addChat(w: string, t: string): void {
+  chat.push([w, t]); if (chat.length > 40) chat.shift();
+  const c = document.getElementById('xChat');
+  if (c) { c.innerHTML = chatHtml(); c.scrollTop = c.scrollHeight; }
+}
 export function personSaid(id: number, name: string, text: string): void { if (id === pid) addChat(name, text); }
 
 function bindPerson(): void {
@@ -146,10 +154,13 @@ function bindPerson(): void {
   on('#xKill', 'click', async () => { if (!detail || !confirm(`Kill ${detail.name}? This can't be undone.`)) return; try { await cmd({ cmd: 'kill', id: pid }); toast(`${detail.name} was killed`, 'ok'); void loadPerson(); } catch (e) { toast(String(e), 'err'); } });
   const talk = async () => {
     const t = val('xSay'); if (!t) return;
+    draft = ''; const box = document.getElementById('xSay') as HTMLInputElement | null; if (box) { box.value = ''; box.focus(); }
     addChat('You', t);
     try { const r = await cmd<{ reply: string; ai: boolean; did?: string }>({ cmd: 'chat', id: pid, text: t }, 120000); if (!r.ai) addChat('', 'Answered without AI: turn on Gemini or Ollama on the AI page.'); if (r.did) addChat('', `→ will ${r.did}`); } catch (e) { addChat('', String(e)); }
   };
   on('#xTalk', 'click', () => void talk());
+  on('#xSay', 'input', (el) => { draft = (el as HTMLInputElement).value; });
+  { const c = document.getElementById('xChat'); if (c) c.scrollTop = c.scrollHeight; }
   on('#xSay', 'keydown', (_el, e) => { if ((e as KeyboardEvent).key === 'Enter') void talk(); });
   const syncWho = () => { const o = ORDERS.find((x) => x[0] === val('xOrd')); const f = document.getElementById('xWhoF'); if (f) f.hidden = !o?.[2]; };
   on('#xOrd', 'change', syncWho); syncWho();
@@ -165,7 +176,7 @@ function bindPerson(): void {
 export const personScreen: Screen = {
   title: 'Person', icon: 'people', help: 'person', every: 5,
   render() { return `<a class="backlink" href="#/people">${icon('back')} People</a><div id="xPage"><div class="skel tall"></div></div>`; },
-  async mount(arg) { if (Number(arg) !== pid) chat = []; pid = Number(arg); try { await loadPerson(); } catch (e) { setHtml('xPage', `<div class="empty">${esc(String(e))}</div>`); } },
+  async mount(arg) { if (Number(arg) !== pid) { chat = []; draft = ''; } pid = Number(arg); try { await loadPerson(); } catch (e) { setHtml('xPage', `<div class="empty">${esc(String(e))}</div>`); } },
   async refresh() {
     // Live tabs only: never while typing in a form.
     if (ptab !== 'overview' && ptab !== 'mind' && ptab !== 'events') return;

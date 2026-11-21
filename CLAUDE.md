@@ -175,6 +175,16 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   bag's materials first: Do `build` "what@angle"). Game menu > How to fight = the weapon guide from `WEAPONS` / recipes.
   Angles sent by the TV use the server's convention (0 = east). Server test "player buttons"; proof `node tools/buttons-proof.mjs`.
 
+## Sounds (imad 2026-11-20: "high quality, open source, no MIDI, with options")
+- Files: `docs/audio/` (CC0 Ogg Vorbis, mono one-shots, stereo loops; ids + credits in `manifest.json` / `CREDITS.md`), served by
+  Pages and the server's /app/. Engine `packages/client/src/audio.ts` (`Sound`: one Web Audio graph, decoded once after the first button
+  press, distance + left / right pan from the camera, 14 voices max, loops as streamed `<audio>`; unknown ids are silent).
+  Wiring in app.ts: footsteps by the tile under me (`STEP_OF`), answers from the server (`DID_SOUND`), zombie groans / attack and
+  animal calls from where they are (`nextCry`), hurt when my health drops, menu sounds (`Menu.onSound`), ambience by hour / map
+  and the nearest campfire (`ambience()`). Settings > Sound (`MyPC.save('sound')`: on, master, effects, ambience, menus).
+  Missing recordings: deer, wolf howl, sleep, voices, baby, laugh. Proof `node tools/sound-proof.mjs`.
+- Panel chat (imad 2026-11-20): the Talk box keeps what is typed while answers arrive (`draft`; `addChat` redraws only the messages).
+
 ## Control panel (imad 2026-11-20: "advanced, informative, '?' guides, responsive, hosted on GitHub")
 - Sources `packages/panel/src/` (no framework: `main.ts` shell + hash router, one `Screen` per page in `dashboard.ts`, `people.ts`,
   `screens.ts`; `help.ts` = every "?" text; `charts.ts` SVG charts; `livemap.ts` canvas map), built by `npm run build` into
