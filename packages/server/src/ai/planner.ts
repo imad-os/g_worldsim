@@ -12,6 +12,7 @@
  *  - Chat: the owner (panel) or a player (A next to someone on the TV) talks to a person; built-in lines when AI is off.
  * Planner code only uses `Ai`, never a provider directly.
  */
+import { Convo, smallTalk } from './convo.js';
 import { Act, Kind, RECIPES_ALL } from '@worldsim/protocol';
 import type { Ai } from './llm.js';
 import { parseJsonReply } from './llm.js';
@@ -123,6 +124,7 @@ export function agrees(text: string): boolean {
 export class Planner {
   cfg: PlannerConfig;
   readonly log: Exchange[] = [];
+  readonly convo = new Convo();
   readonly counts = { batches: 0, plans: 0, chats: 0, failures: 0, builtIn: 0 };
   private busy = false;
   private lastRunAt = 0;
@@ -132,6 +134,7 @@ export class Planner {
   constructor(private w: World, private ai: Ai, private logger: Logger, cfg?: Partial<PlannerConfig>) {
     this.cfg = { ...PLANNER_DEFAULTS, ...cfg };
     w.speak = (i, text) => this.say(i, text);
+    w.listeners.push((ev) => { if (ev.kind === 'talk') this.smallTalk(Number(ev.data.a), Number(ev.data.b)); });
     // Tasks (step plans) speak through the planner and end in memory.
     w.tasks.onSay = (i, text) => this.say(i, text);
     w.rules.onSay = (i, text) => this.say(i, text);
@@ -190,6 +193,17 @@ export class Planner {
   private feel(id: number, key: string, d: number): void {
     const m = this.mind(id);
     if (m) m.rel[key] = Math.max(-5, Math.min(5, (m.rel[key] ?? 0) + d));
+  }
+  /** Two people stop to talk: a short built-in exchange for the log (no AI call, no bubble). */
+  private smallTalk(a: number, b: number): void {
+    const w = this.w, e = w.e, ia = e.slot(a), ib = e.slot(b);
+    if (ia < 0 || ib < 0) return;
+    const night = (((w.gameSec / HOUR + 8) % 24) + 24) % 24; const dark = night < 5 || night >= 21;
+    const zom = w.zombies.count(e.map[ia]!) > 0;
+    const t = (i: number): Parameters<typeof smallTalk>[0] => { const p = w.profileOf(i); return { hunger: e.hunger[i]!, thirst: e.thirst[i]!, tired: e.tired[i]!, lonely: e.lonely[i]!, hp: e.hp[i]!, mood: p ? (this.mind(e.id(i))?.mood ?? '') : '', courage: p?.traits.courage ?? 0.5, empathy: p?.traits.empathy ?? 0.5, night: dark, zombies: !!zom }; };
+    const pick = (n: number) => w.rng.int(n);
+    this.convo.add(w.gameSec, a, b, smallTalk(t(ia), pick));
+    this.convo.add(w.gameSec + 1, b, a, smallTalk(t(ib), pick));
   }
   private name(id: number): string { return this.w.profiles.get(id)?.name ?? 'someone'; }
   /** Living people on map m (slots). */
@@ -407,6 +421,9 @@ export class Planner {
     for (let j = 0; j < e.hi; j++) {
       if (j !== i && e.kind[j] === Kind.Agent && e.map[j] === e.map[i] && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 12) this.note(e.id(j), `${this.name(id)} said: "${text}"`);
     }
+    let to = -1, best = 8;
+    for (let j = 0; j < e.hi; j++) if (j !== i && (e.kind[j] === Kind.Agent || w.isChar(j)) && e.map[j] === e.map[i]) { const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!); if (d < best) { best = d; to = e.id(j); } }
+    this.convo.add(w.gameSec, id, to, text);
     w.emit('say', { id, text, map: w.maps[e.map[i]!]?.def.id ?? '' });
     this.onSay(i, text);
   }
@@ -441,6 +458,7 @@ export class Planner {
     // The owner's strict rule (sim/rules.ts): they do not talk with that player at all, and no AI request is spent.
     const rule = player >= 0 ? w.rules.between(i, player, 'talk') : null;
     if (rule) { w.emit('rule', { id, rule, with: e.id(player) }); return { reply: '', ai: false, did: `rule: ${rule}` }; }
+    if (text) this.convo.add(w.gameSec, player >= 0 ? e.id(player) : owner ? -2 : -1, id, text);
     if (player >= 0 && !byHand) w.brain.listen(i, player, 30);
     const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
     const key = '@' + from;

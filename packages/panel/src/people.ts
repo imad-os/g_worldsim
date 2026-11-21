@@ -70,6 +70,7 @@ type Rule = { text: string; forbid: string[]; with: number; withName?: string; a
 const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
   : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
 type Detail = Person & { now: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
+type Say = { at: number; from: number; to: number; fromName: string; toName: string; text: string };
 let pid = -1, ptab = load('ptab', 'overview'), chat: [string, string][] = [];
 /** What is typed in the Talk box, kept while answers arrive and pages redraw (imad 2026-11-20: it emptied on every answer). */
 let draft = '';
@@ -83,7 +84,11 @@ const ORDERS: [string, string, boolean][] = [
   ['build a campfire', 'Build a campfire', false], ['build a hut', 'Build a hut', false], ['put a bed in a hut', 'Put a bed in a hut', false], ['put up a palisade', 'Put up a palisade', false],
   ['feed the fire', 'Feed the fire', false], ['collect food and store it', 'Collect food and store it', false], ['search the ruins', 'Search the ruins', false], ['plant a field', 'Plant a field', false], ['repair the huts', 'Repair the huts', false],
 ];
-const TABS: [string, string][] = [['overview', 'Overview'], ['mind', 'Mind'], ['talk', 'Talk & orders'], ['edit', 'Edit'], ['family', 'Family'], ['rules', 'Rules'], ['events', 'Events']];
+const convoHtml = (d: Detail & { talk?: Say[] }) => (d.talk ?? []).map((l) => {
+  const mine = l.from === d.id;
+  return `<div class="msg ${mine ? 'me' : ''}"><b>${esc(l.fromName)}${l.toName ? ' → ' + esc(l.toName) : ''}</b>${esc(l.text)} <small class="dim">${gameTime(l.at)}</small></div>`;
+}).join('') || '<div class="empty">Nobody has talked to them yet.</div>';
+const TABS: [string, string][] = [['overview', 'Overview'], ['mind', 'Mind'], ['talk', 'Talk & orders'], ['convo', 'Conversations'], ['edit', 'Edit'], ['family', 'Family'], ['rules', 'Rules'], ['events', 'Events']];
 
 function personHtml(d: Detail): string {
   const p = d.profile, mind = p.mind;
@@ -114,6 +119,7 @@ function personHtml(d: Detail): string {
     ${card('Give an order', `<label class="fld">What<select id="xOrd">${ORDERS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
       <label class="fld" id="xWhoF">Who<input id="xWho" list="xNames" placeholder="a name"><datalist id="xNames">${[...new Set(S.people.map((x) => x.name))].filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('')}</datalist></label>
       <button class="btn primary" id="xOrdGo">Do it</button>`, { help: help('pOrder') })}</div>`;
+  else if (ptab === 'convo') body = card('Conversations', `<div class="chat" id="xConvo">${convoHtml(d)}</div>`);
   else if (ptab === 'edit') body = card('Edit', `<div class="form">${[['name', d.name], ['personality', p.personality.join(', ')], ['hunger', d.hunger], ['thirst', d.thirst], ['tired', d.tired], ['lonely', d.lonely], ['hp', d.hp], ['carry', d.carry],
       ...Object.entries(p.traits).map(([k, v]) => [k, Math.round(v * 100) / 100])].map(([k, v]) => `<label class="fld">${esc(k)}<input data-k="${esc(k)}" value="${esc(v)}" ${typeof v === 'number' ? `type="number" step="${k === 'lifespan' ? 1 : ['hunger', 'thirst', 'tired', 'lonely', 'hp', 'carry'].includes(String(k)) ? 1 : 0.05}"` : ''}></label>`).join('')}</div>
       <button class="btn primary" id="xSave">Save changes</button>`, { help: help('pEdit') });
@@ -127,18 +133,29 @@ function personHtml(d: Detail): string {
 }
 
 let detail: Detail | null = null;
+/** Redraws the person page and keeps what the reader was doing: page scroll, tab bar scroll, scroll inside the chat boxes (imad 2026-11-21). */
+function redraw(): void {
+  if (!detail) return;
+  const sy = window.scrollY, ts = document.getElementById('xTabs')?.scrollLeft ?? 0;
+  const keep: Record<string, [number, boolean]> = {};
+  for (const id of ['xChat', 'xConvo']) { const c = document.getElementById(id); if (c) keep[id] = [c.scrollTop, c.scrollTop + c.clientHeight >= c.scrollHeight - 8]; }
+  setHtml('xPage', personHtml(detail));
+  bindPerson();
+  const t = document.getElementById('xTabs'); if (t) { t.scrollLeft = ts; if (!ts) t.querySelector<HTMLElement>('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' }); }
+  for (const id of ['xChat', 'xConvo']) { const c = document.getElementById(id); if (c) c.scrollTop = !keep[id] || keep[id]![1] ? c.scrollHeight : keep[id]![0]; }
+  window.scrollTo(0, sy);
+}
 async function loadPerson(): Promise<void> {
   if (!S.people.length) await people();
   detail = await cmd<Detail>({ cmd: 'agent', id: pid });
-  setHtml('xPage', personHtml(detail));
-  bindPerson();
+  redraw();
   if (ptab === 'rules') void loadRules();
 }
 /** After a chat or an order: what changed (married, divorced, a task...) is fetched again; the box being typed in is not redrawn. */
 async function touchPerson(): Promise<void> {
   try {
     detail = await cmd<Detail>({ cmd: 'agent', id: pid });
-    if (ptab === 'family' || ptab === 'overview' || ptab === 'mind') { setHtml('xPage', personHtml(detail)); bindPerson(); }
+    if (ptab === 'family' || ptab === 'overview' || ptab === 'mind' || ptab === 'convo') redraw();
   } catch { /* next time */ }
 }
 type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[] }[]; max: number };
@@ -157,7 +174,7 @@ function addChat(w: string, t: string): void {
 export function personSaid(id: number, name: string, text: string): void { if (id === pid) addChat(name, text); }
 
 function bindPerson(): void {
-  on('#xTabs button', 'click', (b) => { ptab = b.dataset.t!; save('ptab', ptab); if (detail) { setHtml('xPage', personHtml(detail)); bindPerson(); if (ptab === 'rules') void loadRules(); } });
+  on('#xTabs button', 'click', (b) => { ptab = b.dataset.t!; save('ptab', ptab); if (detail) { redraw(); window.scrollTo(0, 0); if (ptab === 'rules') void loadRules(); } });
   on('#xPlan', 'click', async (b) => { (b as HTMLButtonElement).disabled = true; b.textContent = 'Thinking…'; try { await cmd({ cmd: 'planNow', id: pid }, 120000); toast('New plan made', 'ok'); ptab = 'mind'; await loadPerson(); } catch (e) { toast(String(e), 'err'); (b as HTMLButtonElement).disabled = false; } });
   on('#xMove', 'click', async () => { try { await cmd({ cmd: 'agentMove', id: pid, map: 'town' }); toast('Moved to the town centre', 'ok'); void loadPerson(); } catch (e) { toast(String(e), 'err'); } });
   on('#xKill', 'click', async () => { if (!detail || !confirm(`Kill ${detail.name}? This can't be undone.`)) return; try { await cmd({ cmd: 'kill', id: pid }); toast(`${detail.name} was killed`, 'ok'); void loadPerson(); } catch (e) { toast(String(e), 'err'); } });
@@ -188,7 +205,7 @@ export const personScreen: Screen = {
   async mount(arg) { if (Number(arg) !== pid) { chat = []; draft = ''; } pid = Number(arg); try { await loadPerson(); } catch (e) { setHtml('xPage', `<div class="empty">${esc(String(e))}</div>`); } },
   async refresh() {
     // Live tabs only: never while typing in a form.
-    if (ptab !== 'overview' && ptab !== 'mind' && ptab !== 'events' && ptab !== 'family') return;
+    if (ptab !== 'overview' && ptab !== 'mind' && ptab !== 'events' && ptab !== 'family' && ptab !== 'convo') return;
     try { await loadPerson(); } catch { /* next time */ }
   },
 };
