@@ -303,7 +303,12 @@ export class Brain {
     if (asleep) { this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i), why: 'zombie' }); }
     const p = w.profileOf(i), v = w.survival.inv(i);
     const armed = w.survival.weapon(i)[1] > 0; void v;
-    const brave = (p?.traits.courage ?? 0.5) > (armed ? 0.3 : 0.55) && (armed || (p?.traits.strength ?? 0.5) > 0.6) && e.hp[i]! > 45 && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight');
+    // People defend themselves (imad 2026-11-21: "people can't attack"): bare hands count too; a friend already fighting it, or a rule-free
+    // person with some nerve, joins in. Only the very timid, the hurt and children run.
+    let allies = 0;
+    for (let j = 0; j < e.hi && allies < 2; j++) if (j !== i && e.kind[j] === Kind.Agent && e.act[j] === Act.Fight && e.target[j] === e.id(z) && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 14) allies++;
+    const nerve = (p?.traits.courage ?? 0.5) + (p?.traits.strength ?? 0.5) * 0.4 + (armed ? 0.25 : 0) + allies * 0.15;
+    const brave = (nerve > 0.62 || fighting) && e.hp[i]! > (fighting ? 30 : 45) && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight');
     const zx = e.x[z]!, zy = e.y[z]!, d = Math.hypot(zx - e.x[i]!, zy - e.y[i]!);
     if (brave) {
       if (!fighting) w.emit('fight', { id: e.id(i), zombie: e.id(z) });

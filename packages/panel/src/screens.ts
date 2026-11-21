@@ -73,7 +73,7 @@ export const world: Screen = {
 };
 
 // ------------------------------------------------------------ zombies & animals
-type Zs = { perNight: number; now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] };
+type Zs = { perNight: number; cfg: { hp: number; speed: number; bite: number; sight: number; smell: number }; now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] };
 const ANIMAL_INFO: [string, string, string, string][] = [
   ['Rabbit', '12', 'Runs away', '1 meat, 1 leather'], ['Deer', '40', 'Runs away', '3 meat, 2 leather'], ['Boar', '55', 'Fights back when hurt (bite 7)', '3 meat, 1 leather, 1 claw'],
   ['Wolf', '45', 'Bites at night or when hurt (bite 9)', '1 meat, 1 leather, 2 claws'], ['Bear', '120', 'Attacks within 5 m (bite 16)', '5 meat, 3 leather, 3 claws'],
@@ -84,6 +84,9 @@ export const zombies: Screen = {
     return `<div class="grid2">
     ${card('Zombies', `<div class="bignum" id="zNow">-</div>${row('Released each night at 21:00', `<input type="number" id="zNight" min="0" max="50" style="width:80px"> zombies`)}
       <button class="btn danger ghost" id="zClear">Remove all zombies</button>`, { help: help('zombies') })}
+    ${card('Zombie strength', `${row('Health', `<input type="number" id="zcHp" min="10" max="5000" style="width:90px"> hp`)}${row('Speed', `<input type="number" id="zcSpeed" min="0.2" max="6" step="0.05" style="width:90px"> m/s <small class="dim">(a walk is about 1.4)</small>`)}
+      ${row('Attack (bite)', `<input type="number" id="zcBite" min="0" max="200" style="width:90px"> damage`)}${row('Sight (chase)', `<input type="number" id="zcSight" min="3" max="80" style="width:90px"> m`)}${row('Smell (drift to people)', `<input type="number" id="zcSmell" min="10" max="400" style="width:90px"> m`)}
+      <div class="row"><button class="btn primary" id="zcSave">Save</button><button class="btn ghost" id="zcNow">Save and apply to zombies out now</button></div>`, { help: help('zStrength') })}
     ${card('Spawn now', `<div class="seg" id="zHow"><button data-h="near" class="on">Next to someone</button><button data-h="at">At a place</button></div>
       <div id="zNearF">${row('Next to', `<input id="zNear" list="zNames" placeholder="a name"><datalist id="zNames">${names()}</datalist>`)}${row('Distance', `<input type="number" id="zDist" min="2" max="60" value="8" style="width:80px"> m`)}</div>
       <div id="zAtF" hidden>${row('Map', `<select id="zMap">${mapOpts()}</select>`)}${row('x / y (empty = anywhere)', `<input type="number" id="zX" style="width:80px"> <input type="number" id="zY" style="width:80px">`)}</div>
@@ -105,6 +108,9 @@ export const zombies: Screen = {
     await people();
     setHtml('zNames', names());
     on('#zHow button', 'click', (b) => { for (const x of document.querySelectorAll('#zHow button')) x.classList.toggle('on', x === b); document.getElementById('zNearF')!.hidden = b.dataset.h !== 'near'; document.getElementById('zAtF')!.hidden = b.dataset.h !== 'at'; });
+    const cfgArgs = () => ({ hp: Number(val('zcHp')), speed: Number(val('zcSpeed')), bite: Number(val('zcBite')), sight: Number(val('zcSight')), smell: Number(val('zcSmell')) });
+    on('#zcSave', 'click', () => void cmd<Zs>({ cmd: 'zombies', cfg: cfgArgs() }).then((r) => { toast('Zombie strength saved (new zombies)', 'ok'); void this.refresh!(r as never); }, err));
+    on('#zcNow', 'click', () => void cmd<Zs>({ cmd: 'zombies', cfg: cfgArgs(), applyNow: true }).then((r) => { toast('Saved, and applied to the zombies out now', 'ok'); void this.refresh!(r as never); }, err));
     on('#zNight', 'change', (el) => void cmd<Zs>({ cmd: 'zombies', perNight: Number((el as HTMLInputElement).value) }).then((r) => { this.refresh!(r as never); toast('Zombies per night changed', 'ok'); }, err));
     const attackArgs = () => ({ map: val('paMap'), n: Number(val('paN') || 8), where: val('paWhere'), near: val('paNear'), stays: (document.getElementById('paStays') as HTMLInputElement).checked });
     on('#paWhere', 'change', () => { document.getElementById('paNearF')!.hidden = val('paWhere') !== 'near'; });
@@ -132,6 +138,10 @@ export const zombies: Screen = {
     const r = given ?? await cmd<Zs>({ cmd: 'zombies' });
     const n = document.getElementById('zNight') as HTMLInputElement | null;
     if (n && document.activeElement !== n) n.value = String(r.perNight);
+    for (const [id, v] of [['zcHp', r.cfg.hp], ['zcSpeed', r.cfg.speed], ['zcBite', r.cfg.bite], ['zcSight', r.cfg.sight], ['zcSmell', r.cfg.smell]] as const) {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (el && document.activeElement !== el) el.value = String(v);
+    }
     setHtml('zNow', `${r.now.length}<small>out now · ${r.perNight} each night</small>`);
     setHtml('zList', r.now.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th><th>Where</th><th>Health</th><th>Leaves</th></tr></thead><tbody>${r.now.map((z) => `<tr><td>${esc(z.map)}</td><td>(${z.x}, ${z.y})</td><td>${z.hp}</td><td>${z.stays ? 'stays until killed' : 'at dawn'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No zombie is out.</div>');
     // Animals: only the "now" numbers change (the boxes being typed in stay).

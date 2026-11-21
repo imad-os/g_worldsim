@@ -163,3 +163,26 @@ test('a leader hands out the work: doors on the huts and a wall round the camp w
   assert.ok(up >= 3, `wall pieces up: ${up}`);
   assert.ok(said.some((t) => /wall/.test(t)), 'the leader told everyone');
 });
+
+test('zombie numbers are the owner\'s; people with bare hands fight back instead of all running', () => {
+  const w = mk('fight-back');
+  w.populate();
+  const e = w.e, town = w.mapIndex.get('town')!;
+  w.zombies.setCfg({ hp: 200, speed: 2, bite: 3, sight: 30, smell: 50 });
+  const z = w.zombies.spawn(town, 40, 40, true);
+  assert.equal(e.hp[z], 200); assert.equal(e.speed[z], 2);
+  w.zombies.setCfg({ hp: 90 }, true);
+  assert.equal(e.hp[z], 90, 'applied to the zombie already out');
+  w.zombies.hit(z, 1000, -1);
+  // An ordinary unarmed person (courage + strength around the average) next to a zombie fights it.
+  const people: number[] = [];
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === town) people.push(i);
+  const a = people[0]!, p = w.profileOf(a)!;
+  p.traits.courage = 0.5; p.traits.strength = 0.5;
+  for (const i of people) if (i !== a) w.place(i, town, 20, 20);
+  const z2 = w.zombies.spawn(town, e.x[a]! + 6, e.y[a]!, true);
+  let fought = false;
+  for (let k = 0; k < 20 * 20 && e.alive(z2); k++) { for (const i of people) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; } w.step(); if (e.act[a] === Act.Fight) fought = true; }
+  assert.ok(fought, 'an average unarmed person fights');
+  assert.ok(!e.alive(z2) || e.hp[z2]! < 90, 'the zombie was hurt');
+});

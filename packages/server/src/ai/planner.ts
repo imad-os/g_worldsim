@@ -18,7 +18,7 @@ import { parseJsonReply } from './llm.js';
 import type { Logger } from '../log.js';
 import type { World, WorldEvent } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
-import { ageOf, type Mind } from '../sim/people.js';
+import { ageOf, levelOf, type Mind } from '../sim/people.js';
 import { SKILLS, thingOf, type Step } from '../sim/tasks.js';
 import { RULE_ACTS, type Rule } from '../sim/rules.js';
 
@@ -97,6 +97,13 @@ export function askedWork(text: string): { task: string; steps: Step[] } | null 
   if (/\b(stones?|rocks?|pierres?|piedras?)\b|حجر|حجارة/.test(t)) return { task: 'gather stone', steps: [{ do: 'gather', what: 'stone', times: 3 }] };
   return null;
 }
+/** "Go ask X to marry you" / "go divorce X" (en / fr / es / ar): which of the two and the words that may hold a name; null = neither. */
+export function askedToWedSomeone(text: string): 'marry' | 'divorce' | null {
+  const t = ' ' + text.toLowerCase() + ' ';
+  if (/divorc|طلاق|طلق/.test(t)) return 'divorce';
+  if (/(?<!\p{L})(marry|marriage|propose|wife|husband|épous\w*|mari(er|age)|casar\w*|boda|esposa|esposo)(?!\p{L})|تزوج|زواج|خطب/u.test(t)) return 'marry';
+  return null;
+}
 /** A proposal in the speaker's words (en / fr / es / ar). */
 export function askedMarry(text: string): boolean {
   const t = ' ' + text.toLowerCase() + ' ';
@@ -128,6 +135,14 @@ export class Planner {
     // Tasks (step plans) speak through the planner and end in memory.
     w.tasks.onSay = (i, text) => this.say(i, text);
     w.rules.onSay = (i, text) => this.say(i, text);
+    w.tasks.onAsk = async (a, b, what) => {
+      const e = w.e, ida = e.id(a), idb = e.id(b), pa = w.profiles.get(ida), pb = w.profiles.get(idb);
+      if (!pa || !pb) return 'they are not here';
+      const r = await this.chat(b, pa.name, what === 'marry' ? 'Will you marry me?' : 'I want a divorce.', a);
+      const now = w.profiles.get(ida);
+      if (what === 'marry') return now?.partner === idb ? 'ok' : `${pb.name} said no${r.reply ? `: "${r.reply}"` : ''}`;
+      return now && now.partner !== idb ? 'ok' : `${pb.name} would not divorce`;
+    };
     w.tasks.onEnd = (id, t, ok, why) => {
       this.note(id, ok ? `I did what ${t.from === 'owner' ? 'the voice from the sky' : t.from} asked: ${t.text}.` : `I could not ${t.text}: ${why}.`, true);
       const i = w.e.slot(id);
@@ -325,6 +340,8 @@ export class Planner {
     return [
       `Person: ${p.name} (${p.sex === 'f' ? 'woman' : 'man'}, ${Math.floor(ageOf(p, w.gameSec, w.yearSec))}; ${p.personality.join(', ')}; mood: ${mind.mood})`,
       `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${e.carry[i]} food. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
+      this.selfText(i),
+      this.familyText(i),
       `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
@@ -333,6 +350,33 @@ export class Planner {
       `Memory: ${mind.summary || 'nothing yet'}`,
       `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,
     ].join('\n');
+  }
+
+  /** What a person knows about themselves: their strengths (0-10), level, what they are doing, how they are armed and dressed. */
+  private selfText(i: number): string {
+    const w = this.w, id = w.e.id(i), p = w.profileOf(i)!, t = p.traits, k = (x: number) => Math.round(x * 10);
+    const wp = w.survival.weapon(i), goal = w.tasks.describe(id);
+    return `Stats (0-10): strength ${k(t.strength)}, speed ${k(t.speed)}, courage ${k(t.courage)}, intelligence ${k(t.intelligence)}, kindness ${k(t.empathy)}. Level ${levelOf(p.xp)} (${p.xp ?? 0} xp).`
+      + ` Weapon: ${wp[1] > 0 ? wp[0] : 'bare hands'}. Defence ${Math.round(w.survival.defence(i) * 100)}%.${goal ? ` Working on: ${goal}.` : ''}`;
+  }
+  /** Family: married or single, children, parents, brothers and sisters, a baby on the way (they must know it to talk about it). */
+  private familyText(i: number): string {
+    const w = this.w, e = w.e, id = e.id(i), p = w.profileOf(i)!, now = w.gameSec, y = w.yearSec;
+    const live = (pid: number) => { const q = w.profiles.get(pid); return !!q && q.died === undefined; };
+    const nameAge = (pid: number) => { const q = w.profiles.get(pid); return q ? `${q.name} (${Math.floor(ageOf(q, q.died ?? now, y))}${q.died !== undefined ? ', died' : ''})` : 'someone'; };
+    const kids = [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => cid);
+    const sibs = [...w.profiles].filter(([sid, q]) => sid !== id && q.parents.length && q.parents.some((x) => p.parents.includes(x))).map(([sid]) => sid);
+    const partner = p.partner >= 0 ? w.profiles.get(p.partner) : undefined;
+    const parts = [
+      partner ? `Married to ${partner.name}${live(p.partner) ? '' : ' (dead)'}.` : 'Single: no partner.',
+      kids.length ? `Children: ${kids.map(nameAge).join(', ')}.` : 'No children.',
+      p.parents.length ? `Parents: ${p.parents.map(nameAge).join(' and ')}.` : 'Parents: unknown (born before the town).',
+      ...(sibs.length ? [`Brothers and sisters: ${sibs.map(nameAge).join(', ')}.`] : []),
+      ...(p.pregnant ? ['You are expecting a baby.'] : []),
+      ...(partner?.pregnant && p.sex === 'm' ? [`${partner.name} is expecting your baby.`] : []),
+    ];
+    void e;
+    return `Family: ${parts.join(' ')}`;
   }
 
  private invText(i: number): string {
@@ -402,7 +446,7 @@ export class Planner {
     const key = '@' + from;
     let reply = '', usedAi = false, doRaw = '', target = '', planRaw: unknown[] | null = null, taskText = '';
     // Marriage and divorce by words (imad 2026-11-20): only between a player's character and the person spoken to.
-    const sid = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
+    const sid = player >= 0 && w.profileOf(player) ? e.id(player) : -1; // a player's character or a person sent to ask
     const sp = sid >= 0 ? w.profiles.get(sid) : undefined;
     const proposal = !!text && !!sp && askedMarry(text), wantsDivorce = !!text && !!sp && !proposal && askedDivorce(text) && (p.partner === sid || sp.partner === id);
     const canWed = proposal ? w.life.canMarry(sid, id) : false;
@@ -424,7 +468,7 @@ export class Planner {
         + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","marry":true or false (only when asked to marry),"do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty",'
         + '"task":"short name of what you will do, or empty","plan":[steps, or empty]}. When you agree to something that takes several steps, write "plan": '
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
-        + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (ask them to be your partner), child {} (have a baby with your partner), '
+        + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (get to know them as a partner), marry {"who"} (walk to them and ask them to marry you: they answer for themselves), divorce {"who"} (walk to them and say you want a divorce; empty = your partner), child {} (have a baby with your partner), '
         + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
         + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
         + 'craft {"what": "axe" | "spear" | "sword" | "bow" | "arrows" | "clothes" | "armor" | "helmet"}, '
@@ -435,6 +479,8 @@ export class Planner {
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
         + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'
         + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}. '
+        + 'Example for "go ask Sara to marry you": {"say":"I\'ll go and ask her.","task":"ask Sara to marry me","plan":[{"do":"marry","who":"Sara"}]}. '
+        + 'Example for "divorce him": {"say":"It is time.","task":"divorce","plan":[{"do":"divorce","who":"found"}]}. '
         + 'Example for "collect food and store it": {"say":"I\'ll fill the store.","task":"stock the store","plan":[{"do":"collect","what":"food","times":4},{"do":"store","what":"food"}]}. '
         + 'Example for "build us a house": {"say":"Good idea, I\'ll get wood.","task":"build a hut","plan":[{"do":"build","what":"hut"}]}';
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
@@ -492,6 +538,16 @@ export class Planner {
     let steps = planRaw ? this.toSteps(i, planRaw, player) : [];
     const work = text && !steps.length && (!doRaw || doRaw === 'nothing') ? askedWork(text) : null;
     if (work && (owner || agreed || !usedAi)) { steps = work.steps; if (!taskText) taskText = work.task; }
+    // "Go ask Sara to marry you" / "divorce her": the words are enough when a small model gave no plan.
+    if (!steps.length && !byHand && text && !proposal && !wantsDivorce && (owner || agreed || !usedAi)) {
+      const wed = askedToWedSomeone(text);
+      if (wed) {
+        let who = -1;
+        for (const wd of text.match(/\p{L}[\p{L}'-]*/gu) ?? []) { const x = this.whoIs(wd, id); if (x >= 0 && x !== sid) { who = x; break; } }
+        if (wed === 'divorce' && who < 0 && p.partner >= 0) who = p.partner;
+        if (who >= 0) { steps = [{ do: wed, who }]; if (!taskText) taskText = `${wed === 'marry' ? 'ask' : 'divorce'} ${this.nameOfId(who)}${wed === 'marry' ? ' to marry me' : ''}`; }
+      }
+    }
     let did = '';
     if (steps.length >= 1 && (steps.length > 1 || !doRaw || !['come', 'follow', 'goto', 'bring', 'stay', 'stop'].includes(doRaw))) {
       const what = (taskText || (text ?? '') || steps.map((x) => x.do).join(', ')).slice(0, 100);
@@ -509,6 +565,7 @@ export class Planner {
 
   /** The model's plan as steps the engine runs (names -> people; unknown skills dropped). */
   private toSteps(i: number, raw: unknown[], player: number): Step[] {
+    const whoRawOf = (o: Record<string, unknown>) => String(o.who ?? o.with ?? o.target ?? '').trim();
     const e = this.w.e, id = i >= 0 ? e.id(i) : -1, speaker = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
     const out: Step[] = [];
     let found = -1, foundStep: Step | null = null;
@@ -516,12 +573,13 @@ export class Planner {
       if (!r || typeof r !== 'object') continue;
       const o = r as Record<string, unknown>;
       let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
-      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'court', ask_partner: 'court', propose: 'court', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', mine: 'gather', dig: 'gather', hunting: 'hunt', kill: 'hunt', shoot: 'hunt', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
+      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'marry', wed: 'marry', propose: 'marry', ask_to_marry: 'marry', get_married: 'marry', ask_partner: 'court', end_marriage: 'divorce', split: 'divorce', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', mine: 'gather', dig: 'gather', hunting: 'hunt', kill: 'hunt', shoot: 'hunt', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
         pick: 'collect', pick_up: 'collect', pickup: 'collect', stock: 'store', deposit: 'store', put: 'store', stash: 'store', scavenge: 'loot',
         plant: 'farm', grow: 'farm', fix: 'repair', mend: 'repair', treat: 'heal', bandage: 'heal', exchange: 'trade', swap: 'trade', withdraw: 'take' } as Record<string, string>)[d] ?? d;
       if (!(SKILLS as readonly string[]).includes(d)) continue;
       const st: Step = { do: d };
       const whoRaw = String(o.who ?? o.with ?? o.target ?? (o.do === 'come' ? 'me' : '')).trim();
+      if (d === 'divorce' && !whoRawOf(o)) { const pt = this.w.profileOf(i)?.partner ?? -1; if (pt >= 0) { st.who = pt; out.push(st); continue; } }
       if (d === 'give' || d === 'trade' || d === 'collect' || d === 'store' || d === 'take') st.what = String(o.what ?? o.item ?? (d === 'collect' || d === 'store' || d === 'take' ? 'food' : '')).slice(0, 40);
       if (d === 'trade') st.text = String(o.get ?? o.for ?? 'food').slice(0, 40);
       if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build' || d === 'hunt') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
@@ -534,7 +592,7 @@ export class Planner {
       if (typeof o.times === 'number') st.times = Math.max(1, Math.min(d === 'gather' ? 12 : d === 'collect' || d === 'loot' ? 8 : d === 'take' ? 5 : 4, Math.round(o.times)));
       if (typeof o.minutes === 'number') st.minutes = Math.max(5, Math.min(600, Math.round(o.minutes)));
       if (d === 'say') st.text = String(o.text ?? o.say ?? '').slice(0, 200);
-      if ((d === 'goto' || d === 'follow' || d === 'talk' || d === 'court' || d === 'bring' || d === 'give' || d === 'heal' || d === 'trade') && (st.who === undefined || st.who === -1)) continue; // nobody to do it with
+      if ((d === 'goto' || d === 'follow' || d === 'talk' || d === 'court' || d === 'marry' || d === 'divorce' || d === 'bring' || d === 'give' || d === 'heal' || d === 'trade') && (st.who === undefined || st.who === -1)) continue; // nobody to do it with
       out.push(st);
       if (d === 'find') { foundStep = st; found = -2; }
     }

@@ -290,3 +290,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `agent`, `agentSet` (stats / needs / traits), `agentMove`, `chat` (talk), `rules` accept a character of kind Player or Agent
   (`agentInfo` carries `player`, `auto`, `manual`, `online`). A character played by hand (Kind.Player: online or asleep away) answers
   chat but is not driven: `order` / `planNow` say so; chat orders and plans apply only on autopilot (watch mode or its own `auto`).
+
+## Zombie numbers, fighting back, follow me, family in prompts, marry / divorce on order (imad 2026-11-21)
+- `Zombies.cfg` { hp 120, speed 1.15, bite 8, sight 16, smell 120 } (`ZOMBIE_DEFAULTS`, meta `zombie_cfg`), panel Zombies & animals > Zombie strength
+  (admin `zombies { cfg, applyNow }`; applyNow also sets the zombies already out). Unarmed people fight back: `Brain.danger` nerve =
+  courage + strength x 0.4 + 0.25 armed + 0.15 per friend already fighting it (> 0.62 fights; before, only armed or strong AND brave did, and
+  nobody was); bare hands hit 12.
+- Watch mode: menu row "Follow my character" (`followMe`, also done on switching to watch).
+- `Planner.describe` now has `selfText` (stats 0-10, level, weapon, defence, current work) and `familyText` (married to / single, children,
+  parents, siblings, expecting). Keep both in every prompt about a person.
+- Task skills `marry { who }` / `divorce { who }` (`sim/tasks.ts`): walk to them, say it, `Tasks.onAsk` -> `Planner.chat(them, askerName, 'Will you
+  marry me?' / 'I want a divorce.', askerSlot)`: THEIR answer decides (`Life.wed` / `divorce` keep the rules); the step fails with their reply
+  when they say no. Chat plans use them ("go ask Lina to marry you"; `askedToWedSomeone` is the net for small models). `chat()` accepts any
+  profiled speaker (an agent sent to ask is a speaker too). Manual: person page rows Propose marriage / Ask for a divorce (Do `marry` / `divorce`,
+  text = entity id, within 10 m). Test planner.test "go ask her to marry you".

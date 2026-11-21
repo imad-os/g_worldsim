@@ -26,7 +26,7 @@ export const T5 = {
     meHut: 'Build a hut here (12 wood, 4 stone)', built: 'Hut built.', needHut: 'A hut needs 12 wood and 4 stone.',
     mePartner: 'Partner', meChildren: 'Children', meNone: 'none yet', meExpecting: 'A baby is coming in {0} hours.', meTraits: 'Strength {0} · Speed {1} · Mind {2} · Courage {3} · Kindness {4}',
     meHp: 'Health {0}', meGoals: 'Done lately',
-    askPartner: 'Ask to be my partner', tryChild: 'Try for a child', partners: '{0} said yes: you are partners now.', expecting: 'A baby is on the way!', tooFar: 'Get closer first.',
+    askPartner: 'Ask to be my partner', askMarry: 'Propose marriage', askDivorce: 'Ask for a divorce', askingMarry: 'You ask {0} to marry you…', askingDivorce: 'You tell {0} you want a divorce…', tryChild: 'Try for a child', partners: '{0} said yes: you are partners now.', expecting: 'A baby is on the way!', tooFar: 'Get closer first.',
   },
   fr: {
     married: 'Vous êtes maintenant marié(e) avec {0} !', divorced: 'Vous avez divorcé de {0}.',
@@ -54,7 +54,7 @@ export const T5 = {
     meHut: 'Construire une cabane ici (12 bois, 4 pierres)', built: 'Cabane construite.', needHut: 'Une cabane demande 12 bois et 4 pierres.',
     mePartner: 'Partenaire', meChildren: 'Enfants', meNone: 'pas encore', meExpecting: 'Un bébé arrive dans {0} heures.', meTraits: 'Force {0} · Vitesse {1} · Esprit {2} · Courage {3} · Gentillesse {4}',
     meHp: 'Santé {0}', meGoals: 'Fait récemment',
-    askPartner: 'Demander d’être mon partenaire', tryChild: 'Essayer d’avoir un enfant', partners: '{0} a dit oui : vous êtes partenaires.', expecting: 'Un bébé est en route !', tooFar: 'Approchez-vous d’abord.',
+    askPartner: 'Demander d’être mon partenaire', askMarry: 'Demander en mariage', askDivorce: 'Demander le divorce', askingMarry: 'Vous demandez à {0} de vous épouser…', askingDivorce: 'Vous dites à {0} que vous voulez divorcer…', tryChild: 'Essayer d’avoir un enfant', partners: '{0} a dit oui : vous êtes partenaires.', expecting: 'Un bébé est en route !', tooFar: 'Approchez-vous d’abord.',
   },
   es: {
     married: '¡Ahora estás casado/a con {0}!', divorced: 'Te has divorciado de {0}.',
@@ -82,7 +82,7 @@ export const T5 = {
     meHut: 'Construir una cabaña aquí (12 madera, 4 piedra)', built: 'Cabaña construida.', needHut: 'Una cabaña necesita 12 de madera y 4 de piedra.',
     mePartner: 'Pareja', meChildren: 'Hijos', meNone: 'todavía no', meExpecting: 'Un bebé llega en {0} horas.', meTraits: 'Fuerza {0} · Velocidad {1} · Mente {2} · Valor {3} · Bondad {4}',
     meHp: 'Salud {0}', meGoals: 'Hecho hace poco',
-    askPartner: 'Pedir que sea mi pareja', tryChild: 'Intentar tener un hijo', partners: '{0} dijo que sí: ahora sois pareja.', expecting: '¡Viene un bebé!', tooFar: 'Acércate primero.',
+    askPartner: 'Pedir que sea mi pareja', askMarry: 'Proponer matrimonio', askDivorce: 'Pedir el divorcio', askingMarry: 'Le pides a {0} que se case contigo…', askingDivorce: 'Le dices a {0} que quieres divorciarte…', tryChild: 'Intentar tener un hijo', partners: '{0} dijo que sí: ahora sois pareja.', expecting: '¡Viene un bebé!', tooFar: 'Acércate primero.',
   },
   ar: {
     married: 'أنت و{0} متزوجان الآن!', divorced: 'أنت و{0} مطلقان الآن.',
@@ -110,6 +110,6 @@ export const T5 = {
     meHut: 'بناء كوخ هنا (12 خشب، 4 حجارة)', built: 'تم بناء الكوخ.', needHut: 'الكوخ يحتاج 12 خشبًا و4 حجارة.',
     mePartner: 'الشريك', meChildren: 'الأطفال', meNone: 'لا أحد بعد', meExpecting: 'طفل قادم بعد {0} ساعات.', meTraits: 'القوة {0} · السرعة {1} · العقل {2} · الشجاعة {3} · اللطف {4}',
     meHp: 'الصحة {0}', meGoals: 'أُنجز مؤخرًا',
-    askPartner: 'اطلب أن يكون شريكي', tryChild: 'محاولة إنجاب طفل', partners: '{0} وافق: أنتما شريكان الآن.', expecting: 'طفل في الطريق!', tooFar: 'اقترب أولًا.',
+    askPartner: 'اطلب أن يكون شريكي', askMarry: 'طلب الزواج', askDivorce: 'طلب الطلاق', askingMarry: 'تطلب من {0} أن يتزوجك…', askingDivorce: 'تخبر {0} أنك تريد الطلاق…', tryChild: 'محاولة إنجاب طفل', partners: '{0} وافق: أنتما شريكان الآن.', expecting: 'طفل في الطريق!', tooFar: 'اقترب أولًا.',
   },
 };

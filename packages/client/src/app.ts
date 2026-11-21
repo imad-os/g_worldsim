@@ -640,6 +640,14 @@ function zoomBy(f: number): void {
   MyPC.save('dist', g3.dist);
 }
 
+/** Watch mode: the camera follows my own character (it is on autopilot meanwhile), on whatever map it is. */
+function followMe(): void {
+  if (meId < 0) return;
+  if (!meTransit && meTo && meTo !== map) setMap(meTo);
+  follow = meId; followSeen = performance.now(); snapCam = true;
+  sendView();
+  MyPC.announce?.(t('followingMe'));
+}
 function followNext(): void {
   let best = -1, bestD = Infinity, after = -1, afterD = Infinity;
   const cur = follow >= 0 ? slotOf.get(follow) ?? -1 : -1;
@@ -686,7 +694,8 @@ function setHow(h: typeof how): void {
   updateHints();
   if (h === 'play') { send({ t: Msg.Join }); predOk = false; snapCam = true; }
   else {
-    send({ t: Msg.Join, watch: true }); // my character goes on autopilot while I watch
+    send({ t: Msg.Join, watch: true }); // my character goes on autopilot while I watch; the camera stays on it
+    if (meId >= 0) window.setTimeout(followMe, 400);
     send({ t: Msg.Input, mx: 0, my: 0, run: false, seq: ++seq });
     const s = meSlot();
     if (s >= 0) { camX = nx[s]!; camY = ny[s]!; }
@@ -878,7 +887,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 180); }
   else if (DID_SOUND[d.code]) sound.play(DID_SOUND[d.code]!, undefined, undefined, d.code === 'zKilled' ? 0.9 : 1);
   if (d.code === 'chopped' && (d as { got?: Record<string, number> }).got?.wood && Math.random() < 0.25) sound.play('tree_fall', undefined, undefined, 0.6);
-  const dm = d as typeof d & { me?: MeChar; days?: number; why?: string };
+  const dm = d as typeof d & { me?: MeChar; days?: number; why?: string; what?: string };
   if (dm.me) {
     meChar = dm.me;
     if (menu.open && (menu.page === 'me' || menu.page === 'rules' || menu.page === 'look')) menu.refresh();
@@ -892,6 +901,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'sexWeek') { note(tf('sexWeek', String(dm.days ?? 7)), 3500); return; }
   if (d.code === 'partners') { note(tf('partners', d.name ?? ''), 4000); return; }
   if (d.code === 'married' || d.code === 'divorced') { note(tf(d.code, d.name ?? ''), 6000); if (menu.open && menu.page === 'me') send({ t: Msg.Do, a: 'mine' }); return; }
+  if (d.code === 'asking') { note(tf(dm.what === 'divorce' ? 'askingDivorce' : 'askingMarry', d.name ?? ''), 4000); return; }
   if (d.code === 'why') { note(dm.why ?? '', 4000); return; }
   if (d.code === 'replays') { past = d.list as never; if (menu.page === 'past') menu.refresh(); return; }
   if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }
@@ -958,7 +968,7 @@ function buildPage(id: string): Page {
       rows.push({ id: 'resume', label: t('mResume') });
       if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'bag', label: t('mBag'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
-      if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
+      if (how === 'watch') rows.push(...(meId >= 0 ? [{ id: 'mine', label: t('mFollowMe') }] : []), { id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
       rows.push({ id: 'how', label: t(how === 'play' ? 'mWatch' : 'mPlay') });
       rows.push({ id: 'settings', label: t('mSettings'), sub: true }, { id: 'controls', label: t('mControls'), sub: true });
@@ -1066,8 +1076,8 @@ function buildPage(id: string): Page {
     case 'person': {
       rows.push({ id: 'back', label: t('mBack') });
       if (how === 'play' && info && info.id === infoFor) {
-        if (meChar?.partner?.id === info.id) rows.push({ id: 'child', label: t('tryChild') });
-        else if (!meChar?.partner) rows.push({ id: 'court', label: t('askPartner') });
+        if (meChar?.partner?.id === info.id) rows.push({ id: 'child', label: t('tryChild') }, { id: 'divorce', label: t('askDivorce') });
+        else if (!meChar?.partner) rows.push({ id: 'court', label: t('askPartner') }, { id: 'marry', label: t('askMarry') });
       }
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') });
       return { id, title: info?.name ?? t('mPerson'), rows, wide: true, html: info && info.id === infoFor ? personHtml(info, actName, true) : '…' };
@@ -1108,6 +1118,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'me') { send({ t: Msg.Do, a: 'mine' }); menu.push('me'); }
     else if (row === 'goto') { roster = null; send({ t: Msg.Do, a: 'roster' }); menu.push('goto'); }
     else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
+    else if (row === 'mine') { menu.close(); followMe(); }
     else if (row === 'next') { menu.close(); followNext(); }
     else if (row === 'map') { menu.close(); nextMap(); }
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
@@ -1168,6 +1179,7 @@ function pickRow(page: string, row: string): void {
   else if (page === 'person') {
     if (row === 'back') menu.back();
     else if (row === 'court') send({ t: Msg.Do, a: 'court', text: String(info?.id ?? -1) });
+    else if (row === 'marry' || row === 'divorce') { send({ t: Msg.Do, a: row, text: String(info?.id ?? -1) }); menu.close(); }
     else if (row === 'child') send({ t: Msg.Do, a: 'child' });
     else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
   } else if (page === 'settings') {

@@ -103,6 +103,7 @@ export class App {
     }
     // Owner settings kept in the database: travel between maps, and the population size of the scenario.
     this.world.travelOpen = this.db.getMeta('travel_open') === '1';
+    { const z = this.db.getMeta('zombie_cfg'); if (z) { try { this.world.zombies.setCfg(JSON.parse(z) as never); } catch { /* defaults */ } } }
     { const z = this.db.getMeta('zombies_night'); if (z !== null && z !== undefined) this.world.zombies.perNight = Number(z) || 0; }
     { const z = this.db.getMeta('zombie_plans'); if (z) { try { this.world.zombies.plans = JSON.parse(z) as AttackPlan[]; } catch { /* broken: none */ } } }
     this.world.zombies.onPlans = () => this.db.setMeta('zombie_plans', JSON.stringify(this.world.zombies.plans));
@@ -567,6 +568,16 @@ export class App {
         const r = w.life.court(e.id(player), e.id(t));
         return r === true ? { ...mine(), code: 'partners', name: this.nameOf(e.id(t)) } : { ok: false, code: 'why', why: r };
       }
+      case 'marry': case 'divorce': { // by hand (imad 2026-11-21): ask the person next to me; their own answer decides
+        if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
+        const t = e.slot(Number(text));
+        if (t < 0 || e.kind[t] !== Kind.Agent || e.map[t] !== e.map[player] || Math.hypot(e.x[t]! - e.x[player]!, e.y[t]! - e.y[player]!) > 10) return { ok: false, code: 'tooFar' };
+        const ida = e.id(player), idb = e.id(t);
+        const why = a === 'marry' ? w.life.canMarry(ida, idb) : (w.profiles.get(ida)?.partner === idb ? true : 'we are not married');
+        if (why !== true) return { ok: false, code: 'why', why };
+        void this.planner.chat(t, w.profileOf(player)?.name ?? name, a === 'marry' ? 'Will you marry me?' : 'I want a divorce.', player).catch(() => {});
+        return { ok: true, code: 'asking', name: this.nameOf(idb), what: a };
+      }
       case 'hut': {
         if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
         const c = w.survival.playerHut(player);
@@ -956,10 +967,16 @@ export class App {
       }
       case 'zombies': { // the owner's zombie controls: how many each night; the ones out now
         if (c.perNight !== undefined) { w.zombies.perNight = num(c.perNight, 0, 50, 'perNight'); this.db.setMeta('zombies_night', String(w.zombies.perNight)); }
+        if (c.cfg && typeof c.cfg === 'object') {
+          const k = c.cfg as Record<string, unknown>, z = w.zombies.cfg;
+          w.zombies.setCfg({ hp: k.hp !== undefined ? num(k.hp, 10, 5000, 'health') : z.hp, speed: k.speed !== undefined ? num(k.speed, 0.2, 6, 'speed') : z.speed,
+            bite: k.bite !== undefined ? num(k.bite, 0, 200, 'attack') : z.bite, sight: k.sight !== undefined ? num(k.sight, 3, 80, 'sight') : z.sight, smell: k.smell !== undefined ? num(k.smell, 10, 400, 'smell') : z.smell }, c.applyNow === true);
+          this.db.setMeta('zombie_cfg', JSON.stringify(w.zombies.cfg));
+        }
         if (c.clear) w.zombies.clear();
         const now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] = [];
         for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Threat && w.e.map[i] !== NO_MAP) now.push({ id: w.e.id(i), map: w.maps[w.e.map[i]!]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!), hp: Math.round(w.e.hp[i]!), stays: w.e.sub[i] === 1 });
-        return { perNight: w.zombies.perNight, now };
+        return { perNight: w.zombies.perNight, cfg: w.zombies.cfg, now };
       }
       case 'animals': {
         if (c.map !== undefined && (c.want !== undefined || c.fill)) {

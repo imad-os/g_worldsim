@@ -12,7 +12,10 @@ import type { World } from './world.js';
  */
 /** What zombies claw through to get at people. */
 const CLAW = new Set(['woodwall', 'wall', 'crate', 'palisade', 'spikes', 'stonewall', 'door', 'window', 'lamp', 'bed']);
-const SIGHT = 16, FIRE_SAFE = 5, SPEED = 1.15, HP = 60, BITE = 8, EVERY = 5;
+const FIRE_SAFE = 5, EVERY = 5;
+/** The owner's zombie numbers (panel, meta `zombie_cfg`): health, walking speed (m/s), bite damage, sight (chase) and smell (drift towards people) distance in metres. */
+export interface ZombieCfg { hp: number; speed: number; bite: number; sight: number; smell: number }
+export const ZOMBIE_DEFAULTS: ZombieCfg = { hp: 120, speed: 1.15, bite: 8, sight: 16, smell: 120 };
 export const NIGHT_HOUR = 21, DAWN_HOUR = 6;
 
 /** A zombie attack the owner planned (panel): when, where, how many; `daily` = again every day at that time. */
@@ -21,6 +24,7 @@ export interface AttackPlan { id: number; at: number; map: string; n: number; wh
 export class Zombies {
   /** Released at random each night (owner setting, meta `zombies_night`). */
   perNight = 0;
+  cfg: ZombieCfg = { ...ZOMBIE_DEFAULTS };
   /** Planned attacks (meta `zombie_plans`), soonest first. */
   plans: AttackPlan[] = [];
   /** A plan ran or changed: the app saves them. */
@@ -29,6 +33,14 @@ export class Zombies {
   private readonly cool = new Map<number, number>(); // entity id -> next game second it may bite / hit
   private readonly wander = new Map<number, number>();
   constructor(private w: World) {}
+
+  /** Change the numbers (checked by the caller); `now` also sets every zombie out now to the new health and speed. */
+  setCfg(c: Partial<ZombieCfg>, now = false): void {
+    const e = this.w.e;
+    this.cfg = { ...this.cfg, ...c };
+    if (!now) return;
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Threat) { e.hp[i] = this.cfg.hp; e.speed[i] = this.cfg.speed; }
+  }
 
   count(m = -1): number {
     const e = this.w.e;
@@ -44,7 +56,7 @@ export class Zombies {
     if (!s) return -1;
     const i = e.create(Kind.Threat, m, s.x, s.y, w.sc.agents.radius);
     if (i < 0) return -1;
-    e.hp[i] = HP; e.sub[i] = stays ? 1 : 0; e.speed[i] = SPEED; e.tx[i] = s.x; e.ty[i] = s.y; e.act[i] = Act.Wander;
+    e.hp[i] = this.cfg.hp; e.sub[i] = stays ? 1 : 0; e.speed[i] = this.cfg.speed; e.tx[i] = s.x; e.ty[i] = s.y; e.act[i] = Act.Wander;
     w.bodies[i] = w.maps[m]!.phys.createAgentBody(i, s.x, s.y, w.sc.agents.radius);
     w.emit('zombie', { id: e.id(i), map: w.maps[m]!.def.id, x: Math.round(s.x), y: Math.round(s.y), how: stays ? 'spawned' : 'night' });
     return i;
@@ -113,7 +125,7 @@ export class Zombies {
       k++;
       // They come straight in: towards the one named, the camp, or the middle of the map.
       const tx = cx >= 0 ? cx : camp ? camp.x : def.w / 2, ty = cx >= 0 ? cy : camp ? camp.y : def.h / 2;
-      e.tx[i] = tx; e.ty[i] = ty; e.speed[i] = SPEED;
+      e.tx[i] = tx; e.ty[i] = ty; e.speed[i] = this.cfg.speed;
       this.wander.set(e.id(i), w.gameSec + 40 * w.opt.clockScale);
     }
     if (k) w.emit('zombies', { map: def.id, n: k, attack: true, where: p.where, near: p.near ?? '' });
@@ -185,7 +197,7 @@ export class Zombies {
         if (e.hp[i]! <= 0) { w.emit('zombie', { id, map: w.maps[m]!.def.id, how: 'dawn' }); w.remove(i, 'dawn'); continue; }
       }
       // The nearest person it can go for.
-      let t = -1, td = SIGHT;
+      let t = -1, td = this.cfg.sight;
       for (let j = 0; j < e.hi; j++) {
         if ((e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.map[j] !== m) continue;
         const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
@@ -202,7 +214,7 @@ export class Zombies {
       }
       if (t >= 0) {
         e.tx[i] = e.x[i]! + (e.x[t]! - e.x[i]!) * 1.05; e.ty[i] = e.y[i]! + (e.y[t]! - e.y[i]!) * 1.05;
-        e.act[i] = Act.Fight; e.target[i] = e.id(t); e.speed[i] = SPEED;
+        e.act[i] = Act.Fight; e.target[i] = e.id(t); e.speed[i] = this.cfg.speed;
         if (td <= 1.05 && (this.cool.get(id) ?? 0) <= now) { // bite
           this.cool.set(id, now + 1.2 * w.opt.clockScale);
           this.bite(i, t);
@@ -212,13 +224,13 @@ export class Zombies {
         if ((this.wander.get(id) ?? 0) <= now || Math.hypot(e.tx[i]! - e.x[i]!, e.ty[i]! - e.y[i]!) < 0.4) {
           this.wander.set(id, now + (5 + w.rng.next() * 8) * w.opt.clockScale);
           // They smell people: drift towards the nearest one within 120 m (a wide, wandering approach).
-          let sx = 0, sy = 0, sd = 120;
+          let sx = 0, sy = 0, sd = this.cfg.smell;
           for (let j = 0; j < e.hi; j++) {
             if ((e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.map[j] !== m || !this.prey(j)) continue;
             const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
             if (d < sd) { sd = d; sx = (e.x[j]! - e.x[i]!) / d; sy = (e.y[j]! - e.y[i]!) / d; }
           }
-          e.tx[i] = e.x[i]! + sx * 8 + w.rng.range(-6, 6); e.ty[i] = e.y[i]! + sy * 8 + w.rng.range(-6, 6); e.speed[i] = SPEED * 0.7;
+          e.tx[i] = e.x[i]! + sx * 8 + w.rng.range(-6, 6); e.ty[i] = e.y[i]! + sy * 8 + w.rng.range(-6, 6); e.speed[i] = this.cfg.speed * 0.7;
         }
       }
     }
@@ -238,13 +250,13 @@ export class Zombies {
   /** How hard person j hits: the best weapon (sword 34, spear 30, axe 22), bare hands 9 (players 15); strength adds up to 40 %. */
   damageOf(j: number): number {
     const w = this.w, wp = w.survival.weapon(j)[1], str = w.profileOf(j)?.traits.strength ?? 0.5;
-    return (wp || (w.e.kind[j] === Kind.Player ? 15 : 9)) * (0.8 + str * 0.4);
+    return (wp || (w.e.kind[j] === Kind.Player ? 15 : 12)) * (0.8 + str * 0.4);
   }
 
   private bite(i: number, t: number): void {
     const w = this.w, e = w.e;
     const sleeping = (e.flags[t]! & EFlag.Sleeping) !== 0;
-    e.hp[t]! -= BITE * (sleeping ? 1.5 : 1) * (1 - w.survival.defence(t));
+    e.hp[t]! -= this.cfg.bite * (sleeping ? 1.5 : 1) * (1 - w.survival.defence(t));
     w.emit('bitten', { id: e.id(t), by: e.id(i), hp: Math.round(e.hp[t]!) });
     if (w.isChar(t)) { e.hp[t] = Math.max(5, e.hp[t]!); return; } // players are hurt, never killed
     e.nextThink[t] = w.tick + 1;

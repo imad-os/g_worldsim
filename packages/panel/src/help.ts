@@ -34,6 +34,7 @@ export const HELP: Record<string, [string, string]> = {
   travel: ['Travel', 'While closed, people stay in Old Town and wrecked cars block the 4 roads out. Players can always travel. Opening it clears the roads.'],
   supply: ['Supply drop', 'Drops food portions on a map now, near its middle.'],
   snapshot: ['Save now', 'The world is saved by itself every few minutes. This saves it right now.'],
+  zStrength: ['Zombie strength', 'Health, speed (metres per second), bite damage, how far they see you (they chase inside it) and how far they smell people (they drift towards the nearest one inside it). Saved numbers apply to every zombie that appears from now on; the second button also sets the zombies already out. Players are hurt but never killed.'],
   zombies: ['Zombies', 'Set how many come out each night, spawn some now next to someone or at a place, or remove them all.'],
   zSpawn: ['Spawn zombies', 'Next to a name (a person or a player), at a distance in metres, or at x / y on a map (empty = a random place). Spawned zombies stay until killed.'],
   animals: ['Animals by map', 'How many of each animal live on each map. Type the number you want of each, then Save: a few come (or go) every game hour, far from people. "Now" does it at once. "Built-in mix" goes back to the world\'s own numbers (woods 16, town 4).'],

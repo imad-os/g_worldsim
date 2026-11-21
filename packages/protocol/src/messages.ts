@@ -89,7 +89,7 @@ export type AdminCmd =
   /** Life cycle (milestone 7): game days per year of age, the most people alive for a baby to come. */
   | { cmd: 'life'; yearDays?: number; maxPopulation?: number }
   /** Zombies (milestone 8): how many are released at random each night, clear them all; answers the ones out now. */
-  | { cmd: 'zombies'; perNight?: number; clear?: boolean }
+  | { cmd: 'zombies'; perNight?: number; clear?: boolean; cfg?: { hp?: number; speed?: number; bite?: number; sight?: number; smell?: number }; applyNow?: boolean }
   /** One (or n) zombie now: next to someone (`near` = a name, `dist` metres), or at (x, y) on a map (random when empty). */
   /** Animals per map: the owner's counts of each animal (null = back to the built-in mix), `fill` = now instead of a few each hour. */
   | { cmd: 'animals'; map?: string; want?: number[] | null; fill?: boolean }

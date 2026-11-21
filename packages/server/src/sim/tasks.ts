@@ -14,6 +14,7 @@ import type { World } from './world.js';
  * Skills (step "do"):
  *  goto who            walk to someone            find what           find a person ("single woman", "partner", a name) or food / water, then go there
  *  follow who minutes  walk with someone          talk who times      talk with someone (bonds grow)
+ *  marry who / divorce who  walk to them and ask (their own answer decides; the world is changed only if they say yes)
  *  court who           ask to become partners     child               have a child with your partner
  *  bring who           fetch food and give it     give who            give food you carry
  *  stay minutes        wait here                  drink eat forage sleep rest wander   the needs actions
@@ -57,7 +58,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
 export interface Step { do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string }
 
-export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
+export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
   'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
@@ -68,6 +69,9 @@ export class Tasks {
   onSay: (i: number, text: string) => void = () => {};
   /** Called when a task ends: done or failed (with why), for the person's memory. */
   onEnd: (id: number, task: Task, ok: boolean, why: string) => void = () => {};
+  /** Ask a question that needs the other person's own answer (the planner): resolves 'ok' or why not. */
+  onAsk: (a: number, b: number, what: 'marry' | 'divorce') => Promise<string> = async () => 'no one answers';
+  private readonly asks = new Map<number, { done: boolean; res: string }>();
 
   constructor(private w: World) {}
 
@@ -182,6 +186,27 @@ export class Tasks {
         if (!alive(s.who)) return 'they are not here any more';
         if (first) { b.order(i, 'follow', s.who!, -1, s.minutes ?? 60); s.phase = 1; return false; }
         return b.orderOf(i).kind === 'follow' ? false : true; // the order ends by itself after `minutes`
+      }
+      case 'marry': case 'divorce': {
+        // Walk to them, then ask: "will you marry me?" / "I want a divorce". Their own answer (the AI, or built in) decides.
+        if (!alive(s.who)) return 'they are not here any more';
+        const me = e.id(i), q0 = this.asks.get(me);
+        if (!q0) {
+          const r = reach(s.who!);
+          if (r !== true) return r;
+          const j0 = e.slot(s.who!);
+          b.order(i, 'stop', -1, -1, 0);
+          b.listen(i, j0, 20);
+          if (e.kind[j0] === Kind.Agent) b.listen(j0, i, 20);
+          const q = { done: false, res: '' };
+          this.asks.set(me, q);
+          this.onSay(i, s.do === 'marry' ? 'Will you marry me?' : 'I want a divorce.');
+          void this.onAsk(i, j0, s.do as 'marry' | 'divorce').then((res) => { q.done = true; q.res = res; }, () => { q.done = true; q.res = 'no answer'; });
+          return false;
+        }
+        if (!q0.done) return false;
+        this.asks.delete(me);
+        return q0.res === 'ok' ? true : q0.res;
       }
       case 'talk': case 'court': case 'child': {
         let who = s.who ?? -1;

@@ -324,3 +324,42 @@ test('marry and divorce by words: she decides (the model\'s "marry"), the world\
   assert.deepEqual(events, ['partner', 'divorce']);
   mode = 'ok';
 });
+
+test('"go ask her to marry you" / "divorce her": the character walks over, asks, her answer decides, and it is saved for both; the prompt knows the family', async () => {
+  const { askedToWedSomeone } = await import('../ai/planner.js');
+  assert.equal(askedToWedSomeone('go ask Lina to marry you'), 'marry');
+  assert.equal(askedToWedSomeone('divorce her'), 'divorce');
+  assert.equal(askedToWedSomeone('come here'), null);
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  mode = 'marry';
+  const e = w.e, agents: number[] = [];
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent) agents.push(k);
+  const she = agents.find((k) => w.profileOf(k)!.sex === 'f')!, he = agents.find((k) => w.profileOf(k)!.sex === 'm')!;
+  for (const k of [she, he]) { const q = w.profileOf(k)!; q.partner = -1; q.born = w.gameSec - 25 * w.yearSec; q.parents = []; }
+  const pa = w.profileOf(he)!, pb = w.profileOf(she)!;
+  for (const k of agents) if (k !== she && k !== he) w.place(k, e.map[she]!, 5, 5);
+  w.place(he, e.map[she]!, e.x[she]! + 12, e.y[she]!);
+  const run = async (): Promise<void> => { for (let k = 0; k < 20 * 90 && pa.mind?.task; k++) { w.step(); if (k % 5 === 0) await new Promise((r) => setImmediate(r)); for (const i of [he, she]) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; } } };
+  // She says no: the task fails, nothing changes.
+  marryYes = false;
+  assert.ok(w.tasks.start(he, 'ask her to marry me', 'owner', [{ do: 'marry', who: e.id(she) }]));
+  await run();
+  assert.equal(pa.partner, -1); assert.equal(pb.partner, -1);
+  assert.match(String(pa.goals?.at(-1)?.ok), /false/);
+  // She says yes: he walked to her, asked, and both are married in the world.
+  marryYes = true;
+  w.place(he, e.map[she]!, e.x[she]! + 12, e.y[she]!);
+  assert.ok(w.tasks.start(he, 'ask her to marry me', 'owner', [{ do: 'marry', who: e.id(she) }]));
+  await run();
+  assert.equal(pa.partner, e.id(she)); assert.equal(pb.partner, e.id(he));
+  // The prompt tells each of them: married, and to whom.
+  const text = (p as unknown as { describe(i: number): string }).describe(she);
+  assert.match(text, new RegExp(`Married to ${pa.name}`)); assert.match(text, /Stats \(0-10\)/);
+  // Divorce, the same way (the model's answer is not needed: she is told and it is done).
+  assert.ok(w.tasks.start(he, 'divorce', 'owner', [{ do: 'divorce', who: e.id(she) }]));
+  await run();
+  assert.equal(pa.partner, -1); assert.equal(pb.partner, -1);
+  assert.match((p as unknown as { describe(i: number): string }).describe(she), /Single: no partner/);
+  mode = 'ok';
+});

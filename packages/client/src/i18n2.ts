@@ -1,7 +1,7 @@
 /** Texts of the game's own menu, controls, person card and thought bubbles (en, fr, es, ar). */
 export const T2 = {
   en: {
-    mResume: 'Resume', mActions: 'Actions', mSettings: 'Settings', mControls: 'Buttons', mPerson: 'This person', mNextPerson: 'Next person',
+    mResume: 'Resume', mActions: 'Actions', mSettings: 'Settings', mControls: 'Buttons', mPerson: 'This person', mNextPerson: 'Next person', mFollowMe: 'Follow my character', followingMe: 'Following my character',
     mNextMap: 'Next map', mPlay: 'Play (my character)', mWatch: 'Watch the world', mBack: 'Back', mTitle: 'World',
     aUse: 'Interact (take, gather)', aRun: 'Run', aEat: 'Eat', aDrink: 'Drink', aPickup: 'Pick up food', aSleep: 'Sleep / wake up', aTalk: 'Talk',
     aZoomIn: 'Zoom in', aZoomOut: 'Zoom out', aThoughts: 'Show / hide thoughts', aMenu: 'Game menu', aPerson: 'Person card',
@@ -24,7 +24,7 @@ export const T2 = {
     hMove: 'Move', sayLabel: 'Say something (empty = just say hello)', wFollow: 'follow a person', wMap: 'next map', wCard: 'person card', mNearby: 'Nearest person', sThoughtsOnly: 'Only players the owner allows see thoughts.', mMe: 'Me', dTalk: 'You talk to them.', dNobody: 'Nobody close enough.', sZoom: 'Zoom', cPressed: 'Pressed: {0}',
   },
   fr: {
-    mResume: 'Reprendre', mActions: 'Actions', mSettings: 'Réglages', mControls: 'Boutons', mPerson: 'Cette personne', mNextPerson: 'Personne suivante',
+    mResume: 'Reprendre', mActions: 'Actions', mSettings: 'Réglages', mControls: 'Boutons', mPerson: 'Cette personne', mNextPerson: 'Personne suivante', mFollowMe: 'Suivre mon personnage', followingMe: 'Je suis votre personnage',
     mNextMap: 'Carte suivante', mPlay: 'Jouer (mon personnage)', mWatch: 'Regarder le monde', mBack: 'Retour', mTitle: 'Monde',
     aUse: 'Interagir (prendre, récolter)', aRun: 'Courir', aEat: 'Manger', aDrink: 'Boire', aPickup: 'Ramasser de la nourriture', aSleep: 'Dormir / se réveiller', aTalk: 'Parler',
     aZoomIn: 'Zoom avant', aZoomOut: 'Zoom arrière', aThoughts: 'Afficher / masquer les pensées', aMenu: 'Menu du jeu', aPerson: 'Fiche de la personne',
@@ -47,7 +47,7 @@ export const T2 = {
     hMove: 'Bouger', sayLabel: 'Dire quelque chose (vide = juste saluer)', wFollow: 'suivre une personne', wMap: 'carte suivante', wCard: 'fiche', mNearby: 'Personne la plus proche', sThoughtsOnly: 'Seuls les joueurs autorisés par le propriétaire voient les pensées.', mMe: 'Moi', dTalk: 'Vous lui parlez.', dNobody: 'Personne assez près.', sZoom: 'Zoom', cPressed: 'Appuyé : {0}',
   },
   es: {
-    mResume: 'Continuar', mActions: 'Acciones', mSettings: 'Ajustes', mControls: 'Botones', mPerson: 'Esta persona', mNextPerson: 'Siguiente persona',
+    mResume: 'Continuar', mActions: 'Acciones', mSettings: 'Ajustes', mControls: 'Botones', mPerson: 'Esta persona', mNextPerson: 'Siguiente persona', mFollowMe: 'Seguir a mi personaje', followingMe: 'Siguiendo a tu personaje',
     mNextMap: 'Siguiente mapa', mPlay: 'Jugar (mi personaje)', mWatch: 'Mirar el mundo', mBack: 'Atrás', mTitle: 'Mundo',
     aUse: 'Interactuar (tomar, recoger)', aRun: 'Correr', aEat: 'Comer', aDrink: 'Beber', aPickup: 'Recoger comida', aSleep: 'Dormir / despertar', aTalk: 'Hablar',
     aZoomIn: 'Acercar', aZoomOut: 'Alejar', aThoughts: 'Mostrar / ocultar pensamientos', aMenu: 'Menú del juego', aPerson: 'Ficha de la persona',
@@ -70,7 +70,7 @@ export const T2 = {
     hMove: 'Mover', sayLabel: 'Decir algo (vacío = solo saludar)', wFollow: 'seguir a alguien', wMap: 'mapa siguiente', wCard: 'ficha', mNearby: 'Persona más cercana', sThoughtsOnly: 'Solo los jugadores que el dueño permite ven los pensamientos.', mMe: 'Yo', dTalk: 'Le hablas.', dNobody: 'No hay nadie lo bastante cerca.', sZoom: 'Zoom', cPressed: 'Pulsado: {0}',
   },
   ar: {
-    mResume: 'متابعة', mActions: 'الأفعال', mSettings: 'الإعدادات', mControls: 'الأزرار', mPerson: 'هذا الشخص', mNextPerson: 'الشخص التالي',
+    mResume: 'متابعة', mActions: 'الأفعال', mSettings: 'الإعدادات', mControls: 'الأزرار', mPerson: 'هذا الشخص', mNextPerson: 'الشخص التالي', mFollowMe: 'تابع شخصيتي', followingMe: 'أتابع شخصيتك',
     mNextMap: 'الخريطة التالية', mPlay: 'العب (شخصيتي)', mWatch: 'شاهد العالم', mBack: 'رجوع', mTitle: 'العالم',
     aUse: 'تفاعل (أخذ، جمع)', aRun: 'جري', aEat: 'أكل', aDrink: 'شرب', aPickup: 'التقاط طعام', aSleep: 'نوم / استيقاظ', aTalk: 'تحدث',
     aZoomIn: 'تكبير', aZoomOut: 'تصغير', aThoughts: 'إظهار / إخفاء الأفكار', aMenu: 'قائمة اللعبة', aPerson: 'بطاقة الشخص',
