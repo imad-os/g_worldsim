@@ -1,6 +1,7 @@
 /** Texts of objectives, families, the character set-up, autopilot and the player's own rules (en, fr, es, ar). */
 export const T5 = {
   en: {
+    married: 'You and {0} are married now!', divorced: 'You and {0} are divorced.',
     sndTitle: 'Sound', sndOn: 'Sound', sndMaster: 'Volume', sndFx: 'Effects, people and animals', sndAmb: 'Ambience (birds, night, fire)', sndUi: 'Menus', sndHelp: 'OK changes a volume by 10 %. Real recordings (CC0), see docs/audio/CREDITS.md.',
     aAttack: 'Attack', aAim: 'Aim the bow (hold)', aBuild: 'Build',
     dNobodyNear: 'Nobody next to you to talk to.', dSwing: 'Nothing to hit in front of you.', noBow: 'You need a bow (Bag > Craft > Weapons: 2 wood + 1 leather).', noArrows: 'No arrows left (Weapons: 2 wood + 1 stone = 5 arrows).',
@@ -28,6 +29,7 @@ export const T5 = {
     askPartner: 'Ask to be my partner', tryChild: 'Try for a child', partners: '{0} said yes: you are partners now.', expecting: 'A baby is on the way!', tooFar: 'Get closer first.',
   },
   fr: {
+    married: 'Vous êtes maintenant marié(e) avec {0} !', divorced: 'Vous avez divorcé de {0}.',
     sndTitle: 'Son', sndOn: 'Son', sndMaster: 'Volume', sndFx: 'Effets, personnes et animaux', sndAmb: 'Ambiance (oiseaux, nuit, feu)', sndUi: 'Menus', sndHelp: 'OK change un volume de 10 %. Vrais enregistrements (CC0), voir docs/audio/CREDITS.md.',
     aAttack: 'Attaquer', aAim: 'Viser à l’arc (maintenir)', aBuild: 'Construire',
     dNobodyNear: 'Personne à côté de vous à qui parler.', dSwing: 'Rien à frapper devant vous.', noBow: 'Il faut un arc (Sac > Fabriquer > Armes : 2 bois + 1 cuir).', noArrows: 'Plus de flèches (Armes : 2 bois + 1 pierre = 5 flèches).',
@@ -55,6 +57,7 @@ export const T5 = {
     askPartner: 'Demander d’être mon partenaire', tryChild: 'Essayer d’avoir un enfant', partners: '{0} a dit oui : vous êtes partenaires.', expecting: 'Un bébé est en route !', tooFar: 'Approchez-vous d’abord.',
   },
   es: {
+    married: '¡Ahora estás casado/a con {0}!', divorced: 'Te has divorciado de {0}.',
     sndTitle: 'Sonido', sndOn: 'Sonido', sndMaster: 'Volumen', sndFx: 'Efectos, personas y animales', sndAmb: 'Ambiente (pájaros, noche, fuego)', sndUi: 'Menús', sndHelp: 'OK cambia un volumen en un 10 %. Grabaciones reales (CC0), ver docs/audio/CREDITS.md.',
     aAttack: 'Atacar', aAim: 'Apuntar con el arco (mantener)', aBuild: 'Construir',
     dNobodyNear: 'No hay nadie a tu lado con quien hablar.', dSwing: 'Nada que golpear delante de ti.', noBow: 'Necesitas un arco (Bolsa > Fabricar > Armas: 2 madera + 1 cuero).', noArrows: 'No quedan flechas (Armas: 2 madera + 1 piedra = 5 flechas).',
@@ -82,6 +85,7 @@ export const T5 = {
     askPartner: 'Pedir que sea mi pareja', tryChild: 'Intentar tener un hijo', partners: '{0} dijo que sí: ahora sois pareja.', expecting: '¡Viene un bebé!', tooFar: 'Acércate primero.',
   },
   ar: {
+    married: 'أنت و{0} متزوجان الآن!', divorced: 'أنت و{0} مطلقان الآن.',
     sndTitle: 'الصوت', sndOn: 'الصوت', sndMaster: 'مستوى الصوت', sndFx: 'المؤثرات والناس والحيوانات', sndAmb: 'الأجواء (طيور، ليل، نار)', sndUi: 'القوائم', sndHelp: 'OK يغيّر مستوى الصوت بـ 10 %. تسجيلات حقيقية (CC0)، انظر docs/audio/CREDITS.md.',
     aAttack: 'هجوم', aAim: 'التصويب بالقوس (اضغط مطولاً)', aBuild: 'بناء',
     dNobodyNear: 'لا أحد بجانبك للتحدث معه.', dSwing: 'لا شيء أمامك لضربه.', noBow: 'تحتاج إلى قوس (الحقيبة > الصنع > الأسلحة: 2 خشب + 1 جلد).', noArrows: 'لم تبق سهام (الأسلحة: 2 خشب + 1 حجر = 5 سهام).',

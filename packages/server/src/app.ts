@@ -252,6 +252,14 @@ export class App {
       inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0] });
     w.survival.playerName = (i) => this.net.characters().find(([, k]) => k === i)?.[0] ?? '';
     // Walking into the wrecks across a road out while travel is closed: that player is told why.
+    // Married or divorced by words: the player's TV is told (and shows it on the Me page).
+    w.listeners.push((ev) => {
+      if ((ev.kind !== 'partner' || !ev.data.wed) && ev.kind !== 'divorce') return;
+      for (const [x, y] of [[ev.data.a, ev.data.b], [ev.data.b, ev.data.a]] as const) {
+        const i = w.e.slot(Number(x));
+        if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'did', { a: 'talk', ok: true, code: ev.kind === 'divorce' ? 'divorced' : 'married', name: w.profiles.get(Number(y))?.name ?? '' });
+      }
+    });
     w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     this.net.avatarStore = {

@@ -26,7 +26,7 @@ let stepName: string[] = [];
 let stepDist = 0, lastHp = -1, ambAt = 0, campfireTile = -1;
 /** What each answer from the server sounds like. */
 const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', drank: 'drink',
-  ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', expecting: 'reward',
+  ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
   noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
 const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar'];
 
@@ -890,6 +890,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (charCodes[d.code]) { note(t(charCodes[d.code]!), 3000); if (d.code === 'looked' && menu.page === 'look') menu.back(); return; }
   if (d.code === 'sexWeek') { note(tf('sexWeek', String(dm.days ?? 7)), 3500); return; }
   if (d.code === 'partners') { note(tf('partners', d.name ?? ''), 4000); return; }
+  if (d.code === 'married' || d.code === 'divorced') { note(tf(d.code, d.name ?? ''), 6000); if (menu.open && menu.page === 'me') send({ t: Msg.Do, a: 'mine' }); return; }
   if (d.code === 'why') { note(dm.why ?? '', 4000); return; }
   if (d.code === 'replays') { past = d.list as never; if (menu.page === 'past') menu.refresh(); return; }
   if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }

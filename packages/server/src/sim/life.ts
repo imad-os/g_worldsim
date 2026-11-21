@@ -83,6 +83,45 @@ export class Life {
     return true;
   }
 
+  /**
+   * Marriage by words (imad 2026-11-20: "when I ask her and she accepts, the AI marries us"): can these two marry now?
+   * True, or why not (said to the AI so the answer stays true to the world).
+   */
+  canMarry(ida: number, idb: number): true | string {
+    const w = this.w, a = w.profiles.get(ida), b = w.profiles.get(idb), now = w.gameSec, y = this.yearSec;
+    if (!a || !b) return 'they are not here';
+    if (a.partner === idb && b.partner === ida) return 'we are already married';
+    const rule = w.rules.forbiddenId(ida, 'court', idb) ?? w.rules.forbiddenId(idb, 'court', ida);
+    if (rule) return `a rule forbids it: "${rule}"`;
+    if (b.partner >= 0) return `I already have a partner (${w.profiles.get(b.partner)?.name ?? 'someone'})`;
+    if (a.partner >= 0) return `${a.name} already has a partner (${w.profiles.get(a.partner)?.name ?? 'someone'})`;
+    if (a.sex === b.sex) return 'I am not interested in that way';
+    if (ageOf(a, now, y) < ADULT + 2 || ageOf(b, now, y) < ADULT + 2) return 'one of us is too young';
+    if (a.parents.some((x) => b.parents.includes(x)) || a.parents.includes(idb) || b.parents.includes(ida)) return 'we are family';
+    return true;
+  }
+  /** They say yes: married (partners) now. */
+  wed(ida: number, idb: number): true | string {
+    const ok = this.canMarry(ida, idb);
+    if (ok !== true) return ok;
+    const a = this.w.profiles.get(ida)!, b = this.w.profiles.get(idb)!;
+    a.partner = idb; b.partner = ida;
+    a.bonds ??= {}; b.bonds ??= {};
+    a.bonds['#' + idb] = Math.max(a.bonds['#' + idb] ?? 0, BOND_TALKS); b.bonds['#' + ida] = Math.max(b.bonds['#' + ida] ?? 0, BOND_TALKS);
+    this.w.emit('partner', { a: ida, b: idb, wed: true });
+    return true;
+  }
+  /** One of them wants a divorce: they are partners no more. True, or why not. */
+  divorce(ida: number, idb: number): true | string {
+    const a = this.w.profiles.get(ida), b = this.w.profiles.get(idb);
+    if (!a || !b) return 'they are not here';
+    if (a.partner !== idb && b.partner !== ida) return 'we are not married';
+    if (a.partner === idb) a.partner = -1;
+    if (b.partner === ida) b.partner = -1;
+    this.w.emit('divorce', { a: ida, b: idb });
+    return true;
+  }
+
   /** A couple tries for a child now (a task step). True = expecting, else why not. */
   tryChild(id: number): true | string {
     const w = this.w, e = w.e, p = w.profiles.get(id), now = w.gameSec, y = this.yearSec;

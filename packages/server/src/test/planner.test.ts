@@ -4,13 +4,14 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Act, Kind } from '@worldsim/protocol';
 import { Ai, AI_DEFAULTS } from '../ai/llm.js';
-import { Planner, cleanLine, askedFor, agrees } from '../ai/planner.js';
+import { Planner, cleanLine, askedFor, agrees, askedMarry, askedDivorce } from '../ai/planner.js';
 import { Logger } from '../log.js';
 import { serialize, restore } from '../persist/snapshot.js';
 import { newWorld } from './helpers.js';
 
 // A fake Ollama that plans like a model would: everyone named in the prompt wants to talk to the first person.
-let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' | 'plan' | 'build' = 'ok';
+let mode: 'ok' | 'junk' | 'think' | 'order' | 'forget' | 'plan' | 'build' | 'marry' = 'ok';
+let marryYes = true;
 let orderTarget = '';
 const prompts: string[] = [];
 const fake = createServer((req, res) => {
@@ -30,7 +31,9 @@ const fake = createServer((req, res) => {
       return;
     }
     if (/"say":"the words you say"/.test(sys)) { // a chat
-      content = mode === 'think' ? '<think>hmm, who is this</think>Mira: "Hello there, stranger."' // forgot the JSON
+      content = mode === 'marry' ? (/asking you to marry them\. Decide/.test(user) ? JSON.stringify({ say: marryYes ? 'Yes, I will!' : 'No, sorry.', marry: marryYes })
+          : /asking you to marry them, but you cannot/.test(user) ? JSON.stringify({ say: 'I cannot.', marry: false }) : JSON.stringify({ say: 'Fine. Go.' }))
+        : mode === 'think' ? '<think>hmm, who is this</think>Mira: "Hello there, stranger."' // forgot the JSON
         : mode === 'order' ? JSON.stringify({ say: "On my way!", do: 'goto', target: orderTarget })
         : mode === 'plan' ? JSON.stringify({ say: "Alright, I'll look around.", do: 'nothing', task: 'find a wife', plan: [
           { do: 'find', what: 'single woman' }, { do: 'talk', who: 'found', times: 2 }, { do: 'court', who: 'found' }, { do: 'say', text: 'Done.' }] })
@@ -281,4 +284,43 @@ test('rules are smart: the model understands words the engine does not know, onc
   mode = 'ok';
   await p.chat(ia, 'owner', 'hello');
   assert.match(prompts[prompts.length - 1]!, /Rules you must NEVER break.*keep your distance/);
+});
+
+test('marry and divorce by words: she decides (the model\'s "marry"), the world\'s rules still hold, divorce when he says so', async () => {
+  assert.ok(askedMarry('Will you marry me?')); assert.ok(askedMarry('épouse-moi')); assert.ok(askedMarry('¿Quieres casarte conmigo?')); assert.ok(askedMarry('هل تتزوجيني'));
+  assert.ok(!askedMarry('how are you'));
+  assert.ok(askedDivorce('I want a divorce')); assert.ok(askedDivorce('je veux divorcer')); assert.ok(askedDivorce('أريد الطلاق'));
+  assert.ok(!askedDivorce("I don't want a divorce")); assert.ok(!askedDivorce('hello'));
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  mode = 'marry';
+  const e = w.e;
+  let she = -1;
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent && w.profileOf(k)!.sex === 'f') { she = k; break; }
+  assert.ok(she >= 0);
+  const sp = w.profileOf(she)!; sp.partner = -1; sp.born = w.gameSec - 25 * w.yearSec;
+  const pl = w.spawnPlayer(e.map[she]!, e.x[she]! + 1.5, e.y[she]!);
+  const me = w.playerProfile(pl, 'imad'); me.sex = 'm'; me.partner = -1;
+  const events: string[] = [];
+  w.listeners.push((ev) => { if (ev.kind === 'partner' || ev.kind === 'divorce') events.push(ev.kind); });
+  // She says no: nothing changes.
+  marryYes = false;
+  let r = await p.chat(she, 'imad', 'Will you marry me?', pl);
+  assert.equal(r.reply, 'No, sorry.'); assert.equal(sp.partner, -1);
+  // She says yes: married.
+  marryYes = true;
+  r = await p.chat(she, 'imad', 'Will you marry me?', pl);
+  assert.equal(r.reply, 'Yes, I will!');
+  assert.equal(sp.partner, e.id(pl)); assert.equal(me.partner, e.id(she));
+  assert.match(r.did, /marry imad/);
+  // Divorce: he says it, it happens.
+  r = await p.chat(she, 'imad', 'I want a divorce.', pl);
+  assert.equal(sp.partner, -1); assert.equal(me.partner, -1);
+  assert.match(r.did, /divorce imad/);
+  // A rule of the world holds even when the model says yes: she is taken by someone else.
+  sp.partner = 999999;
+  r = await p.chat(she, 'imad', 'Marry me!', pl);
+  assert.equal(r.reply, 'I cannot.'); assert.equal(me.partner, -1);
+  assert.deepEqual(events, ['partner', 'divorce']);
+  mode = 'ok';
 });

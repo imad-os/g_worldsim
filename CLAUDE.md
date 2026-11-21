@@ -185,6 +185,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Missing recordings: deer, wolf howl, sleep, voices, baby, laugh. Proof `node tools/sound-proof.mjs`.
 - Panel chat (imad 2026-11-20): the Talk box keeps what is typed while answers arrive (`draft`; `addChat` redraws only the messages).
 
+## Marry and divorce by words (imad 2026-11-20)
+- On the TV, talking to someone (`Planner.chat` with the player's slot): `askedMarry` (en / fr / es / ar) -> the prompt says they are
+  asked and whether the world allows it (`Life.canMarry`: single, opposite sex, adults, not family, no rule); the model answers
+  `"marry": true|false` (missing = `agrees(reply)`; no AI = a chance from bonds / feelings / empathy) -> `Life.wed` (event `partner`
+  with `wed`). `askedDivorce` ("I don't want a divorce" is not one) from her partner = `Life.divorce` (event `divorce`). The player's TV
+  gets Notice `did` `married` / `divorced`. The panel's chat is the owner's voice: no marriages there. Test "marry and divorce by words".
+
 ## Control panel (imad 2026-11-20: "advanced, informative, '?' guides, responsive, hosted on GitHub")
 - Sources `packages/panel/src/` (no framework: `main.ts` shell + hash router, one `Screen` per page in `dashboard.ts`, `people.ts`,
   `screens.ts`; `help.ts` = every "?" text; `charts.ts` SVG charts; `livemap.ts` canvas map), built by `npm run build` into

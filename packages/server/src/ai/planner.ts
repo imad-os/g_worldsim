@@ -97,6 +97,17 @@ export function askedWork(text: string): { task: string; steps: Step[] } | null 
   if (/\b(stones?|rocks?|pierres?|piedras?)\b|حجر|حجارة/.test(t)) return { task: 'gather stone', steps: [{ do: 'gather', what: 'stone', times: 3 }] };
   return null;
 }
+/** A proposal in the speaker's words (en / fr / es / ar). */
+export function askedMarry(text: string): boolean {
+  const t = ' ' + text.toLowerCase() + ' ';
+  return /(?<!\p{L})(marry me|will you marry|would you marry|wanna marry|want to marry you|be my wife|be my husband|let'?s get married|épouse[- ]moi|veux[- ]tu m'?épouser|voulez[- ]vous m'?épouser|marions[- ]nous|cásate conmigo|casate conmigo|quieres casarte|s[ée] mi esposa|s[ée] mi esposo)(?!\p{L})|تتزوجيني|تزوجيني|تتزوجني|تزوجني|نتزوج|كوني زوجتي|كن زوجي/u.test(t);
+}
+/** "I want a divorce" in the speaker's words (en / fr / es / ar); "I don't want a divorce" is not one. */
+export function askedDivorce(text: string): boolean {
+  const t = ' ' + text.toLowerCase() + ' ';
+  if (/\b(don'?t|do not|never|not|pas|jamais|nunca|no)\b[^.!?]{0,25}(divorc)/.test(t) || /لا (أريد|اريد|نريد)[^.!?]{0,15}(طلاق|الطلاق)/.test(t)) return false;
+  return /(?<!\p{L})(divorce|divorcer|divorçons|divorcio|divorciarnos|divorciemos|me divorcio|i'?m leaving you|je te quitte|te dejo)(?!\p{L})|طلاق|أطلقك|اطلقك|نتطلق|ننفصل|طلقني/u.test(t);
+}
 /** Does an answer agree to come ("I'm coming", "on my way", "j'arrive", "voy", "حاضر")? */
 export function agrees(text: string): boolean {
   return /\b(i'?m coming|coming|on my way|be right there|i'?ll come|ok(ay)?|sure|yes|alright|j'arrive|j'y vais|d'accord|oui|voy|vale|claro|s[ií]|ya voy)\b|حاضر|نعم|حسنا|حسناً|جاي|قادم|آتي|طيب/i.test(text);
@@ -387,6 +398,12 @@ export class Planner {
     const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
     const key = '@' + from;
     let reply = '', usedAi = false, doRaw = '', target = '', planRaw: unknown[] | null = null, taskText = '';
+    // Marriage and divorce by words (imad 2026-11-20): only between a player's character and the person spoken to.
+    const sid = player >= 0 && e.kind[player] === Kind.Player ? e.id(player) : -1;
+    const sp = sid >= 0 ? w.profiles.get(sid) : undefined;
+    const proposal = !!text && !!sp && askedMarry(text), wantsDivorce = !!text && !!sp && !proposal && askedDivorce(text) && (p.partner === sid || sp.partner === id);
+    const canWed = proposal ? w.life.canMarry(sid, id) : false;
+    let wed: boolean | undefined;
     const st = this.ai.status();
     if (st.ready && (e.act[i] !== Act.Sleep || owner)) {
       const present = this.presentNames(i);
@@ -395,9 +412,13 @@ export class Planner {
         `Your feeling about them: ${Math.round(mind.rel[key] ?? 0)} (-5..5).`,
         'If you are asked to do something and you agree, say what you do in "do" (come = walk to the one speaking to you; follow = keep '
         + 'walking with someone; goto = walk to someone named in "target"; bring = bring food to someone (the speaker if no target); stay = stop and wait; stop = stop what you were told; or drink, eat, '
-        + 'forage, sleep, talk, wander, rest). Otherwise "do" is "nothing".'].join('\n');
+        + 'forage, sleep, talk, wander, rest). Otherwise "do" is "nothing".',
+        ...(proposal ? [canWed === true
+          ? `${from} is asking you to marry them. Decide as yourself, from your feelings about them and how well you know them: add "marry": true if you accept, "marry": false if you refuse, and say it.`
+          : `${from} is asking you to marry them, but you cannot: ${canWed}. Say no kindly and add "marry": false.`] : []),
+        ...(wantsDivorce ? [`${from}, your partner, is telling you they want a divorce. You are divorced now: react as yourself.`] : [])].join('\n');
       const system = `You are ${p.name}, a survivor in a post-apocalyptic world. Speak naturally and briefly (one or two short sentences), in the `
-        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty",'
+        + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","marry":true or false (only when asked to marry),"do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty",'
         + '"task":"short name of what you will do, or empty","plan":[steps, or empty]}. When you agree to something that takes several steps, write "plan": '
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
         + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (ask them to be your partner), child {} (have a baby with your partner), '
@@ -425,6 +446,8 @@ export class Planner {
           target = String(j.target ?? j.with ?? '').trim();
           if (Array.isArray(j.plan)) planRaw = j.plan as unknown[];
           if (typeof j.task === 'string') taskText = j.task;
+          if (typeof j.marry === 'boolean') wed = j.marry;
+          else if (typeof j.marry === 'string') wed = /^(true|yes|oui|s[ií])$/i.test(j.marry);
         } else reply = cleanLine(raw, p.name); // the model forgot the JSON: its words are still the answer
         usedAi = !!reply;
         if (!reply) ex.err = 'empty answer';
@@ -434,8 +457,24 @@ export class Planner {
       }
       this.keep(ex);
     }
+    let marriage = '';
+    if (proposal && sp) {
+      // The answer decides (an AI that forgot "marry" but said yes counts); without AI: how well they know and like the speaker.
+      const bonds = p.bonds?.['#' + sid] ?? 0, feel = mind.rel[key] ?? 0;
+      const yes = canWed === true && (usedAi ? (wed ?? agrees(reply)) : w.rng.chance(Math.min(0.9, 0.2 + bonds * 0.1 + feel * 0.08 + p.traits.empathy * 0.2)));
+      if (yes) { const r = w.life.wed(sid, id); marriage = r === true ? 'married' : ''; }
+      if (!reply) reply = marriage ? 'Yes! Yes, I will.' : canWed === true ? "I'm sorry... not yet. I need to know you better." : `I can't: ${canWed}.`;
+      if (marriage) { this.feel(id, key, 3); this.note(id, `I married ${sp.name}.`, true); mind.mood = 'happy'; }
+      else this.note(id, `${sp.name} asked me to marry them; I said no.`, true);
+    } else if (wantsDivorce && sp) {
+      if (w.life.divorce(sid, id) === true) {
+        marriage = 'divorced';
+        this.feel(id, key, -3); this.note(id, `${sp.name} divorced me.`, true); mind.mood = 'sad';
+        if (!reply) reply = 'So that is how it ends... Goodbye, then.';
+      }
+    }
     // What was asked, from the speaker's own words (works without AI too).
-    const asked = text ? askedFor(text) : '';
+    const asked = text && !proposal && !wantsDivorce ? askedFor(text) : '';
     const agreed = reply ? agrees(reply) : false;
     if (!doRaw || doRaw === 'nothing' || doRaw === 'none') {
       // The owner is obeyed; a player when the answer agrees (or there is no AI to ask).
@@ -455,6 +494,7 @@ export class Planner {
       const what = (taskText || (text ?? '') || steps.map((x) => x.do).join(', ')).slice(0, 100);
       if (w.tasks.start(i, what, from, steps)) did = `${what} (${steps.map((x) => x.do).join(' > ')})`;
     }
+    if (!did && marriage) did = marriage === 'married' ? `marry ${sp!.name}` : `divorce ${sp!.name}`;
     if (!did) did = this.applyChatOrder(i, doRaw, target, player, owner);
     this.counts.chats++;
     this.note(id, (text ? `${owner ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`)
