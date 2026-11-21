@@ -42,7 +42,7 @@ export const peopleScreen: Screen = {
         <select id="pMapF" aria-label="Map"><option value="all">Every map</option></select>
         <select id="pSort" aria-label="Sort"><option value="name">Sort: name</option><option value="age">Sort: oldest</option><option value="hp">Sort: weakest</option><option value="hunger">Sort: hungriest</option><option value="thirst">Sort: thirstiest</option><option value="act">Sort: activity</option></select>
         <button class="btn" id="pAdd">${icon('plus')} Add a person</button>
-      </div><div id="pList"><div class="skel tall"></div></div>`;
+      </div><div id="pClans"></div><div id="pList"><div class="skel tall"></div></div>`;
   },
   async mount() {
     on('#pTabs button', 'click', (b) => { tab = b.dataset.t!; save('pTab', tab); for (const x of view().querySelectorAll('#pTabs button')) x.classList.toggle('on', x === b); void this.refresh!(); });
@@ -59,9 +59,20 @@ export const peopleScreen: Screen = {
     await this.refresh!();
   },
   async refresh() {
-    try { if (tab === 'alive') await people(true); else await profiles(); setHtml('pList', listHtml()); bindList(); } catch (e) { toast(String(e), 'err'); }
+    try { if (tab === 'alive') await people(true); else await profiles(); setHtml('pList', listHtml()); bindList(); void loadClans(); } catch (e) { toast(String(e), 'err'); }
   },
 };
+type ClanRow = { id: number; name: string; map: string; leader: string; leaderId: number; home: number[]; members: { id: number; name: string; loyalty: number }[]; rivals: { name: string; tension: number }[] };
+/** The clans that formed by themselves: leader, members with loyalty, rivals with tension (imad 2026-11-21). */
+async function loadClans(): Promise<void> {
+  const el = document.getElementById('pClans'); if (!el) return;
+  try {
+    const r = await cmd<{ clans: ClanRow[] }>({ cmd: 'clans' });
+    el.innerHTML = r.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">led by <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · ${esc(mapName(c.map))} · home (${c.home.join(', ')})</span>
+      <div class="chips">${c.members.map((m) => `<a class="chip" href="#/person/${m.id}">${esc(m.name)} <small class="dim">${m.loyalty}%</small></a>`).join('')}</div>
+      ${c.rivals.length ? `<small class="dim">Rivals: ${c.rivals.map((x) => `${esc(x.name)} (tension ${x.tension}/10)`).join(', ')}</small>` : ''}</div>`).join('')) : '';
+  } catch { /* next time */ }
+}
 function bindList(): void { on('tr.link', 'click', (el) => { location.hash = `#/person/${el.dataset.id}`; }); }
 
 // ------------------------------------------------------------ one person
@@ -105,6 +116,7 @@ function personHtml(d: Detail): string {
       <p>${icon('map')} ${esc(mapName(d.map))} at (${Math.round(d.x)}, ${Math.round(d.y)})</p>
       ${d.partner ? `<p>${icon('heart')} Partner: ${esc(d.partner)}${d.pregnant ? ' · expecting a baby' : ''}</p>` : ''}`)}
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
+    ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · led by ${esc(c.leader)}</p><p>Loyalty ${c.loyalty}%</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; rivals: string[] } }).clan)) : ''}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
     ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div>`).join('')}</div>`)}
     </div>`;

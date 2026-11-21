@@ -533,5 +533,18 @@ test('player buttons: attack hits what is in front, the bow shoots along the aim
     assert.ok(b.code === 'placed' || (b.code === 'noRoom' && b.kept), `built: ${JSON.stringify(b)}`);
     assert.equal(sv.inv(p).wood ?? 0, 0, 'the wood was used');
     await app.stop();
+    // PvP: a separate action, off by default; small damage; Attack never touches a person.
+    const q = w.freeSpot(town, x + 3, y)!;
+    const person = [...Array(e.hi).keys()].find((i) => e.kind[i] === 1 && e.map[i] === town)!;
+    e.x[person] = x + 1.2; e.y[person] = y; e.hp[person] = 100;
+    assert.equal(app.net.onDo('tester', p, 'hitperson', '0').code, 'pvpOff');
+    const before = e.hp[person]!;
+    app.net.onDo('tester', p, 'hit', '0');
+    assert.equal(e.hp[person], before, 'Attack never hits a person');
+    assert.equal(app.net.onDo('tester', p, 'pvp', '1').code, 'pvp');
+    const pr = app.net.onDo('tester', p, 'hitperson', '0');
+    assert.equal(pr.code, 'pHit');
+    assert.ok(e.hp[person]! < before && before - e.hp[person]! <= 30, 'small damage');
+    void q;
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

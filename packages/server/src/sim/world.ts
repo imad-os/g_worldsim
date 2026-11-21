@@ -9,6 +9,7 @@ import { Brain, LIFE_DEFAULTS, THINK_EVERY, type LifeDef } from './brain.js';
 import { randomProfile, PLAYER_AGE, type Profile } from './people.js';
 import { Life } from './life.js';
 import { Tasks } from './tasks.js';
+import { Clans } from './clans.js';
 import { Survival } from './survival.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
@@ -68,6 +69,8 @@ export class World {
   readonly life: Life;
   readonly tasks: Tasks;
   readonly survival: Survival;
+  /** Clans and fights between people (sim/clans.ts). */
+  readonly clans: Clans;
   /** A person says a line aloud (the planner sets it: viewers, memory of those near). */
   speak: (i: number, text: string) => void = () => {};
   readonly zombies: Zombies;
@@ -105,6 +108,7 @@ export class World {
     this.life = new Life(this);
     this.tasks = new Tasks(this);
     this.survival = new Survival(this);
+    this.clans = new Clans(this);
     this.zombies = new Zombies(this);
     this.rules = new Rules(this);
     this.replays = new Replays(this);
@@ -374,7 +378,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
-    if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); this.rules.update(); }
+    if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); }
     this.zombies.update();
     this.animals.update();
     if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });

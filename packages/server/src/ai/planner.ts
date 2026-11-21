@@ -356,6 +356,7 @@ export class Planner {
       `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${e.carry[i]} food. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
       this.selfText(i),
       this.familyText(i),
+      ...((() => { const c = w.clans.clanOf(id); if (!c) return []; const r = w.clans.rivals(c).map((x) => `${x.clan.name} (tension ${Math.round(x.tension)}/10)`); return [`Clan: ${c.name}, led by ${c.leader === id ? 'you' : this.name(c.leader)}, ${c.members.length} members; loyalty ${Math.round(w.clans.loyalty(id) * 100)}%.${r.length ? ' Rivals: ' + r.join(', ') + '.' : ''}`]; })()),
       `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),

@@ -23,6 +23,7 @@ import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, levelOf, TRAIT_KEYS, SEX_WEEK_MS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
+import { pvpDamage } from './sim/clans.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
@@ -35,7 +36,7 @@ function firebaseProject(): string {
 const READS = new Set<string>(['brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
-const LOGGED = new Set(['grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+const LOGGED = new Set(['clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
@@ -106,6 +107,8 @@ export class App {
     { const z = this.db.getMeta('zombie_cfg'); if (z) { try { this.world.zombies.setCfg(JSON.parse(z) as never); } catch { /* defaults */ } } }
     { const z = this.db.getMeta('zombies_night'); if (z !== null && z !== undefined) this.world.zombies.perNight = Number(z) || 0; }
     { const z = this.db.getMeta('zombie_plans'); if (z) { try { this.world.zombies.plans = JSON.parse(z) as AttackPlan[]; } catch { /* broken: none */ } } }
+    { const v = this.db.getMeta('pvp_on'); if (v) { try { this.pvp = new Set(JSON.parse(v) as string[]); } catch { /* none */ } } }
+    this.world.clans.pvpOn = (i) => this.pvp.has(this.world.survival.playerName(i).toLowerCase());
     this.world.zombies.onPlans = () => this.db.setMeta('zombie_plans', JSON.stringify(this.world.zombies.plans));
     { const a = this.db.getMeta('animal_want'); if (a) { try { for (const [k, v] of JSON.parse(a) as [string, number[]][]) this.world.animals.want.set(k, v); } catch { /* broken: built-in mix */ } } }
     this.world.land.setup(); // the town's ring of trees, its 4 roads out (wrecks while travel is closed), rocks
@@ -199,6 +202,35 @@ export class App {
         if (e.kind[near] === Kind.Threat) return { ok: true, code: w.zombies.hit(near, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
         return this.hitAnimal(player, near, w.zombies.damageOf(player));
       }
+      if (a === 'pvp') { // the PvP switch: off by default; on = people can hit me and I can hit them
+        const on = String(text ?? '') === '1', k = name.toLowerCase();
+        if (on) this.pvp.add(k); else this.pvp.delete(k);
+        try { this.db.setMeta('pvp_on', JSON.stringify([...this.pvp])); } catch { /* kept in memory */ }
+        return { ok: true, code: 'pvp', on };
+      }
+      if (a === 'hitperson') { // a separate action: never a hit on a person by mistake (the other Attack only touches zombies and animals)
+        if (!this.pvp.has(name.toLowerCase())) return { ok: false, code: 'pvpOff' };
+        const now = Date.now();
+        if ((this.hitAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
+        const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, an0 = ang(text);
+        if (Number.isFinite(an0)) e.angle[player] = an0;
+        let t = -1, bd = 2.2;
+        for (let j = 0; j < e.hi; j++) {
+          if (j === player || e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.hp[j]! <= 0) continue;
+          const dx = e.x[j]! - x, dy = e.y[j]! - y, d = Math.hypot(dx, dy);
+          if (d >= bd) continue;
+          let da = Math.atan2(dy, dx) - e.angle[player]!; da = Math.atan2(Math.sin(da), Math.cos(da));
+          if (Math.abs(da) <= 1.2 || d < 0.9) { bd = d; t = j; }
+        }
+        if (t < 0) return { ok: false, code: 'swing', weapon: sv.weapon(player)[0] };
+        if (e.kind[t] === Kind.Player && !w.clans.pvpOn(t)) return { ok: false, code: 'theirPvpOff' };
+        this.hitAt.set(name, now + 900);
+        e.angle[player] = Math.atan2(e.y[t]! - y, e.x[t]! - x);
+        const dmg = pvpDamage(sv.weapon(player)[1], sv.weapon(t)[1] > 0, sv.defence(t));
+        w.clans.damage(t, dmg, player);
+        if (e.kind[t] === Kind.Agent) w.clans.hurtBy(t, player);
+        return { ok: true, code: 'pHit', dmg };
+      }
       if (a === 'shoot') {
         const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, inv = sv.inv(player);
         if ((inv.bow ?? 0) < 1) return { ok: false, code: 'noBow' };
@@ -254,7 +286,7 @@ export class App {
     this.net.info = (id, seer) => this.personInfo(id, seer);
     this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
     this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0,
-      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0] });
+      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()) });
     w.survival.playerName = (i) => this.net.characters().find(([, k]) => k === i)?.[0] ?? '';
     // Walking into the wrecks across a road out while travel is closed: that player is told why.
     // Married or divorced by words: the player's TV is told (and shows it on the Me page).
@@ -311,6 +343,9 @@ export class App {
   }
 
   private readonly workAt = new Map<string, number>();
+  /** Players (lower case) who switched PvP on: only they can hit or be hit by other people (imad 2026-11-21). */
+  private pvp = new Set<string>();
+  private readonly hitAt = new Map<string, number>();
   /** The nearest zombie or animal in front of player i (within `r` m and `cone` radians either side of angle `a`), or -1. */
   private frontTarget(i: number, a: number, r: number, cone: number): number {
     const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!;
@@ -819,6 +854,11 @@ export class App {
         }
         return out;
       }
+      case 'clans': {
+        const nm = (id: number) => this.nameOf(id);
+        return { clans: w.clans.clans.map((c) => ({ id: c.id, name: c.name, map: w.maps[c.map]?.def.id ?? '', leader: nm(c.leader), leaderId: c.leader, home: [Math.round(c.hx), Math.round(c.hy)], since: c.at,
+          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100) })), rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
+      }
       case 'agent': {
         const id = num(c.id, 0, 2 ** 31, 'id'), i = w.e.slot(id);
         const p = w.profiles.get(id);
@@ -828,8 +868,9 @@ export class App {
           .filter((r) => { try { const d = JSON.parse(r.data) as Record<string, unknown>; return d.id === id || d.a === id || d.b === id; } catch { return false; } })
           .map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
         const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null };
+        const clan = w.clans.clanOf(id); const clanInfo = clan ? { name: clan.name, leader: this.nameOf(clan.leader), loyalty: Math.round(w.clans.loyalty(id) * 100), rivals: w.clans.rivals(clan).map((r) => `${r.clan.name} (${Math.round(r.tension)}/10)`) } : null;
         const talk = this.planner.convo.of(id).map((l) => ({ at: l.at, from: l.from, to: l.to, fromName: l.from === -2 ? 'The owner' : l.from < 0 ? 'Someone' : this.nameOf(l.from), toName: l.to < 0 ? '' : this.nameOf(l.to), text: l.text }));
-        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, now: w.gameSec };
+        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, clan: clanInfo, now: w.gameSec };
       }
       case 'agentSet': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));

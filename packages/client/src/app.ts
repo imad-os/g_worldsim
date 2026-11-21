@@ -139,7 +139,7 @@ type CamView = 'top' | 'third' | 'first';
 const CAM_VIEWS: CamView[] = ['top', 'third', 'first'];
 let camView: CamView = 'top', yaw = 0;
 let seer = false, mindsAt = 0;
-let meNeeds: { hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string } | null = null;
+let meNeeds: { pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string } | null = null;
 /** The craft screen: the category open and what is put in. */
 let craftCat = '';
 const pot: Record<string, number> = {};
@@ -320,7 +320,7 @@ function onMsg(m: ServerMsg): void {
         const hp = (m.data as { hp?: number }).hp ?? 100;
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
         lastHp = hp;
-        meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide')) menu.refresh(); }
+        meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight')) menu.refresh(); }
       if (m.kind === 'blocked') note(t('dBlocked'), 5000);
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
@@ -532,9 +532,9 @@ const VSTICK: [number, number] = [0, 0];
 
 // ------------------------------------------------------------ quick action wheel
 const wheel = new Wheel(document.getElementById('wheel')!);
-const WHEEL_IDS = ['use', 'eat', 'drink', 'sleep', 'build', 'place', 'bag', 'camera'] as const;
-const WHEEL_ICON: Record<string, string> = { use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥' };
-const WHEEL_KEY: Record<string, Key> = { use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera' };
+const WHEEL_IDS = ['use', 'eat', 'drink', 'sleep', 'build', 'place', 'bag', 'camera', 'attackPerson'] as const;
+const WHEEL_ICON: Record<string, string> = { use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️' };
+const WHEEL_KEY: Record<string, Key> = { use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson' };
 /** The wheel's button: held on a controller (let go = do it), pressed once on the remote (arrows + OK). */
 function wheelButton(pressed: boolean, pad: boolean): void {
   if (mode !== 'world' || menu.open || rp) return;
@@ -777,6 +777,11 @@ function doAction(a: ActionId, pressed: boolean): void {
   if (!playing()) return;
   if (a === 'use') { send({ t: Msg.Do, a: 'take' }); return; } // things: take, gather, drink... (never people, never a fight)
   if (a === 'attack') { attack(); return; }
+  if (a === 'attackPerson') { // a person, never by mistake: PvP must be on first
+    if (!meNeeds?.pvp) { note(t('pvpNeed'), 3000); return; }
+    send({ t: Msg.Do, a: 'hitperson', text: myAng().toFixed(3) });
+    return;
+  }
   if (a === 'talk') {
     if (nearestPerson(3.5) < 0) { note(t('dNobodyNear'), 2000); return; }
     // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
@@ -887,7 +892,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 180); }
   else if (DID_SOUND[d.code]) sound.play(DID_SOUND[d.code]!, undefined, undefined, d.code === 'zKilled' ? 0.9 : 1);
   if (d.code === 'chopped' && (d as { got?: Record<string, number> }).got?.wood && Math.random() < 0.25) sound.play('tree_fall', undefined, undefined, 0.6);
-  const dm = d as typeof d & { me?: MeChar; days?: number; why?: string; what?: string };
+  const dm = d as typeof d & { me?: MeChar; days?: number; why?: string; what?: string; on?: boolean; dmg?: number };
   if (dm.me) {
     meChar = dm.me;
     if (menu.open && (menu.page === 'me' || menu.page === 'rules' || menu.page === 'look')) menu.refresh();
@@ -912,6 +917,10 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   const arrows = dd.left !== undefined ? ' ' + tf('arrowsLeft', String(dd.left)) : '';
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code) + arrows, 1800); return; }
   if (d.code === 'swing') { note(t('dSwing'), 1200); return; }
+  if (d.code === 'pvp') { note(t(dm.on ? 'pvpNoteOn' : 'pvpNoteOff'), 4000); return; }
+  if (d.code === 'pvpOff') { note(t('pvpNeed'), 3000); return; }
+  if (d.code === 'theirPvpOff') { note(t('theirPvpOff'), 2500); return; }
+  if (d.code === 'pHit') { note(tf('pHit', String(dm.dmg ?? 0)), 1500); return; }
   if (d.code === 'noBow' || d.code === 'noArrows') { note(t(d.code), 3500); return; }
   if (d.code === 'missed') { note(tf('missed', String(dd.left ?? 0)), 1800); return; }
   if (d.code === 'buildNeed') { note(tf('buildNeed', needText(dd.need ?? {})), 3500); return; }
@@ -991,14 +1000,14 @@ function buildPage(id: string): Page {
       const inv = meNeeds?.inv ?? {};
       const lines = [t('fightHelp'), tf('fFists', '15')];
       for (const [w, dmg] of Object.entries(WEAPONS)) lines.push(tf('fWeapon', cap1(thing(w)), String(dmg), rec(w)));
-      lines.push(tf('fBow', rec('bow'), rec('arrows')), t('fArmour'), t('fTips'));
+      lines.push(tf('fBow', rec('bow'), rec('arrows')), t('fArmour'), t('fTips'), t('pvpHelp'));
       const keys = `${actionLabel('attack')}: <b>${esc(keyName('attack') || t('cNone'))}</b> · ${esc(actionLabel('aim'))}: <b>${esc(keyName('aim') || t('cNone'))}</b>`;
       const have = ['sword', 'spear', 'axe', 'bow', 'arrows', 'clothes', 'armor', 'helmet'].filter((k) => (inv[k] ?? 0) > 0).map((k) => `${inv[k]} ${thing(k)}`).join(', ');
-      rows.push({ id: 'craft', label: t('mCraft'), sub: true }, { id: 'back', label: t('mBack') });
+      rows.push({ id: 'pvp', label: t('mPvp'), value: t(meNeeds?.pvp ? 'pvpOnW' : 'pvpOffW') }, { id: 'craft', label: t('mCraft'), sub: true }, { id: 'back', label: t('mBack') });
       return { id, title: t('mFight'), rows, wide: true, html: `<p>${keys}</p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${have ? `<p class="dim">${esc(t('fHave'))}: ${esc(have)}</p>` : ''}` };
     }
     case 'actions':
-      for (const a of ['use', 'talk', 'attack', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
+      for (const a of ['use', 'talk', 'attack', 'attackPerson', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
       return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
     case 'past':
       for (const r of past ?? []) {
@@ -1124,7 +1133,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
   } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
   else if (page === 'build') { menu.close(); send({ t: Msg.Do, a: 'build', text: `${row.slice(2)}@${myAng().toFixed(3)}` }); }
-  else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('craft'); }
+  else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('craft'); else if (row === 'pvp') { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); } }
   else if (page === 'past') {
     if (row === 'back') menu.back();
     else { menu.close(); note('…', 1500); send({ t: Msg.Do, a: 'replay', text: row.slice(1) }); }

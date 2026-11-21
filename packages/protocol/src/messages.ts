@@ -34,6 +34,7 @@ export interface Ping { t: typeof Msg.Ping; c: number }
 export type AdminCmd =
   // a Firebase player may use only these (about themselves)
   | { cmd: 'me' }
+  | { cmd: 'clans' }
   | { cmd: 'joinWorld'; name: string }
   | { cmd: 'approveMine'; code: string }
   | { cmd: 'revokeMine' }

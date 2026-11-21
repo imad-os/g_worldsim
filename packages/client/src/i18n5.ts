@@ -3,7 +3,7 @@ export const T5 = {
   en: {
     married: 'You and {0} are married now!', divorced: 'You and {0} are divorced.',
     sndTitle: 'Sound', sndOn: 'Sound', sndMaster: 'Volume', sndFx: 'Effects, people and animals', sndAmb: 'Ambience (birds, night, fire)', sndUi: 'Menus', sndHelp: 'OK changes a volume by 10 %. Real recordings (CC0), see docs/audio/CREDITS.md.',
-    aAttack: 'Attack', aAim: 'Aim the bow (hold)', aBuild: 'Build',
+    aAttack: 'Attack', aAim: 'Aim the bow (hold)', aBuild: 'Build', aAttackPerson: 'Attack a person (PvP)', mPvp: 'PvP (fighting people)', pvpOnW: 'On', pvpOffW: 'Off', pvpNoteOn: 'PvP is ON: you can hit people and they can hit you back. Damage is small.', pvpNoteOff: 'PvP is off. Nobody can hit you and you cannot hit people.', pvpNeed: 'Turn PvP on first (Settings > How to fight).', theirPvpOff: 'That player has PvP off.', pHit: 'You hit them: {0} damage.', pvpHelp: 'PvP is a separate action: Attack never hits a person. Turn PvP on, then use Attack a person. Damage is small (at most 30 with a strong weapon on someone unarmed, about 10 on an armed person, 3 bare-handed on armour). Nobody dies of it.',
     dNobodyNear: 'Nobody next to you to talk to.', dSwing: 'Nothing to hit in front of you.', noBow: 'You need a bow (Bag > Craft > Weapons: 2 wood + 1 leather).', noArrows: 'No arrows left (Weapons: 2 wood + 1 stone = 5 arrows).',
     missed: 'Missed. {0} arrows left.', arrowsLeft: '{0} arrows left.', aimOn: 'Aiming: point with the stick, {0} to shoot.',
     bindsNew: 'New buttons: {0}', mFight: 'How to fight',
@@ -31,7 +31,7 @@ export const T5 = {
   fr: {
     married: 'Vous êtes maintenant marié(e) avec {0} !', divorced: 'Vous avez divorcé de {0}.',
     sndTitle: 'Son', sndOn: 'Son', sndMaster: 'Volume', sndFx: 'Effets, personnes et animaux', sndAmb: 'Ambiance (oiseaux, nuit, feu)', sndUi: 'Menus', sndHelp: 'OK change un volume de 10 %. Vrais enregistrements (CC0), voir docs/audio/CREDITS.md.',
-    aAttack: 'Attaquer', aAim: 'Viser à l’arc (maintenir)', aBuild: 'Construire',
+    aAttack: 'Attaquer', aAim: 'Viser à l’arc (maintenir)', aBuild: 'Construire', aAttackPerson: 'Attaquer une personne (JcJ)', mPvp: 'JcJ (se battre contre des gens)', pvpOnW: 'Activé', pvpOffW: 'Désactivé', pvpNoteOn: 'JcJ ACTIVÉ : vous pouvez frapper des gens et ils peuvent riposter. Les dégâts sont faibles.', pvpNoteOff: 'JcJ désactivé. Personne ne peut vous frapper et vous ne pouvez frapper personne.', pvpNeed: 'Activez d’abord le JcJ (Réglages > Comment se battre).', theirPvpOff: 'Ce joueur a désactivé le JcJ.', pHit: 'Vous le frappez : {0} dégâts.', pvpHelp: 'Le JcJ est une action à part : Attaquer ne frappe jamais une personne. Activez le JcJ, puis utilisez Attaquer une personne. Les dégâts sont faibles (30 au plus avec une arme forte sur quelqu’un de désarmé, environ 10 sur une personne armée, 3 à mains nues sur une armure). Personne n’en meurt.',
     dNobodyNear: 'Personne à côté de vous à qui parler.', dSwing: 'Rien à frapper devant vous.', noBow: 'Il faut un arc (Sac > Fabriquer > Armes : 2 bois + 1 cuir).', noArrows: 'Plus de flèches (Armes : 2 bois + 1 pierre = 5 flèches).',
     missed: 'Raté. Il reste {0} flèches.', arrowsLeft: 'Il reste {0} flèches.', aimOn: 'Visée : orientez avec le stick, {0} pour tirer.',
     bindsNew: 'Nouveaux boutons : {0}', mFight: 'Comment se battre',
@@ -59,7 +59,7 @@ export const T5 = {
   es: {
     married: '¡Ahora estás casado/a con {0}!', divorced: 'Te has divorciado de {0}.',
     sndTitle: 'Sonido', sndOn: 'Sonido', sndMaster: 'Volumen', sndFx: 'Efectos, personas y animales', sndAmb: 'Ambiente (pájaros, noche, fuego)', sndUi: 'Menús', sndHelp: 'OK cambia un volumen en un 10 %. Grabaciones reales (CC0), ver docs/audio/CREDITS.md.',
-    aAttack: 'Atacar', aAim: 'Apuntar con el arco (mantener)', aBuild: 'Construir',
+    aAttack: 'Atacar', aAim: 'Apuntar con el arco (mantener)', aBuild: 'Construir', aAttackPerson: 'Atacar a una persona (PvP)', mPvp: 'PvP (pelear con gente)', pvpOnW: 'Activado', pvpOffW: 'Desactivado', pvpNoteOn: 'PvP ACTIVADO: puedes golpear a la gente y te pueden devolver el golpe. El daño es pequeño.', pvpNoteOff: 'PvP desactivado. Nadie puede golpearte y tú no puedes golpear a nadie.', pvpNeed: 'Activa primero el PvP (Ajustes > Cómo luchar).', theirPvpOff: 'Ese jugador tiene el PvP desactivado.', pHit: 'Lo golpeas: {0} de daño.', pvpHelp: 'El PvP es una acción aparte: Atacar nunca golpea a una persona. Activa el PvP y usa Atacar a una persona. El daño es pequeño (30 como mucho con un arma fuerte contra alguien desarmado, unos 10 contra una persona armada, 3 con las manos contra armadura). Nadie muere por eso.',
     dNobodyNear: 'No hay nadie a tu lado con quien hablar.', dSwing: 'Nada que golpear delante de ti.', noBow: 'Necesitas un arco (Bolsa > Fabricar > Armas: 2 madera + 1 cuero).', noArrows: 'No quedan flechas (Armas: 2 madera + 1 piedra = 5 flechas).',
     missed: 'Fallaste. Quedan {0} flechas.', arrowsLeft: 'Quedan {0} flechas.', aimOn: 'Apuntando: dirige con el stick, {0} para disparar.',
     bindsNew: 'Botones nuevos: {0}', mFight: 'Cómo luchar',
@@ -87,7 +87,7 @@ export const T5 = {
   ar: {
     married: 'أنت و{0} متزوجان الآن!', divorced: 'أنت و{0} مطلقان الآن.',
     sndTitle: 'الصوت', sndOn: 'الصوت', sndMaster: 'مستوى الصوت', sndFx: 'المؤثرات والناس والحيوانات', sndAmb: 'الأجواء (طيور، ليل، نار)', sndUi: 'القوائم', sndHelp: 'OK يغيّر مستوى الصوت بـ 10 %. تسجيلات حقيقية (CC0)، انظر docs/audio/CREDITS.md.',
-    aAttack: 'هجوم', aAim: 'التصويب بالقوس (اضغط مطولاً)', aBuild: 'بناء',
+    aAttack: 'هجوم', aAim: 'التصويب بالقوس (اضغط مطولاً)', aBuild: 'بناء', aAttackPerson: 'مهاجمة شخص (لاعب ضد لاعب)', mPvp: 'قتال الأشخاص (PvP)', pvpOnW: 'مفعّل', pvpOffW: 'متوقف', pvpNoteOn: 'تم تفعيل القتال: يمكنك ضرب الناس ويمكنهم الرد. الضرر صغير.', pvpNoteOff: 'القتال متوقف. لا أحد يستطيع ضربك ولا يمكنك ضرب أحد.', pvpNeed: 'فعّل القتال أولاً (الإعدادات > كيف تقاتل).', theirPvpOff: 'هذا اللاعب أوقف القتال.', pHit: 'ضربته: ضرر {0}.', pvpHelp: 'القتال بين الأشخاص إجراء منفصل: الهجوم لا يضرب شخصاً أبداً. فعّل القتال ثم استخدم مهاجمة شخص. الضرر صغير (30 كحد أقصى بسلاح قوي على شخص أعزل، نحو 10 على مسلّح، 3 باليدين على درع). لا أحد يموت بسببه.',
     dNobodyNear: 'لا أحد بجانبك للتحدث معه.', dSwing: 'لا شيء أمامك لضربه.', noBow: 'تحتاج إلى قوس (الحقيبة > الصنع > الأسلحة: 2 خشب + 1 جلد).', noArrows: 'لم تبق سهام (الأسلحة: 2 خشب + 1 حجر = 5 سهام).',
     missed: 'أخطأت. بقي {0} سهام.', arrowsLeft: 'بقي {0} سهام.', aimOn: 'التصويب: وجّه بالعصا، {0} للرمي.',
     bindsNew: 'أزرار جديدة: {0}', mFight: 'كيف تقاتل',

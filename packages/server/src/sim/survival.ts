@@ -22,7 +22,7 @@ for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
 /** Kept in the inventory (not put down): weapons, arrows and clothes. */
 const KEEP = new Set(['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet']);
 /** Game seconds of work. */
-const WORK = { chop: 120, dig: 100, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120 } as const;
+const WORK = { chop: 120, dig: 100, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
 /** What a storage crate keeps. */
 export type StashKey = 'food' | Res;
 export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number; [k: string]: number }
@@ -364,6 +364,8 @@ export class Survival {
       }
     }
     if (what === 'door') s = this.doorSite(m); // the open doorway of a hut
+    if (what === 'door' && s < 0) s = this.gateSite(m);
+    if (what === 'door' && s < 0) return 'there is no doorway or gate that needs a door'; // never a door standing alone in the open (imad 2026-11-21)
     if (s < 0 && camp && (what === 'palisade' || what === 'stonewall' || what === 'spikes')) s = this.defenceSite(m, what);
     if (s < 0) s = this.site(m, camp?.x ?? e.x[i]!, camp?.y ?? e.y[i]!, 1, 1, what === 'lamp' ? 10 : 16);
     if (s < 0) return 'I found no place for it';
@@ -375,6 +377,33 @@ export class Survival {
     const tm = this.w.maps[m]!.tiles;
     for (const j of this.jobs.values()) if (j.kind === 'place' && j.m === m && j.ty * tm.w + j.tx === k) return true;
     return false;
+  }
+  /** The ways in of the camp wall (north / east / south / west, 9 tiles out) get a door once the wall stands: tile index or -1. */
+  gateSite(m: number): number {
+    const camp = this.camp[m];
+    if (!camp) return -1;
+    const [up] = this.campDefence(m);
+    if (up < 12) return -1;
+    const tm = this.w.maps[m]!.tiles, cx = Math.floor(camp.x), cy = Math.floor(camp.y), door = this.placeTile.get('door');
+    for (const [dx, dy] of [[0, -9], [9, 0], [0, 9], [-9, 0]] as const) {
+      const x = cx + dx, y = cy + dy;
+      if (!tm.inside(x, y)) continue;
+      const k = y * tm.w + x;
+      if (tm.tiles[k] === door || !this.buildable.has(tm.tiles[k]!) || this.reserved(m, k) || this.w.land.inRing(m, x, y)) continue;
+      return k;
+    }
+    return -1;
+  }
+  private readonly doorCache: [number, number][] = [];
+  /** Doors standing in huts or the wall on map m (counted at most every 5 game minutes). */
+  doorsUp(m: number): number {
+    const c = this.doorCache[m];
+    if (c && c[0] > this.w.gameSec - 300) return c[1];
+    const tm = this.w.maps[m]!.tiles, door = this.placeTile.get('door');
+    let n = 0;
+    for (let k = 0; k < tm.tiles.length; k++) if (tm.tiles[k] === door) n++;
+    this.doorCache[m] = [this.w.gameSec, n];
+    return n;
   }
   /** A hut's doorway with no door yet (tile index), or -1. */
   doorSite(m: number): number {
@@ -664,6 +693,7 @@ export class Survival {
         this.putDown(i, j.m, j.tx, j.ty, j.what!);
         return true;
       }
+      case 'guard': return w.gameSec >= (j.n ?? 0) ? true : false; // stand at the post until the shift ends (a fight or hunger ends it earlier)
       case 'dig': {
         if (tm.tiles[k] !== this.T.rubble && tm.tiles[k] !== this.T.rock) return 'that is gone';
         this.take1(i, j.m, j.tx, j.ty, tm.tiles[k]!);
@@ -887,6 +917,50 @@ export class Survival {
     if (next !== cur) { this.leader[m] = next; if (next >= 0) w.emit('leader', { id: next, map: w.maps[m]!.def.id, name: w.profiles.get(next)?.name ?? '' }); }
     return next;
   }
+  /** Guards on duty on map m. */
+  guards(m: number): number { let n = 0; for (const j of this.jobs.values()) if (j.kind === 'guard' && j.m === m) n++; return n; }
+  /**
+   * The night watch (imad 2026-11-21: "basic survival knowledge"): from dusk to dawn, with a camp, a few of the people still on their feet
+   * stand at a post on the camp's ring (the four ways in take turns), 2 when zombies are about and 1 otherwise (from 3 people up).
+   * The bravest and strongest take the post (courage x1.2, strength x0.6, a weapon, the leader first); the timid and the hurt never.
+   * The shift lasts 3 game hours; whoever is hungry, thirsty or worn out is relieved.
+   */
+  private watch(m: number, hour: number): void {
+    const w = this.w, e = w.e, camp = this.camp[m];
+    if (!camp || !(hour >= 20 || hour < 5)) return;
+    const people: number[] = [];
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === m && !(e.flags[i]! & 32)) people.push(i);
+    if (people.length < 3) return;
+    const threat = w.zombies.perNight > 0 || w.zombies.count(m) > 0 || w.zombies.plans.some((x) => x.map === w.maps[m]!.def.id);
+    const want = threat && people.length >= 5 ? 2 : 1;
+    let have = this.guards(m);
+    if (have >= want) return;
+    const lid = this.leader[m] ?? -1;
+    const fit = people.filter((i) => !this.jobs.has(e.id(i)) && !w.profileOf(i)?.mind?.task && !w.brain.orderOf(i).kind && e.hp[i]! > 60 && e.hunger[i]! < 60 && e.thirst[i]! < 60 && e.tired[i]! < 65 && !w.rules.forbidden(i, 'fight')
+      && (w.profileOf(i)?.traits.courage ?? 0.5) > 0.4)
+      .sort((a, b) => this.guardScore(b, lid) - this.guardScore(a, lid));
+    for (const i of fit) {
+      if (have >= want) break;
+      const post = this.post(m, have + (Math.floor(w.gameSec / (3 * HOUR)) % 4));
+      if (!post) return;
+      const j: Job = { kind: 'guard', m, tx: Math.floor(post.x), ty: Math.floor(post.y), work: 0, n: w.gameSec + 3 * HOUR };
+      const tm = w.maps[m]!.tiles;
+      if (!w.brain.job(i, post.x, post.y, post.x + Math.cos(((have * 90 + 45) * Math.PI) / 180) * 3, post.y + Math.sin(((have * 90 + 45) * Math.PI) / 180) * 3, Act.Idle)) continue;
+      void tm;
+      this.jobs.set(e.id(i), j); this.ended.delete(e.id(i));
+      have++;
+      w.emit('guard', { id: e.id(i), map: w.maps[m]!.def.id });
+    }
+  }
+  private guardScore(i: number, lid: number): number {
+    const t = this.w.profileOf(i)?.traits;
+    return (t?.courage ?? 0.5) * 1.2 + (t?.strength ?? 0.5) * 0.6 + (this.weapon(i)[1] > 0 ? 0.3 : 0) + (this.w.e.id(i) === lid ? 0.2 : 0) + this.w.rng.next() * 0.1;
+  }
+  /** A post on the camp's ring: one of the four ways in (k = 0..3), 7 tiles from the fire. */
+  private post(m: number, k: number): { x: number; y: number } | null {
+    const camp = this.camp[m]!, a = ((k % 4) * 90 * Math.PI) / 180;
+    return this.w.freeSpot(m, camp.x + Math.cos(a) * 7, camp.y + Math.sin(a) * 7, 6);
+  }
   /** The leader of map m by name ('' = none). */
   leaderName(m: number): string { const id = this.leader[m] ?? -1; return id >= 0 ? this.w.profiles.get(id)?.name ?? '' : ''; }
 
@@ -898,6 +972,7 @@ export class Survival {
   private ownPlans(): void {
     const w = this.w, e = w.e, hour = w.brain.hour();
     if (!this.enabled) return;
+    for (let mi = 0; mi < w.maps.length; mi++) this.watch(mi, hour);
     for (let mi = 0; mi < w.maps.length; mi++) {
       const free: number[] = [];
       let n = 0, sx = 0, sy = 0, building = false;
@@ -959,7 +1034,7 @@ export class Survival {
         const threat = w.zombies.perNight > 0 || w.zombies.plans.some((x) => x.map === w.maps[mi]!.def.id) || w.zombies.count(mi) > 0;
         const [up, left] = this.campDefence(mi);
         let jobs = 0;
-        if (this.doorSite(mi) >= 0 && free.length && w.rng.chance(threat ? 0.8 : 0.4)) { start(best((x) => tr(x).intelligence), 'put a door on a hut', [{ do: 'build', what: 'door' }]); jobs++; }
+        if ((this.doorSite(mi) >= 0 || this.gateSite(mi) >= 0) && free.length && w.rng.chance(threat ? 0.8 : 0.4)) { start(best((x) => tr(x).intelligence), 'put a door on a hut', [{ do: 'build', what: 'door' }]); jobs++; }
         const crew = threat ? Math.min(3, Math.ceil(free.length / 2)) : w.rng.chance(0.3) ? 1 : 0;
         for (let k = 0; k < crew && left > 0 && free.length; k++) { start(best((x) => tr(x).strength), 'build the wall round the camp', [{ do: 'build', what: (this.inv(free[0]!).brick ?? 0) >= 2 ? 'stonewall' : 'palisade' }]); jobs++; }
         if (left === 0 && up > 0 && threat && free.length && this.defenceSite(mi, 'spikes') >= 0 && w.rng.chance(0.5)) { start(best((x) => tr(x).courage), 'put spikes outside the wall', [{ do: 'build', what: 'spikes' }]); jobs++; }

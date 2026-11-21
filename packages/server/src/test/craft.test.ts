@@ -186,3 +186,63 @@ test('zombie numbers are the owner\'s; people with bare hands fight back instead
   assert.ok(fought, 'an average unarmed person fights');
   assert.ok(!e.alive(z2) || e.hp[z2]! < 90, 'the zombie was hurt');
 });
+
+test('PvP damage is small: 30 at most, about 10 weapon on armed, 3 bare on armour', async () => {
+  const { pvpDamage } = await import('../sim/clans.js');
+  assert.equal(pvpDamage(34, false, 0), 30);
+  assert.ok(pvpDamage(34, true, 0) <= 10 && pvpDamage(34, true, 0) >= 9);
+  assert.equal(pvpDamage(0, false, 0.35), 3);
+  assert.ok(pvpDamage(22, false, 0) <= 30);
+});
+
+test('a door needs a doorway or a gate: never a door alone in the open', () => {
+  const w = mk('door-test');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!;
+  const a = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent && e.map[i] === town)!;
+  w.survival.inv(a).wood = 20; w.survival.inv(a).stone = 10;
+  assert.equal(w.survival.doorSite(town), -1, 'no hut yet: no doorway');
+  assert.equal(w.survival.gateSite(town), -1, 'no wall yet: no gate');
+});
+
+test('night watch: with a camp, the bravest stand guard at night and a timid person never does', () => {
+  const w = mk('watch-test');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!;
+  const people = [...Array(e.hi).keys()].filter((i) => e.kind[i] === Kind.Agent && e.map[i] === town);
+  const a = people[0]!;
+  w.survival.inv(a).wood = 20; w.survival.inv(a).stone = 10; e.angle[a] = 0;
+  assert.equal(w.survival.playerHut(a), 'built');
+  const brave = people[1]!, timid = people[2]!;
+  w.profileOf(brave)!.traits.courage = 1; w.profileOf(timid)!.traits.courage = 0.1;
+  const guards: number[] = [];
+  w.listeners.push((ev) => { if (ev.kind === 'guard') guards.push(Number(ev.data.id)); });
+  // Run through to the night (hour >= 20); keep everyone fed and rested.
+  for (let k = 0; k < 20 * 3600 * 18 / 30 && !guards.length; k++) { for (const i of people) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; e.hp[i] = 100; } w.step(); }
+  assert.ok(guards.length >= 1, 'someone stood guard');
+  assert.ok(!guards.includes(w.e.id(timid)), 'the timid one did not');
+  assert.ok(w.survival.guards(town) >= 1);
+});
+
+test('clans form around the leader; a quarrel is a duel with small damage and nobody dies', () => {
+  const w = mk('clan-test');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!;
+  const people = [...Array(e.hi).keys()].filter((i) => e.kind[i] === Kind.Agent && e.map[i] === town);
+  const ev: string[] = [];
+  w.listeners.push((x) => { if (x.kind === 'clan' || x.kind === 'duel' || x.kind === 'duelEnd') ev.push(x.kind); });
+  for (let k = 0; k < 20 * 3600 * 3 / 30; k++) { for (const i of people) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; } w.step(); }
+  assert.ok(w.clans.clans.length >= 1, 'a clan formed');
+  const c = w.clans.clans[0]!;
+  assert.ok(c.members.length >= 3 && c.members.includes(c.leader));
+  // Two people from different spots: force a fight.
+  const a = people[0]!, b = people[1]!;
+  e.x[b] = e.x[a]! + 1; e.y[b] = e.y[a]!;
+  e.hp[a] = 100; e.hp[b] = 100;
+  w.survival.inv(a).sword = 1;
+  w.clans.start(a, b, 'a misunderstanding');
+  for (let k = 0; k < 20 * 60 && !ev.includes('duelEnd'); k++) { e.hunger[a] = 0; e.hunger[b] = 0; w.step(); }
+  assert.ok(ev.includes('duel') && ev.includes('duelEnd'), 'a duel started and ended');
+  assert.ok(e.hp[b]! >= 3 && e.hp[a]! >= 3, 'nobody died');
+  assert.ok(e.hp[b]! < 100 || e.hp[a]! < 100, 'someone was hurt');
+});

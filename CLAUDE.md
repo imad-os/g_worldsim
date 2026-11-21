@@ -309,3 +309,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   chat) for such characters, from chat plans / the keyword net AND from the panel: Talk & orders > Give an order > "Ask … to marry them" / "Divorce …"
   (admin `order` kind `marry` / `divorce`, `Planner.orderWed`: a task for a person on their feet, immediate for a player played by hand;
   an error says why not, e.g. "Lina said no"). Test planner.test "played by hand is married / divorced at once".
+
+## Conversations, night watch, PvP, clans (imad 2026-11-21, app 0.10.0)
+- Panel person page tab **Conversations** (`Planner.convo`, `ai/convo.ts`, memory only, 600 lines): lines said aloud to someone near, chats with players / the owner, and a built-in
+  small-talk exchange when two people stop to talk (no AI call). The page redraw (`redraw()` in `panel/src/people.ts`) keeps page scroll, tab bar scroll and chat scroll.
+- **Doors only in doorways**: `buildThing('door')` uses a hut doorway or a gate of the finished camp wall (`gateSite`), else fails ("no doorway or gate"), never a random spot.
+  **Night watch** (`Survival.watch`, hourly, 20:00-05:00, camp + 3 people): 1 guard (2 with zombies about and 5+ people) at a post on the camp ring, 3 game hours, chosen by courage x1.2 +
+  strength x0.6 + weapon; timid (courage <= 0.4) never. **Retreat indoors**: with a door standing (`doorsUp`), fleeing people run to the nearest roof before the fire.
+- **PvP** (`sim/clans.ts`): Do `pvp` 1/0 = switch (off by default, meta `pvp_on`), Do `hitperson` = hit a person (the normal Attack never does). Both players need it on. `pvpDamage`: weapon on
+  unarmed up to 30, weapon on armed ~10, bare hands on armour 3; nobody dies of it (hp >= 3, players >= 5). Client: action `attackPerson` (unbound by default; Actions menu, quick wheel), PvP row in How to fight.
+- **Clans** (`Clans`, saved in snapshots): the map leader founds one, others join by feelings (`mind.rel`) and family; loyalty moves hourly; 6+ adults: a strong rival of the leader may split
+  off with friends and a home of their own; rival clans get tense (`tension` 0-10). Quarrels (`quarrel`, 8 people a second): tension >= 4, dislike <= -2 or "on edge" (hungry, grumpy...) start a duel
+  (`Brain.duelMove` / `duelEnd`): small hits, loser yields. Panel People page "Clans" card; clan line in every prompt. Territory = a home point only (one camp per map for now).

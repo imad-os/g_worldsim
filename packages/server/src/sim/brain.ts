@@ -196,6 +196,25 @@ export class Brain {
     e.nextThink[i] = w.tick + 1;
     return true;
   }
+  /** In a fight with a person: close in on them (x, y) or, when close, stand and face them. */
+  duelMove(i: number, fx: number, fy: number, close: boolean, foe: number): void {
+    const e = this.w.e;
+    this.setAct(i, Act.Fight); e.target[i] = foe;
+    if (close) { this.stop(i); e.angle[i] = Math.atan2(fy - e.y[i]!, fx - e.x[i]!); }
+    else if (!this.walking(i) || Math.hypot(this.gx[i]! - fx, this.gy[i]! - fy) > 1.5) this.goTo(i, fx, fy, true);
+    this.schedule(i, 0, 10);
+  }
+  /** The fight is over: the one who gave way walks off, the other calms down. */
+  duelEnd(i: number, yielded: boolean, foe: number): void {
+    const w = this.w, e = w.e, j = e.slot(foe);
+    this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1;
+    if (yielded && j >= 0) {
+      const dx = e.x[i]! - e.x[j]!, dy = e.y[i]! - e.y[j]!, l = Math.hypot(dx, dy) || 1;
+      const s = w.freeSpot(e.map[i]!, e.x[i]! + (dx / l) * 12, e.y[i]! + (dy / l) * 12, 8);
+      if (s) this.goTo(i, s.x, s.y, true);
+    }
+    e.nextThink[i] = w.tick + 2;
+  }
   /** Hunt an animal (entity id): chase it and hit it until it dies, runs off (60 m) or an hour passes. */
   hunt(i: number, id: number): boolean {
     const e = this.w.e;
@@ -292,6 +311,7 @@ export class Brain {
    */
   private danger(i: number): boolean {
     const w = this.w, e = w.e, m = e.map[i]!;
+    if (w.clans.duelling(i)) { this.schedule(i, 0, 10); return true; } // a fight with a person (sim/clans.ts drives it)
     const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
     const fighting = e.act[i] === Act.Fight, fleeing = e.act[i] === Act.Flee;
     let z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? 6 : 10);
@@ -325,7 +345,13 @@ export class Brain {
     const camp = w.survival.campOf(m), f = camp ? w.survival.fireNear(m, camp.x, camp.y, 20) : -1;
     const W = w.maps[m]!.tiles.w;
     let ok = false;
-    if (f >= 0) {
+    // Indoors first when a door stands (zombies are put back at a door): the nearest roof within 60 m.
+    if (w.survival.doorsUp(m) > 0) {
+      const sp = this.shelterSpots[m]!; let bk = -1, bd = 60;
+      for (let n = 0; n < sp.length; n++) { const k = sp[n]!; const d = Math.hypot((k % W) + 0.5 - e.x[i]!, ((k / W) | 0) + 0.5 - e.y[i]!); if (d < bd) { bd = d; bk = k; } }
+      if (bk >= 0) { if (bd < 1.2) { this.stop(i); this.schedule(i, 0, 10); return true; } ok = this.goTo(i, (bk % W) + 0.5, ((bk / W) | 0) + 0.5, true); }
+    }
+    if (!ok && f >= 0) {
       const fx = (f % W) + 0.5, fy = ((f / W) | 0) + 0.5;
       if (Math.hypot(fx - e.x[i]!, fy - e.y[i]!) < 80 && Math.hypot(fx - e.x[i]!, fy - e.y[i]!) > 2.5) {
         const s = w.freeSpot(m, fx + w.rng.range(-1.8, 1.8), fy + w.rng.range(-1.8, 1.8), 10);
