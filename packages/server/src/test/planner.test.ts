@@ -363,3 +363,25 @@ test('"go ask her to marry you" / "divorce her": the character walks over, asks,
   assert.match((p as unknown as { describe(i: number): string }).describe(she), /Single: no partner/);
   mode = 'ok';
 });
+
+test('a character played by hand is married / divorced at once by the owner\'s order (panel) or by chat', async () => {
+  const { w, ai, p } = setup();
+  ai.apply({ provider: 'ollama', ollamaUrl: base, model: 'm' });
+  mode = 'marry';
+  const e = w.e;
+  let she = -1;
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent && w.profileOf(k)!.sex === 'f') { she = k; break; }
+  const sp = w.profileOf(she)!; sp.partner = -1; sp.born = w.gameSec - 25 * w.yearSec; sp.parents = [];
+  const pl = w.spawnPlayer(e.map[she]!, e.x[she]! + 1.5, e.y[she]!);
+  const me = w.playerProfile(pl, 'imad'); me.sex = 'm'; me.partner = -1; me.parents = [];
+  assert.equal(e.kind[pl], 6, 'played by hand');
+  marryYes = false;
+  await assert.rejects(p.orderWed(pl, 'marry', sp.name), /said no/);
+  assert.equal(me.partner, -1);
+  marryYes = true;
+  assert.match(await p.orderWed(pl, 'marry', sp.name), /married/);
+  assert.equal(me.partner, e.id(she)); assert.equal(sp.partner, e.id(pl));
+  assert.match(await p.orderWed(pl, 'divorce', ''), /divorced/);
+  assert.equal(me.partner, -1); assert.equal(sp.partner, -1);
+  mode = 'ok';
+});

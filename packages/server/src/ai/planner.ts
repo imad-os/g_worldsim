@@ -549,6 +549,13 @@ export class Planner {
       }
     }
     let did = '';
+    if (byHand && steps.some((s) => s.do === 'marry' || s.do === 'divorce')) { // a character played by hand does not walk: it is asked / done now
+      const s0 = steps.find((s) => s.do === 'marry' || s.do === 'divorce')!;
+      const r = await this.wedNow(i, s0.do as 'marry' | 'divorce', s0.who ?? -1);
+      const nm = this.nameOfId(s0.who ?? -1);
+      did = r === 'ok' ? (s0.do === 'marry' ? `marry ${nm} (done)` : `divorce ${nm} (done)`) : `${s0.do} ${nm}: not done, ${r}`;
+      steps = [];
+    }
     if (steps.length >= 1 && (steps.length > 1 || !doRaw || !['come', 'follow', 'goto', 'bring', 'stay', 'stop'].includes(doRaw))) {
       const what = (taskText || (text ?? '') || steps.map((x) => x.do).join(', ')).slice(0, 100);
       if (!byHand && w.tasks.start(i, what, from, steps)) did = `${what} (${steps.map((x) => x.do).join(' > ')})`;
@@ -649,6 +656,36 @@ export class Planner {
   }
 
   /** The owner's order from the panel, without asking the model. */
+  /** Right now, without walking: ask them to marry / divorce them. 'ok' = it happened (saved on both), else why not. */
+  async wedNow(i: number, what: 'marry' | 'divorce', who: number): Promise<string> {
+    const w = this.w, e = w.e, ida = e.id(i), pa = w.profiles.get(ida), pb = w.profiles.get(who), j = e.slot(who);
+    if (!pa || !pb || j < 0) return 'they are not here';
+    if (what === 'divorce') {
+      const r = w.life.divorce(ida, who);
+      if (r === true) { this.note(ida, `I divorced ${pb.name}.`, true); this.note(who, `${pa.name} divorced me.`, true); return 'ok'; }
+      return String(r);
+    }
+    const r = await this.chat(j, pa.name, 'Will you marry me?', i);
+    return pa.partner === who ? 'ok' : `${pb.name} said no${r.reply ? `: "${r.reply}"` : ''}`;
+  }
+  /** The panel's order "marry X" / "divorce X" (empty = their partner): a task for a person on their feet, done at once for a player's character played by hand. */
+  async orderWed(i: number, kind: 'marry' | 'divorce', target: string): Promise<string> {
+    const w = this.w, e = w.e;
+    if (i < 0 || (e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
+    const p = w.profileOf(i)!;
+    let who = target.trim() ? this.whoIs(target, e.id(i)) : kind === 'divorce' ? p.partner : -1;
+    if (who < 0) throw new Error(kind === 'divorce' && !target.trim() ? 'they have no partner' : 'choose who (a name)');
+    const nm = this.nameOfId(who);
+    if (e.kind[i] === Kind.Agent) {
+      if (!w.tasks.start(i, kind === 'marry' ? `ask ${nm} to marry me` : `divorce ${nm}`, 'owner', [{ do: kind, who }])) throw new Error('could not start');
+      this.note(e.id(i), `The voice from the sky told me to ${kind === 'marry' ? 'ask ' + nm + ' to marry me' : 'divorce ' + nm}.`, true);
+      return kind === 'marry' ? `go and ask ${nm} to marry them` : `divorce ${nm}`;
+    }
+    const r = await this.wedNow(i, kind, who);
+    if (r !== 'ok') throw new Error(r);
+    return kind === 'marry' ? `married ${nm}` : `divorced ${nm}`;
+  }
+
   orderFromPanel(i: number, kind: string, target: string): string {
     const w = this.w, e = w.e;
     if (i < 0 || e.kind[i] !== Kind.Agent) throw new Error('no such person');

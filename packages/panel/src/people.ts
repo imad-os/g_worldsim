@@ -76,6 +76,7 @@ let draft = '';
 const chatHtml = () => chat.map(([w, t]) => `<div class="msg ${w === 'You' ? 'me' : w ? '' : 'sys'}">${w ? `<b>${esc(w)}</b>` : ''}${esc(t)}</div>`).join('') || '<div class="empty">Say something: they answer as themselves.</div>';
 const ORDERS: [string, string, boolean][] = [
   ['goto', 'Go to…', true], ['follow', 'Follow…', true], ['bring', 'Bring food to…', true], ['talk', 'Talk with…', true], ['stay', 'Stay where you are', false], ['stop', 'Stop the order', false],
+  ['marry', 'Ask … to marry them (walks there, they decide)', true], ['divorce', 'Divorce … (empty = their partner)', true],
   ['drink', 'Drink', false], ['eat', 'Eat', false], ['forage', 'Find food', false], ['sleep', 'Sleep', false], ['wander', 'Walk around', false], ['rest', 'Rest', false],
   ['gather wood', 'Gather wood', false], ['gather stone', 'Gather stone', false], ['gather ore', 'Mine ore', false], ['go hunting', 'Go hunting', false],
   ['make an axe', 'Make an axe', false], ['make a spear', 'Make a spear', false], ['make a sword', 'Make a sword', false], ['make clothes', 'Make clothes', false],

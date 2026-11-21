@@ -304,3 +304,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   when they say no. Chat plans use them ("go ask Lina to marry you"; `askedToWedSomeone` is the net for small models). `chat()` accepts any
   profiled speaker (an agent sent to ask is a speaker too). Manual: person page rows Propose marriage / Ask for a divorce (Do `marry` / `divorce`,
   text = entity id, within 10 m). Test planner.test "go ask her to marry you".
+- **Marry / divorce really happen (imad 2026-11-21: "he said he did but I still see him married")**: a character played by hand (Kind.Player) has no
+  tasks, so chat only produced words. Now `Planner.wedNow` does it at once (divorce = `Life.divorce`; marry = the other person's own answer via
+  chat) for such characters, from chat plans / the keyword net AND from the panel: Talk & orders > Give an order > "Ask … to marry them" / "Divorce …"
+  (admin `order` kind `marry` / `divorce`, `Planner.orderWed`: a task for a person on their feet, immediate for a player played by hand;
+  an error says why not, e.g. "Lina said no"). Test planner.test "played by hand is married / divorced at once".

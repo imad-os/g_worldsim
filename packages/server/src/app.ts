@@ -1029,6 +1029,7 @@ export class App {
       }
       case 'order': {
         const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        if (c.kind === 'marry' || c.kind === 'divorce') return { did: await this.planner.orderWed(i, c.kind, String(c.target ?? '')) };
         if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to give orders');
         return { did: this.planner.orderFromPanel(i, String(c.kind ?? ''), String(c.target ?? '')) };
       }
