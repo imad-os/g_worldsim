@@ -19,6 +19,7 @@ import { Rules } from './rules.js';
 import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
 import { Animals } from './animals.js';
+import { Horses } from './horses.js';
 import { Land } from './land.js';
 import { Quests } from './quests.js';
 import type { TileMap } from './tilemap.js';
@@ -102,6 +103,8 @@ export class World {
   readonly replays: Replays;
   /** Wild animals to hunt (sim/animals.ts). */
   readonly animals: Animals;
+  /** Wild herds, taming, riding (sim/horses.ts). */
+  readonly horses: Horses;
   /** The town's ring of trees, its 4 roads out, wrecks while travel is closed, rocks (sim/land.ts). */
   readonly land: Land;
   /** The town's teachers (NPCs) and their quests (sim/quests.ts). */
@@ -142,6 +145,7 @@ export class World {
     this.rules = new Rules(this);
     this.replays = new Replays(this);
     this.animals = new Animals(this);
+    this.horses = new Horses(this);
     this.land = new Land(this);
     this.quests = new Quests(this);
     this.doorTile = sc.tiles.find((t) => t.name === 'door')?.id ?? -1;
@@ -219,11 +223,11 @@ export class World {
   }
 
   /** A walkable point near (x, y) with room for an agent, or null. */
-  freeSpot(map: number, x: number, y: number, tries = 30): { x: number; y: number } | null {
+  freeSpot(map: number, x: number, y: number, tries = 30, rng: Rng = this.rng): { x: number; y: number } | null {
     const t = this.maps[map]!.tiles, r = this.agentR + 0.05;
     for (let k = 0; k < tries; k++) {
       const d = k * 0.35; // search outward from the wanted point
-      const px = k === 0 ? x : x + this.rng.range(-d, d), py = k === 0 ? y : y + this.rng.range(-d, d);
+      const px = k === 0 ? x : x + rng.range(-d, d), py = k === 0 ? y : y + rng.range(-d, d);
       if (!t.isSolidAt(px - r, py - r) && !t.isSolidAt(px + r, py - r) && !t.isSolidAt(px - r, py + r) && !t.isSolidAt(px + r, py + r)) {
         return { x: px, y: py };
       }
@@ -381,6 +385,15 @@ export class World {
     e.destroy(i);
   }
 
+  /** Take slot i out of the physics world (a ridden horse) / put it back at (x, y) on map m. */
+  detachBody(i: number): void { this.dropBody(i); }
+  attachBody(i: number, m: number, x: number, y: number): void {
+    const e = this.e;
+    this.dropBody(i);
+    e.map[i] = m; e.x[i] = x; e.y[i] = y; e.vx[i] = 0; e.vy[i] = 0;
+    this.bodies[i] = this.maps[m]!.phys.createAgentBody(i, x, y, e.radius[i]!);
+  }
+
   private dropBody(i: number): void {
     const b = this.bodies[i];
     if (b) { b.getWorld().destroyBody(b); this.bodies[i] = null; }
@@ -432,6 +445,7 @@ export class World {
     if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); }
     this.zombies.update();
     this.animals.update();
+    this.horses.update();
     if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });
     this.replays.update();
     // Steering: agents push toward their goal; physics resolves collisions.
@@ -447,10 +461,12 @@ export class World {
       const dx = e.tx[i]! - e.x[i]!, dy = e.ty[i]! - e.y[i]!;
       const d = Math.hypot(dx, dy);
       let wx = 0, wy = 0;
+      if (k === Kind.Animal && this.horses.riding[i]) continue; // a ridden horse goes where its rider goes (Horses.sync)
+      const sp = this.horses.riding[i] === 1 ? this.horses.rideSpeed(i, e.speed[i]!) : e.speed[i]!; // on a horse: its pace
       if (k === Kind.Player) {
-        wx = e.inX[i]! * e.speed[i]!; wy = e.inY[i]! * e.speed[i]!;
+        wx = e.inX[i]! * sp; wy = e.inY[i]! * sp;
       } else if (d > 0.15) {
-        const s = Math.min(e.speed[i]!, d * 2); // slow down on arrival
+        const s = Math.min(sp, d * 2); // slow down on arrival
         wx = (dx / d) * s; wy = (dy / d) * s;
       }
       // Acceleration limit (8 m/s^2): smooth, physical starts and stops.
@@ -494,6 +510,7 @@ export class World {
     }
     this.family.carry(); // little ones in arms go with their carer
     this.portalsAndTransit();
+    this.horses.sync();
     for (const m of this.maps) m.grid.rebuild(e, m.index);
     this.tick++;
     this.gameSec += dt * this.opt.clockScale;

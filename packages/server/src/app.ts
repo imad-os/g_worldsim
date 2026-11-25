@@ -23,6 +23,7 @@ import { BrainStats, Failover } from './ai/brainstats.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, levelOf, TRAIT_KEYS, SEX_WEEK_MS, type Profile } from './sim/people.js';
 import { stageOf } from './sim/family.js';
+import { tameLevel } from './sim/horses.js';
 import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { pvpDamage } from './sim/clans.js';
@@ -40,7 +41,7 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog', 'clans', 'quests']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
@@ -284,6 +285,10 @@ export class App {
         if (e.kind[near] === Kind.Threat) return { ok: true, code: w.zombies.hit(near, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
         return this.hitAnimal(player, near, w.zombies.damageOf(player));
       }
+      // Horses (sim/horses.ts): off when riding, on my horse when it is next to me, else try to tame the wild one next to me;
+      // my horse elsewhere on the map comes when I call. 'horseInfo' text = id: that horse's details.
+      if (a === 'horse') return w.horses.playerAct(player);
+      if (a === 'horseInfo') { const h = e.slot(Number(text)); const d = h >= 0 ? w.horses.info(h, player) : null; return d ? { ok: true, code: 'horseInfo', horse: d } : { ok: false, code: 'noHorse' }; }
       if (a === 'pvp') { // the PvP switch: off by default; on = people can hit me and I can hit them
         const on = String(text ?? '') === '1', k = name.toLowerCase();
         if (on) this.pvp.add(k); else this.pvp.delete(k);
@@ -365,6 +370,12 @@ export class App {
         if ((this.workAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
         const wk = sv.playerWork(player);
         if (wk) { this.workAt.set(name, now + (wk.hard ? 1600 : 900)); w.gear.play(player, wk.code === 'chopped' ? 'chop' : wk.code === 'mined' ? 'mine' : 'use'); return { ok: !!wk.got, code: wk.code, got: wk.got }; }
+        // Nothing else here but a horse: get on mine / try to tame a wild one (never off the horse by mistake).
+        if (!w.horses.riding[player]) {
+          let hn = false;
+          for (const [hid, h] of w.horses.h) { const s = e.slot(hid); if (s >= 0 && e.map[s] === e.map[player] && h.rider < 0 && Math.hypot(e.x[s]! - e.x[player]!, e.y[s]! - e.y[player]!) < 3.4) { hn = true; break; } }
+          if (hn) return w.horses.playerAct(player);
+        }
         return r0;
       }
       return w.brain.playerDo(player, a);
@@ -373,7 +384,8 @@ export class App {
     this.net.info = (id, seer) => this.personInfo(id, seer);
     this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
     this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0,
-      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], gear: { ...w.gear.state(i), use: { weapon: w.gear.equipped(i, 'weapon'), ranged: w.gear.equipped(i, 'ranged'), head: w.gear.equipped(i, 'head'), body: w.gear.equipped(i, 'body') } }, pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()) });
+      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], gear: { ...w.gear.state(i), use: { weapon: w.gear.equipped(i, 'weapon'), ranged: w.gear.equipped(i, 'ranged'), head: w.gear.equipped(i, 'head'), body: w.gear.equipped(i, 'body') } }, pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()), ride: w.horses.rideOf(i) });
+    this.net.horses = (m, x, y, r, me) => this.horsesAround(m, x, y, r, me);
     w.survival.playerName = (i) => this.net.characters().find(([, k]) => k === i)?.[0] ?? '';
     // Walking into the wrecks across a road out while travel is closed: that player is told why.
     // Married or divorced by words: the player's TV is told (and shows it on the Me page).
@@ -522,7 +534,7 @@ export class App {
     const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!;
     let best = -1, bd = r;
     for (let j = 0; j < e.hi; j++) {
-      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0) continue;
+      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0 || this.world.horses.owned(j)) continue; // never a tamed horse
       const dx = e.x[j]! - x, dy = e.y[j]! - y, d = Math.hypot(dx, dy);
       if (d >= bd) continue;
       let da = Math.atan2(dy, dx) - a; da = Math.atan2(Math.sin(da), Math.cos(da));
@@ -535,7 +547,7 @@ export class App {
     const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!, cx = Math.cos(a), cy = Math.sin(a);
     let best = -1, bd = r;
     for (let j = 0; j < e.hi; j++) {
-      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0) continue;
+      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0 || this.world.horses.owned(j)) continue;
       const dx = e.x[j]! - x, dy = e.y[j]! - y, along = dx * cx + dy * cy, off = Math.abs(dx * cy - dy * cx);
       if (along > 0.3 && along < bd && off <= side + along * 0.02) { bd = along; best = j; }
     }
@@ -544,7 +556,7 @@ export class App {
   private hitAnimal(player: number, a: number, dmg: number): { ok: boolean; code: string; got?: Record<string, number>; item?: string } {
     const w = this.world, type = w.e.sub[a]!;
     const d = w.animals.hit(a, dmg, player);
-    return d ? { ok: true, code: 'aKilled', item: ANIMAL_NAMES[type], got: d } : { ok: true, code: 'aHit', item: ANIMAL_NAMES[type] };
+    return d ? { ok: true, code: 'aKilled', item: ANIMAL_NAMES[type] ?? 'horse', got: d } : { ok: true, code: 'aHit', item: ANIMAL_NAMES[type] ?? 'horse' };
   }
 
   clock(): ClockInfo {
@@ -856,6 +868,17 @@ export class App {
     return null;
   }
 
+  /** Horses in a view, for the TV: [id, scale x100, quality, coat, tamed 0/1, mine 0/1, name]. */
+  horsesAround(m: number, x: number, y: number, r: number, me: number): unknown[] {
+    const w = this.world, e = w.e, out: unknown[] = [], myId = me >= 0 ? e.id(me) : -2;
+    for (const [id, h] of w.horses.h) {
+      const s = e.slot(id);
+      if (s < 0 || e.map[s] !== m || Math.abs(e.x[s]! - x) > r || Math.abs(e.y[s]! - y) > r) continue;
+      out.push([id, Math.round(w.horses.scale(h) * 100), h.q, h.coat, h.owner >= 0 ? 1 : 0, h.owner === myId ? 1 : 0, h.name]);
+    }
+    return out;
+  }
+
   /** What the TV shows on the player's "Me" page. */
   charInfo(i: number): Record<string, unknown> {
     const w = this.world, e = w.e, p = w.profileOf(i)!, now = w.gameSec, y = w.yearSec, id = e.id(i);
@@ -870,6 +893,7 @@ export class App {
       goals: (p.goals ?? []).slice(-5).reverse(), partner, children, family, asks, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1,
       traits: Object.fromEntries(TRAIT_KEYS.filter((k) => k !== 'metabolism').map((k) => [k, Math.round(p.traits[k] * 100)])),
       hp: Math.round(e.hp[i]!),
+      horses: w.horses.mine(i).map((h) => w.horses.info(h, i)), tame: tameLevel(w.horses.skill.get(id)), tamePower: Math.round(w.horses.power(i) * 100),
     };
   }
 
@@ -1366,6 +1390,18 @@ export class App {
         const now: { id: number; map: string; x: number; y: number; hp: number; stays: boolean }[] = [];
         for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Threat && w.e.map[i] !== NO_MAP) now.push({ id: w.e.id(i), map: w.maps[w.e.map[i]!]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!), hp: Math.round(w.e.hp[i]!), stays: w.e.sub[i] === 1 });
         return { perNight: w.zombies.perNight, cfg: w.zombies.cfg, now };
+      }
+      case 'horses': {
+        const list: unknown[] = [];
+        for (const [id] of w.horses.h) { const i = w.e.slot(id); if (i < 0 || (c.map !== undefined && w.e.map[i] !== mapOf(c.map))) continue; list.push({ ...w.horses.info(i), map: w.e.map[i] === NO_MAP ? '' : w.maps[w.e.map[i]!]!.def.id, x: Math.round(w.e.x[i]! * 10) / 10, y: Math.round(w.e.y[i]! * 10) / 10, herd: w.horses.h.get(id)!.herd }); }
+        return { list, herds: w.horses.herds.size, wild: w.horses.count(-1, true), tamed: list.filter((h) => !(h as { wild: boolean }).wild).length };
+      }
+      case 'horseSpawn': {
+        const m = mapOf(c.map), near = c.near !== undefined ? w.e.slot(fixed(c.near, 0, 2 ** 31, 'near')) : -1, def = w.maps[m]!.def;
+        const x = near >= 0 ? w.e.x[near]! + 6 : c.x !== undefined ? fixed(c.x, 0, def.w, 'x') : def.w / 2, y = near >= 0 ? w.e.y[near]! : c.y !== undefined ? fixed(c.y, 0, def.h, 'y') : def.h / 2;
+        const n = fixed(c.n ?? 4, 1, 12, 'n') | 0, q = c.q !== undefined ? fixed(c.q, 0, 2, 'q') | 0 : undefined;
+        const got = w.horses.spawnHerd(m, x, y, n, q);
+        return { ok: true, n: got.length, ids: got.map((i) => w.e.id(i)) };
       }
       case 'animals': {
         if (c.map !== undefined && (c.want !== undefined || c.fill)) {

@@ -25,6 +25,9 @@ export const Kind = {
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
+/** Bit 7 of the kind byte in frames: a person on a horse, or the horse being ridden (sim/horses.ts; the 8 flag bits are all taken). */
+export const KIND_RIDING = 0x80;
+
 /** Entity flags (bit field, sent to clients). */
 export const EFlag = {
   Alive: 1,

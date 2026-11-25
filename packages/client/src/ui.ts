@@ -8,11 +8,11 @@
 import { t, tf, type Key } from './i18n.js';
 
 // ------------------------------------------------------------ actions and buttons
-export const ACTIONS = ['use', 'talk', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel', 'attackPerson'] as const;
+export const ACTIONS = ['use', 'talk', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel', 'attackPerson', 'horse'] as const;
 export type ActionId = (typeof ACTIONS)[number];
 const ACTION_KEY: Record<ActionId, Key> = {
   use: 'aUse', run: 'aRun', eat: 'aEat', drink: 'aDrink', pickup: 'aPickup', sleep: 'aSleep', zoomIn: 'aZoomIn', zoomOut: 'aZoomOut',
-  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', talk: 'aTalk', attack: 'aAttack', aim: 'aAim', build: 'aBuild', attackPerson: 'aAttackPerson',
+  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', talk: 'aTalk', attack: 'aAttack', aim: 'aAim', build: 'aBuild', attackPerson: 'aAttackPerson', horse: 'aHorse',
 };
 export const actionLabel = (a: ActionId) => t(ACTION_KEY[a]);
 

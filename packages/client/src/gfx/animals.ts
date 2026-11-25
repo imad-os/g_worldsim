@@ -14,6 +14,7 @@ const KINDS: Shape4[] = [
   { len: 0.78, h: 0.42, wide: 0.4, head: 0.2, leg: 0.3, ear: 0.1, earUp: 0.6, tail: 0.04, body: 0x4f3d30, headC: 0x47372b, earC: 0xe6dcc6 }, // boar (tusks)
   { len: 0.75, h: 0.32, wide: 0.26, head: 0.16, leg: 0.42, ear: 0.13, earUp: 1, tail: 0.12, body: 0x7d7d80, headC: 0x8a8a8e, earC: 0x5a5a5e }, // wolf
   { len: 1.25, h: 0.62, wide: 0.66, head: 0.3, leg: 0.48, ear: 0.1, earUp: 1, tail: 0.06, body: 0x4a3324, headC: 0x523a29, earC: 0x3a281c }, // bear
+  { len: 1.25, h: 0.5, wide: 0.42, head: 0.2, leg: 0.8, ear: 0.12, earUp: 1, tail: 0.14, body: 0x7a4424, headC: 0x6e3c20, earC: 0x1d1712 }, // horse (until its model has loaded)
 ];
 
 export class Animals3D {

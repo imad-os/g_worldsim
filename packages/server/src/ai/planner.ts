@@ -49,7 +49,7 @@ const WORK_GOALS: Record<string, Step[]> = {
   'make a spear': [{ do: 'craft', what: 'spear' }], 'build a campfire': [{ do: 'build', what: 'campfire' }],
   'build a hut': [{ do: 'build', what: 'hut' }], 'feed the fire': [{ do: 'tend' }],
   'collect food and store it': [{ do: 'collect', what: 'food', times: 4 }, { do: 'store', what: 'food' }],
-  'go hunting': [{ do: 'hunt' }], 'make clothes': [{ do: 'craft', what: 'clothes' }], 'make a sword': [{ do: 'craft', what: 'sword' }],
+  'go hunting': [{ do: 'hunt' }], 'tame a horse': [{ do: 'tame' }], 'make clothes': [{ do: 'craft', what: 'clothes' }], 'make a sword': [{ do: 'craft', what: 'sword' }],
   'put a bed in a hut': [{ do: 'build', what: 'bed' }], 'put up a palisade': [{ do: 'build', what: 'palisade' }],
   'search the ruins': [{ do: 'loot', times: 3 }], 'plant a field': [{ do: 'farm' }], 'repair the huts': [{ do: 'repair' }],
 };
@@ -90,6 +90,7 @@ export function askedWork(text: string): { task: string; steps: Step[] } | null 
   if (/\b(loot|scavenge|search the ruins|fouille|saquea|registra)\b|فتش|ابحث في الأنقاض/.test(t)) return { task: 'search the ruins', steps: [{ do: 'loot', times: 3 }] };
   if (/\b(plant|farm|grow|field|planter|cultive|champ|siembra|cultiva|huerto)\b|ازرع|زراعة|حقل/.test(t)) return { task: 'plant a field', steps: [{ do: 'farm' }] };
   if (/\b(repair|fix|mend|répare|reparar|arregla)\b|أصلح|اصلح|صلح/.test(t)) return { task: 'repair the huts', steps: [{ do: 'repair' }] };
+  if (/\b(horses?|cheva(l|ux)|caballos?|yegua|stallion|mare)\b|حصان|خيل|فرس/.test(t) && /\b(tame|catch|break|get|find|apprivoise|dompte|attrape|doma|domar|atrapa|consigue)\b|روض|ترويض|امسك|اصطد/.test(t)) return { task: 'tame a horse', steps: [{ do: 'tame' }] };
   if (/\b(hunt\w*|chasse\w*|chasser|caza\w*|cazar)\b|اصطد|صيد/.test(t)) return { task: 'go hunting', steps: [{ do: 'hunt', what: t }] };
   if (/\b(sword|épée|espada|bow|arc|arco|arrows?|flèches?|flechas?|armou?r|armure|armadura|clothes|vêtements|ropa|helmet|casque|casco)\b|سيف|قوس|سهام|درع|ملابس|خوذة/.test(t)) { const th = thingOf(t, 'craft'); return { task: 'make ' + th, steps: [{ do: 'craft', what: th }] }; }
   if (/\b(door|porte|puerta|window|fenêtre|ventana|bed|lit|cama|lamp|lampe|lámpara|palisade|palissade|fence|barricade|spikes|wall|mur|muro)\b|باب|نافذة|سرير|مصباح|سياج/.test(t) && /\b(build|make|put|place|construis|fais|mets|construye|haz|pon)\b|ابن|اصنع|ضع/.test(t)) { const th = thingOf(t, 'build'); return { task: 'build ' + th, steps: [{ do: 'build', what: th }] }; }
@@ -516,7 +517,7 @@ export class Planner {
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
         + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (get to know them as a partner), marry {"who"} (walk to them and ask them to marry you: they answer for themselves), divorce {"who"} (walk to them and say you want a divorce; empty = your partner), child {} (have a baby with your partner), '
         + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
-        + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
+        + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, tame {} (walk calmly up to the nearest wild horse and tame it: then you can ride it), hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
         + 'craft {"what": "axe" | "spear" | "sword" | "bow" | "arrows" | "clothes" | "armor" | "helmet"}, '
         + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
@@ -628,7 +629,7 @@ export class Planner {
       if (!r || typeof r !== 'object') continue;
       const o = r as Record<string, unknown>;
       let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
-      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'marry', wed: 'marry', propose: 'marry', ask_to_marry: 'marry', get_married: 'marry', ask_partner: 'court', end_marriage: 'divorce', split: 'divorce', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', mine: 'gather', dig: 'gather', hunting: 'hunt', kill: 'hunt', shoot: 'hunt', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
+      d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'marry', wed: 'marry', propose: 'marry', ask_to_marry: 'marry', get_married: 'marry', ask_partner: 'court', end_marriage: 'divorce', split: 'divorce', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', mine: 'gather', dig: 'gather', hunting: 'hunt', tame_horse: 'tame', catch_horse: 'tame', break_horse: 'tame', horse: 'tame', kill: 'hunt', shoot: 'hunt', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
         pick: 'collect', pick_up: 'collect', pickup: 'collect', stock: 'store', deposit: 'store', put: 'store', stash: 'store', scavenge: 'loot',
         plant: 'farm', grow: 'farm', fix: 'repair', mend: 'repair', treat: 'heal', bandage: 'heal', exchange: 'trade', swap: 'trade', withdraw: 'take' } as Record<string, string>)[d] ?? d;
       if (!(SKILLS as readonly string[]).includes(d)) continue;

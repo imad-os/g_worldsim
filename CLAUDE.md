@@ -1,7 +1,7 @@
 # Notes for Claude (project memory)
 
 Autonomous agent world simulator for imad. Full spec: the first message of the project thread "Build agent world
-simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules + animals / crafting, camera views, quick wheel done, app 0.9.0; next weather, polish; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
+simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules + animals / crafting, camera views, quick wheel done, app 0.9.0; horses app 0.12.0; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
 
 ## Owner rules
 - Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
@@ -472,3 +472,24 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   clanSwitch, clanVote(Start), clanOrder, clanRebel logged. TV: `client/src/questui.ts` (pages quests / npc / clan / clanJoin / clanVote).
 - Test quests.test.ts; proof `ADMIN_TOKEN=... node tools/quest-proof.mjs <server> <sdk.js> <outdir>` (sdk from raw.githubusercontent.com/imad-os/g/main/sdk/mypc-sdk.js).
 
+## Horses (imad 2026-11-25, app 0.12.0)
+- `sim/horses.ts` (`World.horses`, own `Rng` so horses never shift the rest of the world's dice; saved in snapshots `horses`). Kind.Animal type 5
+  (`HORSE`; `Animals` skips it: not in the 5-animal mix / owner counts, `nearest(-1)` never picks a horse, a tamed one can't be hit).
+  Per horse: size, intel, speed (gallop m/s), stamina (s), quality 0 common / 1 rare / 2 legendary (stats by tier), coat 0-7, herd, owner, rider, trust per person.
+- Behaviour: herds (lead mare picks grass / water, stallion at the edge, foals by the mother; boids cohesion / separation), graze / doze, bunch at night;
+  flight from zombies, wolves, bears and untrusted people (running = worse), alarm spreads to the herd; stallion kicks predators; habituation (calm people
+  nearby slowly gain trust, max 0.4). Population: foals 0.6 / year with a stallion, old age past 22, a new band from the edge when a map has < half its cap
+  (woods 14; none in town: "in the wilderness", so town people need travel open to reach them; players can always go).
+- Taming: chance = 0.12 + (power - difficulty) x 1.1 + trust x 0.45 (+ food); power = courage .35 + intelligence .35 + speed .2 + level x .04
+  (`skill` points per person, `tameLevel`); difficulty = .25 + intel .3 + q .17. Failure = more trust, may kick (6 hp). Tamed: leaves the herd, follows the owner.
+- Riding: `Horses.riding[slot]` (1 rider, 2 ridden horse; frames: bit 7 of the kind byte = `KIND_RIDING`, the 8 flag bits are taken); the ridden horse has no physics body and is synced to the rider (`Horses.sync` after portals);
+  `World.step` uses `rideSpeed` (trot 3.1 x size, gallop = horse speed while stamina lasts, else canter 4.2); portal journeys take half the time.
+  Agents get on their horse (within 6 m) for paths > 22 m (`Brain.goalDist`) and off to sleep / talk / eat / rest or on arrival.
+- Task skill `tame` (+ `askedWork` "tame a horse", planner aliases); hourly own plans: one free adult with power > 0.45 per map now and then.
+- Player: Do `horse` (off / on my horse / tame the wild one within 3.4 m / call mine), A (take) also tames / mounts when nothing else is near, Do `horseInfo`.
+  `me.ride` { name, walk, run, sta, q } (the TV predicts at that pace), Notice `horses` once a second for the view ([id, scale x100, q, coat, tamed, mine, name]),
+  frame bits 24-31 of a horse = 5 | q << 3 | coat << 5. Me page: horses + taming level. Admin `horses { map? }`, `horseSpawn { map, x, y | near, n, q }`.
+- TV: `gfx/horses.ts` = Quaternius CC0 animated horse `docs/models/horse.glb` (280 KB; credits docs/models/CREDITS.md), 8 parts merged into one skinned
+  mesh with vertex colours per coat (+ golden mane for legendary), Idle / Eating / Walk / Gallop by speed, saddle when tamed, rare = blue ground glow,
+  legendary = gold ring + sparks; rider pose `People.add(..., seat)`. Strings `i18n7.ts`. Action `horse` (unbound; wheel + Actions).
+  Tests `horses.test.ts`; proof `ADMIN_TOKEN=... node tools/horse-proof.mjs <server> <sdk.js> <outdir>`.

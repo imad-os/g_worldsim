@@ -14,3 +14,11 @@ from these free, open-source models. All are **CC0 1.0** (public domain): no att
 The Quaternius and Kenney files used are kept in `tools/assets/src/` (with their license files); the KayKit packs are
 fetched at pinned commits by `tools/assets/fetch.sh`. Colours come from the models' own materials and textures (no flat
 placeholder colours); quality tints and glows are added by the game.
+
+## Animated models
+
+
+- `horse.glb`: Horse from "Ultimate Animated Animals" by Quaternius (https://quaternius.com, CC0 1.0). Kept animations:
+  Idle, Idle_2, Eating, Walk, Gallop, Attack_Kick, Death. Prepared for this game (2026-11-25) with glTF-Transform: unused
+  animations and constant tracks removed, keyframes resampled, mesh quantized (KHR_mesh_quantization), 280 KB.
+  Coats, the saddle and the rare / legendary glow are added by the game (packages/client/src/gfx/horses.ts).

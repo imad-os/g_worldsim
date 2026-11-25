@@ -16,7 +16,11 @@ export const ANIMALS: Kind5[] = [
   { hp: 55, run: 3.2, walk: 0.9, sight: 9, bite: 7, r: 0.35, drops: { meat: 3, leather: 1, claw: 1 }, woods: 3, town: 0.5 },
   { hp: 45, run: 3.6, walk: 1.1, sight: 12, bite: 9, r: 0.3, drops: { meat: 1, leather: 1, claw: 2 }, woods: 2, town: 0.3 },
   { hp: 120, run: 3.3, walk: 0.8, sight: 9, bite: 16, r: 0.5, drops: { meat: 5, leather: 3, claw: 3 }, woods: 0.8, town: 0 },
+  // 5 = horse: herds, taming and riding live in sim/horses.ts (never spawned by the mix below; a horse can still be hunted).
+  { hp: 80, run: 7, walk: 1.2, sight: 14, bite: 0, r: 0.45, drops: { meat: 4, leather: 3, claw: 0 }, woods: 0, town: 0 },
 ];
+/** The 5 wild animals of the mix (the owner's counts, the hourly spawns); horses come after them. */
+const WILD = 5;
 const EVERY = 5, CAP_WOODS = 16, CAP_TOWN = 4, HOUR = 3600;
 export type Drops = { meat: number; leather: number; claw: number };
 
@@ -44,7 +48,7 @@ export class Animals {
     const want = this.want.get(this.w.maps[m]!.def.id);
     if (!want) return 0;
     let changed = 0;
-    for (let t = 0; t < ANIMALS.length; t++) changed += this.toward(m, t, want[t] ?? 0, 99);
+    for (let t = 0; t < WILD; t++) changed += this.toward(m, t, want[t] ?? 0, 99);
     return changed;
   }
   /** Spawn up to `max` of type t (or remove extras) towards `goal` on map m. */
@@ -79,13 +83,13 @@ export class Animals {
   count(m = -1, type = -1): number {
     const e = this.w.e;
     let n = 0;
-    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Animal && (m < 0 || e.map[i] === m) && (type < 0 || e.sub[i] === type)) n++;
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Animal && (m < 0 || e.map[i] === m) && (type < 0 ? e.sub[i]! < WILD : e.sub[i] === type)) n++;
     return n;
   }
 
-  spawn(m: number, x: number, y: number, type: number): number {
+  spawn(m: number, x: number, y: number, type: number, rng = this.w.rng): number {
     const w = this.w, e = w.e, a = ANIMALS[type]!;
-    const s = w.freeSpot(m, x, y, 30);
+    const s = w.freeSpot(m, x, y, 30, rng);
     if (!s) return -1;
     const i = e.create(Kind.Animal, m, s.x, s.y, a.r);
     if (i < 0) return -1;
@@ -101,12 +105,12 @@ export class Animals {
       const wild = mp.def.gen.type === 'wilds', cap = wild ? CAP_WOODS : CAP_TOWN;
       // The owner's counts: a few each hour towards them (all at once on the first hour).
       const want = this.want.get(mp.def.id);
-      if (want) { for (let t = 0; t < ANIMALS.length; t++) this.toward(m, t, want[t] ?? 0, first ? 99 : wild ? 2 : 1); return; }
+      if (want) { for (let t = 0; t < WILD; t++) this.toward(m, t, want[t] ?? 0, first ? 99 : wild ? 2 : 1); return; }
       let have = this.count(m);
       const tries = first ? cap : wild ? 3 : (w.rng.chance(0.4) ? 1 : 0);
       for (let k = 0; k < tries && have < cap; k++) {
         // Which animal: by how common it is on this kind of map.
-        const weights = ANIMALS.map((a) => (wild ? a.woods : a.town)), sum = weights.reduce((s, v) => s + v, 0);
+        const weights = ANIMALS.slice(0, WILD).map((a) => (wild ? a.woods : a.town)), sum = weights.reduce((s, v) => s + v, 0);
         let r = w.rng.next() * sum, type = 0;
         while (type < weights.length - 1 && r >= weights[type]!) { r -= weights[type]!; type++; }
         for (let t = 0; t < 30; t++) {
@@ -128,7 +132,7 @@ export class Animals {
     const e = this.w.e;
     let best = -1, bd = r;
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Animal || e.map[i] !== m || (type >= 0 && e.sub[i] !== type)) continue;
+      if (e.kind[i] !== Kind.Animal || e.map[i] !== m || (type >= 0 ? e.sub[i] !== type : e.sub[i]! >= WILD) || this.w.horses.owned(i)) continue; // horses only when asked for, never a tamed one
       const d = Math.hypot(e.x[i]! - x, e.y[i]! - y);
       if (d < bd) { bd = d; best = i; }
     }
@@ -150,7 +154,9 @@ export class Animals {
     const w = this.w, e = w.e;
     if (e.kind[a] !== Kind.Animal) return null;
     const type = e.sub[a]!, id = e.id(a);
+    if (this.w.horses.owned(a)) return null; // a tamed horse is nobody's prey
     e.hp[a]! -= dmg;
+    if (type === WILD) this.w.horses.onHit(a, by);
     if (by >= 0) this.angry.set(id, e.id(by));
     e.nextThink[a] = 0;
     if (e.hp[a]! > 0) return null;
@@ -159,7 +165,7 @@ export class Animals {
       w.survival.gain(by, d);
       this.kills.set(e.id(by), [w.gameSec, type]);
     }
-    w.emit('hunt', { id: by >= 0 ? e.id(by) : -1, animal: ANIMAL_NAMES[type], map: w.maps[e.map[a]!]!.def.id, ...d });
+    w.emit('hunt', { id: by >= 0 ? e.id(by) : -1, animal: ANIMAL_NAMES[type] ?? 'horse', map: w.maps[e.map[a]!]!.def.id, ...d });
     this.cool.delete(id); this.wander.delete(id); this.angry.delete(id);
     w.remove(a, 'hunted');
     return d;
@@ -175,7 +181,7 @@ export class Animals {
     if (w.tick % EVERY !== 0) return;
     const now = w.gameSec, hour = w.brain.hour(), night = hour >= 20 || hour < 6;
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Animal || e.map[i] === NO_MAP) continue;
+      if (e.kind[i] !== Kind.Animal || e.map[i] === NO_MAP || e.sub[i]! >= WILD) continue; // horses: sim/horses.ts
       const m = e.map[i]!, id = e.id(i), type = e.sub[i]!, A = ANIMALS[type]!;
       // The nearest person it sees.
       let p = -1, pd = A.sight;
@@ -240,7 +246,7 @@ export class Animals {
   clear(): number {
     const e = this.w.e;
     let n = 0;
-    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Animal) { this.w.remove(i, 'cleared'); n++; }
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Animal && !this.w.horses.owned(i)) { this.w.remove(i, 'cleared'); n++; } // tamed horses stay
     return n;
   }
 }

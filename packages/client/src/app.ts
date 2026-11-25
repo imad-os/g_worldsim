@@ -1,5 +1,5 @@
 import {
-  Msg, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, EFlag, Kind, encode, decode, unpackI32, chunkKey,
+  Msg, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, EFlag, Kind, KIND_RIDING, encode, decode, unpackI32, chunkKey,
   type ServerMsg, type Welcome,
 } from '@worldsim/protocol';
 import { Color, type Group } from 'three';
@@ -94,7 +94,7 @@ let body = { radius: 0.3, walk: 1.4, run: 3.5 };
 
 const CAP = 4096;
 const eid = new Int32Array(CAP).fill(-1);
-const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP), atype = new Uint8Array(CAP); // sub: item type / agent action
+const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP), atype = new Uint8Array(CAP), alook = new Uint8Array(CAP), riding = new Uint8Array(CAP); // sub: item type / agent action
 /** People's gear + move (protocol gear.ts) and when the move began (a new swing restarts it). */
 const gearOf = new Int32Array(CAP), animKey = new Int32Array(CAP), animAt = new Float64Array(CAP);
 const px = new Float32Array(CAP), py = new Float32Array(CAP), nx = new Float32Array(CAP), ny = new Float32Array(CAP);
@@ -146,7 +146,9 @@ type CamView = 'top' | 'third' | 'first';
 const CAM_VIEWS: CamView[] = ['top', 'third', 'first'];
 let camView: CamView = 'top', yaw = 0;
 let seer = false, mindsAt = 0;
-let meNeeds: { pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string; gear?: ReturnType<InvCtx['gear']> } | null = null;
+/** Horses in view (Notice 'horses'): id -> [scale, quality, coat, tamed, mine, name]. */
+const horseInfo = new Map<number, [number, number, number, number, number, string]>();
+let meNeeds: { ride?: { name: string; walk: number; run: number; sta: number; q: number } | null; pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string; gear?: ReturnType<InvCtx['gear']> } | null = null;
 /** The craft screen: the category open and what is put in. */
 let craftCat = '';
 const pot: Record<string, number> = {};
@@ -158,6 +160,7 @@ let past: ReplaySummary[] | null = null;
 interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number;
   goal: { text: string; from: string; k: number; n: number; pct: number } | null; goals: { text: string; ok: boolean; xp: number }[];
   partner: { id: number; name: string } | null; children: Kid[]; expecting: number; traits: Record<string, number>; hp: number;
+  horses?: { name: string; quality: string; speed: number; stamina: number; intel: number }[]; tame?: number; tamePower?: number;
   family?: { id: number; name: string; role: string; rel: string }[]; asks?: { from: number; name: string; role: string }[] }
 /** One of my children, with their needs (0 fine .. 100 desperate): a parent looks after the little ones by hand. */
 interface Kid { id: number; name: string; age: number; stage: string; hunger: number; thirst: number; tired: number; hp: number; held: boolean; near: boolean; carer: string }
@@ -295,6 +298,7 @@ function onMsg(m: ServerMsg): void {
       if (!g3) {
         try { g3 = new World3D(canvas, tier); } catch { show('nogl'); return; }
         void loadItems();
+        g3.horses.load(new URL('models/horse.glb', location.href).href).catch((err) => console.warn('horse model', err)); // CC0, docs/models/CREDITS.md
         resize(); applyGfx();
       }
       if (!map || !m.maps.some((x) => x.id === map)) setMap(String(MyPC.load('map', m.maps[0]!.id)));
@@ -339,6 +343,7 @@ function onMsg(m: ServerMsg): void {
         const d = m.data as PersonInfo | null;
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
       }
+      if (m.kind === 'horses') { horseInfo.clear(); for (const r of m.data as [number, number, number, number, number, number, string][]) horseInfo.set(r[0], [r[1] / 100, r[2], r[3], r[4], r[5], r[6]]); }
       if (m.kind === 'minds') { seer = true; mindsAt = performance.now(); bubbles.set(m.data as unknown[], actName); }
       break;
     case Msg.Pong: rtt = rtt * 0.7 + (performance.now() - m.c) * 0.3; break;
@@ -372,7 +377,7 @@ function onMsg(m: ServerMsg): void {
         const g = gx ? gx[o / ENT_REC] ?? 0 : 0, ak = (g >> 15) & 127;
         if (ak !== animKey[s] || fresh) { animKey[s] = ak; animAt[s] = now; }
         gearOf[s] = g;
-        kind[s] = r[o + 1]! & 255; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255; atype[s] = (r[o + 1]! >>> 24) & 63;
+        kind[s] = r[o + 1]! & 127; riding[s] = (r[o + 1]! & KIND_RIDING) ? 1 : 0; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255; alook[s] = r[o + 1]! >>> 24; atype[s] = kind[s] === Kind.Animal ? alook[s]! & 7 : alook[s]! & 63; // kind bit 7 = riding; horses: quality bits 3-4, coat 5-7
         nx[s] = r[o + 2]! / POS_Q; ny[s] = r[o + 3]! / POS_Q; ang[s] = r[o + 4]! / ANG_Q;
         vx[s] = r[o + 5]! / POS_Q; vy[s] = r[o + 6]! / POS_Q;
         if (fresh) {
@@ -548,9 +553,9 @@ const VSTICK: [number, number] = [0, 0];
 
 // ------------------------------------------------------------ quick action wheel
 const wheel = new Wheel(document.getElementById('wheel')!);
-const WHEEL_IDS = ['use', 'eat', 'drink', 'sleep', 'build', 'place', 'bag', 'camera', 'attackPerson'] as const;
-const WHEEL_ICON: Record<string, string> = { use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️' };
-const WHEEL_KEY: Record<string, Key> = { use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson' };
+const WHEEL_IDS = ['use', 'horse', 'eat', 'drink', 'sleep', 'build', 'place', 'bag', 'camera', 'attackPerson'] as const;
+const WHEEL_ICON: Record<string, string> = { horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️' };
+const WHEEL_KEY: Record<string, Key> = { horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson' };
 /** The wheel's button: held on a controller (let go = do it), pressed once on the remote (arrows + OK). */
 function wheelButton(pressed: boolean, pad: boolean): void {
   if (mode !== 'world' || menu.open || rp) return;
@@ -566,6 +571,29 @@ function wheelButton(pressed: boolean, pad: boolean): void {
   // A short press with nothing chosen keeps it open (pick with the D-pad, A to do it).
   if (wheel.sel < 0 && performance.now() - wheel.openedAt < 350) { wheel.hold = false; return; }
   runQuick(wheel.close());
+}
+/** Seat height of the horse a rider at (x, y) sits on (the ridden horse nearest to them). */
+function riderSeat(x: number, y: number): number {
+  let best = -1, bd = 1.5;
+  for (let j = 0; j < CAP; j++) {
+    if (eid[j] === -1 || kind[j] !== Kind.Animal || atype[j] !== 5 || !(riding[j])) continue;
+    const d = Math.hypot(nx[j]! - x, ny[j]! - y);
+    if (d < bd) { bd = d; best = j; }
+  }
+  const sc = best >= 0 ? horseInfo.get(eid[best]!)?.[0] ?? 1 : 1;
+  return g3 ? g3.horses.seat(sc) : 1.4 * sc;
+}
+/** The nearest horse within r m of me (slot / -1). */
+function horseNear(r: number): number {
+  const s = meSlot();
+  if (s < 0) return -1;
+  let best = -1, bd = r;
+  for (let j = 0; j < CAP; j++) {
+    if (eid[j] === -1 || kind[j] !== Kind.Animal || atype[j] !== 5 || riding[j]) continue;
+    const d = Math.hypot(nx[j]! - predX, ny[j]! - predY);
+    if (d < bd) { bd = d; best = j; }
+  }
+  return best;
 }
 /** What "Put down" would put down: the first thing in the bag that can be placed. */
 function placeable(): string | null {
@@ -728,7 +756,7 @@ function updatePlay(dt: number, now: number): void {
   if (!predOk) { predX = nx[s]!; predY = ny[s]!; pvx = pvy = 0; predOk = true; }
   // My character moves on this screen at once (same rule as the server: velocity eases towards the wish at 8 m/s^2 at most);
   // the server is told where it is and takes it (imad 2026-11-20: "move my character immediately, not after the server").
-  const sp = run ? body.run : body.walk;
+  const rd = meNeeds?.ride, sp = rd ? (run ? rd.run : rd.walk) : run ? body.run : body.walk; // on a horse: its pace (the server does the same)
   const wx = mx * sp, wy = my * sp, ax = wx - pvx, ay = wy - pvy, a = Math.hypot(ax, ay), mdv = 8 * dt;
   const f = a > mdv ? mdv / a : 1;
   pvx += ax * f; pvy += ay * f;
@@ -921,6 +949,7 @@ function doAction(a: ActionId, pressed: boolean): void {
   if (!playing()) return;
   if (a === 'use') { send({ t: Msg.Do, a: 'take' }); return; } // things: take, gather, drink... (never people, never a fight)
   if (a === 'attack') { attack(); return; }
+  if (a === 'horse') { send({ t: Msg.Do, a: 'horse' }); return; } // off when riding, on my horse, tame a wild one, or call mine
   if (a === 'attackPerson') { // a person, never by mistake: PvP must be on first
     if (!meNeeds?.pvp) { note(t('pvpNeed'), 3000); return; }
     send({ t: Msg.Do, a: 'hitperson', text: myAng().toFixed(3) });
@@ -1074,6 +1103,13 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); note(tf('dTp', d.name ?? ''), 3000); return; }
   const dd = d as typeof d & { got?: Record<string, number>; left?: number; need?: Record<string, number>; kept?: boolean; lv?: number; q?: number };
   const arrows = dd.left !== undefined ? ' ' + tf('arrowsLeft', String(dd.left)) : '';
+  { // horses
+    const hd = d as typeof d & { chance?: number; trust?: number };
+    const HC: Record<string, Key> = { mounted: 'hMounted', dismounted: 'hDismounted', called: 'hCalled', noHorse: 'hNoHorse', notMine: 'hNotMine', taken: 'hTaken', tooYoung: 'hYoung', notWild: 'hNotMine' };
+    if (d.code === 'tamed') { note(tf('hTamed', d.name ?? ''), 6000); sound.play('ui_ok'); return; }
+    if (d.code === 'tameFail' || d.code === 'kicked') { note(tf(d.code === 'kicked' ? 'hKicked' : 'hFail', d.name ?? '', String(hd.trust ?? 0)), 3500); if (d.code === 'kicked') sound.play('hurt'); return; }
+    if (d.a === 'horse' && HC[d.code]) { note(tf(HC[d.code]!, d.name ?? ''), d.code === 'mounted' ? 4500 : 2500); return; }
+  }
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code) + arrows, 1800); return; }
   if (d.code === 'swing') { note(t('dSwing'), 1200); return; }
   if (d.code === 'pvp') { note(t(dm.on ? 'pvpNoteOn' : 'pvpNoteOff'), 4000); return; }
@@ -1115,7 +1151,11 @@ function drawCard(): void {
   if (mode === 'world' && !menu.open) {
     if (how === 'play' && meNeeds) {
       html = `<div class="pn">${esc(profileName())}</div><div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}${meNeeds.hp !== undefined && meNeeds.hp < 100 ? bar(t('nHp'), 100 - meNeeds.hp) : ''}</div>`
-        + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry)) : ''}</div>`;
+        + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry)) : ''}</div>`
+        + (meNeeds.ride ? `<div class="pa">🐎 ${esc(tf('hRide', meNeeds.ride.name, String(meNeeds.ride.sta)))}</div>` : (() => {
+          const hs = horseNear(5), hi = hs >= 0 ? horseInfo.get(eid[hs]!) : undefined;
+          return hi ? `<div class="pa">🐎 ${esc(tf('hNear', hi[5], t((['qCommon', 'qRare', 'qLegendary'] as const)[hi[1]] ?? 'qCommon'), t(hi[4] ? 'hYours' : hi[3] ? 'hOwned' : 'hWild')))}</div>` : '';
+        })());
     } else if (how === 'watch' && follow >= 0 && info && info.id === follow) html = personHtml(info, actName, false);
   }
   if (html === cardHtml) return;
@@ -1175,7 +1215,7 @@ function buildPage(id: string): Page {
       return { id, title: t('mFight'), rows, wide: true, html: `<p>${keys}</p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${have ? `<p class="dim">${esc(t('fHave'))}: ${esc(have)}</p>` : ''}` };
     }
     case 'actions':
-      for (const a of ['use', 'talk', 'attack', 'attackPerson', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
+      for (const a of ['use', 'horse', 'talk', 'attack', 'attackPerson', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
       return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
     case 'past':
       for (const r of past ?? []) {
@@ -1233,6 +1273,8 @@ function buildPage(id: string): Page {
         + `<div class="pm">${t('meChildren')}: <b>${c.children.length ? c.children.map((k) => `${esc(k.name)} (${k.age})`).join(', ') : esc(t('meNone'))}</b></div>`
         + (c.expecting >= 0 ? `<div class="pm">${esc(tf('meExpecting', String(c.expecting)))}</div>` : '')
         + `<div class="pm dim">${esc(tf('meTraits', String(tr.strength ?? 0), String(tr.speed ?? 0), String(tr.intelligence ?? 0), String(tr.courage ?? 0), String(tr.empathy ?? 0)))}</div>`
+        + `<div class="pm">${esc(tf('meTame', String(c.tame ?? 0), String(c.tamePower ?? 0)))}</div>`
+        + (c.horses?.length ? `<div class="pm">${t('meHorses')}: ${c.horses.map((h) => esc(tf('meHorse', h.name, t(h.quality === 'legendary' ? 'qLegendary' : h.quality === 'rare' ? 'qRare' : 'qCommon'), String(h.speed), String(h.stamina), String(h.intel)))).join('<br>')}</div>` : '')
         + (c.goals.length ? `<div class="pm dim">${t('meGoals')}: ${c.goals.map((g) => `${g.ok ? '✓' : '✗'} ${esc(g.text)} (+${g.xp})`).join(' · ')}</div>` : '');
       rows.push({ id: 'family', label: t('famTitle'), value: c.asks?.length ? `${c.asks.length} !` : c.children.some((k) => k.stage === 'baby' || k.stage === 'toddler') ? '♥' : '', sub: true });
       rows.push({ id: 'look', label: t('lookTitle'), sub: true }, { id: 'auto', label: t('autoRow'), value: onOff(c.auto) },
@@ -1514,11 +1556,11 @@ function draw(now: number, dt: number): void {
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
   const r = g3.view === 'top' ? (g3.dist * 1.6 + 8) * g3.distK : g3.sight + 4, eyes = g3.view === 'first';
   frameNo++;
-  P.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin();
+  P.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin(); g3.horses.begin();
   if (rp) { // a past event: only the recorded people and zombies
     rp.draw(P, dt, actName);
     g3.dist += (Math.max(16, Math.min(42, rp.span * 1.1 + 10)) - g3.dist) * Math.min(1, dt * 2);
-    P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.render(); bubbles.hide();
+    P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
     return;
   }
   for (let i = 0; i < CAP; i++) {
@@ -1552,18 +1594,27 @@ function draw(now: number, dt: number): void {
         sound.play(zed ? (Math.hypot(x - fx, y - fy) < 2.5 ? 'zombie_attack' : 'zombie_groan') : ANIMAL_CRY[atype[i]!] ?? 'bird', x, y, zed ? 0.9 : 0.7);
       }
     }
+    if (kind[i] === Kind.Animal && atype[i] === 5) { // a horse: the animated model (low-poly stand-in until it has loaded)
+      const hi = horseInfo.get(eid[i]!), sc = hi?.[0] ?? 1;
+      let hx = x, hy = y, hf = face[i]!, hv = spd[i]!;
+      if (riding[i] && me >= 0 && Math.hypot(nx[i]! - nx[me]!, ny[i]! - ny[me]!) < 1.2) { hx = predX; hy = predY; hf = face[me]!; hv = spd[me]!; } // my own horse is where I am on this screen
+      if (g3.horses.ready) g3.horses.add(eid[i]!, hx, hy, hf, hv, sub[i]!, sc, (alook[i]! >> 3) & 3, alook[i]! >> 5, (hi?.[3] ?? 0) === 1, tsec, dt);
+      else g3.animals.add(5, hx, hy, hf, phase[i]! * 1.4, Math.min(1, hv / 1.6));
+      continue;
+    }
     if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
     if (eyes && i === me) continue;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const zed = kind[i] === Kind.Threat;
     const mine = i === me || eid[i] === meId;
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : gearOf[i]!, (now - animAt[i]!) / 1000);
+    const seat = riding[i] ? riderSeat(x, y) : 0;
+    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : gearOf[i]!, (now - animAt[i]!) / 1000, seat);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (kind[i] === Kind.Npc) P.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
-  P.end(); g3.endShots(); g3.endItems(); g3.animals.end();
+  P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
   if (aimOn && me >= 0) {
     const lk = aimLock >= 0 && eid[aimLock] !== -1 ? aimLock : -1;
     const ang = lk >= 0 ? Math.atan2(ny[lk]! - predY, nx[lk]! - predX) : aimAng;

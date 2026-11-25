@@ -237,6 +237,8 @@ export class Brain {
     return true;
   }
   huntOf(i: number): number { return this.huntId[i]!; }
+  /** How far the end of the path person i is walking is (0 = not walking): riders get on a horse for a long way. */
+  goalDist(i: number): number { const e = this.w.e; return this.pN[i]! > 0 ? Math.hypot(this.gx[i]! - e.x[i]!, this.gy[i]! - e.y[i]!) : 0; }
   private hunting(i: number): boolean {
     const w = this.w, e = w.e, id = this.huntId[i]!;
     if (id < 0) return false;

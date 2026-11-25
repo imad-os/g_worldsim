@@ -104,6 +104,9 @@ export type AdminCmd =
   /** One (or n) zombie now: next to someone (`near` = a name, `dist` metres), or at (x, y) on a map (random when empty). */
   /** Animals per map: the owner's counts of each animal (null = back to the built-in mix), `fill` = now instead of a few each hour. */
   | { cmd: 'animals'; map?: string; want?: number[] | null; fill?: boolean }
+  /** Horses (sim/horses.ts): the list with stats and owners; spawn a herd (q 0 common .. 2 legendary, at x / y or next to a person). */
+  | { cmd: 'horses'; map?: string }
+  | { cmd: 'horseSpawn'; map: string; x?: number; y?: number; near?: number; n?: number; q?: number }
   /** Planned zombie attacks: add one (in `days` days at hour:minute), remove one, or run one now. */
   | { cmd: 'zombieAttack'; add?: { days?: number; hour?: number; minute?: number; map?: string; n?: number; where?: string; near?: string; daily?: boolean; stays?: boolean }; remove?: number; now?: { map?: string; n?: number; where?: string; near?: string; stays?: boolean } }
   | { cmd: 'zombieSpawn'; map?: string; x?: number | string; y?: number | string; near?: string; dist?: number; n?: number; stays?: boolean }

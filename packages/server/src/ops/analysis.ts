@@ -123,7 +123,7 @@ export class Analysis {
       let zombies = 0, people = 0, items = 0;
       for (let i = 0; i < e.hi; i++) {
         if (e.map[i] !== mi) continue;
-        if (e.kind[i] === Kind.Animal) { const n = ANIMAL_NAMES[e.sub[i]!] ?? String(e.sub[i]); animals[n] = (animals[n] ?? 0) + 1; }
+        if (e.kind[i] === Kind.Animal) { const n = (e.sub[i] === 5 ? 'horse' : ANIMAL_NAMES[e.sub[i]!]) ?? String(e.sub[i]); animals[n] = (animals[n] ?? 0) + 1; }
         else if (e.kind[i] === Kind.Threat) zombies++;
         else if (e.kind[i] === Kind.Agent) people++;
         else if (e.kind[i] === Kind.Item) items++;

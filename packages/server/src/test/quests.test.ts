@@ -128,6 +128,8 @@ test('clans: an AI leader gives an order of the day and the members do it as a t
   w.populate(); w.land.setup(); w.quests.setup();
   const e = w.e, town = w.mapIndex.get('town')!, people = agentsOn(w, town);
   const cl = w.clans.found(town, e.id(people[0]!), people.slice(1).map((i) => e.id(i)));
+  // Loyal members: each one takes an order by chance (0.15 + loyalty x 0.6), so at the starting 0.5 all four say no on ~9 % of seeds.
+  for (const id of cl.members) (w.clans as unknown as { loyal: Map<number, number> }).loyal.set(id, 1);
   for (const i of people) w.tasks.stop(i);
   assert.ok(w.survival.crateOf(town, e.x[people[0]!]!, e.y[people[0]!]!), 'the camp has a store');
   // Morning, nothing in the store: "collect food and store it".

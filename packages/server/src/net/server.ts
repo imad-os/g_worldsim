@@ -4,7 +4,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
-  Msg, Kind, EFlag, Act, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
+  Msg, Kind, KIND_RIDING, EFlag, Act, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
   type AdminCmd, type ClientMsg, type Role, type ServerMsg, type ServerStats,
   type ServerBuild,
 } from '@worldsim/protocol';
@@ -50,6 +50,7 @@ interface Session {
   known: Int32Array; // slot -> id + 1 (0 = not known)
   q: Int32Array;     // slot -> last sent x, y, angle (quantized)
   g: Int32Array;     // slot -> last sent gear code
+  horsesSent?: boolean;
   list: Int32Array;  // slots known after the last frame
   listN: number;
   /** Frames since the last one sent (a quiet view still gets one a second: the clock moves on). */
@@ -119,6 +120,8 @@ export class NetServer {
   playerCmd: (c: AdminCmd, uid: string, role: AccountRole) => unknown | Promise<unknown> = () => { throw new Error('not ready'); };
   /** Thoughts of the people around (x, y) on map m, within r. */
   minds: (m: number, x: number, y: number, r: number) => unknown[] = () => [];
+  /** Horses in a view (their look, who owns them) for every viewer, once a second. */
+  horses: (m: number, x: number, y: number, r: number, me: number) => unknown[] = () => [];
   /** My character's needs. */
   me: (slot: number) => unknown = () => null;
   clockInfo!: () => import('@worldsim/protocol').ClockInfo;
@@ -687,7 +690,7 @@ export class NetServer {
       const id = e.id(i);
       const qx = Math.round(e.x[i]! * POS_Q), qy = Math.round(e.y[i]! * POS_Q), qa = Math.round(e.angle[i]! * ANG_Q);
       // kind | flags << 8 | sub << 16 (items: item type; agents: current action).
-      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal || e.kind[i] === Kind.Npc || ((e.kind[i] === Kind.Player || e.kind[i] === Kind.Agent) && e.sub[i]) ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+; players' characters: look (1 + skin, +8 woman)
+      const kf = (e.kind[i]! | (w.horses.riding[i] ? KIND_RIDING : 0)) | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal ? w.horses.look(i) << 24 : e.kind[i] === Kind.Npc || ((e.kind[i] === Kind.Player || e.kind[i] === Kind.Agent) && e.sub[i]) ? (e.sub[i]! & 0x3f) << 24 : 0); // kind (bit 7 = riding / ridden); animals: type in bits 24+ (horses: + quality << 3, coat << 5); npcs: role; players' characters: look (1 + skin, +8 woman)
       const was = s.known[i]!;
       if (was > 0 && was !== id + 1) (delEarly ??= []).push(was - 1); // slot reused by a new entity
       const gc = w.gear.code(i);
@@ -721,6 +724,7 @@ export class NetServer {
       this.send(s, { t: Msg.Stats, s: st });
       if (s.role !== 'viewer') continue;
       if (s.avatar >= 0 && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
+      if (s.view) { const hs = this.horses(s.view.map, s.view.x, s.view.y, s.view.r, s.avatar); if (hs.length || s.horsesSent) this.send(s, { t: Msg.Notice, kind: 'horses', data: hs }); s.horsesSent = hs.length > 0; }
       if (s.view && this.isSeer(s.name)) this.send(s, { t: Msg.Notice, kind: 'minds', data: this.minds(s.view.map, s.view.x, s.view.y, s.view.r) });
     }
   }

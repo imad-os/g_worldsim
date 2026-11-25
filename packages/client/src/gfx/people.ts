@@ -83,7 +83,7 @@ export class People {
    * (amp 0 standing .. 1 running); lying = asleep or dead. `size` 1 = adult; children are drawn smaller (0.6).
    * `reach` = arms held out in front (a zombie). `gear` = packed gear + move (protocol gear.ts), `at` = seconds since the move began.
    */
-  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean, size = 1, reach = false, gear = 0, at = 0): void {
+  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean, size = 1, reach = false, gear = 0, at = 0, seat = 0): void {
     if (this.n >= this.cap) return;
     const i = this.n++;
     const anim = lying ? 0 : (gear >> 15) & 7;
@@ -114,7 +114,9 @@ export class People {
       const p = Math.min(1, at / 0.6);
       rx = -0.9 * Math.sin(p * Math.PI); lean = 0.3 * Math.sin(p * Math.PI); armsSet = true;
     }
-    const bob = Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
+    // On a horse (`seat` = its back's height): sit there, legs astride, hands on the reins.
+    const bob = seat > 0 ? seat - 0.52 * SCALE * size + Math.abs(Math.sin(phase * 0.5)) * 0.05 * amp : Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
+    if (seat > 0) amp = 0;
     this.base.compose(this.v.set(x, bob, z), this.q.setFromEuler(this.e.set(0, facing + twist, 0)), this.s.set(k, k, k));
     if (lying) {
       this.part.compose(this.v.set(0, 0.2, -0.55), this.q.setFromEuler(this.e.set(Math.PI / 2, 0, 0)), this.s.set(1, 1, 1));
@@ -135,12 +137,12 @@ export class People {
     const sw = Math.sin(phase) * 0.7 * amp;
     for (let kk = 0; kk < 2; kk++) {
       const side = kk ? 1 : -1; // kk 0 = the right side (facing +z, right is -x)
-      this.part.compose(this.v.set(side * 0.1, 0.52, 0), this.q.setFromEuler(this.e.set(sw * side, 0, 0)), this.s.set(1, 1, 1));
+      this.part.compose(this.v.set(side * (seat > 0 ? 0.2 : 0.1), 0.52, 0), this.q.setFromEuler(seat > 0 ? this.e.set(-0.5, 0, side * 0.55) : this.e.set(sw * side, 0, 0)), this.s.set(1, 1, 1));
       this.m.multiplyMatrices(this.base, this.part);
       this.legs.setMatrixAt(i * 2 + kk, this.m); this.legs.setColorAt(i * 2 + kk, look.pants);
       const e = reach ? this.e.set(-1.35 + sw * side * 0.15, 0, side * 0.05)
         : armsSet ? (kk ? this.e.set(lx, 0, -lz * side) : this.e.set(rx, 0, -rz * side))
-        : this.e.set(-sw * side * 0.8, 0, side * 0.12);
+        : seat > 0 ? this.e.set(-0.75, 0, side * 0.05) : this.e.set(-sw * side * 0.8, 0, side * 0.12);
       this.part.compose(this.v.set(side * 0.25, 1.07, 0), this.q.setFromEuler(e), this.s.set(1, 1, 1));
       this.m.multiplyMatrices(this.hm, this.part);
       this.arms.setMatrixAt(i * 2 + kk, this.m); this.arms.setColorAt(i * 2 + kk, tunic);

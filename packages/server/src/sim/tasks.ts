@@ -29,6 +29,7 @@ import type { World } from './world.js';
  *  hunt what times     hunt an animal (rabbit, deer, boar, wolf, bear): meat, leather, claws
  *  npc what            walk to a town teacher (guide, smith, hunter, warden, registrar) and talk: take / hand in a quest (sim/quests.ts)
  *  clan what who       join (who = the clan's leader or the clan's name) / quit / found (at the registrar) / vote (who) / call (a vote)
+ *  tame                walk calmly up to the nearest wild horse and tame it (sim/horses.ts: courage, intelligence, speed, level)
  */
 /** Food, wood, stone, scrap from free words (4 languages). */
 export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'): 'food' | 'wood' | 'stone' | 'scrap' | 'ore' | 'brick' | 'leather' | 'claw' {
@@ -61,7 +62,7 @@ export interface Step { key?: string; units?: number; do: string; who?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -305,6 +306,29 @@ export class Tasks {
         if (!alive(s.who)) return 'they are not here any more';
         if (first) { b.order(i, 'bring', s.who!, -1, 180); s.phase = 1; return false; }
         return b.orderOf(i).kind === 'bring' ? false : near(s.who!, 4) ? true : 'I could not reach them';
+      }
+      case 'tame': {
+        // Walk up to a wild horse (calmly: running people scare horses, sim/horses.ts), then try; each try makes it trust them
+        // a little more. Up to 8 tries, then they give up.
+        const H = w.horses;
+        if (first) { s.phase = 1; s.n0 = 0; s.who = -1; if (w.rules.forbidden(i, 'tame')) return 'I must not tame horses'; }
+        let h = (s.who ?? -1) >= 0 ? e.slot(s.who!) : -1;
+        if (h >= 0 && H.owned(h)) { if (H.of(h)!.owner === e.id(i)) { b.order(i, 'stop', -1, -1, 0); return true; } h = -1; } // someone else got it first
+        if (h < 0) {
+          h = H.nearestWild(i, 160);
+          if (h < 0) return 'there are no wild horses near here';
+          s.who = e.id(h);
+          b.order(i, 'follow', s.who, -1, 120);
+          return false;
+        }
+        if (Math.hypot(e.x[h]! - e.x[i]!, e.y[h]! - e.y[i]!) > 3.3) { if (b.orderOf(i).kind !== 'follow') b.order(i, 'follow', s.who!, -1, 120); return false; }
+        const r = H.tame(i, h);
+        if (r.code === 'tamed') { b.order(i, 'stop', -1, -1, 0); return true; }
+        if (r.code === 'wait' || r.code === 'tooFar') return false;
+        if (r.code === 'forbidden') return 'I must not tame horses';
+        if (r.code === 'tooYoung') return 'I am too young';
+        if ((s.n0 = (s.n0 ?? 0) + 1) >= 8) { b.order(i, 'stop', -1, -1, 0); return `${r.name ?? 'the horse'} would not let me tame it`; }
+        return false;
       }
       case 'hunt': {
         const id = e.id(i);

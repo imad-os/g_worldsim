@@ -6,6 +6,7 @@ import {
 } from 'three';
 import { People } from './people.js';
 import { Animals3D } from './animals.js';
+import { Horses3D } from './horses.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -42,6 +43,8 @@ export class World3D {
   /** Lamp light on the ground: added on, only at night. */
   private poolMat = new MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false, side: DoubleSide });
   readonly animals: Animals3D;
+  /** Horses: the CC0 animated model (docs/models/horse.glb). */
+  readonly horses: Horses3D;
   readonly target = new Vector3();
   private look = new Vector3();
   dist = 24;
@@ -88,6 +91,7 @@ export class World3D {
     this.scene.add(this.water);
     this.people = new People(this.scene, 512, shadows);
     this.animals = new Animals3D(this.scene, 128, shadows);
+    this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
     this.shots = new InstancedMesh(new SphereGeometry(0.07, 6, 4), new MeshBasicMaterial({ color: 0xfff1a0 }), 256);
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
