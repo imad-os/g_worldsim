@@ -87,3 +87,20 @@ const P: Record<string, string> = {
 export function icon(n: string, cls = ''): string {
   return `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] ?? ''}</svg>`;
 }
+
+// ------------------------------------------------------------ strict rules (shared by the Rules page and a person's Rules tab)
+export type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[]; how?: string;
+  kept?: { id: number; name: string; ok: number; fail: number; last?: number; why?: string; due: boolean }[] };
+export type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[] }[]; max: number; now?: number };
+const KIND_TAG: Record<string, string> = { never: '<span class="tag bad">never</span>', goal: '<span class="tag ok">must</span>', when: '<span class="tag">when</span>' };
+/** One rule: the words, how the engine understood them, and (orders to DO) who kept it. */
+export function ruleRow(x: Rule, k: number): string {
+  const how = x.how ?? (x.forbid.length ? 'blocks ' + x.forbid.join(', ') + (x.withName ? ' with ' + x.withName : '') : 'told to the AI only');
+  const tag = (KIND_TAG[x.kind ?? 'never'] ?? '') + ' ';
+  const kept = (x.kept ?? []).map((p) => {
+    const last = p.last !== undefined ? `last ${gameTime(p.last)}` : 'not yet';
+    const st = p.due ? 'due' : p.ok ? 'done' : '';
+    return `<span title="${esc(p.why ?? '')}">${esc(p.name)}: ${p.ok} done${p.fail ? `, ${p.fail} failed` : ''} · ${last}${st ? ' · ' + st : ''}${p.why ? ` · “${esc(p.why)}”` : ''}</span>`;
+  }).join('<br>');
+  return `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${tag}${esc(how)}${x.ai ? ' · read by the AI too' : ''}</small>${kept ? `<br><small>${kept}</small>` : ''}</span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`;
+}

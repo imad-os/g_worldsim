@@ -248,6 +248,16 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   every 20 ticks) starts a task (from 'owner') when the person is free, adult, not desperate, the goal not yet true, 2 game hours between
   tries; `when` ("when you see 'X', greet him with 'Y'") = the engine says Y within 7 m of X, once per 2 game hours, NOT in the prompt.
   Old saved rules get their kind at load (`resolve`). Prompt: never rules + "your owner's orders, your main goals".
+- **Rules both ways (imad 2026-11-25: "you never talk to Miceal" / "you must hunt every day", "only the first works")**: `isMust` / `stepsOfWords`
+  (`DO` table, 4 languages: hunt, tame, wood, ore, stone, scrap, loot, farm, store, food, repair, fire, build / craft X, heal, drink, sleep) ->
+  goal 'plan' `by: 'words'` (AI not asked) with `every` (every hour / N hours / day / N days / week, twice a day; no word = daily, build /
+  craft / tame = once) and `hours` (morning 6-11, afternoon, evening 17-21, night 20-5). "never forget to" = must; work words beat family
+  words. The AI never turns a must into a never (forbid ignored). `Rules.due` (by game day for >= 1 day), counts in `Profile.mind.ruled[text]`
+  { ok, fail, last, why } via `Task.rule` -> `Rules.ended`; a rule task pushes aside own / camp / quest tasks (`yields`), never owner / player
+  orders. Names: Damerau slips (1, 2 for 6+ letters); an unknown name blocks nothing (never "everyone"), looked up again now and then.
+  "never hunt" / "never tame" forbid hunt / tame. Admin `rules` returns `how` (`Rules.how`) + `kept` per rule; panel `ruleRow` (util.ts)
+  on Strict rules and the person Rules tab (everyone's rules listed too). Test rules.test.ts; E8 `experiment-rules.js`; proof
+  `ADMIN_TOKEN=... node tools/rules-proof.mjs <server> <outdir> [wait s]`.
 
 ## Objectives and families (imad 2026-11-20)
 - **Objectives = tasks** (`sim/tasks.ts`): `Tasks.progress(id)` { text, from, k, n, step, pct }. Panel person card / detail "Objectives"

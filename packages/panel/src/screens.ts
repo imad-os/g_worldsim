@@ -5,7 +5,7 @@ import { lineChart } from './charts.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, type Screen } from './screen.js';
 import { S, overview, people, history, describe, groupOf, KINDS } from './state.js';
-import { esc, gameTime, ago, icon, load, save, toast } from './util.js';
+import { esc, gameTime, ago, icon, load, save, toast, ruleRow, type RulesAns } from './util.js';
 import { WIDGETS, dashOn, setDash } from './dashboard.js';
 import { ctlCards, ctlMount, ctlRefresh, ctlLeave } from './serverctl.js';
 
@@ -196,18 +196,14 @@ export const crafting: Screen = {
 };
 
 // ------------------------------------------------------------ rules
-type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[] };
-const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
-  : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
-type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[] }[]; max: number };
 let rFor = -1;
 export const rules: Screen = {
   title: 'Strict rules', icon: 'rules', help: 'rules',
   render() {
-    return `<p class="lead">${icon('rules')} Your orders that are never broken, in your own words, in any language. ${help('rules')}</p><div class="grid2">
+    return `<p class="lead">${icon('rules')} Your orders, in your own words, in any language: things they must never do, and things they must do. ${help('rules')}</p><div class="grid2">
       ${card('Rules for', `<div id="rWho" class="whos"></div>`)}
       ${card('Rules', `<div id="rList"></div><div class="row"><input id="rText" maxlength="160" placeholder="never talk to Jade"><button class="btn primary" id="rAdd">Add rule</button></div>
-        <p class="dim">Examples: "never talk to Jade", "never leave the town", "never fight", "never have children".</p>`, { id: 'rCard' })}</div>`;
+        <p class="dim">Never: "never talk to Jade", "never leave the town", "never fight". Must: "you must hunt every day", "chop wood every morning", "farm twice a day", "build a hut", "you must get married". Under each rule: how it was understood and, for a must, who did it and when.</p>`, { id: 'rCard' })}</div>`;
   },
   async mount() {
     on('#rAdd', 'click', async () => { const t = val('rText'); if (!t) return; try { await this.refresh!(await cmd<RulesAns>({ cmd: 'rules', id: rFor, add: t }, 60000) as never); (document.getElementById('rText') as HTMLInputElement).value = ''; toast('Rule added', 'ok'); } catch (e) { err(e); } });
@@ -218,7 +214,7 @@ export const rules: Screen = {
     const r = given ?? await cmd<RulesAns>({ cmd: 'rules' });
     setHtml('rWho', [`<button class="who ${rFor < 0 ? 'on' : ''}" data-id="-1">Everyone <small>${r.all.length}/${r.max}</small></button>`, ...r.people.map((p) => `<button class="who ${rFor === p.id ? 'on' : ''}" data-id="${p.id}">${esc(p.name)} <small>${p.rules.length}/${r.max}</small></button>`)].join(''));
     const list = rFor < 0 ? r.all : r.people.find((p) => p.id === rFor)?.rules ?? [];
-    setHtml('rList', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${ruleWhat(x)}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules yet.</div>');
+    setHtml('rList', list.length ? list.map((x, k) => ruleRow(x, k)).join('') : '<div class="empty">No rules yet.</div>');
     (document.getElementById('rAdd') as HTMLButtonElement | null)?.toggleAttribute('disabled', list.length >= r.max);
     on('#rWho .who', 'click', (b) => { rFor = Number(b.dataset.id); void this.refresh!(r as never); });
     on('#rList [data-rm]', 'click', async (b) => { try { await this.refresh!(await cmd<RulesAns>({ cmd: 'rules', id: rFor, remove: Number(b.dataset.rm) }) as never); toast('Rule removed', 'ok'); } catch (e) { err(e); } });

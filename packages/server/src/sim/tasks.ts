@@ -59,7 +59,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   return kind === 'craft' ? 'axe' : 'campfire';
 }
 export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean }
-export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number }
+export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
   'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame'] as const;
@@ -144,6 +144,7 @@ export class Tasks {
     this.w.survival.cancel(this.w.e.id(i));
     this.w.brain.order(i, 'stop', -1, -1, 0);
     this.w.emit('task', { id: this.w.e.id(i), text: t.text, ok, why });
+    if (t.rule) this.w.rules.ended(i, t.rule, ok, why);
     this.onEnd(this.w.e.id(i), t, ok, why);
     // A planned task that failed: plan again from here (sim/colony.ts), the failed way now dearer.
     if (t.goal) {

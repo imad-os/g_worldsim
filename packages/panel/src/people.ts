@@ -2,7 +2,7 @@ import { cmd } from './api.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, view, type Screen } from './screen.js';
 import { S, people, profiles, describe, who, mapName, overview, goalHtml, type Person } from './state.js';
-import { esc, gameTime, icon, meter, ACTS, ACT_COLORS, load, save, toast } from './util.js';
+import { esc, gameTime, icon, meter, ACTS, ACT_COLORS, load, save, toast, ruleRow, type Rule, type RulesAns } from './util.js';
 
 const avatar = (name: string, sex?: string, size = '') => `<span class="av ${sex === 'f' ? 'f' : 'm'} ${size}">${esc(name.charAt(0).toUpperCase())}</span>`;
 const invChips = (inv?: Record<string, number>, carry = 0) => {
@@ -91,9 +91,6 @@ function bindList(): void { on('tr.link', 'click', (el) => { location.hash = `#/
 
 // ------------------------------------------------------------ one person
 type Mind = { notes: { at: number; text: string }[]; summary: string; mood: string; plan?: { act: string; with?: number; why: string; until: number }; said?: { text: string } };
-type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[] };
-const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
-  : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
 type Detail = Person & { now: number; hpMax?: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null; siblings?: string[]; stage?: string; carer?: string | null; held?: boolean;
   chosen?: { id: number; name: string; role: string }[]; kids?: { id: number; name: string; age: number; stage: string; hunger: number; thirst: number; tired: number; hp: number; carer: string }[] }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
 type Say = { at: number; from: number; to: number; fromName: string; toName: string; text: string };
@@ -193,11 +190,12 @@ async function touchPerson(): Promise<void> {
     if (ptab === 'family' || ptab === 'overview' || ptab === 'mind' || ptab === 'convo') redraw();
   } catch { /* next time */ }
 }
-type RulesAns = { all: Rule[]; people: { id: number; name: string; rules: Rule[] }[]; max: number };
 async function loadRules(r?: RulesAns): Promise<void> {
   r ??= await cmd<RulesAns>({ cmd: 'rules' });
   const list = r.people.find((x) => x.id === pid)?.rules ?? [];
-  setHtml('xRules', list.length ? list.map((x, k) => `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${ruleWhat(x)}${x.ai ? ' · understood by the AI' : ''}</small></span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`).join('') : '<div class="empty">No rules for them.</div>');
+  // Rules for everyone apply to them too: shown below their own (removed on the Strict rules page), with how THEY keep them.
+  const all = r.all.map((x) => ruleRow({ ...x, kept: (x.kept ?? []).filter((p) => p.id === pid) }, -1).replace(/<button[^>]*data-rm="-1"[^>]*>Remove<\/button>/, '')).join('');
+  setHtml('xRules', (list.length ? list.map((x, k) => ruleRow(x, k)).join('') : '<div class="empty">No rules for them.</div>') + (all ? `<p class="dim">For everyone:</p>${all}` : ''));
   on('#xRules [data-rm]', 'click', async (b) => { try { await loadRules(await cmd<RulesAns>({ cmd: 'rules', id: pid, remove: Number(b.dataset.rm) })); toast('Rule removed', 'ok'); } catch (e) { toast(String(e), 'err'); } });
 }
 /** A new line in the conversation: only the messages are redrawn, never the box being typed in. */

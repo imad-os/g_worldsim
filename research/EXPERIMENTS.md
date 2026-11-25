@@ -166,3 +166,19 @@ under Firestore's 1 MiB document limit). The tick cost does not change.
 
 With doors that open only for family, the old flee rule (run to the nearest roof) leaves people outside a locked door with
 the zombies behind them; the odds, the shout and friends coming make the difference.
+
+## E8. Strict rules both ways: "must hunt every day" / "never hunt" (2026-11-25)
+`node packages/server/dist/experiment-rules.js --days 3 --seeds r1,r2,r3` (5 people, no LLM: the engine's own reading of the words).
+Arm `must` = for everyone "you must hunt every day" + for one person "you never talk to <second person, two letters swapped>".
+
+| arm | person-days | days with a kill | kills | days the rule ended done | talks between the pair |
+|---|---|---|---|---|---|
+| no rule | 45 | 0 (0 %) | 0 | – | 2 |
+| must hunt every day | 45 | **45 (100 %)** | 56 | 45 | **0** |
+| never hunt | 45 | 0 (0 %) | 0 | – | 0 |
+
+Before: "you must hunt every day" had no engine meaning (kind goal, no steps) unless an AI turned it into a plan, its task
+waited for a moment with no task at all (the colony keeps people busy), and a small model could list "hunt" as forbidden, which
+turned the order into a "never". Failed tries were "I found no animals near here" (28) and "it got away" (3); each waits 2 game hours.
+On a live server (town only, travel closed, 4 animals at most in town) the same rule got 7 kills for 5 people in ~1.5 game days:
+hunting in town is limited by game, not by the rule.

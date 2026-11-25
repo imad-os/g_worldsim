@@ -22,7 +22,7 @@ import type { World, WorldEvent } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
 import { ageOf, levelOf, type Mind } from '../sim/people.js';
 import { SKILLS, thingOf, type Step } from '../sim/tasks.js';
-import { RULE_ACTS, type Rule } from '../sim/rules.js';
+import { RULE_ACTS, classify, isMust, type Rule } from '../sim/rules.js';
 
 export interface PlannerConfig {
   on: boolean;
@@ -777,6 +777,7 @@ export class Planner {
    */
   async refineRule(r: Rule, about: string): Promise<Rule> {
     if (!this.ai.status().ready) return r;
+    if (r.by === 'words') return r; // an order to DO the engine read from the words: nothing for the AI to add
     if (r.kind === 'when' || (r.kind === 'goal' && r.goal && r.goal !== 'plan')) { r.ai = true; return r; } // the engine knows these already
     const names = [...new Set([...this.w.profiles.values()].filter((p) => p.died === undefined).map((p) => p.name).concat([...this.players()].map(([n]) => n)))];
     const prompt = `The owner of a world gave ${about} this strict rule: "${r.text}".\nPeople: ${names.join(', ')}.\n`
@@ -796,11 +797,12 @@ export class Planner {
       const j = parseJsonReply<{ forbid?: unknown; with?: unknown; plan?: unknown }>(a.text.replace(/<think>[\s\S]*?<\/think>/gi, ''));
       if (j && (Array.isArray(j.forbid) || Array.isArray(j.plan))) {
         j.forbid ??= [];
-        const add = (j.forbid as unknown[]).map((x) => String(x).trim().toLowerCase()).filter((x) => (RULE_ACTS as readonly string[]).includes(x));
+        // An order to DO is never turned into a "never" (small models listed "hunt" as forbidden for "you must hunt every day").
+        const add = isMust(r.text) ? [] : (j.forbid as unknown[]).map((x) => String(x).trim().toLowerCase()).filter((x) => (RULE_ACTS as readonly string[]).includes(x));
         r.forbid = [...new Set([...r.forbid, ...add])];
         // Forbids something = a "never" rule; else an order to do something: the AI's plan, run once a game day.
         if (r.forbid.length) { r.kind = 'never'; delete r.goal; }
-        else if (r.kind === 'goal' && !r.goal && Array.isArray(j.plan)) { const st = this.toSteps(-1, j.plan, -1); if (st.length) { r.plan = st; r.goal = 'plan'; } }
+        else if (r.kind === 'goal' && !r.goal && Array.isArray(j.plan)) { const st = this.toSteps(-1, j.plan, -1); if (st.length) { r.plan = st; r.by = 'ai'; classify(r); } }
         const wn = typeof j.with === 'string' ? j.with.trim() : '';
         if (r.with < 0 && wn) { const id = this.whoIs(wn); if (id >= 0) { r.with = id; r.withName = this.nameOfId(id); } }
         r.ai = true;

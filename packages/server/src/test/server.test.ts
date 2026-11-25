@@ -438,7 +438,9 @@ test('owner tools: strict rules from the panel, zombies per night and spawned ne
     r = await admin({ cmd: 'rules', add: 'never leave the town' });
     assert.deepEqual(r.all[0].forbid, ['travel']);
     assert.ok(w.rules.forbidden(e.slot(aId!), 'talk', e.slot(bId!)));
-    assert.equal(app.db.getMeta('rules_all'), JSON.stringify(r.all));
+    // Saved without the panel's extras (how it was understood, who kept it).
+    assert.equal(app.db.getMeta('rules_all'), JSON.stringify(r.all.map(({ how: _h, kept: _k, ...x }: { how: string; kept: unknown }) => x)));
+    assert.equal(r.all[0].how, 'never: blocks travel (with anyone)');
     for (let k = 0; k < 4; k++) await admin({ cmd: 'rules', id: aId, add: `rule ${k}` });
     await assert.rejects(admin({ cmd: 'rules', id: aId, add: 'one too many' }), /at most 5/);
     r = await admin({ cmd: 'rules', id: aId, remove: 0 });

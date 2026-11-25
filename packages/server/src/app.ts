@@ -27,7 +27,7 @@ import { tameLevel } from './sim/horses.js';
 import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { pvpDamage } from './sim/clans.js';
-import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
+import { compileRule, MAX_RULES, Rules, type Rule } from './sim/rules.js';
 import { Control } from './ops/control.js';
 import { Agent } from './ops/agent.js';
 import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
@@ -1394,7 +1394,10 @@ export class App {
         if (pid < 0) this.db.setMeta('rules_all', JSON.stringify(w.rules.all));
         const people: { id: number; name: string; rules: Rule[] }[] = [];
         for (const [id, p] of w.profiles) if (p.died === undefined && w.e.slot(id) >= 0 && (w.e.kind[w.e.slot(id)] === Kind.Agent || w.isChar(w.e.slot(id)))) people.push({ id, name: p.name, rules: p.rules ?? [] });
-        return { all: w.rules.all, people, max: MAX_RULES };
+        // How each rule was understood, and (orders to DO) how each person keeps it: times done / failed, the last time, why it failed.
+        const agents = people.filter((x) => w.e.kind[w.e.slot(x.id)] === Kind.Agent).map((x) => x.id);
+        const show = (r: Rule, ids: number[]) => ({ ...r, how: Rules.how(r), kept: w.rules.kept(r, ids) });
+        return { all: w.rules.all.map((r) => show(r, agents)), people: people.map((x) => ({ ...x, rules: x.rules.map((r) => show(r, [x.id])) })), max: MAX_RULES, now: w.gameSec };
       }
       case 'zombies': { // the owner's zombie controls: how many each night; the ones out now
         if (c.perNight !== undefined) { w.zombies.perNight = num(c.perNight, 0, 50, 'perNight', [0, 5000]); this.db.setMeta('zombies_night', String(w.zombies.perNight)); }
