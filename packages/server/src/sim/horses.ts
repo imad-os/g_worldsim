@@ -1,6 +1,7 @@
 import { Act, EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { Rng } from './rng.js';
+import { Pathfinder } from './pathfind.js';
 import type { World } from './world.js';
 
 /**
@@ -20,9 +21,10 @@ import type { World } from './world.js';
  *    closer, and taming gets easier ("join-up"). Hurting a horse makes it distrust that person.
  *  - Taming (`tame`): a skill. The chance comes from the person's courage, intelligence and speed, their taming level
  *    (grows with every try) and the horse's trust, against the horse's intelligence and quality. A failed try may get
- *    them kicked. A tamed horse leaves its herd, follows its owner, and the owner can ride it.
+ *    them kicked. A tamed horse leaves its herd and lives on its own near where it was left (grazing, wandering, taking
+ *    fright); its owner calls it from afar (it runs there by a real path) or walks up to it to ride it.
  *  - Riding: the rider moves at the horse's pace (a trot when walking, a gallop when running while stamina lasts),
- *    journeys between maps take half the time. People ride for long walks and get off to work, sleep or talk.
+ *    and the horse carries them through the gates (5-15 real seconds per gate, `gateSecs`). People ride for long walks and get off to work, sleep or talk.
  *  - Population: mares foal (stats from both parents plus a little chance), old horses die, and when a map has too
  *    few wild horses a new band wanders in from the edge, so numbers stay steady.
  */
@@ -56,8 +58,10 @@ export interface Horse {
   /** Fear 0..1 and where the danger is. */
   fear: number; fx: number; fy: number;
   /** What it is doing and until when (sim seconds since start). */
-  mode: 'graze' | 'walk' | 'rest' | 'flee' | 'follow' | 'alert';
+  mode: 'graze' | 'walk' | 'rest' | 'flee' | 'follow' | 'alert' | 'come' | 'wait';
   until: number;
+  /** Tamed: where it lives now (it roams round here); set where it was left or where it came to its owner. */
+  hx?: number; hy?: number;
 }
 interface Herd { id: number; map: number; lead: number; gx: number; gy: number; until: number }
 
@@ -68,6 +72,9 @@ const QSTATS = [ // per quality: [speed lo, hi], [stamina lo, hi], [intel lo, hi
 ];
 const CAP_WILDS = 14, CAP_TOWN = 0, EVERY = 5, HOUR = 3600;
 const TROT = 3.1, CANTER = 4.2;
+/** A called horse comes only from farther than this (closer: walk over to it). Roaming range round its home. */
+export const CALL_NEAR = 10;
+const RANGE = 28;
 /** Taming level from points: 0 .. 10. */
 export function tameLevel(xp = 0): number { return Math.min(10, Math.floor(Math.sqrt(Math.max(0, xp) / 12))); }
 
@@ -79,6 +86,9 @@ export class Horses {
   private nextHerd = 1;
   private nextHour = 0;
   private t = 0;
+  /** A called horse's way to its owner (not saved: it finds it again). */
+  private routes = new Map<number, { pts: number[]; k: number; gx: number; gy: number; at: number; since: number }>();
+  private finders: Pathfinder[] = [];
   /** Who tried to tame which horse last (cooldown, real sim seconds). */
   private readonly tryAt = new Map<number, number>();
 
@@ -219,7 +229,7 @@ export class Horses {
     this.skill.set(me, (this.skill.get(me) ?? 0) + 2);
     if (this.rng.chance(ch)) {
       this.leaveHerd(e.id(a), h);
-      h.owner = me; h.trust[k] = 1; h.fear = 0; h.mode = 'follow';
+      h.owner = me; h.trust[k] = 1; h.fear = 0; h.mode = 'wait'; h.until = now + 20; h.hx = e.x[a]!; h.hy = e.y[a]!;
       this.skill.set(me, (this.skill.get(me) ?? 0) + 10);
       w.emit('tamed', { id: me, horse: e.id(a), name: h.name, quality: QUALITY[h.q], chance: +ch.toFixed(2) });
       return { code: 'tamed', name: h.name, chance: ch };
@@ -259,7 +269,7 @@ export class Horses {
     if (this.riding[i]) return 'riding';
     if (e.flags[i]! & EFlag.Child) return 'tooYoung';
     if (e.map[a] !== e.map[i] || Math.hypot(e.x[a]! - e.x[i]!, e.y[a]! - e.y[i]!) > 3.5) return 'tooFar';
-    h.rider = e.id(i); h.mode = 'follow'; h.fear = 0;
+    h.rider = e.id(i); h.mode = 'follow'; h.fear = 0; this.routes.delete(e.id(a));
     w.detachBody(a);
     this.riding[i] = 1; this.riding[a] = 2;
     e.x[a] = e.x[i]!; e.y[a] = e.y[i]!;
@@ -277,14 +287,14 @@ export class Horses {
   /** The horse is let go of by its rider: on the ground next to where they are. */
   private drop(a: number, h: Horse): void {
     const w = this.w, e = w.e, r = h.rider >= 0 ? e.slot(h.rider) : -1;
-    h.rider = -1; h.mode = 'follow'; h.until = 0;
+    h.rider = -1; h.mode = 'wait'; h.until = this.t + 30;
     e.flags[a] = e.flags[a]! & ~EFlag.Transit; this.riding[a] = 0;
     if (r >= 0) this.riding[r] = 0;
     const m = r >= 0 && e.map[r] !== NO_MAP ? e.map[r]! : e.map[a]!;
     if (m === NO_MAP) return; // still on the road: placed when the rider arrives
     const s = w.freeSpot(m, e.x[a]! + Math.cos(e.angle[a]! + 1.6) * 1.2, e.y[a]! + Math.sin(e.angle[a]! + 1.6) * 1.2, 30, this.rng) ?? { x: e.x[a]!, y: e.y[a]! };
     w.attachBody(a, m, s.x, s.y);
-    e.tx[a] = s.x; e.ty[a] = s.y; e.speed[a] = 0;
+    e.tx[a] = s.x; e.ty[a] = s.y; e.speed[a] = 0; h.hx = s.x; h.hy = s.y;
   }
   /** The speed of rider i given what they asked for (walk / run). */
   rideSpeed(i: number, want: number): number {
@@ -315,10 +325,41 @@ export class Horses {
     }
     if (mineN >= 0) { const c = this.mount(i, mineN); return { ok: c === 'mounted', code: c, name: this.of(mineN)?.name }; }
     if (wild >= 0) { const r = this.tame(i, wild); return { ok: r.code === 'tamed', ...r, chance: r.chance !== undefined ? Math.round(r.chance * 100) : undefined, trust: r.trust !== undefined ? Math.round(r.trust * 100) : undefined }; }
-    // My horse is somewhere else on this map: I whistle, it comes.
-    const far = this.mine(i).find((s) => e.map[s] === m && !this.h.get(e.id(s))!.rider);
-    if (far !== undefined) { const h = this.h.get(e.id(far))!; h.mode = 'follow'; h.until = 0; return { ok: true, code: 'called', name: h.name }; }
+    // My horse is somewhere else: farther than CALL_NEAR on this map = I whistle and it runs to me (a real way, no magic);
+    // closer = I walk over to it; on another map = it stays there.
+    const free = this.mine(i).filter((s) => this.h.get(e.id(s))!.rider < 0);
+    let here = -1, hd = Infinity;
+    for (const s of free) { if (e.map[s] !== m) continue; const d = Math.hypot(e.x[s]! - x, e.y[s]! - y); if (d < hd) { hd = d; here = s; } }
+    if (here >= 0) {
+      const h = this.h.get(e.id(here))!;
+      if (hd <= CALL_NEAR) return { ok: false, code: 'walkOver', name: h.name, dist: Math.round(hd) };
+      this.call(here, i);
+      return { ok: true, code: 'called', name: h.name, dist: Math.round(hd) };
+    }
+    const away = free.find((s) => e.map[s] !== NO_MAP);
+    if (away !== undefined) return { ok: false, code: 'otherMap', name: this.h.get(e.id(away))!.name, map: this.w.maps[e.map[away]!]!.def.id };
     return { ok: false, code: 'noHorse' };
+  }
+  /** Horse a is called by its owner i: it runs to them by a real path (`come`). */
+  call(a: number, i: number): void {
+    const h = this.of(a);
+    if (!h || h.rider >= 0) return;
+    h.mode = 'come'; h.until = 0; h.fear = 0;
+    this.routes.set(this.w.e.id(a), { pts: [], k: 0, gx: NaN, gy: NaN, at: -1e9, since: this.t });
+    this.w.emit('horseCalled', { id: this.w.e.id(i), horse: this.w.e.id(a), name: h.name });
+  }
+  /** Real seconds the ride through gate (portal index) pi takes: 5-15, its own for each gate. */
+  gateSecs(pi: number): number {
+    const p = this.w.portals[pi];
+    const key = p ? `${p.from}:${p.dest}:${Math.round(p.x)}:${Math.round(p.y)}` : String(pi);
+    let hsh = 2166136261;
+    for (let k = 0; k < key.length; k++) { hsh ^= key.charCodeAt(k); hsh = Math.imul(hsh, 16777619); }
+    return 5 + ((hsh >>> 0) % 1001) / 100;
+  }
+  /** What my ridden horse looks like (the TV's riding scene between maps). */
+  rideLook(i: number): { name: string; q: number; coat: number; scale: number } | undefined {
+    const a = this.ridden(i), h = a >= 0 ? this.h.get(this.w.e.id(a)) : undefined;
+    return h ? { name: h.name, q: h.q, coat: h.coat, scale: +this.scale(h).toFixed(2) } : undefined;
   }
   /** The nearest wild horse to person i within r m (slot / -1). */
   nearestWild(i: number, r: number): number {
@@ -457,15 +498,34 @@ export class Horses {
       e.act[i] = Act.Flee;
       return;
     }
-    // Tamed: with the owner (follow, graze near them), or graze where it was left.
+    // Tamed (imad 2026-11-25: "not follow me, do whatever it wants"): it lives on its own round its home spot, comes when called.
     if (h.owner >= 0) {
       const o = e.slot(h.owner);
-      if (o < 0 && !w.profiles.get(h.owner)?.player) { h.owner = -1; h.mode = 'graze'; this.joinHerd(i, h); return; } // the owner died: wild again
-      if (o >= 0 && e.map[o] === e.map[i]) {
-        const d = Math.hypot(e.x[o]! - x, e.y[o]! - y), asleep = (e.flags[o]! & EFlag.Sleeping) !== 0;
-        const near = asleep ? 6 : h.mode === 'follow' ? 3.5 : 7;
-        if (d > near) { h.mode = 'follow'; const a = Math.atan2(y - e.y[o]!, x - e.x[o]!); at(e.x[o]! + Math.cos(a) * 2.5, e.y[o]! + Math.sin(a) * 2.5); gait(d > 14 ? CANTER : d > 6 ? TROT : 1.3); e.act[i] = Act.Go; return; }
-        if (h.mode === 'follow') { h.mode = 'graze'; h.until = now + this.rng.range(4, 12); }
+      if (o < 0 && !w.profiles.get(h.owner)?.player) { h.owner = -1; h.mode = 'graze'; this.routes.delete(e.id(i)); this.joinHerd(i, h); return; } // the owner died: wild again
+      if (h.hx === undefined || h.hy === undefined) { h.hx = x; h.hy = y; }
+      if (h.mode === 'come') { if (this.come(i, h, o)) return; }
+      if (h.mode === 'follow') h.mode = 'graze'; // old saves: no more following
+      if (h.mode === 'wait') { // came to its owner (or was just left): stands there a while, then lives there
+        if (now < h.until) { gait(0); at(x, y); e.act[i] = Act.Idle; if (o >= 0 && e.map[o] === e.map[i] && Math.hypot(e.x[o]! - x, e.y[o]! - y) < 8) e.angle[i] = Math.atan2(e.y[o]! - y, e.x[o]! - x); return; }
+        h.mode = 'graze'; h.until = now; h.hx = x; h.hy = y;
+      }
+      if (h.mode === 'walk') { // on its way somewhere near home (more grass, a look round)
+        if (Math.hypot(e.tx[i]! - x, e.ty[i]! - y) > 1 && now < h.until) return;
+        h.mode = 'graze'; h.until = now;
+      }
+      if (now >= h.until && !night && this.rng.chance(0.3)) { // now and then it walks on: within its range of home
+        const mp = w.maps[e.map[i]!]!;
+        for (let t = 0; t < 8; t++) {
+          const an = this.rng.next() * Math.PI * 2, dd = this.rng.range(5, 16);
+          let tx = x + Math.cos(an) * dd, ty = y + Math.sin(an) * dd;
+          const hd = Math.hypot(tx - h.hx, ty - h.hy);
+          if (hd > RANGE) { tx = h.hx + (tx - h.hx) * (RANGE / hd) * 0.6; ty = h.hy + (ty - h.hy) * (RANGE / hd) * 0.6; }
+          if (tx < 3 || ty < 3 || tx > mp.def.w - 3 || ty > mp.def.h - 3 || mp.tiles.isSolidAt(tx, ty) || !this.finder(e.map[i]!).clear(x, y, tx, ty)) continue;
+          const tt = mp.tiles.get(Math.floor(tx), Math.floor(ty));
+          if (tt === w.survival.T.floor || tt === w.survival.T.water) continue;
+          h.mode = 'walk'; h.until = now + 30; at(tx, ty); gait(1.1 + h.size * 0.1); e.act[i] = Act.Wander;
+          return;
+        }
       }
       this.graze(i, h, x, y, night);
       return;
@@ -500,10 +560,35 @@ export class Horses {
     if (far > 1.2) { h.mode = 'walk'; at(gx, gy); gait(far > 12 ? TROT : 1.1 + h.size * 0.1); e.act[i] = Act.Wander; return; }
     this.graze(i, h, x, y, night);
   }
+  private finder(m: number): Pathfinder { return this.finders[m] ??= new Pathfinder(this.w.maps[m]!.tiles, 4000); }
+  /** A called horse runs to its owner along a real path. False when it is no longer coming (then it lives on as usual). */
+  private come(i: number, h: Horse, o: number): boolean {
+    const w = this.w, e = w.e, id = e.id(i), x = e.x[i]!, y = e.y[i]!, now = this.t;
+    const r = this.routes.get(id);
+    if (o < 0 || e.map[o] !== e.map[i] || !r || now - r.since > 150) { this.routes.delete(id); h.mode = 'graze'; h.until = now; return false; }
+    const ox = e.x[o]!, oy = e.y[o]!, d = Math.hypot(ox - x, oy - y);
+    if (d < 3) { // here: it stops by its owner and waits to be ridden
+      this.routes.delete(id); h.mode = 'wait'; h.until = now + 90; h.hx = x; h.hy = y;
+      e.speed[i] = 0; e.tx[i] = x; e.ty[i] = y; e.act[i] = Act.Idle; e.angle[i] = Math.atan2(oy - y, ox - x);
+      w.emit('horseCame', { id: h.owner, horse: id, name: h.name });
+      return true;
+    }
+    if (!r.pts.length || Math.hypot(ox - r.gx, oy - r.gy) > 4 || now - r.at > 5) {
+      const pf = this.finder(e.map[i]!), res = pf.find(x, y, ox, oy);
+      r.pts = []; r.k = 0; r.gx = ox; r.gy = oy; r.at = now;
+      if (res !== 'none') { const W = w.maps[e.map[i]!]!.tiles.w; for (let k = 0; k < pf.outN; k++) { const t = pf.out[k]!; r.pts.push((t % W) + 0.5, ((t / W) | 0) + 0.5); } }
+    }
+    while (r.k < r.pts.length - 2 && Math.hypot(r.pts[r.k]! - x, r.pts[r.k + 1]! - y) < 1.2) r.k += 2;
+    const last = r.k >= r.pts.length - 2;
+    if (!r.pts.length || last) { e.tx[i] = ox; e.ty[i] = oy; } else { e.tx[i] = r.pts[r.k]!; e.ty[i] = r.pts[r.k + 1]!; }
+    e.speed[i] = d > 14 ? (h.sta > 1 ? h.speed * 0.85 : CANTER) : d > 6 ? TROT : 1.6;
+    e.act[i] = Act.Go;
+    return true;
+  }
   /** Graze (head down, a step now and then) or doze standing; at night mostly doze. */
   private graze(i: number, h: Horse, x: number, y: number, night: boolean): void {
     const w = this.w, e = w.e, now = this.t;
-    if (h.mode === 'walk' || h.mode === 'follow') { h.mode = 'graze'; h.until = now; }
+    if (h.mode === 'walk' || h.mode === 'follow' || h.mode === 'come' || h.mode === 'wait') { h.mode = 'graze'; h.until = now; }
     if (now < h.until) { if (Math.hypot(e.tx[i]! - x, e.ty[i]! - y) < 0.3) e.speed[i] = 0; return; }
     const rest = night ? this.rng.chance(0.8) : this.rng.chance(0.25);
     h.mode = rest ? 'rest' : 'graze';
@@ -550,12 +635,13 @@ export class Horses {
       const act = e.act[o]!;
       if (act !== Act.Go && act !== Act.Wander && act !== Act.Forage && act !== Act.Travel && act !== Act.Flee && act !== Act.Fight && act !== Act.Gather && act !== Act.Build) continue;
       if (w.brain.goalDist(o) < 22) continue;
-      if (Math.hypot(e.x[a]! - e.x[o]!, e.y[a]! - e.y[o]!) > 6) { if (h.mode !== 'flee') { h.mode = 'follow'; h.until = 0; } continue; }
+      const d = Math.hypot(e.x[a]! - e.x[o]!, e.y[a]! - e.y[o]!);
+      if (d > 6) { if (h.mode !== 'flee' && h.mode !== 'come' && d < 150) this.call(a, o); continue; } // whistle: it runs over, they get on when it is there
       this.mount(o, a);
     }
   }
 
-  /** After the physics step: a ridden horse is where its rider is (also on the road between maps: half the time). */
+  /** After the physics step: a ridden horse is where its rider is (also on the road between maps). */
   sync(): void {
     const w = this.w, e = w.e;
     if (w.tick % EVERY === 0) this.autoMount();
@@ -565,10 +651,9 @@ export class Horses {
       if (a < 0) { if (r >= 0) this.riding[r] = 0; h.rider = -1; continue; }
       if (r < 0) { this.drop(a, h); continue; }
       if (e.map[r] === NO_MAP) {
-        if (e.map[a] !== NO_MAP) { // the rider just took the road: the horse goes too, and gets there sooner
+        if (e.map[a] !== NO_MAP) { // the rider just took the road: the horse carries them (World.enterPortal timed the ride, gateSecs)
           w.detachBody(a);
           e.map[a] = NO_MAP; e.flags[a] = e.flags[a]! | EFlag.Transit;
-          e.arrive[r] = w.gameSec + (e.arrive[r]! - w.gameSec) * 0.5;
         }
         continue;
       }
@@ -665,7 +750,7 @@ export class Horses {
     for (const [id, h] of d.h ?? []) {
       const i = e.slot(id);
       if (i < 0 || !this.isHorse(i)) continue;
-      h.mode = h.rider >= 0 ? 'follow' : 'graze'; h.until = 0; h.fear = 0;
+      h.mode = h.rider >= 0 ? 'follow' : 'graze'; h.until = 0; h.fear = 0; // a call in progress is not saved
       this.h.set(id, h);
     }
     for (const hd of d.herds ?? []) { hd.until = 0; this.herds.set(hd.id, hd); }

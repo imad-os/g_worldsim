@@ -525,9 +525,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   nearby slowly gain trust, max 0.4). Population: foals 0.6 / year with a stallion, old age past 22, a new band from the edge when a map has < half its cap
   (woods 14; none in town: "in the wilderness", so town people need travel open to reach them; players can always go).
 - Taming: chance = 0.12 + (power - difficulty) x 1.1 + trust x 0.45 (+ food); power = courage .35 + intelligence .35 + speed .2 + level x .04
-  (`skill` points per person, `tameLevel`); difficulty = .25 + intel .3 + q .17. Failure = more trust, may kick (6 hp). Tamed: leaves the herd, follows the owner.
+  (`skill` points per person, `tameLevel`); difficulty = .25 + intel .3 + q .17. Failure = more trust, may kick (6 hp). Tamed: leaves the herd.
+- **Tamed horses live free (imad 2026-11-25: "not follow me", "physically, not magically")**: never follow; graze / wander within `RANGE` 28 m of
+  their home spot (`hx` / `hy` = where left / where they came to the owner), still take fright. Horse button: riding = off; mine within 3.5 m = on;
+  wild within 3.4 m = tame; mine on this map farther than `CALL_NEAR` 10 m = `call` (mode `come`: runs by an A* path, `routes` not saved, gives up
+  after 150 s, stops ~3 m away = mode `wait` 90 s, event `horseCame` -> Notice did `came`); 3.5-10 m = code `walkOver`; other map = `otherMap`.
+  Agents whistle theirs (call) for walks > 22 m and get on when it is within 6 m.
 - Riding: `Horses.riding[slot]` (1 rider, 2 ridden horse; frames: bit 7 of the kind byte = `KIND_RIDING`, the 8 flag bits are taken); the ridden horse has no physics body and is synced to the rider (`Horses.sync` after portals);
-  `World.step` uses `rideSpeed` (trot 3.1 x size, gallop = horse speed while stamina lasts, else canter 4.2); portal journeys take half the time.
+  `World.step` uses `rideSpeed` (trot 3.1 x size, gallop = horse speed while stamina lasts, else canter 4.2). Through a gate on horseback
+  (`World.enterPortal`): `Horses.gateSecs(pi)` = 5-15 REAL seconds, fixed per gate (hash of the gate), x the live clockScale; Msg.You carries
+  `horse` (rideLook) and the TV draws `gfx/ride.ts RideScene` (own scene, same renderer: my horse galloping on a forest road, me in the saddle,
+  props sliding past, dust, camera sweeping round) + note "Riding X to Y n s".
   Agents get on their horse (within 6 m) for paths > 22 m (`Brain.goalDist`) and off to sleep / talk / eat / rest or on arrival.
 - Task skill `tame` (+ `askedWork` "tame a horse", planner aliases); hourly own plans: one free adult with power > 0.45 per map now and then.
 - Player: Do `horse` (off / on my horse / tame the wild one within 3.4 m / call mine), A (take) also tames / mounts when nothing else is near, Do `horseInfo`.
@@ -535,7 +543,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   frame bits 24-31 of a horse = 5 | q << 3 | coat << 5. Me page: horses + taming level. Admin `horses { map? }`, `horseSpawn { map, x, y | near, n, q }`.
 - TV: `gfx/horses.ts` = Quaternius CC0 animated horse `docs/models/horse.glb` (280 KB; credits docs/models/CREDITS.md), 8 parts merged into one skinned
   mesh with vertex colours per coat (+ golden mane for legendary), Idle / Eating / Walk / Gallop by speed, saddle when tamed, rare = blue ground glow,
-  legendary = gold ring + sparks; rider pose `People.add(..., seat)`. Strings `i18n7.ts`. Action `horse` (unbound; wheel + Actions).
+  legendary = gold ring + sparks; rider pose `People.add(..., seat)`. Strings `i18n7.ts`. Action `horse` (unbound; wheel + Actions; A's context hint mirrors on / tame / off).
   Tests `horses.test.ts`; proof `ADMIN_TOKEN=... node tools/horse-proof.mjs <server> <sdk.js> <outdir>`.
 
 ## Panel chat of my character (imad 2026-11-25)

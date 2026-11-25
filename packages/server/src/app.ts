@@ -453,6 +453,8 @@ export class App {
         if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'did', { a: 'talk', ok: true, code: ev.kind === 'divorce' ? 'divorced' : 'married', name: w.profiles.get(Number(y))?.name ?? '' });
       }
     });
+    // A called horse got to its owner: that player's TV says so.
+    w.listeners.push((ev) => { if (ev.kind === 'horseCame') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'did', { a: 'horse', ok: true, code: 'came', name: ev.data.name }); } });
     w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', ev.data.why ? { why: ev.data.why } : {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     // Quests (sim/quests.ts): the NPCs speak to the viewers of their map, lessons go into memory, players see their progress.

@@ -651,7 +651,8 @@ export class World {
     e.map[i] = NO_MAP;
     e.flags[i] = (e.flags[i]! | EFlag.Transit) & ~EFlag.Moving;
     e.toMap[i] = p.dest;
-    e.arrive[i] = this.gameSec + p.travel;
+    // On a horse (imad 2026-11-25): the ride takes 5-15 real seconds, its own for each gate (the TV shows the ride).
+    e.arrive[i] = this.gameSec + (this.horses.riding[i] === 1 ? this.horses.gateSecs(pi) * this.opt.clockScale : p.travel);
     e.ax[i] = p.toX; e.ay[i] = p.toY;
     e.vx[i] = 0; e.vy[i] = 0; e.inX[i] = 0; e.inY[i] = 0;
     e.goal[i] = -1;

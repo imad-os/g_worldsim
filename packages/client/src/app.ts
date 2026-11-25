@@ -9,6 +9,7 @@ import { World3D, type Tier } from './gfx/world3d.js';
 import { buildChunk } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
 import type { PersonLook } from './gfx/people.js';
+import { RideScene } from './gfx/ride.js';
 import { ReplayPlayer, gameTime, type ReplayRec, type ReplaySummary } from './replay.js';
 import {
   ACTIONS, DEFAULT_BINDS, BINDS_V, cloneBinds, padAction, remoteAction, remoteName, actionLabel, Menu, Bubbles, bar, personHtml, STAGE_KEY,
@@ -112,6 +113,9 @@ let followSeen = 0;
 
 // Me (play).
 let meId = -1, meTransit = false, meArrive = 0, meTo = '';
+/** On the road between maps on horseback: my horse's look and the ride's length (game s), the riding scene, how I last looked. */
+let rideHorse: { name: string; q: number; coat: number; scale: number } | null = null, rideTotal = 1, ride: RideScene | null = null;
+let myLook: PersonLook | null = null, myGear = 0;
 let predX = 0, predY = 0, pvx = 0, pvy = 0, predOk = false;
 let rtt = 150;
 let sentMx = 0, sentMy = 0, sentRun = false, sentAt = 0, seq = 0;
@@ -317,12 +321,14 @@ function onMsg(m: ServerMsg): void {
     case Msg.You: {
       meId = m.id; meTransit = m.transit; meTo = m.map;
       meArrive = m.arrive ?? 0;
+      rideHorse = m.transit ? m.horse ?? null : null;
+      if (rideHorse) rideTotal = Math.max(1, meArrive - (gameSec + ((performance.now() - tickAt) / 1000) * clockScale * simSpeed));
       predOk = false;
       if (!m.transit && m.map !== map) setMap(m.map);
       // The camera goes to my character (it may be far from where I was watching), so its frames come in.
       if (how === 'play' && m.x !== undefined && m.y !== undefined) { camX = m.x; camY = m.y; snapCam = true; follow = -1; sendView(); }
       if (how === 'play' && !askedMine) { askedMine = true; send({ t: Msg.Do, a: 'mine' }); } // first time: choose how I look
-      if (m.transit) note(tf('travelling', mapName(m.map)), 0);
+      if (m.transit) note(rideHorse ? tf('hRideTo', rideHorse.name, mapName(m.map)) : tf('travelling', mapName(m.map)), 0);
       else noteEl.hidden = true;
       break;
     }
@@ -1266,6 +1272,10 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     const HC: Record<string, Key> = { mounted: 'hMounted', dismounted: 'hDismounted', called: 'hCalled', noHorse: 'hNoHorse', notMine: 'hNotMine', taken: 'hTaken', tooYoung: 'hYoung', notWild: 'hNotMine' };
     if (d.code === 'tamed') { note(tf('hTamed', d.name ?? ''), 6000); sound.play('ui_ok'); return; }
     if (d.code === 'tameFail' || d.code === 'kicked') { note(tf(d.code === 'kicked' ? 'hKicked' : 'hFail', d.name ?? '', String(hd.trust ?? 0)), 3500); if (d.code === 'kicked') sound.play('hurt'); return; }
+    const hx = d as typeof d & { dist?: number; map?: string };
+    if (d.code === 'walkOver') { note(tf('hWalkOver', d.name ?? '', String(hx.dist ?? '')), 3500); return; }
+    if (d.code === 'otherMap') { note(tf('hOtherMap', d.name ?? '', mapName(hx.map ?? '')), 3500); return; }
+    if (d.code === 'came') { note(tf('hCame', d.name ?? ''), 3500); sound.play('ui_ok'); return; }
     if (d.a === 'horse' && HC[d.code]) { note(tf(HC[d.code]!, d.name ?? ''), d.code === 'mounted' ? 4500 : 2500); return; }
   }
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code) + arrows, 1800); return; }
@@ -1699,6 +1709,13 @@ function draw(now: number, dt: number): void {
   buildOne();
   sound.lx = focusX(); sound.ly = focusY(); sound.yaw = yaw; sound.topView = g3.view === 'top';
   sound.tick(dt); ambience(now);
+  if (how === 'play' && meTransit && rideHorse && g3.horses.ready) { // riding through a gate: the ride itself (gfx/ride.ts)
+    ride ??= new RideScene(g3.horses);
+    const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed, cv = g3.renderer.domElement;
+    ride.draw(g3.renderer, dt, Math.max(0, Math.min(1, 1 - (meArrive - gs) / rideTotal)), myLook ?? ME, myGear & ~(7 << 15), rideHorse, cv.width / Math.max(1, cv.height));
+    bubbles.hide();
+    return;
+  }
   if (bindsNews && playing() && predOk) {
     bindsNews = false;
     const parts = (['use', 'talk', 'attack', 'aim', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
@@ -1768,6 +1785,7 @@ function draw(now: number, dt: number): void {
     const mine = i === me || eid[i] === meId;
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     const seat = riding[i] ? riderSeat(x, y) : 0;
+    if (i === me) { myLook = look; myGear = gearOf[i]!; }
     P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (kind[i] === Kind.Npc) P.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
@@ -1830,7 +1848,7 @@ function updateHud(now: number): void {
   if (txt !== hudText) { hudText = txt; hudTop.textContent = txt; }
   if (meTransit && how === 'play') {
     const left = Math.max(0, Math.ceil((meArrive - gs) / Math.max(0.01, clockScale * simSpeed)));
-    noteEl.textContent = `${tf('travelling', mapName(meTo))} ${left} s`;
+    noteEl.textContent = `${rideHorse ? tf('hRideTo', rideHorse.name, mapName(meTo)) : tf('travelling', mapName(meTo))} ${left} s`;
     noteEl.hidden = false;
   }
 }
@@ -1980,7 +1998,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); } };
     MyPC.ready();
   },
   onStart() {

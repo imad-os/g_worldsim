@@ -258,7 +258,9 @@ export interface ServerStats {
 }
 
 /** x, y: where the character is now (the viewer's camera goes there). */
-export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number; x?: number; y?: number }
+export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number; x?: number; y?: number;
+  /** Riding through a gate: my horse's look (the TV shows the ride). */
+  horse?: { name: string; q: number; coat: number; scale: number } }
 
 export interface PairCode { t: typeof Msg.PairCode; code: string; exp: number }
 export interface Paired { t: typeof Msg.Paired; token: string; name: string }

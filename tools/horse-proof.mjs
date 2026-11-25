@@ -14,7 +14,7 @@ ws.send(encode({ t: 'hi', v: 1, token: admin, name: 'proof' }));
 const answers = new Map();
 ws.on('message', (d) => { const m = decode(d); if (m.t === 'admr') answers.set(m.id, m); });
 let aid = 100;
-const adm = async (c) => { const id = ++aid; ws.send(encode({ t: 'adm', id, c })); for (let k = 0; k < 80 && !answers.has(id); k++) await new Promise((r) => setTimeout(r, 100)); const a = answers.get(id); if (a && a.ok === false) console.log('admin error', c.cmd, a.error); return a?.data; };
+const adm = async (c) => { const id = ++aid; ws.send(encode({ t: 'adm', id, c })); for (let k = 0; k < 80 && !answers.has(id); k++) await new Promise((r) => setTimeout(r, 100)); const a = answers.get(id); if (a && a.ok === false) console.log('admin error', c.cmd, JSON.stringify(a).slice(0, 300)); return a?.data; };
 await adm({ cmd: 'aiSet', provider: 'none' });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
@@ -43,7 +43,7 @@ if (await menu()) await key('Escape');
 const me = (await page.evaluate(() => window.__dev.dbg())).meId;
 console.log('me', me);
 // To the woods, a common herd there plus a rare and a legendary one next to me (the herds of the world are there too).
-await adm({ cmd: 'agentMove', id: me, map: 'woods', x: 128, y: 128 });
+await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(128), y: Math.round(128) });
 await page.waitForTimeout(3000);
 const at = await page.evaluate(() => window.__dev.me());
 await adm({ cmd: 'horseSpawn', map: 'woods', x: at[0] + 10, y: at[1] - 3, n: 3, q: 2 });
@@ -75,7 +75,7 @@ for (let k = 0; k < 40 && !res.includes('tamed'); k++) {
   const pos = await page.evaluate(() => window.__dev.me());
   list.sort((a, b) => Math.hypot(a.x - pos[0], a.y - pos[1]) - Math.hypot(b.x - pos[0], b.y - pos[1]));
   target = list.find((h) => h.id === target?.id) ?? list[0];
-  await adm({ cmd: 'agentMove', id: me, map: 'woods', x: target.x - 1.4, y: target.y });
+  await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(target.x - 1.4), y: Math.round(target.y) });
   await page.waitForTimeout(700);
   await page.evaluate(() => window.__dev.act('horse'));
   await page.waitForTimeout(900);
@@ -85,7 +85,7 @@ for (let k = 0; k < 40 && !res.includes('tamed'); k++) {
 }
 const mine = (await adm({ cmd: 'horses', map: 'woods' })).list.find((h) => h.owner);
 console.log('my horse', JSON.stringify(mine));
-await adm({ cmd: 'agentMove', id: me, map: 'woods', x: mine.x - 1.2, y: mine.y });
+await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(mine.x - 1.2), y: Math.round(mine.y) });
 await page.waitForTimeout(1200);
 await page.evaluate(() => window.__dev.act('horse'));
 await page.waitForTimeout(1200);
@@ -109,4 +109,73 @@ await page.evaluate(() => window.__dev.act('horse'));
 await page.waitForTimeout(1200);
 console.log('off:', await note());
 await page.screenshot({ path: `${out}/7-off.png` });
+// --- Part 2 (imad 2026-11-25): it does not follow me; Horse from far calls it (it runs over); within 10 m = walk over; ride through a gate.
+const hpos = async () => (await adm({ cmd: 'horses', map: 'woods' })).list.find((h) => h.owner);
+let hm = await hpos();
+const away = [[40, 0], [-40, 0], [0, 40], [0, -40]].map(([dx, dy]) => [hm.x + dx, hm.y + dy]).find(([x, y]) => x > 20 && y > 20 && x < 236 && y < 236);
+console.log('away', away, 'horse', hm.x, hm.y);
+await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(away[0]), y: Math.round(away[1]) });
+await page.evaluate(([x, y]) => window.__dev.jump(x, y), [Math.round(away[0]), Math.round(away[1])]);
+await page.waitForTimeout(10000);
+hm = await hpos();
+let mp = await page.evaluate(() => window.__dev.me());
+console.log(`after 10 s apart: horse ${Math.hypot(hm.x - mp[0], hm.y - mp[1]).toFixed(1)} m from me, mode ${hm.mode} (no following)`);
+await page.evaluate(() => window.__dev.cam('top'));
+await page.evaluate(([x, y]) => window.__dev.look(x, y), [(hm.x + mp[0]) / 2, (hm.y + mp[1]) / 2]);
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${out}/8-left-alone.png` });
+await page.evaluate(() => window.__dev.act('horse'));
+await page.waitForTimeout(700);
+console.log('call:', await note());
+let shot = false;
+for (let k = 0; k < 40; k++) {
+  await page.waitForTimeout(1000);
+  hm = await hpos(); mp = await page.evaluate(() => window.__dev.me());
+  const d = Math.hypot(hm.x - mp[0], hm.y - mp[1]);
+  console.log(`  t+${k + 1}s horse at ${hm.x},${hm.y} mode ${hm.mode} ${d.toFixed(1)} m`);
+  if (!shot && d < 26) { shot = true; await page.evaluate(([x, y]) => window.__dev.look(x, y), [(hm.x + mp[0]) / 2, (hm.y + mp[1]) / 2]); await page.waitForTimeout(400); await page.screenshot({ path: `${out}/9-coming.png` }); }
+  if (hm.mode === 'wait' && d < 4) break;
+}
+console.log('came:', await note());
+await page.evaluate(() => window.__dev.cam('third'));
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${out}/10-came.png` });
+// Within 10 m: it does not come.
+await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(hm.x + 7), y: Math.round(hm.y) });
+await page.evaluate(([x, y]) => window.__dev.jump(x, y), [Math.round(hm.x + 7), Math.round(hm.y)]);
+await page.waitForTimeout(1200);
+await page.evaluate(() => window.__dev.act('horse'));
+await page.waitForTimeout(800);
+console.log('7 m away:', await note());
+// On, and through a gate.
+hm = await hpos();
+await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(hm.x - 1.2), y: Math.round(hm.y) });
+await page.evaluate(([x, y]) => window.__dev.jump(x, y), [Math.round(hm.x - 1.2), Math.round(hm.y)]);
+await page.waitForTimeout(1200);
+await page.evaluate(() => window.__dev.act('horse'));
+await page.waitForTimeout(1000);
+console.log('mount:', await note());
+const live = await adm({ cmd: 'live', map: 'woods' });
+const pt = live.portals[0];
+console.log('gate', JSON.stringify(pt));
+console.log('to the gate', JSON.stringify(await adm({ cmd: 'agentMove', id: me, map: 'woods', x: Math.round(pt[1] + 5), y: Math.round(pt[2]) }))?.slice(0, 120));
+await page.evaluate(([x, y]) => window.__dev.jump(x, y), [Math.round(pt[1] + 5), Math.round(pt[2])]);
+await page.waitForTimeout(1500);
+console.log('dbg', JSON.stringify(await page.evaluate(() => window.__dev.dbg())));
+await page.evaluate(() => window.__dev.cam('top'));
+await page.waitForTimeout(1500);
+await page.evaluate(() => window.__axis(-1, 0));
+const t0 = Date.now();
+for (let k = 0; k < 12 && !(await page.evaluate(() => window.__dev.dbg().meTransit)); k++) { await page.waitForTimeout(500); console.log('  pushing', JSON.stringify(await page.evaluate(() => window.__dev.me()))); }
+await page.waitForFunction(() => window.__dev.dbg().meTransit, null, { timeout: 15000 });
+await page.evaluate(() => window.__axis(0, 0));
+await page.waitForTimeout(2000);
+console.log('on the road:', await note());
+await page.screenshot({ path: `${out}/11-ride-gate-a.png` });
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${out}/12-ride-gate-b.png` });
+await page.waitForFunction(() => !window.__dev.dbg().meTransit, null, { timeout: 30000 });
+console.log(`arrived after ${((Date.now() - t0) / 1000).toFixed(1)} s on`, (await page.evaluate(() => window.__dev.me()))[2], '| card:', await card());
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${out}/13-arrived.png` });
 ws.close(); await browser.close();

@@ -5,6 +5,7 @@ import { scenario } from './helpers.js';
 import { World } from '../sim/world.js';
 import { HORSE, QUALITY } from '../sim/horses.js';
 import { serialize, restore } from '../persist/snapshot.js';
+import { NO_MAP } from '../sim/entities.js';
 
 const mk = (seed: string) => new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed });
 const woods = (w: World) => w.mapIndex.get('woods') ?? w.maps.findIndex((m) => m.def.gen.type === 'wilds');
@@ -165,4 +166,56 @@ test('horses: a player tames and rides with one button; an agent tames by task a
   for (let k = 0; k < 20 * 60 && !off; k++) { w.step(); const on = w.horses.riding[ag] === 1; rode ||= on; off = rode && !on; }
   assert.ok(rode, 'got on the horse for the long way');
   assert.ok(off && Math.hypot(e.x[ag]! - far!.x, e.y[ag]! - far!.y) < 3, 'got off there to work');
+});
+
+test('horses: a tamed horse lives on its own, comes when called from far (a real run, not from 10 m), and carries its rider through a gate in 5-15 s', () => {
+  const w = mk('horse-call');
+  w.populate();
+  run(w, 2);
+  const m = woods(w), e = w.e;
+  const [hid, h] = [...w.horses.h].find(([id]) => e.map[e.slot(id)] === m)!;
+  const a = e.slot(hid);
+  const pl = w.spawnPlayer(m, e.x[a]! + 1.5, e.y[a]!);
+  w.playerProfile(pl, 'rider');
+  let r: Record<string, unknown> = {};
+  for (let k = 0; k < 60 && r.code !== 'tamed'; k++) { // tame it (any way that works: trust grows with every try)
+    e.x[a] = e.x[pl]! + 1.2; e.y[a] = e.y[pl]!; w.bodies[a]?.setPosition({ x: e.x[a]!, y: e.y[a]! });
+    r = w.horses.playerAct(pl); run(w, 60);
+  }
+  assert.equal(r.code, 'tamed');
+  // I walk off 40 m: it does not follow me, it stays round where it was.
+  const hx = e.x[a]!, hy = e.y[a]!;
+  const far = [[40, 0], [-40, 0], [0, 40], [0, -40]].map(([dx, dy]) => w.freeSpot(m, hx + dx!, hy + dy!, 40)).find((s) => s && Math.hypot(s.x - hx, s.y - hy) > 30)!;
+  w.place(pl, m, far.x, far.y);
+  run(w, 20 * 40);
+  assert.ok(dist(w, a, pl) > 22, `it stayed (${dist(w, a, pl).toFixed(1)} m from me)`);
+  assert.ok(Math.hypot(e.x[a]! - hx, e.y[a]! - hy) < 32, 'round its home');
+  // Called: it runs over by itself (its own legs: it is never more than a few metres further on than a step before).
+  const came: unknown[] = [];
+  w.listeners.push((x) => { if (x.kind === 'horseCame') came.push(x.data); });
+  assert.equal(w.horses.playerAct(pl).code, 'called');
+  let jump = 0, px = e.x[a]!, py = e.y[a]!;
+  for (let k = 0; k < 20 * 60 && !came.length; k++) { w.step(); jump = Math.max(jump, Math.hypot(e.x[a]! - px, e.y[a]! - py)); px = e.x[a]!; py = e.y[a]!; }
+  assert.equal(came.length, 1, `it came (${dist(w, a, pl).toFixed(1)} m)`);
+  assert.ok(dist(w, a, pl) < 3.6 && jump < 1, `next to me, no teleport (largest step ${jump.toFixed(2)} m)`);
+  // Within 10 m it does not come: walk over to it.
+  const near = [[7, 0], [-7, 0], [0, 7], [0, -7]].map(([dx, dy]) => w.freeSpot(m, e.x[a]! + dx!, e.y[a]! + dy!, 20)).find((s) => s && Math.hypot(s.x - e.x[a]!, s.y - e.y[a]!) > 4);
+  if (near) w.place(pl, m, near.x, near.y);
+  assert.ok(near && dist(w, a, pl) > 3.5 && dist(w, a, pl) <= 10, 'a few metres off');
+  assert.equal(w.horses.playerAct(pl).code, 'walkOver');
+  // Ride through a gate: the horse goes along, 5-15 real seconds.
+  w.place(pl, m, e.x[a]! + 1.2, e.y[a]!);
+  assert.equal(w.horses.playerAct(pl).code, 'mounted');
+  const pi = w.portals.findIndex((p) => p.from === m), p = w.portals[pi]!;
+  w.place(pl, m, p.x, p.y); e.stuck[pl] = 0;
+  w.step();
+  assert.equal(e.map[pl], NO_MAP, 'on the road');
+  const secs = (e.arrive[pl]! - w.gameSec) / w.opt.clockScale;
+  assert.ok(secs >= 4.9 && secs <= 15.1, `ride ${secs.toFixed(1)} s`);
+  assert.ok(Math.abs(secs - w.horses.gateSecs(pi)) < 0.2, 'that gate\'s own time');
+  run(w, Math.ceil(16 * 20));
+  assert.equal(e.map[pl], p.dest, 'arrived');
+  assert.equal(e.map[a], p.dest, 'the horse came too');
+  assert.equal(w.horses.riding[pl], 1, 'still on its back');
+  assert.ok(h.owner === e.id(pl));
 });

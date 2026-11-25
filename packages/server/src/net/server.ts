@@ -396,7 +396,7 @@ export class NetServer {
     const m = e.map[i]!, transit = m === NO_MAP;
     const mi = transit ? e.toMap[i]! : m;
     s.lastMap = m;
-    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined, x: transit ? e.ax[i] : e.x[i], y: transit ? e.ay[i] : e.y[i] });
+    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined, horse: transit ? this.world.horses.rideLook(i) : undefined, x: transit ? e.ax[i] : e.x[i], y: transit ? e.ay[i] : e.y[i] });
     if (!transit) s.view = { map: m, x: e.x[i]!, y: e.y[i]!, r: s.view?.r ?? 40 };
   }
 

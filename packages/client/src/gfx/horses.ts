@@ -105,6 +105,11 @@ export class Horses3D {
     this.ready = true;
   }
 
+  /** Use another (loaded) set's model, coats and moves: the ride between maps draws in its own scene. */
+  share(o: Horses3D): void {
+    this.geos = o.geos; this.template = o.template; this.clips = o.clips; this.unit = o.unit; this.yaw = o.yaw; this.ready = o.ready;
+  }
+
   begin(): void { this.frame++; }
 
   /**
