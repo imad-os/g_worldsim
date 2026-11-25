@@ -265,20 +265,25 @@ export class App {
         if (e.kind[t] === Kind.Threat) return { ok: true, code: w.zombies.hit(t, dmg, player) ? 'zKilled' : 'zHit', left: inv.arrows ?? 0 };
         return { ...this.hitAnimal(player, t, dmg), left: inv.arrows ?? 0 };
       }
-      if (a === 'build') { // "what" or "what@angle": a hut, or a thing put down in front (made from the bag first when needed)
-        const what = String(text ?? '').split('@')[0]!.trim(), an0 = ang(String(text ?? '').includes('@') ? text : '');
+      if (a === 'build') {
+        // "what#tx,ty,dir" = exactly there (aimed with the TV's ghost, imad 2026-11-25); older TVs: "what" or "what@angle" = in front.
+        const raw = String(text ?? ''), what = raw.split(/[@#]/)[0]!.trim();
+        const at = /#(\d+),(\d+)(?:,(\d))?$/.exec(raw);
+        const an0 = ang(raw.includes('@') ? raw : '');
         if (Number.isFinite(an0)) e.angle[player] = an0;
-        if (what === 'hut') { const c = sv.playerHut(player); return { ok: c === 'built', code: c, item: what }; }
+        const put = (): string => at ? sv.placeAt(player, what, Number(at[1]), Number(at[2]), Number(at[3] ?? 0)) : what === 'hut' ? sv.playerHut(player) : sv.placeFront(player, what);
+        if (what === 'hut') { const c = put(); return { ok: c === 'built', code: c, item: what }; }
         if ((sv.inv(player)[what] ?? 0) < 1) {
           const r = RECIPES_ALL.find((q) => q.what === what && (PLACEABLE as readonly string[]).includes(q.what));
           if (!r) return { ok: false, code: 'nothing', item: what };
+          if (at) { const c0 = sv.canPlace(player, what, Number(at[1]), Number(at[2])); if (c0) return { ok: false, code: c0, item: what }; } // not made for nothing
           const c = sv.craftPut(player, r.cat, r.need);
           if (!c.ok) return { ok: false, code: c.code === 'noMat' ? 'buildNeed' : c.code, item: what, need: r.need };
-          const pc = sv.placeFront(player, what);
+          const pc = put();
           if (pc !== 'placed') return { ok: false, code: pc, item: what, kept: true }; // made, kept in the bag
           return { ok: true, code: 'placed', item: what };
         }
-        const pc = sv.placeFront(player, what);
+        const pc = put();
         return { ok: pc === 'placed', code: pc, item: what };
       }
       if (a === 'use' || a === 'take') {
@@ -295,7 +300,7 @@ export class App {
         const now = Date.now();
         if ((this.workAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
         const wk = sv.playerWork(player);
-        if (wk) { this.workAt.set(name, now + 900); return { ok: !!wk.got, code: wk.code, got: wk.got }; }
+        if (wk) { this.workAt.set(name, now + (wk.hard ? 1600 : 900)); return { ok: !!wk.got, code: wk.code, got: wk.got }; }
         return r0;
       }
       return w.brain.playerDo(player, a);
@@ -315,7 +320,7 @@ export class App {
         if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'did', { a: 'talk', ok: true, code: ev.kind === 'divorce' ? 'divorced' : 'married', name: w.profiles.get(Number(y))?.name ?? '' });
       }
     });
-    w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', {}); } });
+    w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', ev.data.why ? { why: ev.data.why } : {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     this.net.avatarStore = {
       get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },

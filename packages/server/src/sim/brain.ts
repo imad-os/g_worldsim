@@ -347,8 +347,13 @@ export class Brain {
     let ok = false;
     // Indoors first when a door stands (zombies are put back at a door): the nearest roof within 60 m.
     if (w.survival.doorsUp(m) > 0) {
-      const sp = this.shelterSpots[m]!; let bk = -1, bd = 60;
-      for (let n = 0; n < sp.length; n++) { const k = sp[n]!; const d = Math.hypot((k % W) + 0.5 - e.x[i]!, ((k / W) | 0) + 0.5 - e.y[i]!); if (d < bd) { bd = d; bk = k; } }
+      const sp = this.shelterSpots[m]!, homes = w.survival.homes, h = homes.homeOf(e.id(i)); let bk = -1, bs = 60, bd = 60;
+      for (let n = 0; n < sp.length; n++) {
+        const k = sp[n]!;
+        if (!homes.mayEnter(i, m, k)) continue; // only a roof whose door opens for me
+        const d = Math.hypot((k % W) + 0.5 - e.x[i]!, ((k / W) | 0) + 0.5 - e.y[i]!), sc = d - (h && homes.at(m, k) === h ? 8 : 0); // my own home first
+        if (d < 60 && sc < bs) { bs = sc; bd = d; bk = k; }
+      }
       if (bk >= 0) { if (bd < 1.2) { this.stop(i); this.schedule(i, 0, 10); return true; } ok = this.goTo(i, (bk % W) + 0.5, ((bk / W) | 0) + 0.5, true); }
     }
     if (!ok && f >= 0) {
@@ -621,13 +626,20 @@ export class Brain {
       case Act.Sleep: {
         // Home first: the camp's huts, else by its fire (when the camp is within 120 m). Else a roof (shelter tile)
         // within 30 m; else where you are.
-        const W = w.maps[m]!.tiles.w, camp = w.survival.campOf(m);
+        const W = w.maps[m]!.tiles.w, camp = w.survival.campOf(m), homes = w.survival.homes;
+        const mine = (k: number) => homes.mayEnter(i, m, k); // never in someone else's home (its door is shut to me)
         let t = -1;
-        if (camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
-          t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3);
+        // My own home (or my family's) first: people know where they live (imad 2026-11-25).
+        const h = homes.homeOf(e.id(i));
+        if (h && h.m === m) {
+          const c = homes.middle(h);
+          if (Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!) < 150) t = this.nearestSpot(this.shelterSpots[m]!, W, c.x, c.y, 2.5, rng.next() * 2);
+        }
+        if (t < 0 && camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
+          t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3, mine);
           if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
         }
-        if (t < 0) t = this.nearestSpot(this.shelterSpots[m]!, W, e.x[i]!, e.y[i]!, 30, rng.next() * 6);
+        if (t < 0) t = this.nearestSpot(this.shelterSpots[m]!, W, e.x[i]!, e.y[i]!, 30, rng.next() * 6, mine);
         { // a small child sleeps next to the parent looking after them
           const g = this.guardian(i);
           if (g >= 0) { const s = w.freeSpot(m, e.x[g]! + rng.range(-1.5, 1.5), e.y[g]! + rng.range(-1.5, 1.5), 4); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
@@ -781,10 +793,12 @@ export class Brain {
   }
 
   /** Nearest tile of a list (within maxD), with an optional random extra distance to spread people out. */
-  private nearestSpot(list: Int32Array, mw: number, x: number, y: number, maxD = Infinity, spread = 0): number {
+  private nearestSpot(list: Int32Array, mw: number, x: number, y: number, maxD = Infinity, spread = 0, ok?: (t: number) => boolean): number {
     let best = -1, bd = maxD * maxD;
     for (let k = 0; k < list.length; k++) {
-      const t = list[k]!, dx = (t % mw) + 0.5 - x, dy = ((t / mw) | 0) + 0.5 - y;
+      const t = list[k]!;
+      if (ok && !ok(t)) continue;
+      const dx = (t % mw) + 0.5 - x, dy = ((t / mw) | 0) + 0.5 - y;
       const d = dx * dx + dy * dy + (spread ? ((t * 2654435761) >>> 24) / 255 * spread * spread : 0);
       if (d < bd) { bd = d; best = t; }
     }

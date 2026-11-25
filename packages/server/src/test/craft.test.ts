@@ -152,7 +152,8 @@ test('a leader hands out the work: doors on the huts and a wall round the camp w
   const leaders: string[] = [];
   w.listeners.push((ev) => { if (ev.kind === 'leader') leaders.push(String(ev.data.name)); });
   // About 8 game hours by day.
-  for (let k = 0; k < 20 * 3600 * 8 / 30 && (w.survival.countTiles(town, w.survival.T.door) === 0 || w.survival.campDefence(town)[0] < 3); k++) {
+  assert.equal(w.survival.countTiles(town, w.survival.T.door), 1, 'a hut comes with its own door');
+  for (let k = 0; k < 20 * 3600 * 8 / 30 && (leaders.length === 0 || w.survival.campDefence(town)[0] < 3); k++) {
     for (const i of people) { e.hunger[i] = 0; e.thirst[i] = 0; e.tired[i] = 0; }
     w.step();
   }

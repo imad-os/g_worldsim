@@ -350,7 +350,7 @@ test('survival: a command "build a hut" gathers wood and stone, builds a real hu
   let walls = 0, floor = 0;
   for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 5; x++) { const id = tm.get(x, y); if (id === T.woodwall) walls++; if (id === T.floor) floor++; }
   assert.ok(walls >= 14 && floor >= 9, `walls ${walls} floor ${floor}`);
-  assert.equal(tm.get(x0 + 2, y0 + 4), T.floor, 'the door is open');
+  assert.equal(tm.get(x0 + 2, y0 + 4), T.door, 'the hut has its own door');
   assert.ok(s.campOf(e.map[a]!), 'the hut made a camp');
   // A campfire, from nothing: wood and stone first.
   w.profileOf(a)!.inv = {};
@@ -567,10 +567,10 @@ test('players as people: profile, partner + child with a person, own bag on auto
   assert.equal(c, true, `expecting (${c})`);
   assert.ok(her.pregnant);
   // The bag is the player's (by name) whoever drives.
-  w.survival.add(pl, 'wood', 12); w.survival.add(pl, 'stone', 4);
+  w.survival.add(pl, 'wood', 14); w.survival.add(pl, 'stone', 4);
   p.auto = true; w.toAgent(pl);
   assert.equal(e.kind[pl], Kind.Agent);
-  assert.equal(w.survival.inv(pl).wood, 12, 'same bag on autopilot');
+  assert.equal(w.survival.inv(pl).wood, 14, 'same bag on autopilot');
   e.hunger[pl] = 100; e.thirst[pl] = 100; e.hp[pl] = 1;
   for (let k = 0; k < 600; k++) w.step();
   assert.ok(e.alive(pl) && e.hp[pl]! >= 1, 'a player character is never killed');

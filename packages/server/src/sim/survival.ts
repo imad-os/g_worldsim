@@ -1,8 +1,9 @@
-import { Act, Kind, RECIPES_ALL, RESOURCES, PLACEABLE, WEAPONS, DEFENCE, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, WEAPONS, DEFENCE, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
 import { flood, hutAt, walkableNear } from './structures.js';
+import { Homes } from './homes.js';
 
 /**
  * Milestone 8, part 2: living off the land. People carry materials (wood, stone, scrap) and tools (axe, spear) in
@@ -18,26 +19,32 @@ export type Res = (typeof RES)[number];
 export type Inv = Partial<Record<string, number>>;
 export const CAP = 20;
 /** Things made from a recipe (crafting, shared with the viewer: @worldsim/protocol craft.ts) plus the hut. */
-export const RECIPES: Record<string, Inv> = { hut: { wood: 12, stone: 4 } };
+export const RECIPES: Record<string, Inv> = { hut: { ...HUT_NEED } };
 for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
 /** Kept in the inventory (not put down): weapons, arrows and clothes. */
 const KEEP = new Set(['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet']);
 /** Game seconds of work. */
-const WORK = { chop: 120, dig: 100, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
+const WORK = { chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
 /** What a storage crate keeps. */
 export type StashKey = 'food' | Res;
 export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number; [k: string]: number }
 const HOUR = 3600;
+/** A rock (90 hp) takes 6 blows; each gives stone 60 % of the time and ore 10 %. */
+const ROCK_HIT = 15, ORE_CHANCE = 0.1;
+/** Rocks a map keeps at most (regrowth stops there): rare. */
+const ROCKS_WILD = 60, ROCKS_TOWN = 12;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
 
 type JobKind = keyof typeof WORK;
 interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; dir?: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number }
 const LAMP_R = 3.5, BED_R = 1.3;
+/** How far a player can aim a build (metres). */
+export const PLACE_REACH = 8;
 /** Door directions (outwards): south, east, north, west. */
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
 
 /** Job kinds under the names the owner's rules use (sim/rules.ts). */
-const JOB_RULE: Record<string, string> = { chop: 'gather', dig: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
+const JOB_RULE: Record<string, string> = { chop: 'gather', dig: 'gather', mine: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
 
 export class Survival {
   private readonly jobs = new Map<number, Job>();
@@ -74,6 +81,10 @@ export class Survival {
   private nextQuarter = 0;
   /** A job ended: ok, or why not (for tasks). */
   readonly ended = new Map<number, true | string>();
+  /** Who owns each hut; its door opens only for them and their family (sim/homes.ts). */
+  readonly homes: Homes;
+  /** Each map's steady level of trees and rocks (counted once): regrowth brings them back to it. */
+  readonly resTarget: ({ tree: number; rock: number } | null)[];
 
   constructor(private w: World) {
     const id = (n: string) => w.sc.tiles.find((t) => t.name === n)?.id ?? -1;
@@ -85,11 +96,13 @@ export class Survival {
     this.walls = w.maps.map(() => null);
     this.camp = w.maps.map(() => null);
     this.stash = w.maps.map(() => null);
+    this.homes = new Homes(w);
+    this.resTarget = w.maps.map(() => null);
   }
 
   /** What snapshots keep (fires, camps, crates, fields, huts). */
   save(): unknown {
-    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv] };
+    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget };
   }
   load(d: unknown): void {
     const v = d as { pinv?: [string, Inv][]; fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
@@ -106,6 +119,9 @@ export class Survival {
     vv.walls?.forEach((c, m) => { if (m < this.walls.length) this.walls[m] = c; });
     this.pinv.clear(); for (const [k, x] of v.pinv ?? []) this.pinv.set(k, x);
     this.w.colony.load((v as { colony?: unknown }).colony);
+    this.homes.load((v as { homes?: unknown }).homes);
+    const rt = (v as { res?: ({ tree: number; rock: number } | null)[] }).res;
+    rt?.forEach((r, m) => { if (m < this.resTarget.length) this.resTarget[m] = r; });
   }
   campOf(m: number): { x: number; y: number } | null { return this.camp[m] ?? null; }
   /** The circle the camp's wall follows (centre, radius in tiles), or null with no camp. */
@@ -186,6 +202,7 @@ export class Survival {
       this.huts[mi] = Array.from({ length: Math.round(walls / 15) }, () => -1);
       this.hutDir[mi] = this.huts[mi]!.map(() => 0);
     });
+    this.homes.sync();
     this.lastTick = w.tick;
   }
 
@@ -256,19 +273,12 @@ export class Survival {
 
   /** A player puts a thing down on the tile in front (a door or a window may go into a wall). */
   placeFront(i: number, what: string): string {
-    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
-    const tile = this.placeTile.get(what);
-    if (tile === undefined) return 'nothing';
+    const e = this.w.e, a = e.angle[i]!;
+    if (!this.placeTile.has(what)) return 'nothing';
     if ((this.inv(i)[what] ?? 0) < 1) return 'noItem';
-    const a = e.angle[i]!;
     const tx = Math.floor(e.x[i]! + Math.cos(a) * 1.1), ty = Math.floor(e.y[i]! + Math.sin(a) * 1.1);
-    if (!tm.inside(tx, ty) || w.land.inRing(m, tx, ty)) return 'noRoom';
-    const t = tm.get(tx, ty), wallish = t === this.T.woodwall || t === this.placeTile.get('palisade') || t === this.placeTile.get('stonewall') || t === this.T.floor;
-    const ok = this.buildable.has(t) || t === this.T.floor || t === 3 /* road */ || ((what === 'door' || what === 'window') && wallish);
-    if (!ok || (tm.solid[tile] || what === 'door' ? this.occupied(m, tx, ty) : false)) return 'noRoom';
-    for (const p of w.portals) if (p.from === m && Math.hypot(p.x - tx, p.y - ty) < 4) return 'noRoom';
-    this.putDown(i, m, tx, ty, what);
-    return 'placed';
+    const c = this.placeAt(i, what, tx, ty);
+    return c === 'someone' || c === 'tooFar' ? 'noRoom' : c;
   }
   private putDown(i: number, m: number, tx: number, ty: number, what: string): void {
     const w = this.w, tm = w.maps[m]!.tiles, tile = this.placeTile.get(what)!;
@@ -281,7 +291,7 @@ export class Survival {
   }
 
   /** A player's "use" by a tree, a rock or rubble: one piece of it now. Code, or '' (none in front). */
-  playerWork(i: number): { code: string; got?: Record<string, number> } | null {
+  playerWork(i: number): { code: string; got?: Record<string, number>; hard?: boolean } | null {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
     let best = -1, bd = 1.6;
     for (let yy = Math.floor(e.y[i]!) - 2; yy <= Math.floor(e.y[i]!) + 2; yy++) for (let xx = Math.floor(e.x[i]!) - 2; xx <= Math.floor(e.x[i]!) + 2; xx++) {
@@ -295,13 +305,13 @@ export class Survival {
     const tx = best % tm.w, ty = (best / tm.w) | 0, t = tm.tiles[best]!;
     if (t === this.T.tree && w.land.inRing(m, tx, ty)) return { code: 'tooThick' };
     const got = this.take1(i, m, tx, ty, t);
-    return { code: t === this.T.tree ? 'chopped' : 'mined', got };
+    return { code: t === this.T.tree ? 'chopped' : 'mined', got, hard: t === this.T.rock };
   }
   /** One piece from a tree / rock / rubble tile (it wears down): what was got. */
   private take1(i: number, m: number, tx: number, ty: number, t: number): Record<string, number> {
     const w = this.w, tm = w.maps[m]!.tiles, got: Record<string, number> = {};
     if (t === this.T.tree) { tm.damage(tx, ty, 20); got.wood = (this.inv(i).axe ?? 0) > 0 ? 2 : 1; }
-    else if (t === this.T.rock) { tm.damage(tx, ty, 30); got.stone = 1; if (w.rng.chance(0.4)) got.ore = 1; }
+    else if (t === this.T.rock) { tm.damage(tx, ty, ROCK_HIT); if (w.rng.chance(0.6)) got.stone = 1; if (w.rng.chance(ORE_CHANCE)) got.ore = 1; } // hard and poor (imad 2026-11-25: rocks and ore are rare and hard)
     else { tm.damage(tx, ty, 10); if (w.rng.chance(0.5)) got.brick = 1; else got.stone = 1; if (w.rng.chance(0.3)) got.scrap = 1; }
     for (const [k, n] of Object.entries(got)) this.add(i, k, n);
     w.emit('gather', { id: w.e.id(i), what: Object.keys(got).join('+'), n: 1, map: w.maps[m]!.def.id });
@@ -351,7 +361,7 @@ export class Survival {
       if (k >= 0) { const d = Math.hypot((k % W) - e.x[i]!, ((k / W) | 0) - e.y[i]!); if (d < bd) { bd = d; t = k; } }
     }
     if (t < 0) return what === 'wood' ? 'there are no trees near here' : what === 'ore' ? 'there are no rocks near here' : 'there is no rubble near here';
-    return this.begin(i, { kind: what === 'wood' ? 'chop' : 'dig', m: this.w.e.map[i]!, tx: t % W, ty: (t / W) | 0, work: 0 });
+    return this.begin(i, { kind: what === 'wood' ? 'chop' : this.w.maps[this.w.e.map[i]!]!.tiles.tiles[t] === this.T.rock ? 'mine' : 'dig', m: this.w.e.map[i]!, tx: t % W, ty: (t / W) | 0, work: 0 });
   }
 
   /** Go hunting: the nearest animal (of that kind) within 90 m. The brain does the chase (Brain.hunt). */
@@ -404,9 +414,11 @@ export class Survival {
     const floor: number[] = [], walls: number[] = [];
     for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
       const k = (y0 + yy) * W + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
-      if (!edge || k === door) floor.push(k, this.T.floor);
+      if (k === door) continue;
+      if (!edge) floor.push(k, this.T.floor);
       else walls.push(k, this.T.woodwall);
     }
+    walls.push(door, this.T.door >= 0 ? this.T.door : this.T.floor); // its own door last (imad 2026-11-25: huts come with doors)
     // Stand just outside the door.
     return this.begin(i, { kind: 'hut', m, tx: x0 + 2 + ddx * 3, ty: y0 + 2 + ddy * 3, work: 0, tiles: [...floor, ...walls], dir });
   }
@@ -512,18 +524,83 @@ export class Survival {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
     const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * 4, e.y[i]! + Math.sin(a) * 4, 5, 5, 12);
     if (s < 0) return 'noRoom';
-    const x0 = s % tm.w, y0 = (s / tm.w) | 0;
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) if (this.occupied(m, x0 + xx, y0 + yy)) return 'noRoom';
+    return this.hutAt(i, s % tm.w, (s / tm.w) | 0, 0);
+  }
+  /**
+   * Can this player put `what` exactly there (imad 2026-11-25: "aim where to build very precisely")? A thing: tile (tx, ty);
+   * a hut: its 5 x 5 square with the top-left at (tx, ty), the door facing dir (0 south, 1 east, 2 north, 3 west).
+   * '' = yes, else why not (the TV's ghost turns red with it).
+   */
+  canPlace(i: number, what: string, tx: number, ty: number, dir = 0): string {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, x = e.x[i]!, y = e.y[i]!;
+    const near = (px: number, py: number, r: number) => { for (const p of w.portals) if (p.from === m && Math.hypot(p.x - px, p.y - py) < r) return true; return false; };
+    if (what === 'hut') {
+      if (!this.enabled) return 'nothing';
+      // Close enough: the square's nearest tile within 8 m.
+      const cx = Math.max(tx, Math.min(tx + 4, x - 0.5)), cy = Math.max(ty, Math.min(ty + 4, y - 0.5));
+      if (Math.hypot(cx + 0.5 - x, cy + 0.5 - y) > PLACE_REACH) return 'tooFar';
+      const [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (ty + 2 + dy * 2) * tm.w + tx + 2 + dx * 2;
+      for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+        const X = tx + xx, Y = ty + yy;
+        if (!tm.inside(X, Y) || w.land.inRing(m, X, Y)) return 'noRoom';
+        const t = tm.get(X, Y);
+        if (!this.buildable.has(t) && t !== 3 /* road */) return 'noRoom';
+        const edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+        if (edge && Y * tm.w + X !== door && this.occupied(m, X, Y)) return 'someone';
+      }
+      // The ground in front of the door must be open (a way in).
+      const ox = tx + 2 + dx * 3, oy = ty + 2 + dy * 3;
+      if (!tm.inside(ox, oy) || tm.solid[tm.get(ox, oy)]) return 'doorBlocked';
+      if (near(tx + 2.5, ty + 2.5, 6)) return 'noRoom';
+      return '';
+    }
+    const tile = this.placeTile.get(what);
+    if (tile === undefined) return 'nothing';
+    if (!tm.inside(tx, ty) || w.land.inRing(m, tx, ty)) return 'noRoom';
+    if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) > PLACE_REACH) return 'tooFar';
+    const t = tm.get(tx, ty), wallish = t === this.T.woodwall || t === this.placeTile.get('palisade') || t === this.placeTile.get('stonewall') || t === this.T.floor;
+    const ok = this.buildable.has(t) || t === this.T.floor || t === 3 /* road */ || ((what === 'door' || what === 'window') && wallish);
+    if (!ok) return 'noRoom';
+    if ((tm.solid[tile] || what === 'door') && this.occupied(m, tx, ty)) return 'someone';
+    if (near(tx, ty, 4)) return 'noRoom';
+    return '';
+  }
+  /** A player puts `what` exactly where they aimed (made from the bag's materials by the caller first). */
+  placeAt(i: number, what: string, tx: number, ty: number, dir = 0): string {
+    if (what === 'hut') {
+      if (!this.has(i, RECIPES.hut!)) return 'needHut';
+      const c = this.canPlace(i, what, tx, ty, dir);
+      return c || this.hutAt(i, tx, ty, dir);
+    }
+    if ((this.inv(i)[what] ?? 0) < 1) return 'noItem';
+    const c = this.canPlace(i, what, tx, ty, dir);
+    if (c) return c;
+    const e = this.w.e;
+    e.angle[i] = Math.atan2(ty + 0.5 - e.y[i]!, tx + 0.5 - e.x[i]!);
+    this.putDown(i, e.map[i]!, tx, ty, what);
+    return 'placed';
+  }
+  /** Put a player's hut up at once: walls, a floor, its own door (theirs: only their family may go in). */
+  private hutAt(i: number, x0: number, y0: number, dir: number): string {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
+    const [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (y0 + 2 + dy * 2) * tm.w + x0 + 2 + dx * 2;
+    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+      if (edge && k !== door && this.occupied(m, x0 + xx, y0 + yy)) return 'someone';
+    }
     this.use(i, RECIPES.hut!);
     for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
-      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4, door = yy === 4 && xx === 2;
+      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
       if (tm.tiles[k] === this.T.water) continue;
-      tm.set(x0 + xx, y0 + yy, edge && !door ? this.T.woodwall : this.T.floor);
-      if (!edge || door) w.brain.addShelter(m, k);
+      if (k === door) tm.set(x0 + xx, y0 + yy, this.T.door >= 0 ? this.T.door : this.T.floor);
+      else tm.set(x0 + xx, y0 + yy, edge ? this.T.woodwall : this.T.floor);
+      if (!edge) w.brain.addShelter(m, k);
     }
-    this.huts[m]!.push((y0 + 5) * tm.w + x0 + 2);
-    this.hutDir[m]!.push(0);
-    this.setCamp(m, x0 + 2.5, y0 + 6.5);
+    const out = (y0 + 2 + dy * 3) * tm.w + x0 + 2 + dx * 3;
+    this.huts[m]!.push(out);
+    this.hutDir[m]!.push(dir);
+    this.homes.built(m, out, dir, e.id(i));
+    this.setCamp(m, x0 + 2.5 + dx * 4, y0 + 2.5 + dy * 4);
     w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + 2, ty: y0 + 2, player: true });
     return 'built';
   }
@@ -877,7 +954,7 @@ export class Survival {
     if (w.gameSec >= this.nextHour) {
       const first = this.nextHour === 0;
       this.nextHour = w.gameSec + HOUR;
-      if (!first) { this.regrow(); this.ownPlans(); }
+      if (!first) { this.regrow(); this.homes.hourly(); this.ownPlans(); }
       this.nextQuarter = w.gameSec + HOUR / 3;
     } else if (w.ai.goap && w.gameSec >= this.nextQuarter) { this.nextQuarter = w.gameSec + HOUR / 3; this.quarter(); }
   }
@@ -901,7 +978,7 @@ export class Survival {
         return true;
       }
       case 'guard': return w.gameSec >= (j.n ?? 0) ? true : false; // stand at the post until the shift ends (a fight or hunger ends it earlier)
-      case 'dig': {
+      case 'dig': case 'mine': {
         if (tm.tiles[k] !== this.T.rubble && tm.tiles[k] !== this.T.rock) return 'that is gone';
         this.take1(i, j.m, j.tx, j.ty, tm.tiles[k]!);
         void mapId;
@@ -1009,6 +1086,7 @@ export class Survival {
         if (j.tiles!.length) return false;
         this.huts[j.m]!.push(j.ty * tm.w + j.tx);
         this.hutDir[j.m]!.push(j.dir ?? 0);
+        this.homes.built(j.m, j.ty * tm.w + j.tx, j.dir ?? 0, id);
         this.setCamp(j.m, j.tx + 0.5, j.ty + 1.5);
         w.emit('build', { id, what: 'hut', map: mapId, tx: j.tx, ty: j.ty - 3 });
         return true;
@@ -1090,19 +1168,84 @@ export class Survival {
   fuel(m: number, t: number): number { const u = this.fires.get(`${m}:${t}`); return u ? Math.max(0, (u - this.w.gameSec) / HOUR) : 0; }
 
   // ------------------------------------------------------------------ hourly
-  /** Trees grow back where they were cut (a stump left as dirt where the map had a tree). */
+  /**
+   * Natural resources come back to a steady level (imad 2026-11-25: "they need to grow and keep a steady population").
+   * Each map's level is counted once (trees: never fewer than the map was made with; rocks: capped low, they are rare).
+   * Below it, trees grow back on their old stumps and seed next to living trees; now and then a rock surfaces next to
+   * another one or alone in the open, out of people's sight. Never inside the camp's wall line, on roads, by portals or
+   * in front of a door.
+   */
   private regrow(): void {
-    const w = this.w;
-    if (this.T.tree < 0) return;
+    const w = this.w, T = this.T;
+    if (T.tree < 0) return;
     for (let mi = 0; mi < w.maps.length; mi++) {
-      const tm = w.maps[mi]!.tiles;
-      if (!tm.base) continue;
-      for (let k = 0; k < 400; k++) {
-        const t = w.rng.int(tm.tiles.length);
-        if (tm.base[t] !== this.T.tree || tm.tiles[t] !== this.T.dirt) continue;
-        if (w.rng.chance(0.15) && !this.occupied(mi, t % tm.w, (t / tm.w) | 0)) tm.set(t % tm.w, (t / tm.w) | 0, this.T.tree);
+      const mp = w.maps[mi]!, tm = mp.tiles, n = this.countRes(mi);
+      let tg = this.resTarget[mi];
+      if (!tg) {
+        let base = 0;
+        if (tm.base) for (let k = 0; k < tm.base.length; k++) if (tm.base[k] === T.tree && !w.land.inRing(mi, k % tm.w, (k / tm.w) | 0)) base++;
+        tg = this.resTarget[mi] = { tree: Math.max(n.tree, base), rock: Math.min(n.rock, mp.def.gen.type === 'wilds' ? ROCKS_WILD : ROCKS_TOWN) };
+        if (T.rock >= 0 && tg.rock < 4) tg.rock = mp.def.gen.type === 'wilds' ? ROCKS_WILD / 2 : ROCKS_TOWN / 2;
+      }
+      // Trees: about 3 % of what is missing an hour (at least one try).
+      const lackT = tg.tree - n.tree;
+      for (let tries = lackT > 0 ? Math.min(40, 1 + Math.ceil(lackT * 0.03)) : 0, grown = 0; tries > 0 && grown < Math.max(1, Math.ceil(lackT * 0.03)); tries--) {
+        let k = -1;
+        if (tm.base && w.rng.chance(0.5)) { // an old stump
+          for (let s = 0; s < 60 && k < 0; s++) { const t = w.rng.int(tm.tiles.length); if (tm.base[t] === T.tree && tm.tiles[t] === T.dirt) k = t; }
+        } else { // a seed next to a living tree
+          for (let s = 0; s < 200 && k < 0; s++) {
+            const t = w.rng.int(tm.tiles.length), x = t % tm.w, y = (t / tm.w) | 0;
+            if (tm.tiles[t] !== T.tree || w.land.inRing(mi, x, y)) continue;
+            const nx = x + w.rng.int(5) - 2, ny = y + w.rng.int(5) - 2;
+            if (tm.inside(nx, ny) && (tm.get(nx, ny) === T.grass || tm.get(nx, ny) === T.dirt)) k = ny * tm.w + nx;
+          }
+        }
+        if (k >= 0 && this.growOk(mi, k, 0)) { tm.set(k % tm.w, (k / tm.w) | 0, T.tree); grown++; }
+      }
+      // Rocks: slowly (about one every 7 game hours while some are missing).
+      if (T.rock >= 0 && n.rock < tg.rock && w.rng.chance(0.15)) {
+        for (let s = 0; s < 300; s++) {
+          let t = w.rng.int(tm.tiles.length);
+          if (tm.tiles[t] === T.rock && w.rng.chance(0.6)) { // the cluster grows
+            const x = t % tm.w + w.rng.int(3) - 1, y = ((t / tm.w) | 0) + w.rng.int(3) - 1;
+            if (!tm.inside(x, y)) continue;
+            t = y * tm.w + x;
+          }
+          if (tm.tiles[t] !== T.grass && tm.tiles[t] !== T.dirt) continue;
+          if (!this.growOk(mi, t, 25)) continue;
+          tm.set(t % tm.w, (t / tm.w) | 0, T.rock);
+          w.emit('regrow', { map: mp.def.id, what: 'rock', tx: t % tm.w, ty: (t / tm.w) | 0 });
+          break;
+        }
       }
     }
+  }
+  /** Trees (outside the ring nobody can cut) and rocks on map m. */
+  countRes(m: number): { tree: number; rock: number } {
+    const tm = this.w.maps[m]!.tiles, T = this.T;
+    let tree = 0, rock = 0;
+    for (let k = 0; k < tm.tiles.length; k++) {
+      const t = tm.tiles[k];
+      if (t === T.tree) { if (!this.w.land.inRing(m, k % tm.w, (k / tm.w) | 0)) tree++; }
+      else if (t === T.rock) rock++;
+    }
+    return { tree, rock };
+  }
+  /** May something grow on tile k (nobody within `sight` metres, away from the camp, homes, doors, roads and portals)? */
+  private growOk(m: number, k: number, sight: number): boolean {
+    const w = this.w, tm = w.maps[m]!.tiles, x = k % tm.w, y = (k / tm.w) | 0;
+    if (w.land.inRing(m, x, y) || this.homes.at(m, k) || this.occupied(m, x, y)) return false;
+    const p = this.perimeter(m);
+    if (p && Math.hypot(x - p.x, y - p.y) < p.r + 4) return false;
+    for (const q of w.portals) if ((q.from === m && Math.hypot(q.x - x, q.y - y) < 6) || (q.dest === m && Math.hypot(q.toX - x, q.toY - y) < 6)) return false;
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (tm.inside(x + dx, y + dy) && tm.get(x + dx, y + dy) === 3 /* road */) return false;
+    if (this.aprons(m).has(k)) return false;
+    if (sight > 0) {
+      const e = w.e;
+      for (let i = 0; i < e.hi; i++) if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && e.map[i] === m && Math.hypot(e.x[i]! - x, e.y[i]! - y) < sight) return false;
+    }
+    return true;
   }
 
   /**
@@ -1275,7 +1418,7 @@ export class Survival {
         start(i, 'keep the fire going', [{ do: 'tend' }]);
       }
       if (!free.length || hour < 7 || hour >= 18) continue;
-      if (this.huts[mi]!.length < Math.ceil(n / 2) && w.rng.chance(0.6)) { start(best((x) => tr(x).strength), 'build a hut to sleep in', [{ do: 'build', what: 'hut' }]); continue; }
+      if ((this.homes.needed(mi) > 0 || this.huts[mi]!.length < Math.ceil(n / 2)) && w.rng.chance(0.6)) { start(best((x) => tr(x).strength), 'build a hut to sleep in', [{ do: 'build', what: 'hut' }]); continue; }
       if (!free.length) continue;
       // Walls zombies broke are mended; a store of food for bad days; a field near the camp; ruins searched; spears.
       if (camp && this.damaged(mi) >= 0) { start(best((x) => tr(x).strength), 'repair the huts', [{ do: 'repair' }]); if (!free.length) continue; }

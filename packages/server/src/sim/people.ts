@@ -47,6 +47,8 @@ export interface Profile {
   sexAt?: number;
   chose?: boolean;
   auto?: boolean;
+  /** Where their home is (sim/homes.ts): the middle of the hut they or their family own. */
+  home?: { map: string; x: number; y: number };
 }
 
 /** Players' characters stay this age (they never grow old or die of age). */

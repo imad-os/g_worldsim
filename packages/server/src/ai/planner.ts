@@ -374,7 +374,8 @@ export class Planner {
     const w = this.w, id = w.e.id(i), p = w.profileOf(i)!, t = p.traits, k = (x: number) => Math.round(x * 10);
     const wp = w.survival.weapon(i), goal = w.tasks.describe(id);
     return `Stats (0-10): strength ${k(t.strength)}, speed ${k(t.speed)}, courage ${k(t.courage)}, intelligence ${k(t.intelligence)}, kindness ${k(t.empathy)}. Level ${levelOf(p.xp)} (${p.xp ?? 0} xp).`
-      + ` Weapon: ${wp[1] > 0 ? wp[0] : 'bare hands'}. Defence ${Math.round(w.survival.defence(i) * 100)}%.${goal ? ` Working on: ${goal}.` : ''}`;
+      + ` Weapon: ${wp[1] > 0 ? wp[0] : 'bare hands'}. Defence ${Math.round(w.survival.defence(i) * 100)}%.${goal ? ` Working on: ${goal}.` : ''}`
+      + ` ${w.survival.homes.describe(id)}`;
   }
   /** Family: married or single, children, parents, brothers and sisters, a baby on the way (they must know it to talk about it). */
   private familyText(i: number): string {

@@ -255,6 +255,7 @@ export class World {
     for (const [dx, dy] of [[-r, -r], [r, -r], [-r, r], [r, r]] as const) {
       const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
       if (!tm.inside(tx, ty) || tm.cost[tm.get(tx, ty)]! <= 0) return false;
+      if (this.survival.homes.shut(i, m, Math.floor(e.y[i]! + dy) * tm.w + Math.floor(e.x[i]! + dx), ty * tm.w + tx)) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' }); return false; }
     }
     const b = this.bodies[i];
     if (b) { this.pos.x = x; this.pos.y = y; b.setPosition(this.pos); }
@@ -436,6 +437,16 @@ export class World {
         this.pos.x = e.x[i]!; this.pos.y = e.y[i]!; b.setPosition(this.pos); this.vel.x = 0; this.vel.y = 0; b.setLinearVelocity(this.vel);
         e.vx[i] = 0; e.vy[i] = 0;
         continue;
+      }
+      // A hut's door opens only for its owner and their family (sim/homes.ts): anyone else stays outside.
+      if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && this.doorTile >= 0) {
+        const tm = this.maps[e.map[i]!]!.tiles, k = Math.floor(p.y) * tm.w + Math.floor(p.x);
+        if (this.survival.homes.shut(i, e.map[i]!, Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!), k)) {
+          this.pos.x = e.x[i]!; this.pos.y = e.y[i]!; b.setPosition(this.pos); this.vel.x = 0; this.vel.y = 0; b.setLinearVelocity(this.vel);
+          e.vx[i] = 0; e.vy[i] = 0;
+          if (e.kind[i] === Kind.Player && this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' });
+          continue;
+        }
       }
       e.x[i] = p.x; e.y[i] = p.y; e.vx[i] = v.x; e.vy[i] = v.y;
       let fl = e.flags[i]! & ~EFlag.Moving; // Sleeping = asleep (set by the brain), not a resting physics body

@@ -157,7 +157,7 @@ export class Land {
     if (R === undefined) return;
     const open = new Set([T.grass, T.dirt]);
     w.maps.forEach((mp, m) => {
-      const tm = mp.tiles, wild = mp.def.gen.type === 'wilds', n = wild ? 30 : 9;
+      const tm = mp.tiles, wild = mp.def.gen.type === 'wilds', n = wild ? 18 : 5; // rare (imad 2026-11-25)
       let placed = 0;
       for (let tries = 0; placed < n && tries < n * 40; tries++) {
         const cx = RING + 3 + w.rng.int(tm.w - 2 * RING - 6), cy = RING + 3 + w.rng.int(tm.h - 2 * RING - 6);

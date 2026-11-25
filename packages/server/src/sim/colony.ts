@@ -282,8 +282,8 @@ export class Colony {
     // Warmth and light: a fire for the night, kept burning.
     if (fire < 0 && (evening || (threat && (hour >= 19 || hour < 6)))) gs.push({ name: 'fire', text: 'make a campfire for the night', want: [{ '+fire': 1 }], value: 0.95, trait: 'intelligence', crew: 1 });
     else if (fire >= 0 && fuel < 5) gs.push({ name: 'fuel', text: 'keep the fire going', want: [{ fuel: fuel + 4 }], value: 0.85 - fuel * 0.08, trait: 'empathy', crew: 1 });
-    // Shelter: a roof for about every two people.
-    const roofs = sv.huts[m]!.length, needRoofs = Math.ceil(n / 2);
+    // Shelter: a home for every household (sim/homes.ts; a hut's door opens only for its family), at least one hut per two people.
+    const roofs = sv.huts[m]!.length, needRoofs = Math.max(roofs + sv.homes.needed(m), Math.ceil(n / 2));
     if (roofs < needRoofs && day) gs.push({ name: 'hut', text: 'build a hut to sleep in', want: [{ '+hut': 1 }], value: 0.45 + 0.4 * ((needRoofs - roofs) / needRoofs), trait: 'strength', crew: needRoofs - roofs });
     if (camp && sv.damaged(m) >= 0) gs.push({ name: 'repair', text: 'repair the huts', want: [{ '+repaired': 1 }], value: 0.7, trait: 'strength', crew: 1 });
     if (camp && roofs) {
