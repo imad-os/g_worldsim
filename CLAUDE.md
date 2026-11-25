@@ -378,6 +378,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   'confirm:'; bad values = warn, others = error with stack), every `log.warn` / `log.error` (`Logger.onProblem`, source guessed by
   `sourceOf`, `NOT_PROBLEMS` skipped), crashes (main.ts source 'crash'). Admin `errors { limit, source, level, q, since }`, `errorsClear { id? }`;
   Notice `error` to admins. Panel page Errors (`panel/src/errors.ts`, nav badge). Test errors.test.ts.
+  Admin token = no account: `me` answers `{ token: true }` (panel Me page explains), joinWorld / approveMine / revokeMine say so.
 - **Pull + start is enough (imad 2026-11-25)**: `npm start` runs packages/server/dist (not in git). `main.ts` now only calls `fresh.ts ensureFresh()`
   (package files newer than node_modules/.package-lock.json = npm install via npm-cli.js next to node; src newer than dist/.built = tsc -b),
   then imports `run.ts` (the old main). `npm run build` writes dist/.built. `WORLDSIM_NO_AUTOBUILD=1` skips it.

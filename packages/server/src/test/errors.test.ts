@@ -29,6 +29,8 @@ test('error log: failed commands, warnings and crashes are kept across restarts;
     // The running build lists every command, the new ones too.
     for (const c of ['errors', 'errorsClear', 'serverInfo', 'coder', 'brainFallback', 'agentSet', 'me', 'speed']) assert.ok(app.build.cmds.includes(c), c);
 
+    // The admin token is not an account: its "me" says so instead of failing.
+    assert.equal((await app.adminCmd({ cmd: 'me' }, 'admin', true) as { token?: boolean }).token, true);
     // An unknown command says which one and that the server is older than the panel; it is kept as an error.
     const m = await fails(app.adminCmd({ cmd: 'notACommand' } as unknown as AdminCmd, 'imad', true));
     assert.match(m, /^unknown command "notACommand": this server runs/);

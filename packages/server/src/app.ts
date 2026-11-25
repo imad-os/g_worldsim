@@ -1422,11 +1422,14 @@ export class App {
         if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to give orders');
         return { did: this.planner.orderFromPanel(i, String(c.kind ?? ''), String(c.target ?? '')) };
       }
+      // A person's own commands reach here only from the admin token (Firebase sign-ins go to playerCmd): the token is not an account.
+      case 'me': return { token: true, name: '', role: owner ? 'owner' : 'admin', email: '', tv: false, character: null, clock: this.clock() };
+      case 'joinWorld': case 'approveMine': case 'revokeMine': throw new Error('signed in with the admin token, which is not an account: sign in with Google or email to have your own character');
       case 'errors': return { ...this.errors.list({ limit: c.limit !== undefined ? fixed(c.limit, 1, 1000, 'limit') : 200, source: c.source ? String(c.source) : undefined, level: c.level ? String(c.level) : undefined, q: c.q ? String(c.q).slice(0, 100) : undefined, since: c.since !== undefined ? fixed(c.since, 0, 1e15, 'since') : undefined }), build: this.build };
       case 'errorsClear': return { removed: this.errors.clear(c.id !== undefined ? fixed(c.id, 0, 2 ** 31, 'id') : undefined) };
       default: {
         const b = this.build;
-        throw new Error(`unknown command "${String((c as { cmd?: unknown } | undefined)?.cmd)}": this server runs ${b.commit ? 'build ' + b.commit : 'an unknown build'} (started ${new Date(b.started).toISOString().slice(0, 16).replace('T', ' ')} UTC), older than the panel. Update and restart it (Server page > Update)`);
+        throw new Error(`unknown command "${String((c as { cmd?: unknown } | undefined)?.cmd)}": this server runs ${b.commit ? 'build ' + b.commit : 'an unknown build'} (started ${new Date(b.started).toISOString().slice(0, 16).replace('T', ' ')} UTC). If the panel is newer than that, update and restart the server (Server page > Update)`);
       }
     }
   }

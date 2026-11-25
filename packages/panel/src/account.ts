@@ -7,6 +7,8 @@ import { ago, esc, gameTime, icon, meter, toast } from './util.js';
 const err = (e: unknown) => toast(String((e as Error).message ?? e), 'err');
 
 interface Me {
+  /** Signed in with the admin token: no account, no character of one's own. */
+  token?: boolean;
   name: string; role: string; email: string; tv: boolean; clock: { gameSec: number };
   character: { id: number; map: string; x: number; y: number; hp: number; hunger: number; thirst: number; tired: number; asleep: boolean; online: boolean; inv: Record<string, number> } | null;
 }
@@ -36,6 +38,12 @@ export const meScreen: Screen = {
   },
   async refresh() {
     const me = await cmd<Me>({ cmd: 'me' });
+    if (me.token) {
+      setHtml('meAcct', `<p>You are signed in with the <b>admin token</b>, which is the PC's own key, not an account. It has every admin tool but no character of its own.</p>
+        <p class="dim small">To play and link a TV under your name, sign out and sign in with Google or email.</p>`);
+      setHtml('meMain', ''); setHtml('meTv', 'Sign in with an account to link a TV.');
+      return;
+    }
     const role = me.role === 'owner' ? 'Owner' : me.role === 'admin' ? 'Admin' : 'Player';
     setHtml('meAcct', `<div class="kv"><span>Email</span><b>${esc(me.email || '-')}</b><span>Role</span><b><span class="tag ${me.role === 'player' ? '' : 'ok'}">${role}</span></b>
       <span>Character</span><b>${esc(me.name || 'not in the world yet')}</b></div>
