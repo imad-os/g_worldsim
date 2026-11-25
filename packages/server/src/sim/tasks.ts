@@ -48,7 +48,7 @@ export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'):
 export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   const q = q0.toLowerCase();
   const T: [RegExp, string][] = [
-    [/sword|épée|epee|espada|سيف/, 'sword'], [/\baxe|hache|hacha|فأس/, 'axe'], [/bow\b|\barc\b|arco|قوس/, 'bow'], [/arrow|flèche|fleche|flecha|سهم|سهام/, 'arrows'],
+    [/first.?aid|med.?kit|\bkit\b|bandage|trousse|soin|botiqu[íi]n|إسعاف|ضماد/, 'medkit'], [/sword|épée|epee|espada|سيف/, 'sword'], [/\baxe|hache|hacha|فأس/, 'axe'], [/bow\b|\barc\b|arco|قوس/, 'bow'], [/arrow|flèche|fleche|flecha|سهم|سهام/, 'arrows'],
     [/spear|lance|lanza|رمح/, 'spear'], [/armou?r|armure|armadura|درع/, 'armor'], [/helmet|casque|casco|خوذة/, 'helmet'], [/cloth|vêtement|vetement|ropa|ملابس|لباس/, 'clothes'],
     [/palisade|fence|barricade|palissade|cerca|valla|سياج|حاجز/, 'palisade'], [/spike|pieu|estaca|أوتاد|شوك/, 'spikes'], [/stone ?wall|brick ?wall|mur de pierre|muro de piedra|جدار حجر/, 'stonewall'], [/\bwall|\bmur\b|muro|muralla|جدار|سور/, 'palisade'],
     [/door|porte|puerta|باب/, 'door'], [/window|fenêtre|fenetre|ventana|نافذة|شباك/, 'window'], [/\bbed|\blit\b|cama|سرير/, 'bed'], [/lamp|light|lantern|lampe|lanterne|lámpara|lampara|farol|مصباح|فانوس/, 'lamp'],
@@ -411,7 +411,7 @@ export class Tasks {
         return false;
       }
       case 'gather': {
-        const what = /wood|bois|madera|حطب|خشب|tree|log/.test(s.what ?? 'wood') ? 'wood' : /scrap|metal|ferraille|chatarra|خردة/.test(s.what ?? '') ? 'scrap'
+        const what = /herb|herbe|hierba|عشب|أعشاب/.test(s.what ?? '') ? 'herb' : /wood|bois|madera|حطب|خشب|tree|log/.test(s.what ?? 'wood') ? 'wood' : /scrap|metal|ferraille|chatarra|خردة/.test(s.what ?? '') ? 'scrap'
           : /\bore\b|iron|minerai|hierro|خام|حديد/.test(s.what ?? '') ? 'ore' : /brick|brique|ladrillo|طوب/.test(s.what ?? '') ? 'brick'
           : /leather|hide|cuir|cuero|جلد/.test(s.what ?? '') ? 'leather' : /claw|griffe|garra|مخلب/.test(s.what ?? '') ? 'claw'
           : /stone|rock|pierre|piedra|حجر/.test(s.what ?? '') ? 'stone' : /food|berr|eat|manger|comida|طعام|meat|viande|carne|لحم/.test(s.what ?? '') ? (/meat|viande|carne|لحم/.test(s.what ?? '') ? 'meat' : 'food') : 'wood';

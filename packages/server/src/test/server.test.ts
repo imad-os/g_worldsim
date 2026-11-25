@@ -267,11 +267,16 @@ test('players: join puts my character in the world, input moves it, leaving keep
     let ag = -1;
     for (let k = 0; k < e.hi; k++) if (e.kind[k] === 1) { ag = k; break; }
     app.world.place(ag, 0, e.x[i]! + 1.2, e.y[i]!);
-    app.world.brain.stop(ag); e.nextThink[ag] = app.world.tick + 2000; // stand still here
+    app.world.tasks.stop(ag); app.world.brain.stop(ag); e.nextThink[ag] = app.world.tick + 2000; // stand still here, no task of their own
     await new Promise((r) => setTimeout(r, 150)); // the spatial grid catches up on the next tick
     c.send({ t: Msg.View, map: 'town', x: e.x[i]!, y: e.y[i]!, r: 30 });
+    for (const [dx, dy] of [[0, 1.1], [-1.2, 0], [0, -1.1]]) { // a free spot next to me (a wall or a tree may push them off)
+      if (Math.hypot(e.x[ag]! - e.x[i]!, e.y[ag]! - e.y[i]!) < 2) break;
+      app.world.place(ag, 0, e.x[i]! + dx, e.y[i]! + dy);
+      await new Promise((r) => setTimeout(r, 120));
+    }
     c.send({ t: Msg.Input, mx: 0, my: 0, act: true });
-    const said = await c.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'say') as { data: { id: number; name: string; text: string } };
+    const said = await c.wait((m) => m.t === Msg.Notice && (m as { kind: string }).kind === 'say' && (m as { data: { id: number } }).data.id === e.id(ag)) as { data: { id: number; name: string; text: string } }; // (others may be talking too)
     assert.equal(said.data.id, e.id(ag));
     assert.ok(said.data.text.length > 2);
     assert.equal(e.act[ag], 6, 'they talk with me');

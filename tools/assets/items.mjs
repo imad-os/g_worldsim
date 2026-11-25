@@ -33,6 +33,16 @@ export const ITEMS = [
   { id: 'brick', src: DUN + 'wall_half.gltf.glb', rot: [0, 0, 90], size: 1, anchor: 'center', icon: { yaw: 35, pitch: 25 } },
   { id: 'leather', src: 'q/Scroll.fbx', rot: [0, 0, 0], size: 1, anchor: 'center', tint: [0.75, 0.48, 0.28], icon: { yaw: 30, pitch: 30 } },
   { id: 'claw', src: 'q/Dagger_2.fbx', rot: [0, 0, 0], size: 1, anchor: 'center', tint: [1.0, 0.95, 0.8], icon: { yaw: 0, pitch: 0, roll: -45 } },
+  { id: 'herb', parts: [
+    { src: HEX + 'decoration/nature/waterplant_B.gltf', rot: [0, 0, 0], scale: 1, at: [0, 0, 0], tint: [0.7, 1.0, 0.6] },
+    { src: HEX + 'decoration/nature/waterplant_A.gltf', rot: [0, 70, 0], scale: 1, at: [0.12, 0, 0.1], tint: [0.8, 1.0, 0.7] },
+    { src: HEX + 'decoration/nature/waterplant_C.gltf', rot: [0, 150, 0], scale: 1, at: [-0.12, 0, 0.05], tint: [0.75, 1.0, 0.65] },
+  ], rot: [0, 0, 0], size: 1, anchor: 'center', icon: { yaw: 30, pitch: 30 } },
+  // healing
+  { id: 'medkit', parts: [
+    { src: DUN + 'box_small.gltf.glb', rot: [0, 0, 0], scale: 1, at: [0, 0, 0], tint: [1.0, 0.32, 0.3] },
+    { src: DUN + 'bottle_A_labeled_green.gltf.glb', rot: [0, 20, 0], scale: 1.1, at: [0.55, 0, 0.45] },
+  ], rot: [0, 0, 0], size: 1, anchor: 'center', icon: { yaw: 30, pitch: 28 } },
   // put down
   { id: 'palisade', src: HEX + 'buildings/neutral/fence_wood_straight.gltf', rot: [0, 0, 0], size: 1, anchor: 'bottom', icon: { yaw: 30, pitch: 25 } },
   { id: 'spikes', src: 'k/spikes.glb', rot: [0, 0, 0], size: 1, anchor: 'bottom', icon: { yaw: 30, pitch: 30 } },

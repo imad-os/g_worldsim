@@ -33,8 +33,8 @@ console.log('me', me, 'map', map);
 console.log('bag:', JSON.stringify((await adm({ cmd: 'agentSet', id: me, set: { 'bag.bow': 1, 'bag.arrows': 12, 'bag.sword': 1 } }))?.ok));
 await adm({ cmd: 'animals', map, want: [0, 12, 6, 0, 0], fill: true });
 const live = (await adm({ cmd: 'live', map }))?.data;
-const mt = (await adm({ cmd: 'mapTiles', map }))?.data, tree = mt.names.indexOf('tree');
-const open = (x, y) => { for (let dy = -5; dy <= 3; dy++) for (let dx = -8; dx <= 3; dx++) { const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy; if (tx >= 0 && ty >= 0 && tx < mt.w && ty < mt.h && (mt.tiles[ty * mt.w + tx] === tree || mt.solid[mt.tiles[ty * mt.w + tx]])) return false; } return true; };
+const mt = (await adm({ cmd: 'mapTiles', map }))?.data, tree = mt.names.indexOf('tree') + 1; // tile ids start at 1
+const open = (x, y) => { for (let dy = -5; dy <= 3; dy++) for (let dx = -8; dx <= 3; dx++) { const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy; if (tx >= 0 && ty >= 0 && tx < mt.w && ty < mt.h && (mt.tiles[ty * mt.w + tx] === tree || mt.solid[mt.tiles[ty * mt.w + tx] - 1])) return false; } return true; };
 const deer = live.animals.find((a) => a[0] !== 5 && open(a[1], a[2])) ?? live.animals.find((a) => a[0] === 1) ?? live.animals[0]; // on open ground, so nothing hides its fall
 console.log('animal', JSON.stringify(deer));
 const moveTo = async (x, y) => { // the TV's own prediction may win a moment: ask again until it is there

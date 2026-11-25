@@ -19,20 +19,20 @@ import { Wheel, type WheelItem } from './wheel.js';
 import { Sound, SOUND_DEFAULTS, type SoundPrefs } from './audio.js';
 import { loadItems, iconStyle } from './gfx/items.js';
 import { DEATH_SECS } from './gfx/animals.js';
-import { InvScreen, GearScreen, type InvCtx } from './invui.js';
+import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
 const sound = new Sound();
 /** Footsteps by the ground under me. */
-const STEP_OF: Record<string, string> = { grass: 'step_grass', dirt: 'step_dirt', sand: 'step_dirt', farm: 'step_dirt', ashes: 'step_dirt', berries: 'step_grass',
+const STEP_OF: Record<string, string> = { grass: 'step_grass', dirt: 'step_dirt', sand: 'step_dirt', farm: 'step_dirt', ashes: 'step_dirt', berries: 'step_grass', herbs: 'step_grass',
   road: 'step_stone', rubble: 'step_stone', rock: 'step_stone', floor: 'step_wood', bed: 'step_wood', door: 'step_wood', water: 'step_water' };
 let stepName: string[] = [];
 let stepDist = 0, lastHp = -1, ambAt = 0, campfireTile = -1;
 /** Tile names by id (from the welcome): what may be built on. */
 let tileName: string[] = [];
 /** What each answer from the server sounds like. */
-const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', drank: 'drink',
+const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', herbs: 'pickup', healed: 'reward', noMedkit: 'ui_error', fullHp: 'ui_error', drank: 'drink',
   ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
   doorOpened: 'door_open', doorClosed: 'door_close', doorLocked: 'ui_error', doorSomeone: 'ui_error',
   noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
@@ -53,6 +53,14 @@ const screenEl = document.getElementById('screen')!;
 const hudTop = document.getElementById('top')!;
 const hudHint = document.getElementById('hint')!;
 const noteEl = document.getElementById('note')!;
+/** Text and menu size (imad 2026-11-25: "a setting to adjust text and menu sizes"): Settings > Text and menu size, saved per My PC profile. */
+const UI_SIZES = [0.85, 1, 1.15, 1.3, 1.5, 1.75];
+let uiSize = 1;
+function applyUiSize(): void {
+  const r = document.documentElement.style;
+  r.setProperty('--ui', String(uiSize));
+  r.setProperty('--uib', String(Math.min(uiSize, 1.1))); // the big screens (bag, crafting, gear) fill the screen already: they grow less
+}
 const aimEl = document.getElementById('aimhud') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'aimhud', hidden: true }));
 const cardEl = document.getElementById('card')!;
 
@@ -644,9 +652,9 @@ const VSTICK: [number, number] = [0, 0];
 
 // ------------------------------------------------------------ quick action wheel
 const wheel = new Wheel(document.getElementById('wheel')!);
-const WHEEL_IDS = ['use', 'horse', 'eat', 'drink', 'sleep', 'build', 'place', 'bag', 'camera', 'attackPerson'] as const;
-const WHEEL_ICON: Record<string, string> = { horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️' };
-const WHEEL_KEY: Record<string, Key> = { horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson' };
+const WHEEL_IDS = ['use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson'] as const;
+const WHEEL_ICON: Record<string, string> = { horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️', heal: '✚' };
+const WHEEL_KEY: Record<string, Key> = { horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson', heal: 'qHeal' };
 /** The wheel's button: held on a controller (let go = do it), pressed once on the remote (arrows + OK). */
 function wheelButton(pressed: boolean, pad: boolean): void {
   if (mode !== 'world' || menu.open || rp) return;
@@ -846,7 +854,8 @@ function placeLabel(): string { const p = placeable(); return p ? tf('cPut', thi
 function runQuick(id: string | null): void {
   if (!id) return;
   if (id === 'camera') { nextCamera(); return; }
-  if (id === 'bag') { openMenu('inv'); return; }
+  if (id === 'bag') { openMenu('bag'); return; }
+  if (id === 'heal') { send({ t: Msg.Do, a: 'medkit' }); return; }
   if (id === 'place') { const p = placeable(); if (p) startPlacing(p); else note(t('qNothing'), 2000); return; }
   doAction(id as ActionId, true);
 }
@@ -1291,7 +1300,9 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'aHit') { note(tf('aHit', thing(d.item ?? '')) + arrows, 1500); return; }
   if (d.code === 'aKilled') { note(tf('aKilled', thing(d.item ?? ''), gotText(dd.got)), 3500); return; }
   if (d.code === 'mined' && !Object.keys(dd.got ?? {}).length) { note(t('dHard'), 1200); return; }
-  if (d.code === 'chopped' || d.code === 'mined') { note(tf('dGot', gotText(dd.got)), 1500); return; }
+  if (d.code === 'chopped' || d.code === 'mined' || d.code === 'herbs') { note(tf('dGot', gotText(dd.got)), 1500); return; }
+  if (d.code === 'healed') { note(tf('dHealed', String((dd as { hp?: number }).hp ?? '')), 2500); bagScreen.fix(); menu.refresh(); return; }
+  if (d.code === 'noMedkit' || d.code === 'fullHp') { note(t(d.code === 'noMedkit' ? 'dNoMedkit' : 'dFullHp'), 2500); return; }
   if (d.code === 'equipped') { note(t('dEquipped'), 1500); return; }
   if (d.code === 'upgraded') { note(tf('dUpgraded', cap1(thing(dd.item ?? '')), `+${dd.lv ?? 0} ${t(('qual' + (dd.q ?? 0)) as Key)}`), 3000); return; }
   if (d.code === 'upNeed') { note(tf('dUpNeed', needText(dd.need ?? {})), 3500); return; }
@@ -1351,7 +1362,7 @@ function buildPage(id: string): Page {
     case 'gear': return { id, title: t('gearTitle'), rows, big: true, html: gearScreen.html(), grid: gearScreen };
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true }, ...quests.rootRows());
+      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'bag', label: t('bagTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true }, ...quests.rootRows());
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push(...(meId >= 0 ? [{ id: 'mine', label: t('mFollowMe') }] : []), { id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
@@ -1393,15 +1404,7 @@ function buildPage(id: string): Page {
       }
       if (past && !past.length) rows.push({ id: 'back', label: t('mBack') });
       return { id, title: t('mPast'), rows, wide: true, text: !past ? '…' : past.length ? t('pastHelp') : t('pastNone') };
-    case 'bag': {
-      const inv = meNeeds?.inv ?? {};
-      const items = Object.entries(inv).filter(([, n]) => n > 0);
-      const html = (items.length ? `<div class="bag">${items.map(([k, n]) => `<span class="bi"><b>${n}</b> ${esc(thing(k))}</span>`).join('')}</div>` : `<p>${esc(t('bagEmpty'))}</p>`)
-        + `<p class="dim">${meNeeds?.weapon ? esc(tf('cWeapon', thing(meNeeds.weapon))) + ' · ' : ''}${esc(tf('cDefence', String(meNeeds?.def ?? 0)))}${meNeeds?.carry ? ' · ' + esc(tf('carry', String(meNeeds.carry))) : ''}</p>`;
-      rows.push({ id: 'craft', label: t('mCraft'), sub: true }, { id: 'guide', label: t('mGuide'), sub: true });
-      for (const p of PLACEABLE) if ((inv[p] ?? 0) > 0) rows.push({ id: 'pl:' + p, label: tf('cPut', thing(p)), value: String(inv[p]) });
-      return { id, title: t('mBag'), rows, html, wide: true };
-    }
+    case 'bag': return { id, title: t('bagTitle'), rows, big: true, html: bagScreen.html(), grid: bagScreen }; // the big bag (imad 2026-11-25)
     case 'craft':
       for (const c of CATEGORIES) rows.push({ id: 'c:' + c, label: catName(c), sub: true });
       return { id, title: t('mCraft'), rows, text: t('catHelp') };
@@ -1497,7 +1500,7 @@ function buildPage(id: string): Page {
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
       if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
-      rows.push({ id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
+      rows.push({ id: 'uisize', label: t('sUiSize'), value: `${Math.round(uiSize * 100)} %` }, { id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
     case 'snd': {
@@ -1607,6 +1610,7 @@ function pickRow(page: string, row: string): void {
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
     else if (row === 'cam') { nextCamera(); menu.refresh(); }
+    else if (row === 'uisize') { uiSize = UI_SIZES[(UI_SIZES.indexOf(uiSize) + 1) % UI_SIZES.length]!; MyPC.save('uiSize', uiSize); applyUiSize(); menu.refresh(); }
     else if (row === 'gfx' || row === 'snd') menu.push(row);
     else if (row === 'zin') zoomBy(1 / 1.2);
     else if (row === 'zout') zoomBy(1.2);
@@ -1641,9 +1645,10 @@ const invCtx: InvCtx = {
   send: (a, text) => send({ t: Msg.Do, a, text }),
   note: (s, ms) => note(s, ms),
   close: () => menu.close(),
+  open: (p) => menu.push(p),
   look: () => { const s = meSlot(); return s >= 0 && atype[s]! > 0 ? playerLook(true, atype[s]!) : ME; },
 };
-const invScreen = new InvScreen(invCtx), gearScreen = new GearScreen(invCtx);
+const invScreen = new InvScreen(invCtx), gearScreen = new GearScreen(invCtx), bagScreen = new BagScreen(invCtx);
 const menu = new Menu(buildPage, pickRow, () => { capture = null; noteEl.hidden = true; drawCard(); MyPC.back?.(false); });
 const quests = new QuestUi({
   send: (m) => send(m as never),
@@ -1960,6 +1965,7 @@ MyPC.init({
     document.documentElement.dir = info.lang === 'ar' ? 'rtl' : 'ltr';
     tier = info.quality?.tier ?? 'mid';
     gfx = { ...gfx, ...(MyPC.load('gfx', {}) as Partial<Gfx>) };
+    { const u = Number(MyPC.load('uiSize', 1)); uiSize = UI_SIZES.includes(u) ? u : 1; applyUiSize(); }
     if (gfx.q !== 'auto') tier = gfx.q;
     const q = new URLSearchParams(location.search);
     if (q.get('tier') === 'low' || q.get('tier') === 'mid' || q.get('tier') === 'high') tier = q.get('tier') as Tier;
@@ -1998,7 +2004,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); } };
     MyPC.ready();
   },
   onStart() {

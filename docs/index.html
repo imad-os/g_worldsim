@@ -136,6 +136,42 @@
   #wheel .wh-s.on { background: #ffd166; color: #14161a; }
   #wheel .wh-mid { position: absolute; left: 25%; right: 25%; top: 50%; transform: translateY(-50%); text-align: center; font-size: 1.5vw; font-weight: 600; color: #ffd166; }
   #wheel .wh-help { position: absolute; left: -10vw; right: -10vw; bottom: -3.2vw; text-align: center; font-size: 1.15vw; color: #c9d1d9; }
+  /* Text and menu size (Settings, imad 2026-11-25): --ui scales the bars and menus, --uib the big screens (capped).
+     transform: scale (not zoom) so Chromium 108 TVs and newer browsers place them the same way. */
+  :root { --ui: 1; --uib: 1; }
+  #gmenu { transform: translate(-50%, -50%) scale(var(--ui)); max-height: calc(84vh / var(--ui)); width: calc(46vw); }
+  #gmenu.wide { width: calc(min(72vw, 94vw / var(--ui))); }
+  #gmenu.wide .mx { max-height: calc(62vh / var(--ui)); }
+  #gmenu.big { transform: translate(-50%, -50%) scale(var(--uib)); width: calc(88vw / var(--uib)); max-height: calc(94vh / var(--uib)); }
+  #top { transform: scale(var(--ui)); transform-origin: 0 0; max-width: calc(60vw / var(--ui)); }
+  #hint { transform: scale(var(--ui)); transform-origin: 0 100%; max-width: calc(96vw / var(--ui)); }
+  [dir="rtl"] #top { transform-origin: 100% 0; } [dir="rtl"] #hint { transform-origin: 100% 100%; }
+  #note { transform: translateX(-50%) scale(var(--ui)); transform-origin: 50% 0; max-width: calc(90vw / var(--ui)); }
+  .menu-open #note { transform-origin: 50% 100%; }
+  #card { transform: scale(var(--ui)); transform-origin: 100% 0; }
+  [dir="rtl"] #card { transform-origin: 0 0; }
+  #aimhud { transform: translateX(-50%) scale(var(--ui)); transform-origin: 50% 100%; }
+  #wheel { transform: scale(var(--uib)); }
+  /* The bag & crafting screen: bigger slots, crafting on the left, the bag on the right. The big bag screen. */
+  .inv .ic { display: flex; gap: 1.2vw; align-items: flex-start; }
+  .inv .il { display: flex; flex-direction: column; gap: 0.7vw; flex: none; }
+  .inv .r1 { margin-bottom: 0; }
+  .inv .cg, .inv .bk { grid-template-columns: repeat(3, 5.4vw); }
+  .inv .bg { grid-template-columns: repeat(6, 5.4vw); }
+  .inv .sl { width: 5.4vw; height: 5.4vw; }
+  .inv .sl i { width: 4.8vw; height: 4.8vw; }
+  .inv .sl b { font-size: 1.4vw; }
+  .inv .ds { flex-direction: column; gap: 0.3vw; max-width: 30vw; font-size: 1.4vw; }
+  .inv .tb { font-size: 1.5vw; }
+  .bagv { display: flex; gap: 1.2vw; align-items: stretch; }
+  .bgrid { display: grid; grid-template-columns: repeat(6, 8.2vw); gap: 0.5vw; }
+  .bc { display: flex; flex-direction: column; align-items: center; gap: 0.2vw; }
+  .bc span { font-size: 1.05vw; color: #c9d1d9; height: 1.4vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 8.2vw; }
+  .sl.xl { width: 7.4vw; height: 7.4vw; } .sl.xl i { width: 6.6vw; height: 6.6vw; } .sl.xl b { font-size: 1.7vw; }
+  .bside { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.6vw; padding: 1.2vw; }
+  .bbig { width: 13vw; height: 13vw; border-radius: 1vw; background: radial-gradient(circle, #3d424a, #1f2227 70%); display: flex; align-items: center; justify-content: center; }
+  .bbig i { width: 13vw; height: 13vw; display: block; }
+  .bname { font-size: 2.2vw; color: #ffd166; font-weight: 600; } .bcnt { font-size: 1.5vw; } .bdesc { font-size: 1.4vw; color: #c9d1d9; } .bact { font-size: 1.4vw; color: #9ff0b8; margin-top: 0.4vw; }
 </style>
 </head>
 <body>
@@ -149,6 +185,6 @@
 <div id="card" hidden></div>
 <div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.12.3"></script>
+<script type="module" src="game.js?v=0.12.4"></script>
 </body>
 </html>

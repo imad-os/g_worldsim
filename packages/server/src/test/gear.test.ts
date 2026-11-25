@@ -92,3 +92,36 @@ test('aiming: a player holding the aim with a bow is sent drawing it; a killed a
   assert.equal(w.fell.has(id), true);
   assert.equal(e.alive(an), false);
 });
+
+test('herbs and first-aid kits: herbs grow by trees, picking gives herbs, 3 herbs + 1 leather = a kit, a kit heals; hurt AI people use theirs', () => {
+  const w = mk('herb-test');
+  w.populate();
+  const e = w.e, sv = w.survival, T = sv.T;
+  assert.ok(T.herbs >= 0, 'the herbs tile exists');
+  for (let h = 0; h < 6; h++) (sv as unknown as { regrow(): void }).regrow();
+  let patches = 0, at = -1, m0 = 0;
+  for (let m = 0; m < w.maps.length; m++) { const tm = w.maps[m]!.tiles; for (let k = 0; k < tm.tiles.length; k++) if (tm.tiles[k] === T.herbs) { patches++; if (at < 0) { at = k; m0 = m; } } }
+  assert.ok(patches > 10, `herb patches grew (${patches})`);
+  const i = w.spawnPlayer(m0, 20, 20); w.playerProfile(i, 'Herbalist');
+  const tm = w.maps[m0]!.tiles, tx = at % tm.w, ty = (at / tm.w) | 0;
+  w.place(i, m0, tx + 0.5, ty + 1.3);
+  const r = sv.playerWork(i);
+  assert.equal(r?.code, 'herbs');
+  assert.ok((sv.inv(i).herb ?? 0) >= 1);
+  assert.equal(tm.get(tx, ty), T.grass, 'picked clean');
+  sv.add(i, 'herb', 5); sv.add(i, 'leather', 1);
+  const c = sv.craftPut(i, 'healing', { herb: 3, leather: 1 });
+  assert.equal(c.ok, true);
+  assert.equal(sv.inv(i).medkit, 1);
+  e.hp[i] = 30;
+  assert.equal(sv.useMedkit(i).code, 'healed');
+  assert.equal(Math.round(e.hp[i]!), 75);
+  assert.equal(sv.useMedkit(i).code, 'noMedkit');
+  // An AI person below 55 % uses a kit by themselves.
+  let a = -1;
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent && w.profileOf(k) && !w.family.dependent(k)) { a = k; break; }
+  sv.add(a, 'medkit', 1); e.hp[a] = 40;
+  sv.autoHeal();
+  assert.equal(Math.round(e.hp[a]!), 85);
+  assert.equal(sv.inv(a).medkit ?? 0, 0);
+});

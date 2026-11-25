@@ -7,7 +7,7 @@
  */
 import { WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, Mesh, CircleGeometry, MeshLambertMaterial, NeutralToneMapping } from 'three';
 import {
-  RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, SLOT_OF, QUALITY_COLOR, MAX_LEVEL, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear, matchRecipe,
+  RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, MEDKIT_HEAL, WEAPONS, DEFENCE, BOW_DAMAGE, SLOT_OF, QUALITY_COLOR, MAX_LEVEL, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear, matchRecipe,
   type Recipe, type GearState, type Slot, type Anim,
 } from '@worldsim/protocol';
 import { t, tf, type Key } from './i18n.js';
@@ -23,18 +23,23 @@ export interface InvCtx {
   note(s: string, ms: number): void;
   close(): void;
   look(): PersonLook;
+  /** Open another page of the game menu (the bag screen opens crafting). */
+  open(page: string): void;
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
-const GEAR_ITEMS = ['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet'];
+const GEAR_ITEMS = ['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet', 'medkit'];
 const ORDER = [...RESOURCES, ...GEAR_ITEMS, ...PLACEABLE] as string[];
-const CAT_ICON: Record<string, string> = { weapon: 'sword', clothing: 'armor', defence: 'palisade', furniture: 'bed' };
+const CAT_ICON: Record<string, string> = { weapon: 'sword', clothing: 'armor', defence: 'palisade', furniture: 'bed', healing: 'medkit' };
 const qName = (q: number) => t(('qual' + q) as Key);
-const px = () => Math.max(24, Math.round(innerWidth * 0.036));
+/** Icon size of the bag & crafting screen's slots (.inv .sl i = 4.8vw). */
+const IK = 0.048;
+/** Icon size in px: k = the icon's CSS width in vw / 100 (.sl i 3.6vw; crafting 4.8vw; big bag 6.6vw). The menu size setting scales the drawing, not these. */
+const px = (k = 0.036) => Math.max(24, Math.round(innerWidth * k));
 
 /** One slot: icon, count, quality frame, cursor. */
-function slot(id: string, n: number, on: boolean, extra = '', q = -1): string {
-  const st = id ? iconStyle(id, px()) : '';
+function slot(id: string, n: number, on: boolean, extra = '', q = -1, k = 0.036): string {
+  const st = id ? iconStyle(id, px(k)) : '';
   const qc = q > 0 ? ` style="border-color:${QUALITY_COLOR[q]};box-shadow:0 0 0.6vw ${QUALITY_COLOR[q]} inset"` : '';
   const icon = id ? (st ? `<i style="${st}"></i>` : `<i class="tx">${esc(id.slice(0, 2))}</i>`) : '';
   return `<div class="sl${on ? ' on' : ''}${extra}"${qc}>${icon}${n > 1 ? `<b>${n}</b>` : ''}</div>`;
@@ -78,61 +83,58 @@ export class InvScreen {
   html(): string {
     const c = this.c, inv = c.inv(), z = this.zone, res = this.result(), book = this.book(), bag = this.bag();
     const tabs = CATEGORIES.map((k, i) => `<div class="tb${i === this.tab ? ' cur' : ''}${z === 'tabs' && this.i === i ? ' on' : ''}">${hasIcon(CAT_ICON[k]!) ? `<i style="${iconStyle(CAT_ICON[k]!, Math.round(px() * 0.7))}"></i>` : ''}${esc(c.catName(k))}</div>`).join('');
-    const grid = this.cells.map((k, i) => slot(k, 1, z === 'grid' && this.i === i)).join('');
-    const out = res ? slot(res.what, res.n ?? 1, z === 'result', res.cat !== CATEGORIES[this.tab] ? ' other' : '') : slot('', 0, z === 'result', ' empty');
+    const grid = this.cells.map((k, i) => slot(k, 1, z === 'grid' && this.i === i, '', -1, IK)).join('');
+    const out = res ? slot(res.what, res.n ?? 1, z === 'result', res.cat !== CATEGORIES[this.tab] ? ' other' : '', -1, IK) : slot('', 0, z === 'result', ' empty');
     const bk = book.map((r, i) => {
       const can = Object.entries(r.need).every(([k, n]) => (inv[k] ?? 0) >= n!);
-      return slot(r.what, r.n ?? 1, z === 'book' && this.i === i, can ? ' can' : ' cant');
+      return slot(r.what, r.n ?? 1, z === 'book' && this.i === i, can ? ' can' : ' cant', -1, IK);
     }).join('');
-    const bg = Array.from({ length: 36 }, (_, i) => { const it = bag[i]; return slot(it?.[0] ?? '', it?.[1] ?? 0, z === 'bag' && this.i === i, '', it && SLOT_OF[it[0]] ? (c.gear()?.up?.[it[0]]?.[1] ?? 0) : -1); }).join('');
+    const bg = Array.from({ length: 36 }, (_, i) => { const it = bag[i]; return slot(it?.[0] ?? '', it?.[1] ?? 0, z === 'bag' && this.i === i, '', it && SLOT_OF[it[0]] ? (c.gear()?.up?.[it[0]]?.[1] ?? 0) : -1, IK); }).join('');
     // What the cursor is on, and what A does there.
     let name = '', hint = '';
     if (z === 'tabs') { name = c.catName(CATEGORIES[this.i]!); hint = t('invHintTab'); }
     else if (z === 'grid') { const k = this.cells[this.i]!; name = k ? c.thing(k) : t('invEmpty'); hint = k ? t('invHintGrid') : t('invHintNone'); }
     else if (z === 'result') { name = res ? `${c.thing(res.what)}${res.n && res.n > 1 ? ' x' + res.n : ''}${res.cat !== CATEGORIES[this.tab] ? ' · ' + tf('invIn', c.catName(res.cat)) : ''}` : t('invEmpty'); hint = res ? tf('invHintMake', c.thing(res.what)) : t('invHintNone'); }
     else if (z === 'book') { const r = book[this.i]; if (r) { name = `${c.thing(r.what)} = ${Object.entries(r.need).map(([k, n]) => `${n} ${c.thing(k)}`).join(' + ')}`; hint = t('invHintBook'); } }
-    else { const it = bag[this.i]; if (it) { const [k] = it, up = c.gear()?.up?.[k]; name = `${c.thing(k)}${up && (up[0] || up[1]) ? ` +${up[0]} · ${qName(up[1])}` : ''}`; hint = (RESOURCES as readonly string[]).includes(k) ? t('invHintRes') : SLOT_OF[k] ? t('invHintGear') : (PLACEABLE as readonly string[]).includes(k) ? t('invHintPlace') : ''; } else name = t('invEmpty'); }
+    else { const it = bag[this.i]; if (it) { const [k] = it, up = c.gear()?.up?.[k]; name = `${c.thing(k)}${up && (up[0] || up[1]) ? ` +${up[0]} · ${qName(up[1])}` : ''}`; hint = (RESOURCES as readonly string[]).includes(k) ? t('invHintRes') : k === 'medkit' ? tf('invHintHeal', String(MEDKIT_HEAL)) : SLOT_OF[k] ? t('invHintGear') : (PLACEABLE as readonly string[]).includes(k) ? t('invHintPlace') : ''; } else name = t('invEmpty'); }
     return `<div class="inv"><div class="tabs">${tabs}</div>
-<div class="r1"><div class="box"><div class="bt">${esc(t('invCraft'))}</div><div class="cr"><div class="cg">${grid}</div><div class="arr">➜</div>${out}</div></div>
-<div class="box bkb"><div class="bt">${esc(t('invBook'))}</div><div class="bk">${bk}</div></div></div>
-<div class="box"><div class="bt">${esc(t('invBag'))}</div><div class="bg">${bg}</div></div>
-<div class="ds"><b>${esc(name)}</b><span>${esc(hint)}</span></div><div class="nv">${esc(t('invNav'))}</div></div>`;
+<div class="ic"><div class="il"><div class="r1"><div class="box"><div class="bt">${esc(t('invCraft'))}</div><div class="cr"><div class="cg">${grid}</div><div class="arr">➜</div>${out}</div></div></div>
+<div class="box bkb"><div class="bt">${esc(t('invBook'))}</div><div class="bk">${bk}</div></div>
+<div class="ds"><b>${esc(name)}</b><span>${esc(hint)}</span></div></div>
+<div class="box"><div class="bt">${esc(t('invBag'))}</div><div class="bg">${bg}</div></div></div>
+<div class="nv">${esc(t('invNav'))}</div></div>`;
   }
 
   move(d: 'up' | 'down' | 'left' | 'right'): void {
-    const z = this.zone, i = this.i, nb = this.book().length;
+    // Left: the tabs, the 3 x 3 grid -> result, the recipe book under it (3 a row). Right: the bag, 6 x 6.
+    const z = this.zone, i = this.i, nb = this.book().length, nt = CATEGORIES.length;
     const go = (zone: Zone, k: number) => { this.zone = zone; this.i = k; };
     if (z === 'tabs') {
-      if (d === 'left' || d === 'right') { this.i = (i + (d === 'left' ? 3 : 1)) % 4; this.tab = this.i; }
+      if (d === 'left' || d === 'right') { this.i = (i + (d === 'left' ? nt - 1 : 1)) % nt; this.tab = this.i; }
       else if (d === 'down') go('grid', Math.min(i, 2));
     } else if (z === 'grid') {
       const r = Math.floor(i / 3), c = i % 3;
       if (d === 'left' && c > 0) this.i--;
       else if (d === 'right') { if (c < 2) this.i++; else go('result', 0); }
       else if (d === 'up') { if (r > 0) this.i -= 3; else go('tabs', this.tab); }
-      else if (d === 'down') { if (r < 2) this.i += 3; else go('bag', c * 2); }
+      else if (d === 'down') { if (r < 2) this.i += 3; else if (nb) go('book', Math.min(nb - 1, c)); }
     } else if (z === 'result') {
       if (d === 'left') go('grid', 5);
-      else if (d === 'right' && nb) go('book', 0);
+      else if (d === 'right') go('bag', 0);
       else if (d === 'up') go('tabs', this.tab);
-      else if (d === 'down') go('bag', 6);
+      else if (d === 'down' && nb) go('book', Math.min(nb - 1, 2));
     } else if (z === 'book') {
       const r = Math.floor(i / 3), c = i % 3;
-      if (d === 'left') { if (c > 0) this.i--; else go('result', 0); }
-      else if (d === 'right' && c < 2 && i + 1 < nb) this.i++;
-      else if (d === 'up') { if (r > 0) this.i -= 3; else go('tabs', this.tab); }
-      else if (d === 'down') { if (i + 3 < nb) this.i += 3; else go('bag', 6 + c); }
-    } else {
-      const r = Math.floor(i / 9), c = i % 9;
       if (d === 'left' && c > 0) this.i--;
-      else if (d === 'right' && c < 8) this.i++;
-      else if (d === 'down' && r < 3) this.i += 9;
-      else if (d === 'up') {
-        if (r > 0) this.i -= 9;
-        else if (c <= 4) go('grid', 6 + Math.min(2, Math.floor(c / 2)));
-        else if (c === 5 || !nb) go('result', 0);
-        else go('book', Math.min(nb - 1, Math.floor((nb - 1) / 3) * 3 + Math.min(2, c - 6)));
-      }
+      else if (d === 'right') { if (c < 2 && i + 1 < nb) this.i++; else go('bag', Math.min(5, 6 * (r + 2))); }
+      else if (d === 'up') { if (r > 0) this.i -= 3; else go('grid', 6 + c); }
+      else if (d === 'down' && i + 3 < nb) this.i += 3;
+    } else {
+      const r = Math.floor(i / 6), c = i % 6;
+      if (d === 'left') { if (c > 0) this.i--; else if (r === 0) go('result', 0); else if (nb) go('book', Math.min(nb - 1, Math.min(Math.floor((nb - 1) / 3), r - 1) * 3 + 2)); else go('result', 0); }
+      else if (d === 'right' && c < 5) this.i++;
+      else if (d === 'down' && r < 5) this.i += 6;
+      else if (d === 'up') { if (r > 0) this.i -= 6; else go('tabs', this.tab); }
     }
   }
 
@@ -165,8 +167,63 @@ export class InvScreen {
       if (free < 0) { c.note(t('invHintGrid'), 1500); return; }
       this.cells[free] = k;
       if (!this.bag()[this.i]) this.i = Math.max(0, this.i - 1);
-    } else if (SLOT_OF[k]) c.send('equip', `${SLOT_OF[k]}:${k}`);
+    } else if (k === 'medkit') c.send('medkit', '');
+    else if (SLOT_OF[k]) c.send('equip', `${SLOT_OF[k]}:${k}`);
     else if ((PLACEABLE as readonly string[]).includes(k)) { c.send('place', k); c.close(); }
+  }
+}
+
+// ---------------------------------------------------------------- the bag, big (imad 2026-11-25: "a bag screen, bigger")
+export class BagScreen {
+  i = 0;
+  constructor(private c: InvCtx) {}
+  items(): [string, number][] {
+    const inv = this.c.inv();
+    return Object.keys(inv).filter((k) => (inv[k] ?? 0) > 0).sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99)).map((k) => [k, inv[k]!]);
+  }
+  /** Keep the cursor on something after the bag changed. */
+  fix(): void { this.i = Math.max(0, Math.min(this.i, this.items().length - 1)); }
+  private what(k: string): [string, string] { // what it is / does, and what A does
+    const up = this.c.gear()?.up?.[k] ?? [0, 0];
+    if (k === 'medkit') return [tf('dsHeal', String(MEDKIT_HEAL)), tf('invHintHeal', String(MEDKIT_HEAL))];
+    if (k === 'arrows') return [t('dsArrows'), ''];
+    if (WEAPONS[k] || k === 'bow') return [`${t('gDamage')} ${((WEAPONS[k] ?? BOW_DAMAGE) * gearMul(up[0], up[1])).toFixed(1)}${up[0] || up[1] ? ` · +${up[0]} ${qName(up[1])}` : ''}`, t('invHintGear')];
+    if (DEFENCE[k]) return [`${t('gDefence')} ${Math.round(DEFENCE[k]! * gearMul(up[0], up[1]) * 100)} %${up[0] || up[1] ? ` · +${up[0]} ${qName(up[1])}` : ''}`, t('invHintGear')];
+    if ((PLACEABLE as readonly string[]).includes(k)) return [t('dsPlace'), t('invHintPlace')];
+    if ((RESOURCES as readonly string[]).includes(k)) return [k === 'herb' ? t('dsHerb') : t('dsMat'), t('bagHintCraft')];
+    return ['', ''];
+  }
+  html(): string {
+    const c = this.c, items = this.items(), n = Math.max(24, Math.ceil(items.length / 6) * 6);
+    if (this.i >= items.length) this.fix();
+    const cells = Array.from({ length: n }, (_, k) => {
+      const it = items[k], q = it && SLOT_OF[it[0]] ? (c.gear()?.up?.[it[0]]?.[1] ?? 0) : -1;
+      return `<div class="bc">${slot(it?.[0] ?? '', it?.[1] ?? 0, k === this.i && !!it, it ? ' xl' : ' xl empty', q, 0.066)}<span>${it ? esc(c.thing(it[0])) : ''}</span></div>`;
+    }).join('');
+    const cur = items[this.i];
+    let side = `<p class="dim">${esc(t('bagEmptyAll'))}</p>`;
+    if (cur) {
+      const [k, cnt] = cur, [d, a] = this.what(k), st = iconStyle(k, px(0.13));
+      side = `<div class="bbig">${st ? `<i style="${st}"></i>` : ''}</div><div class="bname">${esc(c.thing(k))}</div><div class="bcnt">${esc(tf('bagCount', String(cnt)))}</div>
+<div class="bdesc">${esc(d)}</div>${a ? `<div class="bact">${esc(a)}</div>` : ''}`;
+    }
+    return `<div class="bagv"><div class="box bgl"><div class="bgrid">${cells}</div></div><div class="box bside">${side}</div></div><div class="nv">${esc(t('bagNav'))}</div>`;
+  }
+  move(d: 'up' | 'down' | 'left' | 'right'): void {
+    const n = this.items().length;
+    if (!n) return;
+    const k = d === 'left' ? -1 : d === 'right' ? 1 : d === 'up' ? -6 : 6;
+    if (this.i + k >= 0 && this.i + k < n) this.i += k;
+    else if (d === 'down' && Math.floor(this.i / 6) < Math.floor((n - 1) / 6)) this.i = n - 1;
+  }
+  ok(): void {
+    const c = this.c, it = this.items()[this.i];
+    if (!it) return;
+    const [k] = it;
+    if (k === 'medkit') c.send('medkit', '');
+    else if (SLOT_OF[k]) c.send('equip', `${SLOT_OF[k]}:${k}`);
+    else if ((PLACEABLE as readonly string[]).includes(k)) { c.send('place', k); c.close(); }
+    else if ((RESOURCES as readonly string[]).includes(k)) c.open('inv');
   }
 }
 

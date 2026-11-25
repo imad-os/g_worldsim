@@ -332,6 +332,15 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       addTpl(o, t.box, place(wx + 0.5, 1.68, wy + 0.5, 0, 0.6, 0, 0.3, 0.06, 0.3), c, 0.8);
       colOf(L.top, c); addTpl(og, t.box, place(wx + 0.5, 1.45, wy + 0.5, 0, 0.6, 0, 0.2, 0.24, 0.2), c, 1);
       colOf(0xffb24a, c); addPool(op, wx + 0.5, wy + 0.5, 4.2, c);
+    } else if (L.shape === Shape.Herbs) {
+      // A patch of healing herbs: a few round leafy clumps with small lilac and white flowers (A next to it picks them).
+      for (let k = 0; k < 4; k++) {
+        const a = r1 * 6.28 + k * 1.57, d = 0.12 + ((k * 0.37 + r2) % 1) * 0.2, px = wx + 0.5 + Math.cos(a) * d, pz = wy + 0.5 + Math.sin(a) * d, sz = 0.2 + ((r3 + k * 0.29) % 1) * 0.1;
+        colOf(L.top, c).multiplyScalar(0.85 + ((r2 + k * 0.17) % 1) * 0.3);
+        addTpl(o, t.leafLo, place(px, sz * 0.7, pz, a, a * 2, 0, sz * 1.2, sz, sz * 1.2), c, 0.7);
+        colOf(k % 2 ? L.side : 0xf2efe6, c);
+        addTpl(o, t.rock, place(px + 0.03, sz * 1.5, pz - 0.02, a, 0, 0, 0.07, 0.06, 0.07), c, 1);
+      }
     } else if (L.shape === Shape.Ground && L.ground === 0x76a955 && r1 < 0.2) {
       // Grass tuft (3 blades), sometimes with a flower.
       const px = wx + 0.2 + r2 * 0.6, pz = wy + 0.2 + r3 * 0.6;

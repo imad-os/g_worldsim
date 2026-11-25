@@ -493,6 +493,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   shows the drawn bow at once (`aimGear`). `#aimhud` = arrows icon + count while aiming. Player arrows fly at `ARROW_SPEED` 100 m/s (`World.shoot(.., speed)`),
   drawn as a streak along their flight. Killed animals: `World.fell` (id -> tick, 5 s) -> `Frame.dead` ids; the TV keeps them as `corpses` and
   `Animals3D.add(.., dead = seconds)` staggers, rolls on the side, kicks, sinks (`DEATH_SECS` 4). Proof `ADMIN_TOKEN=... node tools/bow-proof.mjs <server> <sdk.js> <outdir>`.
+- **Bag screen, bigger crafting, text size, herbs and first-aid kits (imad 2026-11-25, app 0.12.4)**: game menu > Bag = `BagScreen` (invui.ts: 6 x 4+ big slots
+  with names, the item's picture / what it does / what A does; A = use a kit, equip, put down, or open crafting for a material). Bag & crafting: slots 5.4vw,
+  crafting + recipes on the left, the 6 x 6 bag on the right. Settings > Text and menu size (85-175 %, `MyPC.save('uiSize')`): CSS vars `--ui` (bars,
+  card, menus: `transform: scale`, never `zoom`, so Chromium 108 places them the same) and `--uib` (big screens + wheel, capped at 1.1 so they fit).
+  Herbs: tile `herbs` (id 25, chunkmesh `Shape.Herbs` leafy clump + flowers) on grass next to trees, kept at 45 (woods) / 14 (town) by
+  `Survival.regrowHerbs` (hourly, seeded at init when a map has none); A next to one = 1-2 `herb` (code `herbs`), task skill gather what herb,
+  job 'dig'. Category `healing`: `medkit` = 3 herb + 1 leather; `MEDKIT_HEAL` 45. Do `medkit` (bag / wheel item heal) -> `Survival.useMedkit`
+  (healed / noMedkit / fullHp); AI people below 55 % use theirs (`autoHeal`, every 20 ticks); hourly own plan: a kind person picks herbs and makes
+  a kit when nobody free has one. Icons herb / medkit baked from KayKit (waterplant, box_small + bottle). Proof `ADMIN_TOKEN=... node tools/bag-proof.mjs <server> <sdk.js> <outdir>`.
+- Proof scripts: admin `mapTiles` lists `names` / `solid` from tile id 1 (index = id - 1). Moving a played character with `agentMove` may take
+  a few tries (the TV's own prediction wins at first): ask again until `__dev.me()` is there.
 
 ## Quests, NPCs, deep clans (imad 2026-11-25, app 0.11.1)
 - **NPCs are not people (imad's choice)**: Kind.Npc 8 (`World.spawnNpc`, look in frame bits 24+, no profile / needs / age / clans, not population),

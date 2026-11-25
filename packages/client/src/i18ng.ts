@@ -1,6 +1,10 @@
 /** Texts of the bag & crafting screen and the gear screen (en, fr, es, ar). */
 export const TG = {
   en: {
+    kHealing: 'Healing', rHerb: 'herbs', xMedkit: 'first-aid kit', dHealed: 'First-aid kit used: health {0} %.', dNoMedkit: 'No first-aid kit in your bag: craft one (3 herbs + 1 leather).', dFullHp: 'You are not hurt.',
+    invHintHeal: 'A: use it (+{0} health)', dsHeal: 'Gives back {0} health. Made from 3 herbs and 1 leather (Crafting > Healing).', dsArrows: 'Shot with the bow (hold Aim, let go).', dsPlace: 'Can be put down in the world.',
+    dsMat: 'A material: put it in the crafting grid.', dsHerb: 'Healing herbs, picked from patches by the trees (A next to them). 3 herbs + 1 leather = a first-aid kit.', bagHintCraft: 'A: open crafting',
+    bagTitle: 'Bag', bagNav: '◀ ▶ ▲ ▼ choose · A use · B back', bagEmptyAll: 'Your bag is empty. Press A next to a tree, a rock, rubble or herbs to gather.', bagCount: 'You have {0}', sUiSize: 'Text and menu size', qHeal: 'First-aid kit',
     invTitle: 'Bag & crafting', invCraft: 'Crafting', invBag: 'Bag', invBook: 'Recipes', invNav: '◀ ▶ ▲ ▼ move · A pick · B back',
     invHintRes: 'A: put one in the crafting grid', invHintGear: 'A: use it (gear)', invHintPlace: 'A: put it down in front of me', invHintGrid: 'A: take it back',
     invHintMake: 'A: make {0}', invHintNone: 'Put materials in the grid, or pick a recipe', invHintBook: 'A: fill the grid with it', invHintTab: '◀ ▶ another category',
@@ -12,6 +16,10 @@ export const TG = {
     dEquipped: 'Equipped.', dUpgraded: '{0} is now {1}.', dUpNeed: 'Not enough: {0}', dNeedLevel: 'Level it up to +{0} first.', dMaxLevel: 'Already at +10.', dMaxQuality: 'Already elite.', dNotCarried: 'Not in your bag.',
   },
   fr: {
+    kHealing: 'Soins', rHerb: 'herbes', xMedkit: 'trousse de soins', dHealed: 'Trousse de soins utilisée : santé {0} %.', dNoMedkit: 'Pas de trousse de soins dans le sac : fabriquez-en une (3 herbes + 1 cuir).', dFullHp: 'Vous n\'êtes pas blessé.',
+    invHintHeal: 'A : l\'utiliser (+{0} santé)', dsHeal: 'Rend {0} de santé. Faite de 3 herbes et 1 cuir (Fabrication > Soins).', dsArrows: 'Tirées à l\'arc (maintenez Viser, relâchez).', dsPlace: 'Peut être posé dans le monde.',
+    dsMat: 'Un matériau : mettez-le dans la grille de fabrication.', dsHerb: 'Herbes médicinales, cueillies dans les touffes près des arbres (A à côté). 3 herbes + 1 cuir = une trousse de soins.', bagHintCraft: 'A : ouvrir la fabrication',
+    bagTitle: 'Sac', bagNav: '◀ ▶ ▲ ▼ choisir · A utiliser · B retour', bagEmptyAll: 'Votre sac est vide. Appuyez sur A près d\'un arbre, d\'un rocher, de gravats ou d\'herbes pour récolter.', bagCount: 'Vous en avez {0}', sUiSize: 'Taille du texte et des menus', qHeal: 'Trousse de soins',
     invTitle: 'Sac & fabrication', invCraft: 'Fabrication', invBag: 'Sac', invBook: 'Recettes', invNav: '◀ ▶ ▲ ▼ bouger · A choisir · B retour',
     invHintRes: 'A : en mettre un dans la grille', invHintGear: 'A : l\'utiliser (équipement)', invHintPlace: 'A : le poser devant moi', invHintGrid: 'A : le reprendre',
     invHintMake: 'A : fabriquer {0}', invHintNone: 'Mettez des matériaux dans la grille, ou choisissez une recette', invHintBook: 'A : remplir la grille', invHintTab: '◀ ▶ autre catégorie',
@@ -23,6 +31,10 @@ export const TG = {
     dEquipped: 'Équipé.', dUpgraded: '{0} est maintenant {1}.', dUpNeed: 'Pas assez : {0}', dNeedLevel: 'Montez-le d\'abord à +{0}.', dMaxLevel: 'Déjà à +10.', dMaxQuality: 'Déjà élite.', dNotCarried: 'Pas dans votre sac.',
   },
   es: {
+    kHealing: 'Curación', rHerb: 'hierbas', xMedkit: 'botiquín', dHealed: 'Botiquín usado: salud {0} %.', dNoMedkit: 'No hay botiquín en la bolsa: fabrica uno (3 hierbas + 1 cuero).', dFullHp: 'No estás herido.',
+    invHintHeal: 'A: usarlo (+{0} de salud)', dsHeal: 'Devuelve {0} de salud. Hecho con 3 hierbas y 1 cuero (Fabricación > Curación).', dsArrows: 'Se disparan con el arco (mantén Apuntar, suelta).', dsPlace: 'Se puede colocar en el mundo.',
+    dsMat: 'Un material: ponlo en la cuadrícula de fabricación.', dsHerb: 'Hierbas medicinales, recogidas en matas junto a los árboles (A al lado). 3 hierbas + 1 cuero = un botiquín.', bagHintCraft: 'A: abrir la fabricación',
+    bagTitle: 'Bolsa', bagNav: '◀ ▶ ▲ ▼ elegir · A usar · B volver', bagEmptyAll: 'Tu bolsa está vacía. Pulsa A junto a un árbol, una roca, escombros o hierbas para recoger.', bagCount: 'Tienes {0}', sUiSize: 'Tamaño del texto y los menús', qHeal: 'Botiquín',
     invTitle: 'Bolsa y fabricación', invCraft: 'Fabricación', invBag: 'Bolsa', invBook: 'Recetas', invNav: '◀ ▶ ▲ ▼ mover · A elegir · B volver',
     invHintRes: 'A: poner uno en la cuadrícula', invHintGear: 'A: usarlo (equipo)', invHintPlace: 'A: colocarlo delante de mí', invHintGrid: 'A: recuperarlo',
     invHintMake: 'A: fabricar {0}', invHintNone: 'Pon materiales en la cuadrícula o elige una receta', invHintBook: 'A: llenar la cuadrícula', invHintTab: '◀ ▶ otra categoría',
@@ -34,6 +46,10 @@ export const TG = {
     dEquipped: 'Equipado.', dUpgraded: '{0} ahora es {1}.', dUpNeed: 'No basta: {0}', dNeedLevel: 'Primero súbelo a +{0}.', dMaxLevel: 'Ya está a +10.', dMaxQuality: 'Ya es élite.', dNotCarried: 'No está en tu bolsa.',
   },
   ar: {
+    kHealing: 'العلاج', rHerb: 'أعشاب', xMedkit: 'حقيبة إسعاف', dHealed: 'استُعملت حقيبة الإسعاف: الصحة {0} %.', dNoMedkit: 'لا توجد حقيبة إسعاف في حقيبتك: اصنع واحدة (3 أعشاب + 1 جلد).', dFullHp: 'لست مصابًا.',
+    invHintHeal: 'A: استعملها (+{0} صحة)', dsHeal: 'تعيد {0} من الصحة. تُصنع من 3 أعشاب و1 جلد (الصناعة > العلاج).', dsArrows: 'تُرمى بالقوس (اضغط مطولًا على التصويب ثم اتركه).', dsPlace: 'يمكن وضعه في العالم.',
+    dsMat: 'مادة: ضعها في شبكة الصناعة.', dsHerb: 'أعشاب طبية تُقطف من الشجيرات قرب الأشجار (A بجانبها). 3 أعشاب + 1 جلد = حقيبة إسعاف.', bagHintCraft: 'A: افتح الصناعة',
+    bagTitle: 'الحقيبة', bagNav: '◀ ▶ ▲ ▼ اختيار · A استعمال · B رجوع', bagEmptyAll: 'حقيبتك فارغة. اضغط A بجانب شجرة أو صخرة أو أنقاض أو أعشاب لتجمع.', bagCount: 'لديك {0}', sUiSize: 'حجم النص والقوائم', qHeal: 'حقيبة إسعاف',
     invTitle: 'الحقيبة والصناعة', invCraft: 'الصناعة', invBag: 'الحقيبة', invBook: 'الوصفات', invNav: '◀ ▶ ▲ ▼ تحريك · A اختيار · B رجوع',
     invHintRes: 'A: ضع واحدة في شبكة الصناعة', invHintGear: 'A: استخدمه (عتاد)', invHintPlace: 'A: ضعه أمامي', invHintGrid: 'A: استرجعه',
     invHintMake: 'A: اصنع {0}', invHintNone: 'ضع المواد في الشبكة أو اختر وصفة', invHintBook: 'A: املأ الشبكة بها', invHintTab: '◀ ▶ فئة أخرى',

@@ -185,6 +185,15 @@
       "hp": 160,
       "breaksTo": 4,
       "color": 10119740
+    },
+    {
+      "id": 25,
+      "name": "herbs",
+      "solid": false,
+      "cost": 1.2,
+      "hp": 10,
+      "breaksTo": 1,
+      "color": 5939529
     }
   ],
   "maps": [

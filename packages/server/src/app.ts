@@ -289,6 +289,7 @@ export class App {
       const sv = w.survival;
       if (a === 'equip') return w.gear.equip(player, String(text ?? '')); // gear screen: "slot:item"
       if (a === 'upgrade') return w.gear.upgrade(player, String(text ?? '')); // "item:lv" | "item:q"
+      if (a === 'medkit') { const r = sv.useMedkit(player); if (r.ok) w.gear.play(player, 'use'); return r; } // a first-aid kit from the bag
       if (a === 'aim') { // aim button held / let go: viewers see the bow drawn in my hands (imad 2026-11-25)
         const on = String(text ?? '') === '1' && (sv.inv(player).bow ?? 0) > 0;
         w.gear.aiming[player] = on ? 1 : 0;

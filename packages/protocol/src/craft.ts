@@ -3,9 +3,9 @@
  * exact set of ingredients (the player picks the category, puts the ingredients in): the same ingredients can make
  * different things in different categories (1 wood + 1 ore = a sword in Weapons, a door in Furniture).
  */
-export const RESOURCES = ['wood', 'stone', 'scrap', 'ore', 'brick', 'leather', 'claw'] as const;
+export const RESOURCES = ['wood', 'stone', 'scrap', 'ore', 'brick', 'leather', 'claw', 'herb'] as const;
 export type Resource = (typeof RESOURCES)[number];
-export const CATEGORIES = ['weapon', 'clothing', 'defence', 'furniture'] as const;
+export const CATEGORIES = ['weapon', 'clothing', 'defence', 'furniture', 'healing'] as const;
 export type Category = (typeof CATEGORIES)[number];
 export interface Recipe { cat: Category; what: string; need: Partial<Record<Resource, number>>; n?: number }
 
@@ -27,7 +27,10 @@ export const RECIPES_ALL: Recipe[] = [
   { cat: 'furniture', what: 'bed', need: { wood: 3, leather: 2 } },
   { cat: 'furniture', what: 'lamp', need: { scrap: 1, ore: 1 } },
   { cat: 'furniture', what: 'campfire', need: { wood: 3, stone: 2 } },
+  { cat: 'healing', what: 'medkit', need: { herb: 3, leather: 1 } }, // first-aid kit (imad 2026-11-25): herbs from the wild + a strip of leather
 ];
+/** Health a first-aid kit gives back (of 100). */
+export const MEDKIT_HEAL = 45;
 /** Things that are put down on the ground (a tile of the same name). */
 /** A hut (5 x 5 wooden walls, a floor and its own wooden door, imad 2026-11-25: "the huts need to be with doors"). */
 export const HUT_NEED: Readonly<Record<string, number>> = { wood: 14, stone: 4 };

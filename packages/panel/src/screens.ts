@@ -193,9 +193,9 @@ async function drawAnimals(): Promise<void> {
 }
 
 // ------------------------------------------------------------ crafting
-const CAT_NAME: Record<string, string> = { weapon: 'Weapons', clothing: 'Clothes and armour', defence: 'Defences', furniture: 'Furniture' };
+const CAT_NAME: Record<string, string> = { weapon: 'Weapons', clothing: 'Clothes and armour', defence: 'Defences', furniture: 'Furniture', healing: 'Healing' };
 const WHAT_DO: Record<string, string> = {
-  sword: 'damage 34', axe: 'damage 22, chops 2 wood at once', spear: 'damage 30', bow: 'shoots 14 m (needs arrows), damage 26', arrows: '5 arrows for the bow',
+  medkit: 'first-aid kit: +45 health (players: Bag > A; AI people use one when below 55 % health)', sword: 'damage 34', axe: 'damage 22, chops 2 wood at once', spear: 'damage 30', bow: 'shoots 14 m (needs arrows), damage 26', arrows: '5 arrows for the bow',
   clothes: 'defence 15 %', armor: 'defence 35 %', helmet: 'defence 15 %', palisade: 'log wall', spikes: 'hurts zombies that claw it', stonewall: 'strongest wall, takes half damage',
   door: 'people pass, zombies and animals do not', window: 'light, blocks passage', bed: 'rest twice as fast', lamp: 'light at night, keeps zombies back 3 m', campfire: 'warmth and light, 10 h of fuel',
 };

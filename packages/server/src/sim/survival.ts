@@ -1,4 +1,4 @@
-import { Act, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
@@ -34,6 +34,8 @@ const ROCK_HIT = 15;
 export const ORE_CHANCE = 0.1, ROCK_STONE = 0.6;
 /** Rocks a map keeps at most (regrowth stops there): rare. */
 const ROCKS_WILD = 60, ROCKS_TOWN = 12;
+/** Herb patches a map keeps (they grow back where picked out). */
+const HERBS_WILD = 45, HERBS_TOWN = 14;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
 
 type JobKind = keyof typeof WORK;
@@ -63,7 +65,7 @@ export class Survival {
   /** Each map's leader (entity id, -1 = none): chosen every hour by courage, mind, kindness, strength and level (imad 2026-11-20: "social life and leaders"). */
   readonly leader: number[] = [];
   private toldAt: number[] = [];
-  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number; doorOpen: number };
+  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number; doorOpen: number; herbs: number };
   /** Tile id of each thing that is put down (palisade, door, bed...). */
   readonly placeTile = new Map<string, number>();
   /** Players' things, by player name (agents keep theirs in Profile.inv). */
@@ -91,7 +93,7 @@ export class Survival {
 
   constructor(private w: World) {
     const id = (n: string) => w.sc.tiles.find((t) => t.name === n)?.id ?? -1;
-    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door'), doorOpen: id('dooropen') };
+    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door'), doorOpen: id('dooropen'), herbs: id('herbs') };
     for (const n of PLACEABLE) if (id(n) >= 0) this.placeTile.set(n, id(n));
     for (const n of ['grass', 'dirt', 'sand', 'ashes']) if (id(n) >= 0) this.buildable.add(id(n));
     this.huts = w.maps.map(() => []);
@@ -194,6 +196,10 @@ export class Survival {
     const w = this.w;
     this.fires.clear();
     this.lastTick = w.tick;
+    for (let mi = 0; mi < w.maps.length; mi++) { // herbs there from the start (old worlds too); a restored world already has them (same dice)
+      const tm = w.maps[mi]!.tiles;
+      if (this.T.herbs >= 0 && !tm.tiles.includes(this.T.herbs)) for (let k = 0; k < 10; k++) this.regrowHerbs(mi);
+    }
     w.maps.forEach((m, mi) => {
       const t = m.tiles;
       let walls = 0;
@@ -293,7 +299,7 @@ export class Survival {
     for (let yy = Math.floor(e.y[i]!) - 2; yy <= Math.floor(e.y[i]!) + 2; yy++) for (let xx = Math.floor(e.x[i]!) - 2; xx <= Math.floor(e.x[i]!) + 2; xx++) {
       if (!tm.inside(xx, yy)) continue;
       const t = tm.get(xx, yy);
-      if (t !== this.T.tree && t !== this.T.rock && t !== this.T.rubble) continue;
+      if (t !== this.T.tree && t !== this.T.rock && t !== this.T.rubble && (t !== this.T.herbs || this.T.herbs < 0)) continue;
       const d = Math.hypot(xx + 0.5 - e.x[i]!, yy + 0.5 - e.y[i]!);
       if (d < bd) { bd = d; best = yy * tm.w + xx; }
     }
@@ -301,12 +307,13 @@ export class Survival {
     const tx = best % tm.w, ty = (best / tm.w) | 0, t = tm.tiles[best]!;
     if (t === this.T.tree && w.land.inRing(m, tx, ty)) return { code: 'tooThick' };
     const got = this.take1(i, m, tx, ty, t);
-    return { code: t === this.T.tree ? 'chopped' : 'mined', got, hard: t === this.T.rock };
+    return { code: t === this.T.tree ? 'chopped' : t === this.T.herbs ? 'herbs' : 'mined', got, hard: t === this.T.rock };
   }
   /** One piece from a tree / rock / rubble tile (it wears down): what was got. */
   private take1(i: number, m: number, tx: number, ty: number, t: number): Record<string, number> {
     const w = this.w, tm = w.maps[m]!.tiles, got: Record<string, number> = {};
     if (t === this.T.tree) { tm.damage(tx, ty, 20); got.wood = (this.inv(i).axe ?? 0) > 0 ? 2 : 1; }
+    else if (t === this.T.herbs) { tm.set(tx, ty, this.T.grass); got.herb = w.rng.chance(0.4) ? 2 : 1; } // a patch of healing herbs: picked clean, grows back elsewhere
     else if (t === this.T.rock) { tm.damage(tx, ty, ROCK_HIT); if (w.rng.chance(ROCK_STONE)) got.stone = 1; if (w.rng.chance(ORE_CHANCE)) got.ore = 1; } // hard and poor (imad 2026-11-25: rocks and ore are rare and hard)
     else { tm.damage(tx, ty, 10); if (w.rng.chance(0.5)) got.brick = 1; else got.stone = 1; if (w.rng.chance(0.3)) got.scrap = 1; }
     for (const [k, n] of Object.entries(got)) this.add(i, k, n);
@@ -348,7 +355,7 @@ export class Survival {
   /** Start getting one piece of a resource: the nearest tree (wood) or rubble (stone, scrap). True or why not. */
   gather(i: number, what: Res): true | string {
     if (what === 'leather' || what === 'claw') return this.hunt(i, what === 'claw' ? 'wolf' : '');
-    const tiles = what === 'wood' ? [this.T.tree] : what === 'ore' ? [this.T.rock] : what === 'stone' ? [this.T.rubble, this.T.rock] : [this.T.rubble];
+    const tiles = what === 'herb' ? [this.T.herbs] : what === 'wood' ? [this.T.tree] : what === 'ore' ? [this.T.rock] : what === 'stone' ? [this.T.rubble, this.T.rock] : [this.T.rubble];
     let t = -1, bd = Infinity;
     const e = this.w.e, W = this.W(i);
     for (const tile of tiles) {
@@ -356,7 +363,7 @@ export class Survival {
       const k = this.w.ai.goap ? this.findTile(i, tile) : this.nearestTile(i, tile, 60);
       if (k >= 0) { const d = Math.hypot((k % W) - e.x[i]!, ((k / W) | 0) - e.y[i]!); if (d < bd) { bd = d; t = k; } }
     }
-    if (t < 0) return what === 'wood' ? 'there are no trees near here' : what === 'ore' ? 'there are no rocks near here' : 'there is no rubble near here';
+    if (t < 0) return what === 'herb' ? 'there are no herbs near here' : what === 'wood' ? 'there are no trees near here' : what === 'ore' ? 'there are no rocks near here' : 'there is no rubble near here';
     // (with goap on the search covers the whole map: the words then mean "none anywhere here")
     return this.begin(i, { kind: what === 'wood' ? 'chop' : this.w.maps[this.w.e.map[i]!]!.tiles.tiles[t] === this.T.rock ? 'mine' : 'dig', m: this.w.e.map[i]!, tx: t % W, ty: (t / W) | 0, work: 0 });
   }
@@ -1071,6 +1078,7 @@ export class Survival {
   update(): void {
     const w = this.w, e = w.e;
     if (this.lastTick < 0) this.init();
+    this.autoHeal();
     const dg = (w.tick - this.lastTick) * w.dt * w.opt.clockScale;
     this.lastTick = w.tick;
     for (const [id, j] of this.jobs) {
@@ -1137,7 +1145,7 @@ export class Survival {
       }
       case 'guard': return w.gameSec >= (j.n ?? 0) ? true : false; // stand at the post until the shift ends (a fight or hunger ends it earlier)
       case 'dig': case 'mine': {
-        if (tm.tiles[k] !== this.T.rubble && tm.tiles[k] !== this.T.rock) return 'that is gone';
+        if (tm.tiles[k] !== this.T.rubble && tm.tiles[k] !== this.T.rock && (tm.tiles[k] !== this.T.herbs || this.T.herbs < 0)) return 'that is gone';
         this.take1(i, j.m, j.tx, j.ty, tm.tiles[k]!);
         void mapId;
         return true;
@@ -1374,6 +1382,7 @@ export class Survival {
     if (T.tree < 0) return;
     for (let mi = 0; mi < w.maps.length; mi++) {
       this.regrowRubble(mi);
+      this.regrowHerbs(mi);
       const mp = w.maps[mi]!, tm = mp.tiles, n = this.countRes(mi);
       let tg = this.resTarget[mi];
       if (!tg) {
@@ -1434,6 +1443,50 @@ export class Survival {
       if (tm.base[k] !== T.rubble || tm.tiles[k] !== tm.breaksTo[T.rubble]) continue;
       if (!this.growOk(mi, k, 15, true)) continue;
       tm.set(k % tm.w, (k / tm.w) | 0, T.rubble); n++;
+    }
+  }
+  /**
+   * Healing herbs (imad 2026-11-25: first-aid kits "crafted from herbs collected"): patches on grass next to trees, a steady number
+   * per map (HERBS_WILD / HERBS_TOWN); picked ones grow back elsewhere, about a quarter of what is missing an hour, out of sight.
+   */
+  private regrowHerbs(mi: number): void {
+    const w = this.w, T = this.T, mp = w.maps[mi]!, tm = mp.tiles;
+    if (T.herbs < 0 || T.grass < 0 || T.tree < 0) return;
+    let now = 0;
+    for (let k = 0; k < tm.tiles.length; k++) if (tm.tiles[k] === T.herbs) now++;
+    const lack = (mp.def.gen.type === 'wilds' ? HERBS_WILD : HERBS_TOWN) - now;
+    if (lack <= 0) return;
+    const want = Math.max(1, Math.ceil(lack * 0.25));
+    for (let s = 0, n = 0; s < 600 && n < want; s++) {
+      const t = w.rng.int(tm.tiles.length), x = t % tm.w, y = (t / tm.w) | 0;
+      if (tm.tiles[t] !== T.tree) continue;
+      const nx = x + w.rng.int(5) - 2, ny = y + w.rng.int(5) - 2;
+      if (!tm.inside(nx, ny) || tm.get(nx, ny) !== T.grass) continue;
+      const k = ny * tm.w + nx;
+      if (!this.growOk(mi, k, 10)) continue;
+      tm.set(nx, ny, T.herbs); n++;
+    }
+  }
+  /**
+   * Use a first-aid kit (imad 2026-11-25): +MEDKIT_HEAL health. Players from the bag screen / the wheel; AI people when hurt
+   * (`autoHeal`). Codes: healed / noMedkit / fullHp.
+   */
+  useMedkit(i: number): { ok: boolean; code: string; hp?: number } {
+    const w = this.w, e = w.e, max = w.sc.agents.hp;
+    if ((this.inv(i).medkit ?? 0) < 1) return { ok: false, code: 'noMedkit' };
+    if (e.hp[i]! >= max - 1) return { ok: false, code: 'fullHp', hp: Math.round(e.hp[i]!) };
+    this.add(i, 'medkit', -1);
+    e.hp[i] = Math.min(max, e.hp[i]! + MEDKIT_HEAL);
+    w.emit('heal', { id: e.id(i), who: e.id(i), hp: Math.round(e.hp[i]!), kit: true });
+    return { ok: true, code: 'healed', hp: Math.round(e.hp[i]!) };
+  }
+  /** AI people use a kit when badly hurt and not in the middle of a fight (every 20 ticks). */
+  autoHeal(): void {
+    const w = this.w, e = w.e, max = w.sc.agents.hp;
+    for (let i = 0; i < e.hi; i++) {
+      if (e.kind[i] !== Kind.Agent || e.hp[i]! <= 0 || e.hp[i]! > max * 0.55 || e.act[i] === Act.Fight) continue;
+      if (w.family.dependent(i)) continue;
+      if ((this.inv(i).medkit ?? 0) > 0) this.useMedkit(i);
     }
   }
   /** Trees (outside the ring nobody can cut) and rocks on map m. */
@@ -1660,6 +1713,13 @@ export class Survival {
       if (camp && (st?.food ?? 0) < n * 2 && w.rng.chance(0.5)) { start(best((x) => tr(x).empathy), 'collect food and store it', [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]); if (!free.length) continue; }
       const fields = [...this.farms.keys()].filter((k) => k.startsWith(mi + ':')).length;
       if (camp && fields < Math.ceil(n / 2) && w.rng.chance(0.35)) { start(best((x) => tr(x).intelligence), 'plant a field', [{ do: 'farm' }]); if (!free.length) continue; }
+      // First-aid kits (imad 2026-11-25): a kind person picks herbs and makes one when nobody here has a kit.
+      if (this.T.herbs >= 0 && w.rng.chance(0.3) && !free.some((x) => (this.inv(x).medkit ?? 0) > 0)) {
+        const hl = best((x) => tr(x).empathy + tr(x).intelligence * 0.5), hv = this.inv(hl);
+        if ((hv.herb ?? 0) >= 3 && (hv.leather ?? 0) >= 1) start(hl, 'make a first-aid kit', [{ do: 'craft', what: 'medkit' }]);
+        else if ((hv.herb ?? 0) < 3) start(hl, 'pick herbs for a first-aid kit', [{ do: 'gather', what: 'herb', times: 3 - (hv.herb ?? 0) }, ...((hv.leather ?? 0) >= 1 ? [{ do: 'craft', what: 'medkit' }] : [])]);
+        if (!free.length) continue;
+      }
       const i = best((x) => (tr(x).speed + tr(x).courage) / 2 + (this.weapon(x)[1] > 0 ? 0.2 : 0));
       const v = this.inv(i), hasW = this.weapon(i)[1] > 0;
       const prey = w.animals.nearest(mi, e.x[i]!, e.y[i]!, 70);
