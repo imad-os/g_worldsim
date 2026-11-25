@@ -493,3 +493,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   mesh with vertex colours per coat (+ golden mane for legendary), Idle / Eating / Walk / Gallop by speed, saddle when tamed, rare = blue ground glow,
   legendary = gold ring + sparks; rider pose `People.add(..., seat)`. Strings `i18n7.ts`. Action `horse` (unbound; wheel + Actions).
   Tests `horses.test.ts`; proof `ADMIN_TOKEN=... node tools/horse-proof.mjs <server> <sdk.js> <outdir>`.
+
+## Panel chat of my character (imad 2026-11-25)
+- `ai/chatroom.ts` (`App.chats`), panel page Chat (`panel/src/chat.ts`, nav for players too; CSS `.chatpg`, NOT `.chat` = the person page's talk box).
+  Player commands (PLAYER_CMDS, account with a character): `chats` (channels + unread + people), `chatRead { chan, before? }`, `chatSend { chan | to, text }`;
+  admin token = no character (`chats` -> `{ token: true }`, the page explains). Live Notice `chat` to the readers' panels (`NetServer.noticeAccounts`).
+- Channels: `world`, `clan:<id>`, `dm:<a>:<b>` (a < b). SQLite `chat_msgs` (400 per channel), read marks meta `chat_read:<char id>`.
+- Answers = ONE `Planner.chat(i, playerName, text, slot, via)` each (`via` dm / world / clan: no stop-and-face, written back, prompt says how it
+  was written; orders / plans work from far). World: the person named, else (AI ready, 20 s gap) one who likes the speaker; clan: up to 2 (named,
+  leader, liked), 10 s gap; DM: always, one at a time per person. No unnamed answers while the AI is off.
+- People write by themselves, no AI call: `Planner.onTaskEnd` -> "Done: <task>." / "I couldn't ...: why" to whoever gave the task in words;
+  hurt / starving on a player's task (every 10 s check); world news (birth, wedding, divorce, death, alarm 1 / game h / map, camp leader); clan
+  news (AI leader's order, joins, election). Test chat.test.ts; proof `node tools/chat-proof.mjs <outdir>` (fake Firebase + model).

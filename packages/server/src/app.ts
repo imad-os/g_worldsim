@@ -32,6 +32,7 @@ import { Control } from './ops/control.js';
 import { Agent } from './ops/agent.js';
 import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
 import { ErrorLog } from './ops/errors.js';
+import { Chats } from './ai/chatroom.js';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
@@ -41,7 +42,7 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
@@ -82,6 +83,7 @@ export class App {
   /** The brain in use failing 3 calls in a row = the fallback brain for 30 min. */
   failover = new Failover();
   planner!: Planner;
+  chats!: Chats;
   readonly monitor = new Monitor();
   lastSnapshotAt = 0;
   private timers: NodeJS.Timeout[] = [];
@@ -411,6 +413,14 @@ export class App {
     for (let i = 0; i < w.e.hi; i++) { const n = w.e.alive(i) ? w.charName(i) : ''; if (n && !this.net.residents.has(n)) this.net.adopt(n, i); }
     this.net.spawnResidents([...this.players.list().map((p) => p.name), ...this.accounts.list().map((a) => a.name).filter(Boolean)]);
     this.net.playerCmd = (c, uid) => this.playerCmd(c, uid);
+    // Panel chat for a player's own character (ai/chatroom.ts): direct chats, the world channel, the clan channel.
+    this.chats = new Chats(this.db, w, this.planner, {
+      charOf: (name) => { const id = this.net.residents.get(name); return id !== undefined && w.e.slot(id) >= 0 ? id : -1; },
+      playerOf: (id) => w.profiles.get(id)?.player ?? '',
+      aiReady: () => this.ai.status().ready,
+      notify: (to, m) => this.net.noticeAccounts(to, 'chat', m),
+    });
+    this.planner.onTaskEnd = (id, from, text, ok, why) => this.chats.taskEnded(id, from, text, ok, why);
     // The owner's strict rules (sim/rules.ts): everyone's are in the database, each person's in their profile.
     { const r = this.db.getMeta('rules_all'); if (r) { try { this.world.rules.all = JSON.parse(r) as Rule[]; } catch { /* broken: none */ } } }
     this.world.rules.resolve((n) => this.planner.whoIs(n));
@@ -441,6 +451,7 @@ export class App {
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
     this.sampleHistory();
     this.timers.push(setInterval(() => this.sampleHistory(), 60_000));
+    this.timers.push(setInterval(() => { if (!this.loop.paused) try { this.chats.check(); } catch (err) { this.log.warn('chat check', { err: String(err) }); } }, 10_000));
     this.timers.push(setInterval(() => { void this.planner.tick(this.loop.paused).catch((err) => this.log.warn('planner', { err: String((err as Error)?.stack ?? err) })); }, 2000));
     this.timers.push(setInterval(() => { try { this.events.flush(); } catch (err) { this.log.error('event flush', { err: String(err) }); } }, 1000));
     this.timers.push(setInterval(() => { this.fallbackCheck(); try { this.brainStats.flush(); } catch (err) { this.log.error('brain stats', { err: String(err) }); } }, 15_000));
@@ -740,6 +751,13 @@ export class App {
         this.net.spawnResidents([name]);
         this.world.emit('joined', { name, who: a.email });
         return { name };
+      }
+      case 'chats': case 'chatRead': case 'chatSend': {
+        const me = a.name ? this.net.residents.get(a.name) : undefined;
+        if (me === undefined || this.world.e.slot(me) < 0) throw new Error(a.name ? 'your character is not in the world right now' : 'join the world first (My character page)');
+        if (c.cmd === 'chats') return this.chats.list(me);
+        if (c.cmd === 'chatRead') return this.chats.read(me, String(c.chan ?? ''), Math.max(0, Math.floor(Number(c.before) || 0)));
+        return this.chats.send(me, a.name, { chan: c.chan !== undefined ? String(c.chan) : undefined, to: c.to !== undefined ? Number(c.to) : undefined, text: String(c.text ?? '') });
       }
       case 'approveMine': {
         if (!a.name) throw new Error('join the world first');
@@ -1460,6 +1478,8 @@ export class App {
       }
       // A person's own commands reach here only from the admin token (Firebase sign-ins go to playerCmd): the token is not an account.
       case 'me': return { token: true, name: '', role: owner ? 'owner' : 'admin', email: '', tv: false, character: null, clock: this.clock() };
+      case 'chats': return { token: true, me: -1, chans: [], people: [] };
+      case 'chatRead': case 'chatSend': throw new Error('signed in with the admin token, which has no character: sign in with Google or email to chat as your character');
       case 'joinWorld': case 'approveMine': case 'revokeMine': throw new Error('signed in with the admin token, which is not an account: sign in with Google or email to have your own character');
       case 'errors': return { ...this.errors.list({ limit: c.limit !== undefined ? fixed(c.limit, 1, 1000, 'limit') : 200, source: c.source ? String(c.source) : undefined, level: c.level ? String(c.level) : undefined, q: c.q ? String(c.q).slice(0, 100) : undefined, since: c.since !== undefined ? fixed(c.since, 0, 1e15, 'since') : undefined }), build: this.build };
       case 'errorsClear': return { removed: this.errors.clear(c.id !== undefined ? fixed(c.id, 0, 2 ** 31, 'id') : undefined) };

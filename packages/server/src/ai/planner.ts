@@ -149,6 +149,7 @@ export class Planner {
       return now && now.partner !== idb ? 'ok' : `${pb.name} would not divorce`;
     };
     w.tasks.onEnd = (id, t, ok, why) => {
+      this.onTaskEnd(id, t.from, t.text, ok, why);
       this.note(id, ok ? `I did what ${t.from === 'owner' ? 'the voice from the sky' : t.from} asked: ${t.text}.` : `I could not ${t.text}: ${why}.`, true);
       const i = w.e.slot(id);
       if (!ok && i >= 0) this.say(i, cleanLine(`I couldn't ${t.text.replace(/^(to )?/, '')}: ${why}.`, ''));
@@ -161,6 +162,9 @@ export class Planner {
     }
     w.listeners.push((ev) => this.onEvent(ev));
   }
+
+  /** A task ended (the panel chat tells whoever asked for it: ai/chatroom.ts). */
+  onTaskEnd: (id: number, from: string, text: string, ok: boolean, why: string) => void = () => {};
 
   /** force = the owner said yes to a value outside the usual range (still > 0). */
   set(p: Partial<PlannerConfig>, force = false): PlannerConfig {
@@ -469,7 +473,7 @@ export class Planner {
    * the speaker's own words ("come", "follow me", "viens"...) and an answer that agrees ("I'm coming") count too.
    * Built-in lines when the AI is off or fails.
    */
-  async chat(i: number, from: string, text: string | null, player = -1): Promise<{ reply: string; ai: boolean; did: string }> {
+  async chat(i: number, from: string, text: string | null, player = -1, via?: 'dm' | 'world' | 'clan'): Promise<{ reply: string; ai: boolean; did: string }> {
     const w = this.w, e = w.e;
     if (i < 0 || (e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
     const id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!;
@@ -485,7 +489,7 @@ export class Planner {
       return { reply, ai: false, did: '' };
     }
     if (text) this.convo.add(w.gameSec, player >= 0 ? e.id(player) : owner ? -2 : -1, id, text);
-    if (player >= 0 && !byHand) w.brain.listen(i, player, 30);
+    if (player >= 0 && !byHand && !via) w.brain.listen(i, player, 30); // a written message (panel chat) does not stop them
     // My clan's elected leader speaking (a player leading the clan): loyal members do what they ask (imad 2026-11-25).
     const myClan = w.clans.clanOf(id), boss = !owner && player >= 0 && !!myClan && myClan.leader === e.id(player) && myClan.leader !== id;
     const loyalBoss = boss && w.rng.chance(0.25 + w.clans.loyalty(id) * 0.75);
@@ -502,6 +506,8 @@ export class Planner {
     if (st.ready && (e.act[i] !== Act.Sleep || owner)) {
       const present = this.presentNames(i);
       const prompt = [this.describe(i), `People you can name: ${present.join(', ') || 'nobody'}.`, '',
+        ...(via ? [via === 'dm' ? 'This is a written message only to you (you are not next to them: "come" means walk to where they are).'
+          : `This is written in the ${via === 'world' ? 'world channel, which everyone reads' : 'clan channel, which your clan reads'}; answer for yourself, briefly.`] : []),
         text ? `${who} says to you: "${text.slice(0, 300)}"` : `${who} walks up to you.`,
         `Your feeling about them: ${Math.round(mind.rel[key] ?? 0)} (-5..5).`,
         'If you are asked to do something and you agree, say what you do in "do" (come = walk to the one speaking to you; follow = keep '
@@ -615,7 +621,8 @@ export class Planner {
     this.note(id, (text ? `${owner ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`)
       + (did ? ` I will ${did}.` : ''), !!text);
     this.feel(id, key, 0.5);
-    if (e.slot(id) === i) this.say(i, reply, true);
+    if (via) this.convo.add(w.gameSec, id, player >= 0 ? e.id(player) : -1, reply); // written back, not said aloud
+    else if (e.slot(id) === i) this.say(i, reply, true);
     return { reply, ai: usedAi, did };
   }
 

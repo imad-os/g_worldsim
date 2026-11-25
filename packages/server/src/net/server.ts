@@ -76,7 +76,7 @@ function safeEq(a: string, b: string): boolean {
 }
 
 /** Commands a Firebase player may send (all about themselves). */
-const PLAYER_CMDS = new Set(['me', 'joinWorld', 'approveMine', 'revokeMine']);
+const PLAYER_CMDS = new Set(['me', 'joinWorld', 'approveMine', 'revokeMine', 'chats', 'chatRead', 'chatSend']);
 
 const isNum = (v: unknown, lo = -1e9, hi = 1e9): v is number => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 
@@ -503,6 +503,16 @@ export class NetServer {
   say(m: number, data: { id: number; name: string; text: string }): void {
     for (const s of this.sessions.values()) {
       if (s.role === 'admin' || (s.view && s.view.map === m)) this.send(s, { t: Msg.Notice, kind: 'say', data });
+    }
+  }
+
+  /** Panels signed in with an account whose character is one of `names` (null = every signed-in account with a character). */
+  noticeAccounts(names: string[] | null, kind: string, data: unknown): void {
+    const want = names ? new Set(names) : null;
+    for (const s of this.sessions.values()) {
+      if (!s.ws || !s.acct) continue;
+      const n = this.o.accounts?.get(s.acct.uid)?.name;
+      if (n && (!want || want.has(n))) this.send(s, { t: Msg.Notice, kind, data });
     }
   }
 

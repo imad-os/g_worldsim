@@ -12,6 +12,7 @@ import * as fb from './fb.js';
 import { meScreen, usersScreen } from './account.js';
 import { coderScreen } from './coder.js';
 import { analysisScreen } from './analysis.js';
+import { chatScreen, chatNotice, chatBadge } from './chat.js';
 import { account, isStaff } from './api.js';
 const val2 = (id: string) => ($(id) as HTMLInputElement).value.trim();
 
@@ -19,9 +20,9 @@ const val2 = (id: string) => ($(id) as HTMLInputElement).value.trim();
  * World control panel 2 (imad 2026-11-20: "advanced, informative, '?' guides, responsive, a dashboard, a screen for
  * each kind of thing, hosted on GitHub"). One page, hash routes, a side menu on wide screens and a bottom bar on phones.
  */
-const ROUTES: Record<string, Screen> = { me: meScreen, users: usersScreen, dashboard, people: peopleScreen, person: personScreen, world, zombies, crafting, rules, ai, analysis: analysisScreen, agent: coderScreen, players, events, server, errors: errorsScreen, settings };
-const STAFF_NAV = ['dashboard', 'people', 'world', 'zombies', 'crafting', 'rules', 'ai', 'analysis', 'agent', 'players', 'events', 'server', 'errors', 'me', 'users', 'settings'];
-const PLAYER_NAV = ['me', 'settings'];
+const ROUTES: Record<string, Screen> = { me: meScreen, chat: chatScreen, users: usersScreen, dashboard, people: peopleScreen, person: personScreen, world, zombies, crafting, rules, ai, analysis: analysisScreen, agent: coderScreen, players, events, server, errors: errorsScreen, settings };
+const STAFF_NAV = ['dashboard', 'people', 'world', 'zombies', 'crafting', 'rules', 'ai', 'analysis', 'agent', 'players', 'events', 'server', 'errors', 'me', 'chat', 'users', 'settings'];
+const PLAYER_NAV = ['me', 'chat', 'settings'];
 let NAV = STAFF_NAV;
 const BOTTOM = ['dashboard', 'people', 'world', 'events'];
 
@@ -124,6 +125,7 @@ listeners.welcome = () => {
     $('moreBtn').onclick = () => { $('sheet').hidden = false; };
     $('pauseBtn').hidden = !isStaff();
   }
+  chatBadge();
   outdatedBanner();
   errNew = build?.errors24h && Number(load('errSeen', 0)) < Date.now() - 60_000 ? Math.min(build.errors24h, 999) : 0; errBadge();
   if (!isStaff()) { if (first) route(); else cur?.refresh?.(); return; }
@@ -150,6 +152,7 @@ listeners.notice = (kind, data) => {
   if (kind === 'paired' && curKey === 'players') void cur?.refresh?.();
   if (kind === 'say') { const d = data as { id: number; name: string; text: string }; personSaid(d.id, d.name, d.text); if (load('sayToasts', false)) toast(`${d.name}: “${d.text}”`); }
   if (kind === 'error') { if (curKey === 'errors') { if (!document.querySelector('#eList details[open]')) void cur?.refresh?.(); } else { errNew++; errBadge(); } }
+  if (kind === 'chat') chatNotice(data as Parameters<typeof chatNotice>[0]);
   if (kind === 'url') toast(`Internet link changed: ${(data as { url: string }).url}`);
 };
 

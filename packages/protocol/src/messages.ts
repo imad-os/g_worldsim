@@ -45,6 +45,10 @@ export type AdminCmd =
   | { cmd: 'joinWorld'; name: string }
   | { cmd: 'approveMine'; code: string }
   | { cmd: 'revokeMine' }
+  /** Panel chat of my character: my channels, a channel's messages (older ones with `before`), write (`chan`, or `to` = a person's id). */
+  | { cmd: 'chats' }
+  | { cmd: 'chatRead'; chan: string; before?: number }
+  | { cmd: 'chatSend'; chan?: string; to?: number; text: string }
   // staff
   | { cmd: 'accounts' }
   | { cmd: 'speed'; speed: number }
