@@ -1,6 +1,9 @@
-/** Texts of aimed building, homes and hard rocks (imad 2026-11-25) in en, fr, es, ar. */
+/** Texts of aimed building, pulling down, homes and hard rocks (imad 2026-11-25) in en, fr, es, ar. */
 export const TB = {
   en: {
+    bDestroy: 'Pull down (your own buildings)', bDestroyV: 'aim', dsPad: 'Stick: move · {0}: pull down · {1}: cancel', dsRemote: 'Arrows: move · OK: pull down · Back: cancel',
+    dsOk: 'yours: you can pull it down', dsNothing: 'nothing built here', dsNotYours: 'it belongs to {0}: only they can pull it down', dsUnknown: 'nobody knows whose it is: it stays',
+    dsWait: 'looking…', dsDone: 'Pulled down. What it was made of is back in your bag.',
     plTitle: 'Building: {0}', plPad: 'Stick: move · {0}: build here · {1}: turn · {2}: cancel', plRemote: 'Arrows: move · OK: build here · {0}: turn · Back: cancel',
     plBad: 'Not here: {0}', plOk: 'Good spot', plDoor: 'the door faces {0}', plSent: 'Building…',
     dirS: 'south', dirE: 'east', dirN: 'north', dirW: 'west',
@@ -11,6 +14,9 @@ export const TB = {
     meHut2: 'Build a hut here ({0})', needHut2: 'A hut needs {0}.',
   },
   fr: {
+    bDestroy: 'Démolir (tes propres constructions)', bDestroyV: 'viser', dsPad: 'Stick : déplacer · {0} : démolir · {1} : annuler', dsRemote: 'Flèches : déplacer · OK : démolir · Retour : annuler',
+    dsOk: 'à toi : tu peux le démolir', dsNothing: 'rien de construit ici', dsNotYours: 'c\'est à {0} : lui seul peut le démolir', dsUnknown: 'personne ne sait à qui c\'est : ça reste',
+    dsWait: 'je regarde…', dsDone: 'Démoli. Ses matériaux sont revenus dans ton sac.',
     plTitle: 'Construction : {0}', plPad: 'Stick : déplacer · {0} : construire ici · {1} : tourner · {2} : annuler', plRemote: 'Flèches : déplacer · OK : construire ici · {0} : tourner · Retour : annuler',
     plBad: 'Pas ici : {0}', plOk: 'Bon endroit', plDoor: 'la porte donne au {0}', plSent: 'Construction…',
     dirS: 'sud', dirE: 'est', dirN: 'nord', dirW: 'ouest',
@@ -21,6 +27,9 @@ export const TB = {
     meHut2: 'Construire une cabane ici ({0})', needHut2: 'Une cabane demande {0}.',
   },
   es: {
+    bDestroy: 'Derribar (tus propias construcciones)', bDestroyV: 'apuntar', dsPad: 'Stick: mover · {0}: derribar · {1}: cancelar', dsRemote: 'Flechas: mover · OK: derribar · Atrás: cancelar',
+    dsOk: 'es tuyo: puedes derribarlo', dsNothing: 'aquí no hay nada construido', dsNotYours: 'es de {0}: solo esa persona puede derribarlo', dsUnknown: 'nadie sabe de quién es: se queda',
+    dsWait: 'mirando…', dsDone: 'Derribado. Sus materiales vuelven a tu bolsa.',
     plTitle: 'Construir: {0}', plPad: 'Stick: mover · {0}: construir aquí · {1}: girar · {2}: cancelar', plRemote: 'Flechas: mover · OK: construir aquí · {0}: girar · Atrás: cancelar',
     plBad: 'Aquí no: {0}', plOk: 'Buen sitio', plDoor: 'la puerta da al {0}', plSent: 'Construyendo…',
     dirS: 'sur', dirE: 'este', dirN: 'norte', dirW: 'oeste',
@@ -31,6 +40,9 @@ export const TB = {
     meHut2: 'Construir una cabaña aquí ({0})', needHut2: 'Una cabaña necesita {0}.',
   },
   ar: {
+    bDestroy: 'هدم (مبانيك أنت)', bDestroyV: 'صوب', dsPad: 'العصا: تحريك · {0}: اهدم · {1}: إلغاء', dsRemote: 'الأسهم: تحريك · OK: اهدم · رجوع: إلغاء',
+    dsOk: 'ملكك: يمكنك هدمه', dsNothing: 'لا يوجد بناء هنا', dsNotYours: 'إنه ملك {0}: وحده يمكنه هدمه', dsUnknown: 'لا أحد يعرف لمن هو: يبقى',
+    dsWait: 'أنظر…', dsDone: 'تم الهدم. عادت مواده إلى حقيبتك.',
     plTitle: 'بناء: {0}', plPad: 'العصا: تحريك · {0}: ابن هنا · {1}: تدوير · {2}: إلغاء', plRemote: 'الأسهم: تحريك · OK: ابن هنا · {0}: تدوير · رجوع: إلغاء',
     plBad: 'ليس هنا: {0}', plOk: 'مكان جيد', plDoor: 'الباب نحو {0}', plSent: 'جار البناء…',
     dirS: 'الجنوب', dirE: 'الشرق', dirN: 'الشمال', dirW: 'الغرب',

@@ -15,6 +15,7 @@ import { FirebaseAuth } from './auth/firebase.js';
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
+import { PLACE_REACH } from './sim/survival.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
 import type { AttackPlan } from './sim/zombies.js';
@@ -48,7 +49,7 @@ const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysi
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give',
-  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm']);
+  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm', 'destroy', 'reset']);
 
 /** Warnings that only say what happened (the server log keeps them): not problems for the error log. */
 const NOT_PROBLEMS = new Set(['restart asked', 'restarting', 'agent action', 'restore scheduled for the next start', 'database restored from a backup']);
@@ -339,6 +340,21 @@ export class App {
         const d = Math.hypot(e.x[t]! - x, e.y[t]! - y), dmg = (d < 10 ? 30 : d < 16 ? 24 : 18) * w.gear.bowMul(player);
         if (e.kind[t] === Kind.Threat) return { ok: true, code: w.zombies.hit(t, dmg, player) ? 'zKilled' : 'zHit', left: inv.arrows ?? 0 };
         return { ...this.hitAnimal(player, t, dmg), left: inv.arrows ?? 0 };
+      }
+      if (a === 'destroy') {
+        // "tx,ty" = pull down what stands there (own buildings, or a dead owner's: imad 2026-11-25); "tx,ty,?" = only ask (the TV's aim).
+        const at = /^(\d+),(\d+)(,\?)?$/.exec(String(text ?? '').trim()), m = e.map[player]!, tm = w.maps[m]!.tiles;
+        if (!at) return { ok: false, code: 'nothing' };
+        const tx = Number(at[1]), ty = Number(at[2]);
+        if (at[3]) {
+          if (!tm.inside(tx, ty)) return { ok: false, code: 'nothing', tx, ty, check: true };
+          const k = ty * tm.w + tx, far = Math.hypot(tx + 0.5 - e.x[player]!, ty + 0.5 - e.y[player]!) > PLACE_REACH;
+          const c = far ? 'tooFar' : sv.mayDestroy(player, m, k), o = sv.ownerOf(m, k);
+          return { ok: !c, code: c, tx, ty, check: true, cells: c === 'nothing' ? [k] : sv.destroyCells(m, k), owner: o >= 0 ? w.profiles.get(o)?.name ?? '' : '' };
+        }
+        const c = sv.destroyAt(player, tx, ty);
+        if (c === 'destroyed') w.gear.play(player, 'build');
+        return { ok: c === 'destroyed', code: c, tx, ty };
       }
       if (a === 'build') {
         // "what#tx,ty,dir" = exactly there (aimed with the TV's ghost, imad 2026-11-25); older TVs: "what" or "what@angle" = in front.
@@ -1097,6 +1113,15 @@ export class App {
         const again = this.net.reconnect(from) + this.net.reconnect(into);
         w.emit('merged', { from, into });
         return { renamed, characters: keepInto ? 'kept into' : ia >= 0 ? 'from kept, now called into' : 'none to move', reconnected: again };
+      }
+      case 'resetBuildings': { // imad 2026-11-25: "a button to reset the world from all buildings and start over"; a backup first
+        const mapId = String(c.map ?? '').trim(), m = mapId ? w.maps.findIndex((x) => x.def.id === mapId) : -1;
+        if (mapId && m < 0) throw new Error(`no map called ${mapId}`);
+        this.snapshot();
+        const backup = this.control.backup('before-reset');
+        const r = w.survival.resetBuildings(m);
+        this.snapshot();
+        return { ...r, map: mapId || 'all', backup };
       }
       case 'playerDelete': { // imad 2026-11-25: "an option to delete players too": TV link, character, bag, place, account link; a backup first
         const name = String(c.name ?? '').trim();

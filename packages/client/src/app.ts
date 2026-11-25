@@ -625,12 +625,26 @@ function startPlacing(what: string): void {
     placing = { what, tx: Math.floor(cx - 2), ty: Math.floor(cy - 2), dir, moveAt: 0, sent: false };
   } else placing = { what, tx: Math.floor(x + Math.cos(a) * 1.6), ty: Math.floor(y + Math.sin(a) * 1.6), dir: 0, moveAt: 0, sent: false };
   sound.play('ui_open');
+  askDestroy();
   placeNote();
 }
-function stopPlacing(): void { if (!placing) return; placing = null; g3?.ghost(null); noteEl.hidden = true; updateHints(); }
+function stopPlacing(): void { if (!placing) return; placing = null; destroyInfo = null; g3?.ghost(null); noteEl.hidden = true; updateHints(); }
+/** Pulling down (imad 2026-11-25): the server says whose the aimed thing is and what comes down with it (a whole hut). */
+let destroyInfo: { tx: number; ty: number; code: string; cells: number[]; owner: string } | null = null;
+let destroyAsk = 0;
+function askDestroy(): void {
+  if (!placing || placing.what !== 'destroy') return;
+  const p = placing;
+  clearTimeout(destroyAsk);
+  destroyAsk = window.setTimeout(() => { if (placing === p) send({ t: Msg.Do, a: 'destroy', text: `${p.tx},${p.ty},?` }); }, 120);
+}
 /** '' = it can go there (as far as this screen knows: the server has the last word), else the code. */
 function placeCheck(p: NonNullable<typeof placing>): string {
   const x = focusX(), y = focusY();
+  if (p.what === 'destroy') {
+    if (Math.hypot(p.tx + 0.5 - x, p.ty + 0.5 - y) > PLACE_REACH) return 'tooFar';
+    return destroyInfo && destroyInfo.tx === p.tx && destroyInfo.ty === p.ty ? destroyInfo.code : 'wait';
+  }
   const person = (tx: number, ty: number) => {
     for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && (kind[i] === Kind.Agent || kind[i] === Kind.Player) && Math.abs(nx[i]! - tx - 0.5) < 0.9 && Math.abs(ny[i]! - ty - 0.5) < 0.9) return true;
     return false;
@@ -658,9 +672,16 @@ function placeCheck(p: NonNullable<typeof placing>): string {
   if (p.what !== 'bed' && p.what !== 'campfire' && person(p.tx, p.ty)) return 'someone';
   return '';
 }
-const PLACE_CODE: Record<string, Key> = { tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown' };
+const PLACE_CODE: Record<string, Key> = { tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait' };
 function placeNote(): void {
   if (!placing) return;
+  if (placing.what === 'destroy') {
+    const c = placeCheck(placing);
+    const keys = pads ? tf('dsPad', String(MyPC.gamepad?.label?.(0) ?? 'A'), String(MyPC.gamepad?.label?.(1) ?? 'B')) : t('dsRemote');
+    const why = c === 'notYours' ? tf('dsNotYours', destroyInfo?.owner || '?') : c === 'unknown' && destroyInfo ? t('dsUnknown') : c ? t(PLACE_CODE[c] ?? 'dsNothing') : t('dsOk');
+    note(`${tf('plTitle', t('bDestroy'))} · ${why} — ${keys}`, 0);
+    return;
+  }
   const c = placeCheck(placing), name = placing.what === 'hut' ? t('bHut2').replace(/ \(.*$/, '') : cap1(thing(placing.what));
   const keys = pads ? tf('plPad', String(MyPC.gamepad?.label?.(0) ?? 'A'), placing.what === 'hut' ? `${String(MyPC.gamepad?.label?.(2) ?? 'X')} / ${keyName('build') || 'Y'}` : '—', String(MyPC.gamepad?.label?.(1) ?? 'B'))
     : tf('plRemote', placing.what === 'hut' ? (keyName('build') || 'CH+') : '—');
@@ -676,6 +697,7 @@ function placeMove(dx: number, dy: number): void {
   if (Math.hypot(cx - focusX(), cy - focusY()) > PLACE_REACH + w / 2 + 0.8) { sound.play('ui_error'); return; }
   p.tx = nxp; p.ty = nyp;
   sound.play('ui_move', undefined, undefined, 0.5);
+  askDestroy();
   placeNote();
 }
 function placeTurn(): void { if (!placing || placing.what !== 'hut') return; placing.dir = (placing.dir + 1) % 4; sound.play('ui_move'); placeNote(); }
@@ -683,6 +705,13 @@ function placeConfirm(): void {
   if (!placing || placing.sent) return;
   const c = placeCheck(placing);
   if (c && c !== 'unknown') { sound.play('ui_error'); note(tf('plBad', t(PLACE_CODE[c] ?? 'cNoRoom')), 2000); setTimeout(placeNote, 2000); return; }
+  if (placing.what === 'destroy') {
+    if (c) { sound.play('ui_error'); return; }
+    placing.sent = true;
+    send({ t: Msg.Do, a: 'destroy', text: `${placing.tx},${placing.ty}` });
+    note(t('plSent'), 0);
+    return;
+  }
   placing.sent = true;
   send({ t: Msg.Do, a: 'build', text: `${placing.what}#${placing.tx},${placing.ty},${placing.dir}` });
   note(t('plSent'), 0);
@@ -707,6 +736,12 @@ function drawGhost(): void {
   if (!g3) return;
   if (!placing || how !== 'play') { g3.ghost(null); return; }
   const p = placing, ok = !placeCheck(p), cells: number[] = [];
+  if (p.what === 'destroy') { // what comes down (a whole hut), green = mine to pull down
+    const d = destroyInfo && destroyInfo.tx === p.tx && destroyInfo.ty === p.ty ? destroyInfo.cells : [p.ty * mapW + p.tx];
+    for (const k of d) cells.push(k % mapW, Math.floor(k / mapW), 1.6);
+    g3.ghost(cells, ok);
+    return;
+  }
   if (p.what === 'hut') {
     const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + 2 + dx * 2, dY = p.ty + 2 + dy * 2;
     for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
@@ -1064,6 +1099,16 @@ function onSttText(e: { text: string }): void {
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
   if (quests.did(d as never)) return;
+  if (d.a === 'destroy') {
+    const dd = d as typeof d & { tx?: number; ty?: number; check?: boolean; cells?: number[]; owner?: string };
+    if (dd.check) { if (placing?.what === 'destroy') { destroyInfo = { tx: dd.tx ?? -1, ty: dd.ty ?? -1, code: d.code, cells: dd.cells ?? [], owner: dd.owner ?? '' }; placeNote(); } return; }
+    if (d.ok) { stopPlacing(); sound.play('ui_ok'); note(t('dsDone'), 2500); return; }
+    if (placing) { placing.sent = false; destroyInfo = null; askDestroy(); }
+    sound.play('ui_error');
+    note(d.code === 'notYours' ? tf('dsNotYours', '?') : d.code === 'unknown' ? t('dsUnknown') : t(PLACE_CODE[d.code] ?? 'dsNothing'), 3000);
+    if (placing) setTimeout(placeNote, 3000);
+    return;
+  }
   if (d.a === 'build' && placing) { // the aimed build's answer: done = close the model, else say why and keep aiming
     if (d.ok) stopPlacing();
     else { placing.sent = false; setTimeout(placeNote, 3200); }
@@ -1200,6 +1245,7 @@ function buildPage(id: string): Page {
         const have = inv[p] ?? 0, can = !!r && Object.entries(r.need).every(([k, n]) => (inv[k] ?? 0) >= n!);
         rows.push({ id: 'b:' + p, label: `${cap1(thing(p))}${r ? ' (' + needText(r.need) + ')' : ''}`, value: have ? tf('bInBag', String(have)) : can ? t('cHave') : t('bMissing'), dim: !have && !can });
       }
+      rows.push({ id: 'b:destroy', label: t('bDestroy'), value: t('bDestroyV') });
       const bag = RESOURCES.filter((k) => (inv[k] ?? 0) > 0).map((k) => `${inv[k]} ${thing(k)}`).join(', ');
       return { id, title: t('bTitle'), rows, wide: true, html: `<p>${esc(t('bHelp2'))}</p>${bag ? `<p class="dim">${esc(t('fHave'))}: ${esc(bag)}</p>` : ''}` };
     }

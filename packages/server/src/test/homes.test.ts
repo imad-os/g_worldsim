@@ -169,3 +169,59 @@ test('natural resources come back to a steady level; rocks are hard and ore is r
   assert.ok(blows / 40 >= 5, `blows per rock ${blows / 40}`);
   assert.ok(ore / blows < 0.2, `ore per blow ${ore / blows}`);
 });
+
+test('pulling down: only your own building, or one whose owner is dead; an admin reset clears every building and starts over', () => {
+  const w = mk('home-destroy');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!, sv = w.survival, T = sv.T, tm = w.maps[town]!.tiles;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
+  w.step();
+  const s = openSpot(w, town, 60, 60);
+  const me = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5); w.playerProfile(me, 'imad');
+  const other = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 7.5); w.playerProfile(other, 'lina');
+  sv.add(me, 'wood', 14); sv.add(me, 'stone', 4); sv.add(me, 'lamp', 1);
+  assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
+  assert.equal(sv.placeAt(me, 'lamp', s.x0 + 5, s.y0 + 6), 'placed');
+  // Someone else may not; the map's own ground is not a building.
+  assert.equal(sv.destroyAt(other, s.x0 + 5, s.y0 + 6), 'notYours');
+  assert.equal(sv.destroyAt(other, s.x0, s.y0), 'notYours', 'not my hut');
+  assert.equal(sv.destroyAt(other, s.x0 + 6, s.y0 + 8), 'nothing');
+  assert.equal(sv.destroyCells(town, s.y0 * tm.w + s.x0).length, 25, 'a hut comes down whole');
+  // The owner may: the lamp goes back into the bag, the hut gives back half its materials and the home is gone.
+  assert.equal(sv.destroyAt(me, s.x0 + 5, s.y0 + 6), 'destroyed');
+  assert.notEqual(tm.get(s.x0 + 5, s.y0 + 6), tileId(w, 'lamp'));
+  assert.equal(sv.inv(me).lamp, 1);
+  assert.equal(sv.destroyAt(me, s.x0 + 2, s.y0 + 4), 'destroyed');
+  assert.equal(sv.huts[town]!.length, 0); assert.equal(sv.homes.homeOf(e.id(me)), undefined);
+  assert.equal(w.profileOf(me)!.home, undefined);
+  for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) assert.ok(!sv.builtTile(tm.get(s.x0 + xx, s.y0 + yy)), 'all its tiles are ground again');
+  assert.equal(sv.inv(me).wood, 7); assert.equal(sv.inv(me).stone, 2);
+  // An AI person's hut: nobody else may, until the owner is dead.
+  const ai = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent)!;
+  w.place(ai, town, s.x0 + 2.5, s.y0 + 7.5);
+  sv.add(ai, 'wood', 14); sv.add(ai, 'stone', 4);
+  assert.equal(sv.placeAt(ai, 'hut', s.x0, s.y0, 0), 'built');
+  w.place(other, town, s.x0 + 3.5, s.y0 + 7.5);
+  assert.equal(sv.destroyAt(other, s.x0 + 2, s.y0 + 4), 'notYours');
+  w.profileOf(ai)!.died = w.gameSec;
+  assert.equal(sv.destroyAt(other, s.x0 + 2, s.y0 + 4), 'destroyed', 'the owner is dead');
+  // An AI person pulls down their own thing by a task step.
+  const ai2 = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent && i !== ai)!;
+  w.place(ai2, town, s.x0 + 4.5, s.y0 + 7.5);
+  sv.add(ai2, 'lamp', 1);
+  assert.equal(sv.placeAt(ai2, 'lamp', s.x0 + 6, s.y0 + 7), 'placed');
+  assert.equal(sv.wreck(other, 'lamp'), 'nothing here is mine to pull down');
+  assert.equal(sv.wreck(ai2, 'lamp'), true);
+  for (let n = 0; n < 20 * 60 && tm.get(s.x0 + 6, s.y0 + 7) === tileId(w, 'lamp'); n++) w.step();
+  assert.notEqual(tm.get(s.x0 + 6, s.y0 + 7), tileId(w, 'lamp'), 'they took it down');
+  // Admin reset: every building goes, homes and camps are forgotten.
+  sv.add(me, 'wood', 14); sv.add(me, 'stone', 4);
+  w.place(me, town, s.x0 + 2.5, s.y0 + 7.5);
+  assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
+  assert.ok(sv.campOf(town));
+  const r = sv.resetBuildings();
+  assert.ok(r.tiles >= 25 && r.huts >= 1, JSON.stringify(r));
+  assert.equal(sv.huts[town]!.length, 0); assert.equal(sv.campOf(town), null); assert.equal(sv.homes.list.length, 0);
+  assert.equal(w.profileOf(me)!.home, undefined);
+  assert.equal(sv.countTiles(town, T.woodwall), 0);
+});

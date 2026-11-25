@@ -2,6 +2,7 @@ import { cmd } from './api.js';
 import { help } from './help.js';
 import { card, on, setHtml, val } from './screen.js';
 import { ago, esc, icon, toast } from './util.js';
+import { S } from './state.js';
 
 /** Server page controls (imad 2026-11-25): restart, rebuild, update from GitHub, backups, the server log. */
 interface Job { what: string; state: string; log: string; at: number; end?: number }
@@ -17,6 +18,8 @@ export function ctlCards(): string {
       <div class="row ag-btns"><button class="btn" id="cRestart">${icon('refresh')} Restart</button><button class="btn" id="cBuild">${icon('code')} Rebuild and restart</button><button class="btn primary" id="cUpdate">${icon('bolt')} Update from GitHub</button></div>
       <div id="cJob"></div>`, { help: help('serverCtl') })}
     ${card('Backups', `<div class="row"><button class="btn sm" id="cBackup">${icon('plus')} Make one now</button></div><div id="cBackups" class="feed"></div>`, { help: help('backups') })}
+    ${card('Start over', `<p class="dim small">Pull down every building (huts, walls, doors, beds, lamps, fires, fields, the store crate and what is in it). Homes and camps are forgotten; people, bags, trees and rocks stay. A backup is made first.</p>
+      <div class="row"><select id="cResetMap"><option value="">All maps</option>${(S.ov?.maps ?? []).map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</select><button class="btn danger" id="cReset">${icon('x')} Reset all buildings</button></div>`, { help: help('resetBuildings') })}
     ${card('Server log', `<div class="row"><select id="cLevel"><option value="info">Info and up</option><option value="warn">Warnings and errors</option><option value="error">Errors</option><option value="debug">Everything</option></select><button class="btn sm" id="cLogGo">${icon('refresh')} Refresh</button></div><pre id="cLog" class="ag-log"></pre>`, { cls: 'span2', help: help('serverLog') })}`;
 }
 
@@ -68,6 +71,15 @@ export async function ctlMount(): Promise<void> {
   on('#cBuild', 'click', async () => { if (!confirm('Rebuild the code on the PC, then restart?')) return; try { drawJob((await cmd<{ job: Job }>({ cmd: 'serverBuild', restart: true })).job); } catch (e) { err(e); } });
   on('#cUpdate', 'click', async () => { if (!confirm('Get the latest code from GitHub, rebuild and restart?')) return; try { drawJob((await cmd<{ job: Job }>({ cmd: 'serverUpdate', restart: true })).job); } catch (e) { err(e); } });
   on('#cBackup', 'click', async () => { try { const r = await cmd<{ list: Backup[] }>({ cmd: 'backupMake' }, 120_000); drawBackups(r.list); toast('Backup made', 'ok'); } catch (e) { err(e); } });
+  on('#cReset', 'click', async () => {
+    const m = val('cResetMap'), where = m ? (S.ov?.maps.find((x) => x.id === m)?.name ?? m) : 'every map';
+    if (!confirm(`Pull down ALL buildings on ${where} and start over? Huts, walls, doors, fires, fields and the store crate go; homes and camps are forgotten. A backup is made first (restore it below to undo).`)) return;
+    try {
+      const r = await cmd<{ tiles: number; huts: number; maps: number; backup: { file: string } }>({ cmd: 'resetBuildings', ...(m ? { map: m } : {}) }, 120_000);
+      toast(`Reset: ${r.huts} hut(s), ${r.tiles} built tile(s) removed. Backup ${r.backup.file}`, 'ok');
+      drawBackups(await cmd<Backup[]>({ cmd: 'backups' }));
+    } catch (e) { err(e); }
+  });
   on('#cLogGo', 'click', () => void logs());
   on('#cLevel', 'change', () => void logs());
   await Promise.all([info(), cmd<Backup[]>({ cmd: 'backups' }).then(drawBackups, err), logs()]);

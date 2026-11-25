@@ -428,6 +428,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Do `build` "what#tx,ty,dir" -> `Survival.placeAt` / `canPlace` (reach 8 m, codes tooFar / someone / doorBlocked / noRoom); old "what@angle"
   still works. Strings `i18nBuild.ts` (TB). Proof `ADMIN_TOKEN=... node tools/build-proof.mjs <server> <sdk.js> <outdir>` (`?dev`
   `__dev.place / unplace / tile`). Admin `agentSet { set: { inv: { wood: 14 } } }` sets a bag.
+- **Pulling down (imad 2026-11-25: "only owned buildings or when the owner is dead")**: `Survival.owners` (`${map}:${tile}` -> builder id, saved `own`)
+  for pieces (putDown, fires, fields); huts = `Homes` owner else `by`. `mayDestroy` = nothing / unknown (no owner recorded: old buildings stay) / notYours
+  (owner alive and not me). A hut comes down whole (`destroyCells`, half its materials back), a piece goes back into the bag. TV: Build > Pull down
+  (ghost green / red from Do `destroy` "tx,ty,?", confirm = "tx,ty"); AI: task skill `destroy { what }` (job `wreck`, `askedWork` words in 4 languages).
+  Admin `resetBuildings { map? }` (panel Server > Start over): backup "before-reset", every built tile back to its ground, huts / homes / camps /
+  wall circle / crate / fires / fields forgotten. Test homes.test; proof `ADMIN_TOKEN=... node tools/destroy-proof.mjs <server> <sdk.js> <outdir>`.
 - **Resources** (`Survival.regrow`, hourly): steady level per map counted once (`resTarget`, saved `res`): trees never below the generated count,
   regrow on stumps + seed next to trees (~3 % of the gap / h); rocks capped (woods 60 / town 12), one surfaces ~every 7 h out of sight (25 m).
   Rocks always refill to the cap (one an hour at most, chance = max(0.15, lack)); rubble regrows on its base tiles (~2 % of the lack / h).

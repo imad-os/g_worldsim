@@ -80,6 +80,12 @@ export function askedFor(text: string): string {
 /** Work the speaker asks for (en / fr / es / ar): steps, or null. A safety net for small models that answer without a plan. */
 export function askedWork(text: string): { task: string; steps: Step[] } | null {
   const t = ' ' + text.toLowerCase() + ' ';
+  // Pull down your own building (imad 2026-11-25: only one's own, or a dead owner's: Survival.mayDestroy decides).
+  if (/\b(destroy|demolish|tear down|pull down|knock down|take down|dismantle|détruis|détruire|démolis|démolir|démonte|destruye|destruir|derriba|derribar|desmonta)\b|اهدم|هدم|دمر|فكك/.test(t)) {
+    const what = /\b(hut|house|home|cabin|cabane|maison|casa|caba[ñn]a)\b|بيت|منزل|كوخ/.test(t) ? 'hut' : /\b(fire|campfire|feu|fuego)\b|نار/.test(t) ? 'fire' : /\b(field|farm|champ|huerto)\b|حقل/.test(t) ? 'field'
+      : (['palisade', 'spikes', 'stonewall', 'door', 'window', 'bed', 'lamp'].find((x) => t.includes(x)) ?? '');
+    return { task: what ? 'pull down my ' + what : 'pull down what I built', steps: [{ do: 'destroy', what }] };
+  }
   if (/\b(hut|house|home|shelter|cabin|cabane|maison|abri|casa|caba[ñn]a|refugio)\b|بيت|منزل|كوخ|مأوى/.test(t) && /\b(build|make|construct|construis|construisez|fais|faire|construye|construir|haz|hacer)\b|ابن|إبن|اصنع|بناء|ابني/.test(t)) return { task: 'build a hut', steps: [{ do: 'build', what: 'hut' }] };
   if (/\b(fire|campfire|feu|fuego|hoguera|fogata)\b|نار/.test(t)) {
     if (/\b(feed|keep|add wood|alimente|entretiens|mets du bois|aviva|mant[eé]n)\b|زد|أضف/.test(t)) return { task: 'keep the fire going', steps: [{ do: 'tend' }] };
@@ -527,7 +533,7 @@ export class Planner {
         + 'craft {"what": "axe" | "spear" | "sword" | "bow" | "arrows" | "clothes" | "armor" | "helmet"}, '
         + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
-        + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), '
+        + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), destroy {"what": "hut" | "lamp" | "bed" | "palisade" | "fire" | "field" | ""} (pull down something YOU built, or whose owner is dead; never someone else\'s), '
         + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}, npc {"what": "guide" | "smith" | "hunter" | "warden" | "registrar"} (walk to a town teacher and talk: take or hand in a quest), '
         + 'clan {"what": "join <clan name>" | "quit" | "found" | "vote", "who"} (join walks to its leader and asks; found = at Odile the registrar; vote for "who" in an election). If a request needs something you have no skill for, combine these skills into a plan. '
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
@@ -638,7 +644,7 @@ export class Planner {
       let d = String(o.do ?? o.skill ?? o.action ?? '').trim().toLowerCase().replace(/[^a-z_]/g, '');
       d = ({ go_to: 'goto', go: 'goto', come: 'goto', walk: 'goto', search: 'find', look: 'find', marry: 'marry', wed: 'marry', propose: 'marry', ask_to_marry: 'marry', get_married: 'marry', ask_partner: 'court', end_marriage: 'divorce', split: 'divorce', baby: 'child', have_child: 'child', wait: 'stay', fetch: 'bring', get_food: 'forage', chop: 'gather', mine: 'gather', dig: 'gather', hunting: 'hunt', tame_horse: 'tame', catch_horse: 'tame', break_horse: 'tame', horse: 'tame', kill: 'hunt', shoot: 'hunt', collect: 'gather', cut: 'gather', make: 'craft', light: 'build', fire: 'build', feed: 'tend', refuel: 'tend',
         pick: 'collect', pick_up: 'collect', pickup: 'collect', stock: 'store', deposit: 'store', put: 'store', stash: 'store', scavenge: 'loot',
-        plant: 'farm', grow: 'farm', fix: 'repair', mend: 'repair', treat: 'heal', bandage: 'heal', exchange: 'trade', swap: 'trade', withdraw: 'take' } as Record<string, string>)[d] ?? d;
+        plant: 'farm', grow: 'farm', fix: 'repair', mend: 'repair', treat: 'heal', bandage: 'heal', exchange: 'trade', swap: 'trade', withdraw: 'take', demolish: 'destroy', tear_down: 'destroy', pull_down: 'destroy', dismantle: 'destroy' } as Record<string, string>)[d] ?? d;
       if (!(SKILLS as readonly string[]).includes(d)) continue;
       const st: Step = { do: d };
       const whoRaw = String(o.who ?? o.with ?? o.target ?? (o.do === 'come' ? 'me' : '')).trim();
@@ -646,7 +652,7 @@ export class Planner {
       if (d === 'give' || d === 'trade' || d === 'collect' || d === 'store' || d === 'take') st.what = String(o.what ?? o.item ?? (d === 'collect' || d === 'store' || d === 'take' ? 'food' : '')).slice(0, 40);
       if (d === 'trade') st.text = String(o.get ?? o.for ?? 'food').slice(0, 40);
       if (d === 'npc' || d === 'clan') { st.what = String(o.what ?? o.who ?? o.target ?? '').slice(0, 40); if (d === 'clan' && o.who) { const x = this.whoIs(String(o.who), id); if (x >= 0) st.who = x; } out.push(st); continue; }
-      if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build' || d === 'hunt') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
+      if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build' || d === 'hunt' || d === 'destroy') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
       else if (whoRaw) {
         const w = whoRaw.toLowerCase();
         if (['me', 'you', 'him', 'her', 'the player', 'speaker'].includes(w)) st.who = speaker;
@@ -788,7 +794,7 @@ export class Planner {
       + 'If the rule is an order to DO something, "plan" is a short list of steps (at most 6), each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what"}, '
       + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"}, child {}, bring {"who"}, give {"who","what"}, stay {"minutes"}, drink, eat, forage, sleep, rest, '
       + 'wander, say {"text"}, gather {"what": "wood"|"stone"|"scrap"|"ore", "times"}, hunt {"what","times"}, craft {"what"}, build {"what": "campfire"|"hut"|"palisade"|"bed"|"lamp"|"door"}, '
-      + 'tend {}, collect {"what":"food","times"}, store {"what"}, take {"what","times"}, loot {"times"}, farm {}, repair {}, heal {"who"}, trade {"who","what","get"}. '
+      + 'tend {}, collect {"what":"food","times"}, store {"what"}, take {"what","times"}, loot {"times"}, farm {}, repair {}, destroy {"what"}, heal {"who"}, trade {"who","what","get"}. '
       + 'Use names for "who", "found" for the person found by the step before. Otherwise "plan" is [].';
     const ex: Exchange = { at: Date.now(), kind: 'rule', who: about, prompt, reply: '', ms: 0 };
     try {

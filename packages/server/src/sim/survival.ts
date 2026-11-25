@@ -24,7 +24,7 @@ for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
 /** Kept in the inventory (not put down): weapons, arrows and clothes. */
 const KEEP = new Set(['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet']);
 /** Game seconds of work. */
-const WORK = { chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
+const WORK = { wreck: 90, chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
 /** What a storage crate keeps. */
 export type StashKey = 'food' | Res;
 export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number; [k: string]: number }
@@ -45,7 +45,7 @@ export const PLACE_REACH = 8;
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
 
 /** Job kinds under the names the owner's rules use (sim/rules.ts). */
-const JOB_RULE: Record<string, string> = { chop: 'gather', dig: 'gather', mine: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
+const JOB_RULE: Record<string, string> = { wreck: 'build', chop: 'gather', dig: 'gather', mine: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
 
 export class Survival {
   private readonly jobs = new Map<number, Job>();
@@ -86,6 +86,8 @@ export class Survival {
   readonly homes: Homes;
   /** Each map's steady level of trees and rocks (counted once): regrowth brings them back to it. */
   readonly resTarget: ({ tree: number; rock: number } | null)[];
+  /** Who put each piece up (`${map}:${tile}` -> entity id): only they may pull it down, or anyone once they are dead. Huts: sim/homes.ts. */
+  readonly owners = new Map<string, number>();
 
   constructor(private w: World) {
     const id = (n: string) => w.sc.tiles.find((t) => t.name === n)?.id ?? -1;
@@ -103,7 +105,7 @@ export class Survival {
 
   /** What snapshots keep (fires, camps, crates, fields, huts). */
   save(): unknown {
-    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget };
+    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget, own: [...this.owners] };
   }
   load(d: unknown): void {
     const v = d as { pinv?: [string, Inv][]; fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
@@ -123,6 +125,7 @@ export class Survival {
     this.homes.load((v as { homes?: unknown }).homes);
     const rt = (v as { res?: ({ tree: number; rock: number } | null)[] }).res;
     rt?.forEach((r, m) => { if (m < this.resTarget.length) this.resTarget[m] = r; });
+    this.owners.clear(); for (const [k, id] of (v as { own?: [string, number][] }).own ?? []) this.owners.set(k, id);
   }
   campOf(m: number): { x: number; y: number } | null { return this.camp[m] ?? null; }
   /** The circle the camp's wall follows (centre, radius in tiles), or null with no camp. */
@@ -279,6 +282,7 @@ export class Survival {
     const k = ty * tm.w + tx;
     if (what === 'campfire') { this.fires.set(`${m}:${k}`, w.gameSec + FIRE_START); this.setCamp(m, tx + 0.5, ty + 0.5); }
     if (what === 'bed') w.brain.addShelter(m, k);
+    this.owners.set(`${m}:${k}`, w.e.id(i));
     w.emit('build', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx, ty });
   }
 
@@ -599,6 +603,130 @@ export class Survival {
     this.setCamp(m, x0 + 2.5 + dx * 4, y0 + 2.5 + dy * 4);
     w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + 2, ty: y0 + 2, player: true });
     return 'built';
+  }
+
+  // ------------------------------------------------------------------ pulling down (imad 2026-11-25: "only owned buildings or when the owner is dead")
+  /** Tiles people build (walls, floors, doors, fires, fields, crates and everything put down). */
+  builtTile(t: number): boolean {
+    const T = this.T;
+    return t >= 0 && (t === T.woodwall || t === T.floor || t === T.door || t === T.campfire || t === T.ashes || t === T.crate || t === T.farm || [...this.placeTile.values()].includes(t));
+  }
+  /** Something built here that the map did not start with. */
+  private isBuilt(m: number, k: number): boolean {
+    const tm = this.w.maps[m]!.tiles, t = tm.tiles[k]!;
+    return this.builtTile(t) && (!tm.base || tm.base[k] !== t || !!this.homes.at(m, k) || this.owners.has(`${m}:${k}`));
+  }
+  /** What a pulled-down tile becomes: the ground it was built on (open ground where a tree or a rock stood). */
+  private groundOf(m: number, k: number): number {
+    const tm = this.w.maps[m]!.tiles, b = tm.base?.[k];
+    if (b === undefined || tm.solid[b] || this.builtTile(b)) return this.T.dirt >= 0 ? this.T.dirt : this.T.grass;
+    return b;
+  }
+  /** Whose is the thing on tile k: a hut's owner (else its builder), a piece's builder; -1 = nobody knows. */
+  ownerOf(m: number, k: number): number {
+    const h = this.homes.at(m, k);
+    if (h) return h.owner >= 0 ? h.owner : h.by;
+    return this.owners.get(`${m}:${k}`) ?? -1;
+  }
+  private gone(id: number): boolean { const p = this.w.profiles.get(id); return !p || p.died !== undefined; }
+  /** '' = this person may pull down what is on tile k; else nothing / unknown (nobody knows whose) / notYours. */
+  mayDestroy(i: number, m: number, k: number): string {
+    if (!this.isBuilt(m, k)) return 'nothing';
+    const o = this.ownerOf(m, k);
+    if (o < 0) return 'unknown';
+    if (o !== this.w.e.id(i) && !this.gone(o)) return 'notYours';
+    return '';
+  }
+  /** The tiles that come down together with tile k (a whole hut, else that one tile). */
+  destroyCells(m: number, k: number): number[] {
+    const h = this.homes.at(m, k), W = this.w.maps[m]!.tiles.w;
+    if (!h) return [k];
+    const r = this.hutRect(m, h.out, h.dir);
+    const out: number[] = [];
+    if (r) for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) out.push((r.y0 + yy) * W + r.x0 + xx);
+    return out;
+  }
+  /** A player aims at tile (tx, ty): pull it down if it is theirs or its owner is dead. Code: destroyed / tooFar / nothing / unknown / notYours. */
+  destroyAt(i: number, tx: number, ty: number): string {
+    const e = this.w.e, m = e.map[i]!, tm = this.w.maps[m]!.tiles;
+    if (!tm.inside(tx, ty)) return 'nothing';
+    if (Math.hypot(tx + 0.5 - e.x[i]!, ty + 0.5 - e.y[i]!) > PLACE_REACH) return 'tooFar';
+    const k = ty * tm.w + tx, c = this.mayDestroy(i, m, k);
+    if (c) return c;
+    e.angle[i] = Math.atan2(ty + 0.5 - e.y[i]!, tx + 0.5 - e.x[i]!);
+    this.pullDown(i, m, k);
+    return 'destroyed';
+  }
+  /** An AI person pulls down their own (or a dead owner's) hut / piece nearest to them; what = 'hut', a thing's name or '' = any. */
+  wreck(i: number, what = ''): true | string {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, me = e.id(i);
+    const want = what === 'hut' ? -2 : what ? this.placeTile.get(what) ?? (what === 'fire' ? this.T.campfire : what === 'field' ? this.T.farm : -3) : -1;
+    if (want === -3) return `I don't know what "${what}" is`;
+    let best = -1, bd = Infinity;
+    const consider = (k: number) => {
+      if (this.mayDestroy(i, m, k)) return;
+      const d = Math.hypot((k % tm.w) + 0.5 - e.x[i]!, ((k / tm.w) | 0) + 0.5 - e.y[i]!);
+      if (d < bd) { bd = d; best = k; }
+    };
+    if (want === -1 || want === -2) for (const h of this.homes.list) if (h.m === m) consider(this.homes.doorOf(h));
+    if (want !== -2) for (const key of this.owners.keys()) {
+      const [mm, k] = key.split(':').map(Number) as [number, number];
+      if (mm === m && !this.homes.at(m, k) && (want < 0 || tm.tiles[k] === want)) consider(k);
+    }
+    if (best < 0) {
+      const mine = [...this.owners].some(([key, o]) => o === me && key.startsWith(m + ':')) || this.homes.list.some((h) => h.m === m && (h.owner === me || h.by === me));
+      return mine ? 'I have nothing like that to pull down' : 'nothing here is mine to pull down';
+    }
+    return this.begin(i, { kind: 'wreck', m, tx: best % tm.w, ty: (best / tm.w) | 0, work: 0 });
+  }
+  /** Take it down: the ground comes back; a thing put down goes back into the bag, a hut gives back half its materials. */
+  private pullDown(i: number, m: number, k: number): void {
+    const w = this.w, tm = w.maps[m]!.tiles, h = this.homes.at(m, k), W = tm.w;
+    const what = h ? 'hut' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
+    for (const c of this.destroyCells(m, k)) {
+      if (tm.tiles[c] !== this.T.water && this.builtTile(tm.tiles[c]!)) tm.set(c % W, (c / W) | 0, this.groundOf(m, c));
+      this.owners.delete(`${m}:${c}`); this.fires.delete(`${m}:${c}`); this.farms.delete(`${m}:${c}`);
+    }
+    if (h) {
+      const n = this.huts[m]!.indexOf(h.out);
+      if (n >= 0) { this.huts[m]!.splice(n, 1); this.hutDir[m]!.splice(n, 1); }
+      const p = h.owner >= 0 ? w.profiles.get(h.owner) : undefined;
+      if (p) delete p.home;
+      h.owner = -1;
+      this.homes.sync();
+      this.add(i, 'wood', Math.floor((HUT_NEED.wood ?? 0) / 2)); this.add(i, 'stone', Math.floor((HUT_NEED.stone ?? 0) / 2));
+    } else if (what !== 'campfire' && what !== 'field' && this.placeTile.has(what)) this.add(i, what, 1);
+    w.brain.resetShelters(m);
+    w.emit('destroy', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx: k % W, ty: (k / W) | 0 });
+  }
+  /**
+   * Admin: pull down every building on map m (all maps when m < 0) and start over (imad 2026-11-25): huts, walls, doors, beds, lamps,
+   * fires, fields, the store crate (and what was in it); homes, camps and the camp wall's circle are forgotten. Trees and rocks stay.
+   */
+  resetBuildings(m = -1): { tiles: number; huts: number; maps: number } {
+    const w = this.w, out = { tiles: 0, huts: 0, maps: 0 };
+    for (let mi = 0; mi < w.maps.length; mi++) {
+      if (m >= 0 && mi !== m) continue;
+      const tm = w.maps[mi]!.tiles;
+      for (let k = 0; k < tm.tiles.length; k++) {
+        const t = tm.tiles[k]!;
+        if (!this.builtTile(t) || (tm.base && tm.base[k] === t && !this.homes.at(mi, k) && !this.owners.has(`${mi}:${k}`))) continue;
+        tm.set(k % tm.w, (k / tm.w) | 0, this.groundOf(mi, k)); out.tiles++;
+      }
+      out.huts += this.huts[mi]!.length;
+      for (const h of this.homes.list) if (h.m === mi && h.owner >= 0) { const p = w.profiles.get(h.owner); if (p) delete p.home; }
+      for (const p of w.profiles.values()) if (p.home && p.home.map === w.maps[mi]!.def.id) delete p.home;
+      this.huts[mi] = []; this.hutDir[mi] = [];
+      this.walls[mi] = null; this.camp[mi] = null; this.stash[mi] = null; this.legacy.delete(mi); delete this.doorCache[mi];
+      for (const map of [this.owners, this.fires, this.farms, this.looted] as Map<string, unknown>[]) for (const key of [...map.keys()]) if (key.startsWith(mi + ':')) map.delete(key);
+      for (const [id, j] of [...this.jobs]) if (j.m === mi) this.cancel(id);
+      w.brain.resetShelters(mi);
+      out.maps++;
+    }
+    this.tileIdx.clear();
+    this.homes.sync();
+    w.emit('reset', { what: 'buildings', map: m >= 0 ? w.maps[m]!.def.id : 'all', ...out });
+    return out;
   }
 
   /** Put down a palisade / spikes / wall / door / window / bed / lamp near the camp (a bed: inside a hut). Made first if needed. */
@@ -995,6 +1123,7 @@ export class Survival {
         this.use(i, RECIPES.campfire!);
         tm.set(j.tx, j.ty, this.T.campfire);
         this.fires.set(`${j.m}:${k}`, w.gameSec + FIRE_START);
+        this.owners.set(`${j.m}:${k}`, id);
         this.setCamp(j.m, j.tx + 0.5, j.ty + 0.5);
         w.emit('build', { id, what: 'campfire', map: mapId, tx: j.tx, ty: j.ty });
         return true;
@@ -1052,6 +1181,7 @@ export class Survival {
         if (!this.buildable.has(tm.tiles[k]!) || this.occupied(j.m, j.tx, j.ty)) return 'the ground there is taken';
         tm.set(j.tx, j.ty, this.T.farm);
         this.farms.set(`${j.m}:${k}`, w.gameSec + 12 * HOUR);
+        this.owners.set(`${j.m}:${k}`, id);
         this.setCamp(j.m, j.tx + 0.5, j.ty + 0.5);
         w.emit('build', { id, what: 'field', map: mapId, tx: j.tx, ty: j.ty });
         return true;
@@ -1063,6 +1193,12 @@ export class Survival {
         else tm.set(j.tx, j.ty, this.T.woodwall);
         this.add(i, 'wood', -1);
         w.emit('repair', { id, map: mapId, tx: j.tx, ty: j.ty });
+        return true;
+      }
+      case 'wreck': {
+        const c = this.mayDestroy(i, j.m, k);
+        if (c) return c === 'notYours' ? 'it is not mine' : c === 'unknown' ? 'nobody knows whose it is' : 'it is gone';
+        this.pullDown(i, j.m, k);
         return true;
       }
       case 'heal': {

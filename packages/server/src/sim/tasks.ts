@@ -62,7 +62,7 @@ export interface Step { key?: string; units?: number; do: string; who?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'destroy'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -281,7 +281,7 @@ export class Tasks {
         w.emit('give', { id: e.id(i), to: s.who, item: what, n, trade: s.do === 'trade' ? resOf(s.text, 'food') : undefined });
         return true;
       }
-      case 'collect': case 'store': case 'take': case 'loot': case 'farm': case 'repair': case 'heal': {
+      case 'collect': case 'store': case 'take': case 'loot': case 'farm': case 'repair': case 'heal': case 'destroy': {
         const sv = w.survival, id = e.id(i);
         const what = resOf(s.what);
         if (s.do === 'collect' && what !== 'food') { s.do = 'gather'; s.what = what; s.phase = 0; return false; }
@@ -299,7 +299,7 @@ export class Tasks {
         if (s.do === 'collect' && e.carry[i]! >= 5) return true; // hands full
         s.got = true;
         const r = s.do === 'collect' ? sv.collect(i) : s.do === 'store' ? sv.store(i, what) : s.do === 'take' ? sv.take(i, what, s.n0!)
-          : s.do === 'loot' ? sv.loot(i) : s.do === 'farm' ? sv.plant(i) : s.do === 'repair' ? sv.repair(i) : sv.heal(i, s.who ?? -1);
+          : s.do === 'loot' ? sv.loot(i) : s.do === 'farm' ? sv.plant(i) : s.do === 'repair' ? sv.repair(i) : s.do === 'destroy' ? sv.wreck(i, String(s.what ?? '').toLowerCase()) : sv.heal(i, s.who ?? -1);
         if (r !== true) { s.got = false; return r; }
         return false;
       }

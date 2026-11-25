@@ -262,6 +262,12 @@ export class Brain {
     const e = this.w.e;
     return this.ordKind[i] === 6 && !this.walking(i) && e.act[i] === this.ordAct[i] && Math.hypot(this.jobX[i]! - e.x[i]!, this.jobY[i]! - e.y[i]!) <= 1.2;
   }
+  /** Count the roofs of map m again (after buildings were pulled down). */
+  resetShelters(m: number): void {
+    const w = this.w, t = w.maps[m]!.tiles, shelter = new Set(w.sc.tiles.filter((x) => this.life.shelter.includes(x.name)).map((x) => x.id)), s: number[] = [];
+    for (let k = 0; k < t.tiles.length; k++) if (t.cost[t.tiles[k]!]! > 0 && shelter.has(t.tiles[k]!)) s.push(k);
+    this.shelterSpots[m] = Int32Array.from(s);
+  }
   /** A new roof (a hut's floor): a place to sleep from now on. */
   addShelter(m: number, t: number): void {
     const a = this.shelterSpots[m]!, b = new Int32Array(a.length + 1);
