@@ -230,7 +230,7 @@ export const ai: Screen = {
   render() {
     return `<div class="grid2">
     ${card('Status', `<div id="aStatus" class="stat"></div>`)}
-    ${card('Saved brains', `<div id="bList"><div class="skel"></div></div><button class="btn" id="bAdd">${icon('plus')} Add a brain</button>`, { help: help('brains') })}
+    ${card('Saved brains', `<p class="dim small" id="bFall"></p><div id="bList"><div class="skel"></div></div><button class="btn" id="bAdd">${icon('plus')} Add a brain</button>`, { help: help('brains') })}
     ${card('<span id="bEdTitle">Edit brain</span>', `${row('Name', `<input id="aName" maxlength="40" placeholder="e.g. Gemini fast">`)}
       ${row('Type', `<select id="aProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option><option value="openai">OpenAI-compatible</option></select>`)}
       <div id="aUrlRow">${row('Address', `<input id="aUrl" placeholder="https://your-ollama-server">`, help('aiUrl'))}</div>
@@ -261,6 +261,7 @@ export const ai: Screen = {
     await this.refresh!(true as never);
   },
   async refresh(fill?: boolean) {
+    if (!fill) { try { brains = await cmd<BrainsAns>({ cmd: 'brains' }); renderBrains(); } catch { /* next time */ } }
     const r = await cmd<{ ai: AiStatus; planner: PlannerStatus; log: { at: number; kind: string; who: string; prompt: string; reply: string; ms: number; err?: string }[] }>({ cmd: 'aiLog' });
     show(r.ai); planner(r.planner, !!fill);
     const open = new Set([...document.querySelectorAll<HTMLDetailsElement>('#aLog details[open]')].map((d) => d.dataset.k));
@@ -268,8 +269,11 @@ export const ai: Screen = {
   },
 };
 // Saved brains: the list, and the editor (the brain being edited, or null = a new one).
-type BrainV = { id: string; name: string; provider: string; url: string; model: string; keys: number; keyEnd: string; keyEnds?: string[]; active: boolean };
-type BrainsAns = { active: string; list: BrainV[]; envKeys?: { gemini: number } };
+type Count = { calls: number; errors: number };
+type BrainStatsV = { day: Count; week: Count; life: Count; lastError: string; lastErrorAt: number; lastOkAt: number };
+type BrainV = { id: string; name: string; provider: string; url: string; model: string; keys: number; keyEnd: string; keyEnds?: string[]; active: boolean; stats?: BrainStatsV };
+type Failover = { on: boolean; brain: string; since: number; until: number; streak: number; reason: string; errors: number; minutes: number };
+type BrainsAns = { active: string; fallback?: string; list: BrainV[]; envKeys?: { gemini: number }; failover?: Failover };
 const PROV_NAMES: Record<string, string> = { none: 'Built-in', gemini: 'Gemini', ollama: 'Ollama', openai: 'OpenAI-compatible' };
 let brains: BrainsAns = { active: '', list: [] };
 let editing: BrainV | null = null;
@@ -322,19 +326,33 @@ async function loadBrains(first = false): Promise<void> {
   renderBrains();
   if (first) edit(brains.list.find((b) => b.active) ?? null);
 }
+/** "12 calls · 1 error" for one period. */
+function countTxt(c: Count): string { return `${c.calls} call${c.calls === 1 ? '' : 's'}${c.errors ? ` · <span class="bad">${c.errors} error${c.errors === 1 ? '' : 's'}</span>` : ''}`; }
+function statsTxt(st: BrainStatsV | undefined): string {
+  if (!st || !st.life.calls) return '<div class="bstats dim">No calls yet.</div>';
+  const pct = (c: Count) => c.calls ? ` (${Math.round(100 * c.errors / c.calls)} %)` : '';
+  return `<div class="bstats"><span><small class="dim">24 h</small> ${countTxt(st.day)}${st.day.errors ? pct(st.day) : ''}</span><span><small class="dim">7 days</small> ${countTxt(st.week)}</span><span><small class="dim">Lifetime</small> ${countTxt(st.life)}</span></div>
+    ${st.lastError ? `<small class="dim">Last error ${new Date(st.lastErrorAt).toLocaleString()}: ${esc(st.lastError.slice(0, 140))}</small>` : ''}`;
+}
 function renderBrains(): void {
-  setHtml('bList', brains.list.map((b) => `<div class="li${b.active ? ' on' : ''}"><div><b>${esc(b.name)}</b> ${b.active ? '<span class="tag ok">In use</span>' : ''}<br>
-    <small class="dim">${esc(PROV_NAMES[b.provider] ?? b.provider)}${b.provider !== 'none' ? ` · ${esc(b.model || (b.provider === 'ollama' ? 'fastest model' : 'default model'))}` : ''}${b.provider === 'ollama' || b.provider === 'openai' ? ` · ${esc(b.url)}` : ''}${b.keys ? ` · ${b.keys > 1 ? `${b.keys} keys` : 'key'} …${esc(b.keyEnd)}` : b.provider === 'gemini' && brains.envKeys?.gemini ? ` · ${brains.envKeys.gemini} keys from .env` : ''}</small></div>
-    <div class="row">${b.active ? '' : `<button class="btn sm primary" data-buse="${esc(b.id)}">Use</button>`}<button class="btn sm ghost" data-bed="${esc(b.id)}">Edit</button>${b.active ? '' : `<button class="btn sm ghost danger" data-brm="${esc(b.id)}" aria-label="Delete">${icon('x')}</button>`}</div></div>`).join(''));
+  const fo = brains.failover, fb = brains.fallback ?? '';
+  setHtml('bFall', `${fb ? `Fallback: <b>${esc(brains.list.find((b) => b.id === fb)?.name ?? '?')}</b>. ` : 'No fallback brain. '}When the brain in use fails ${fo?.errors ?? 3} requests in a row, the fallback thinks for ${fo?.minutes ?? 30} minutes, then the brain in use takes over again.${fo?.on ? ` <span class="bad">Fallback thinking now, until ${new Date(fo.until).toLocaleTimeString()}.</span>` : fo?.streak ? ` <span class="bad">${fo.streak} error${fo.streak === 1 ? '' : 's'} in a row now.</span>` : ''}`);
+  setHtml('bList', brains.list.map((b) => `<div class="li${b.active ? ' on' : ''}"><div><b>${esc(b.name)}</b> ${b.active ? '<span class="tag ok">In use</span>' : ''}${b.id === fb ? ' <span class="tag">Fallback</span>' : ''}${fo?.on && fo.brain === b.id ? ' <span class="tag bad">Thinking now</span>' : ''}<br>
+    <small class="dim">${esc(PROV_NAMES[b.provider] ?? b.provider)}${b.provider !== 'none' ? ` · ${esc(b.model || (b.provider === 'ollama' ? 'fastest model' : 'default model'))}` : ''}${b.provider === 'ollama' || b.provider === 'openai' ? ` · ${esc(b.url)}` : ''}${b.keys ? ` · ${b.keys > 1 ? `${b.keys} keys` : 'key'} …${esc(b.keyEnd)}` : b.provider === 'gemini' && brains.envKeys?.gemini ? ` · ${brains.envKeys.gemini} keys from .env` : ''}</small>
+    ${statsTxt(b.stats)}</div>
+    <div class="row">${b.active ? '' : `<button class="btn sm primary" data-buse="${esc(b.id)}">Use</button><button class="btn sm ghost" data-bfb="${b.id === fb ? '' : esc(b.id)}">${b.id === fb ? 'No fallback' : 'Set as fallback'}</button>`}<button class="btn sm ghost" data-bed="${esc(b.id)}">Edit</button>${b.active ? '' : `<button class="btn sm ghost danger" data-brm="${esc(b.id)}" aria-label="Delete">${icon('x')}</button>`}</div></div>`).join(''));
   on('[data-buse]', 'click', async (el) => { try { const r = await cmd<BrainsAns & { ai: AiStatus }>({ cmd: 'brainUse', id: el.dataset.buse! }); brains = r; renderBrains(); show(r.ai); toast(`Now thinking with ${brains.list.find((b) => b.active)?.name}`, 'ok'); } catch (e) { err(e); } });
+  on('[data-bfb]', 'click', async (el) => { try { brains = await cmd<BrainsAns>({ cmd: 'brainFallback', id: el.dataset.bfb ?? '' }); renderBrains(); toast(brains.fallback ? `Fallback: ${brains.list.find((b) => b.id === brains.fallback)?.name}` : 'No fallback brain', 'ok'); } catch (e) { err(e); } });
   on('[data-bed]', 'click', (el) => edit(brains.list.find((b) => b.id === el.dataset.bed) ?? null));
   on('[data-brm]', 'click', async (el) => { const b = brains.list.find((x) => x.id === el.dataset.brm); if (!b || !confirm(`Delete the brain "${b.name}"?`)) return; try { brains = { ...brains, ...(await cmd<BrainsAns>({ cmd: 'brainDelete', id: b.id })) }; renderBrains(); if (editing?.id === b.id) edit(null); } catch (e) { err(e); } });
 }
 function show(s: AiStatus): void {
   const active = brains.list.find((b) => b.active);
-  setHtml('aStatus', `<div class="statrow"><span>Brain</span><b>${active ? esc(active.name) + ' · ' : ''}${s.provider === 'none' ? 'Off (built-in)' : esc(PROV_NAMES[s.provider] ?? s.provider)}</b></div>
+  const now = brains.failover?.on ? brains.list.find((b) => b.id === brains.failover!.brain) ?? active : active;
+  setHtml('aStatus', `<div class="statrow"><span>Brain</span><b>${now ? esc(now.name) + ' · ' : ''}${s.provider === 'none' ? 'Off (built-in)' : esc(PROV_NAMES[s.provider] ?? s.provider)}</b></div>
     <div class="statrow"><span>Model</span><b>${esc(s.model || '-')}${s.auto ? ' <small>(fastest, automatic)</small>' : ''}</b></div>
     <div class="statrow"><span>State</span><b class="${s.ready ? 'ok' : 'bad'}">${s.provider === 'none' ? '-' : s.ready ? 'Ready' : esc(s.why ?? 'not ready')}</b></div>
+    ${brains.failover?.on ? `<div class="statrow"><span>Fallback</span><b class="bad">${esc(brains.list.find((b) => b.id === brains.failover!.brain)?.name ?? '?')} until ${new Date(brains.failover.until).toLocaleTimeString()}</b></div><div class="statrow"><span>Why</span><b class="bad">${esc(active?.name ?? '')} failed ${brains.failover.errors} times in a row: ${esc(brains.failover.reason.slice(0, 120))}</b></div>` : ''}
     <div class="statrow"><span>Calls this hour</span><b>${s.callsLastHour} / ${s.maxCallsPerHour}</b></div>
     <div class="statrow"><span>Last answer took</span><b>${s.lastMs ? (s.lastMs / 1000).toFixed(1) + ' s' : '-'}</b></div>
     ${s.keys && s.keys > 1 ? `<div class="statrow"><span>API keys</span><b>${s.keys}, taking turns</b></div>` : ''}

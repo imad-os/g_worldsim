@@ -19,6 +19,7 @@ import { TunnelManager } from './tunnel.js';
 import type { AttackPlan } from './sim/zombies.js';
 import { Ai, keyList, type AiSettings, type Provider } from './ai/llm.js';
 import { Brains } from './ai/brains.js';
+import { BrainStats, Failover } from './ai/brainstats.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, levelOf, TRAIT_KEYS, SEX_WEEK_MS, type Profile } from './sim/people.js';
 import { NO_MAP } from './sim/entities.js';
@@ -57,6 +58,9 @@ export class App {
   tunnel!: TunnelManager;
   ai!: Ai;
   brains!: Brains;
+  brainStats!: BrainStats;
+  /** The brain in use failing 3 calls in a row = the fallback brain for 30 min. */
+  failover = new Failover();
   planner!: Planner;
   readonly monitor = new Monitor();
   lastSnapshotAt = 0;
@@ -140,6 +144,9 @@ export class App {
     this.brains = new Brains(() => this.db.getMeta('brains'), (j) => this.db.setMeta('brains', j), this.ai.settings,
       this.secrets.geminiKey ? [{ provider: 'gemini', name: 'Gemini (keys in .env)' }] : []);
     try { this.ai.apply(this.brains.settingsOf(this.brains.active)); } catch (err) { this.log.warn('saved brain refused', { err: String(err) }); }
+    this.ai.tag = this.brains.active.id;
+    this.brainStats = new BrainStats(() => this.db.getMeta('brain_stats'), (j) => this.db.setMeta('brain_stats', j));
+    this.ai.onResult = (tag, ok, err) => this.aiResult(tag, ok, err);
     const savedPlanner = this.db.getMeta('planner');
     this.planner = new Planner(this.world, this.ai, this.log, savedPlanner ? (JSON.parse(savedPlanner) as Partial<PlannerConfig>) : undefined);
     this.world.listeners.push((ev: WorldEvent) => { if (LOGGED.has(ev.kind)) this.events.add(ev.tick, ev.gameSec, ev.kind, ev.data); });
@@ -326,6 +333,7 @@ export class App {
     this.timers.push(setInterval(() => this.sampleHistory(), 60_000));
     this.timers.push(setInterval(() => { void this.planner.tick(this.loop.paused).catch((err) => this.log.warn('planner', { err: String(err) })); }, 2000));
     this.timers.push(setInterval(() => { try { this.events.flush(); } catch (err) { this.log.error('event flush', { err: String(err) }); } }, 1000));
+    this.timers.push(setInterval(() => { this.fallbackCheck(); try { this.brainStats.flush(); } catch (err) { this.log.error('brain stats', { err: String(err) }); } }, 15_000));
     if (c.cloud.enabled) {
       this.timers.push(setInterval(() => { this.cloud.collect(w); void this.cloud.flush(); }, c.cloud.everySec * 1000));
     }
@@ -476,16 +484,53 @@ export class App {
   }
   /** Put a player's character right next to someone (any map). */
   /** In-game admin tools (Go to someone...): owner / admin accounts; without Firebase sign-in set up, every player as before. */
-  /** Saved brains for the panel (no keys) + how many Gemini keys .env has. */
-  private brainsView() { return { ...this.brains.view(), envKeys: { gemini: keyList(this.secrets.geminiKey).length } }; }
+  /** Saved brains for the panel (no keys) + how many Gemini keys .env has, each brain's calls / errors, the fallback state. */
+  private brainsView() {
+    const v = this.brains.view(), now = Date.now(), f = this.failover;
+    return {
+      ...v, list: v.list.map((b) => ({ ...b, stats: this.brainStats.view(b.id, now) })),
+      envKeys: { gemini: keyList(this.secrets.geminiKey).length },
+      failover: { on: f.on(now), brain: f.on(now) ? this.ai.tag : '', since: f.since, until: f.until, streak: f.streak, reason: f.reason, errors: f.errors, minutes: Math.round(f.ms / 60_000) },
+    };
+  }
+
+  /** A live AI call ended: count it for its brain; the brain in use failing 3 in a row hands over to the fallback brain. */
+  private aiResult(tag: string, ok: boolean, err: string): void {
+    if (tag) this.brainStats.record(tag, ok, err);
+    if (tag !== this.brains.active.id || !this.brains.fallbackId) return;
+    if (!this.failover.result(ok, err)) return;
+    const fb = this.brains.get(this.brains.fallbackId)!;
+    try {
+      this.ai.apply(this.brains.settingsOf(fb));
+      this.ai.tag = fb.id;
+      this.log.warn('brain failing: fallback in use', { from: this.brains.active.name, to: fb.name, minutes: Math.round(this.failover.ms / 60_000), err });
+    } catch (e) { this.failover.reset(); this.log.warn('fallback brain refused', { err: String(e) }); }
+  }
+  /** The fallback's 30 minutes are over: the brain in use thinks again. */
+  private fallbackCheck(): void {
+    if (this.failover.expired()) { this.backToActive(); this.log.info('fallback over: brain in use again', { name: this.brains.active.name }); }
+  }
+  /** End the fallback at once (the owner chose or changed a brain). */
+  private endFallback(): void {
+    if (!this.failover.until && !this.failover.streak) return;
+    const was = this.failover.until > 0;
+    this.failover.reset();
+    if (was) this.backToActive();
+  }
+  private backToActive(): void {
+    try { this.ai.apply(this.brains.settingsOf(this.brains.active)); } catch (e) { this.log.warn('saved brain refused', { err: String(e) }); }
+    this.ai.tag = this.brains.active.id;
+  }
   private aiKeys() { return { gemini: this.secrets.geminiKey, ollama: this.secrets.ollamaKey, openai: this.secrets.openaiKey }; }
 
   /** Switch the AI to a saved brain. */
   private useBrain(id: string, who: string): void {
     const b = this.brains.get(id);
     if (!b) throw new Error('no such brain');
+    this.failover.reset();
     const s = this.ai.apply(this.brains.settingsOf(b));
     this.brains.use(id);
+    this.ai.tag = id;
     this.db.setMeta('ai', JSON.stringify({ ...s, key: undefined }));
     this.log.info('brain in use', { who, name: b.name, provider: s.provider, model: this.ai.model });
   }
@@ -809,6 +854,7 @@ export class App {
       case 'ai': return this.ai.status();
       case 'aiModels': return this.ai.models();
       case 'aiSet': {
+        this.endFallback();
         const s = this.ai.apply({ provider: c.provider, model: c.model, ollamaUrl: c.ollamaUrl });
         this.brains.syncActive(s);
         this.db.setMeta('ai', JSON.stringify({ ...s, key: undefined }));
@@ -819,6 +865,7 @@ export class App {
       case 'brainSave': {
         const b = this.brains.put({ id: c.id, name: c.name, provider: c.provider as Provider, url: c.url, model: c.model, key: c.key, addKey: c.addKey, removeKey: c.removeKey }, (s) => this.ai.check(s));
         if (b.id === this.brains.active.id) this.useBrain(b.id, who);
+        else if (b.id === this.ai.tag && this.failover.on()) this.ai.apply(this.brains.settingsOf(b)); // the fallback thinking now: its new settings at once
         this.log.info('brain saved', { who, id: b.id, name: b.name, provider: b.provider });
         return { ...this.brainsView(), saved: b.id };
       }
@@ -826,7 +873,20 @@ export class App {
         this.useBrain(String(c.id), who);
         return { ...this.brainsView(), ai: this.ai.status() };
       }
-      case 'brainDelete': { this.brains.remove(String(c.id)); return this.brainsView(); }
+      case 'brainDelete': {
+        const id = String(c.id);
+        this.brains.remove(id);
+        if (this.ai.tag === id) this.endFallback();
+        this.brainStats.drop(id);
+        return this.brainsView();
+      }
+      case 'brainFallback': {
+        const id = String(c.id ?? '');
+        this.brains.setFallback(id);
+        if (!id || this.ai.tag !== id) this.endFallback();
+        this.log.info('fallback brain', { who, id: id || 'none' });
+        return this.brainsView();
+      }
       case 'brainModels': case 'brainTest': {
         // A saved brain (id) and / or the editor's unsaved values, tried on a separate AI object: the one in use is untouched.
         const base = c.id ? this.brains.get(String(c.id)) : undefined;
@@ -1094,6 +1154,7 @@ export class App {
     await this.net?.close();
     if (this.world) this.snapshot();
     try { this.events?.flush(); } catch { /* closing */ }
+    try { this.brainStats?.flush(); } catch { /* closing */ }
     if (this.cfg.cloud.enabled && this.world) { this.cloud.collect(this.world); await this.cloud.flush(); }
     this.db?.close();
     this.log.info('server stopped', { tick: this.world?.tick });

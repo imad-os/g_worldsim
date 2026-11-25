@@ -7,7 +7,7 @@ import { keyList, PROVIDERS, type AiSettings, type Provider } from './llm.js';
 
 export interface Brain { id: string; name: string; provider: Provider; url: string; model: string; key: string }
 export interface BrainView { id: string; name: string; provider: Provider; url: string; model: string; keys: number; keyEnd: string; keyEnds: string[]; active: boolean }
-interface Store { active: string; list: Brain[] }
+interface Store { active: string; list: Brain[]; fallback?: string }
 
 const MAX = 20;
 const NAMES: Record<Provider, string> = { none: 'Built-in (no AI)', gemini: 'Gemini', ollama: 'Ollama', openai: 'OpenAI-compatible' };
@@ -43,9 +43,18 @@ export class Brains {
   get(id: string): Brain | undefined { return this.s.list.find((b) => b.id === id); }
   settingsOf(b: Brain): AiSettings { return { provider: b.provider, model: b.model, ollamaUrl: b.url, key: b.key }; }
 
-  view(): { active: string; list: BrainView[] } {
+  /** The brain that takes over when the one in use fails 3 times in a row ('' = none; the one in use itself = none). */
+  get fallbackId(): string { const f = this.s.fallback ?? ''; return f && f !== this.s.active && this.get(f) ? f : ''; }
+  setFallback(id: string): void {
+    if (id && !this.get(id)) throw new Error('no such brain');
+    if (id && id === this.s.active) throw new Error('the brain in use cannot be its own fallback');
+    this.s.fallback = id;
+    this.write();
+  }
+
+  view(): { active: string; fallback: string; list: BrainView[] } {
     return {
-      active: this.s.active,
+      active: this.s.active, fallback: this.fallbackId,
       list: this.s.list.map((b) => { const ks = keyList(b.key); return { id: b.id, name: b.name, provider: b.provider, url: b.url, model: b.model, keys: ks.length, keyEnd: ks.map((k) => k.slice(-4)).join(', '), keyEnds: ks.map((k) => k.slice(-4)), active: b.id === this.s.active }; }),
     };
   }
@@ -84,6 +93,7 @@ export class Brains {
     const n = this.s.list.length;
     this.s.list = this.s.list.filter((b) => b.id !== id);
     if (this.s.list.length === n) throw new Error('no such brain');
+    if (this.s.fallback === id) this.s.fallback = '';
     this.write();
   }
 

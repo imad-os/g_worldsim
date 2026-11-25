@@ -58,6 +58,10 @@ export class Ai {
   lastError = '';
   lastMs = 0;
   totalCalls = 0;
+  /** Which saved brain the settings belong to (set by the app); passed to `onResult`. */
+  tag = '';
+  /** Every finished request (not ones refused before sending: off / budget): the brain's tag, ok, the error. */
+  onResult?: (tag: string, ok: boolean, err: string) => void;
 
   private envKeys: Record<'gemini' | 'ollama' | 'openai', string[]>;
   /** Next key to use per provider (round robin: first call key 1, next call key 2...). */
@@ -166,19 +170,25 @@ export class Ai {
     this.calls.push(Date.now());
     await this.pickAuto();
     await this.slot();
-    const t0 = Date.now(), provider = this.s.provider, model = this.model;
+    const t0 = Date.now(), provider = this.s.provider, model = this.model, tag = this.tag;
     try {
       const text = provider === 'gemini' ? await this.gemini(r, model) : provider === 'openai' ? await this.openai(r, model) : await this.ollama(r, model);
       this.lastMs = Date.now() - t0; this.lastError = ''; this.totalCalls++;
+      this.report(tag, true, '');
       return { text, ms: this.lastMs, provider, model };
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       this.log.warn('ai request failed', { provider, model, err: this.lastError });
+      this.report(tag, false, this.lastError);
       throw err instanceof AiError ? err : new AiError('http', this.lastError);
     } finally {
       this.running--;
       this.queue.shift()?.();
     }
+  }
+
+  private report(tag: string, ok: boolean, err: string): void {
+    try { this.onResult?.(tag, ok, err); } catch (e) { this.log.warn('ai result hook', { err: String(e) }); }
   }
 
   private async gemini(r: LlmRequest, model: string): Promise<string> {

@@ -70,6 +70,7 @@ export type AdminCmd =
   | { cmd: 'brainSave'; id?: string; name?: string; provider?: string; url?: string; model?: string; key?: string; addKey?: string; removeKey?: number }
   | { cmd: 'brainUse'; id: string }
   | { cmd: 'brainDelete'; id: string }
+  | { cmd: 'brainFallback'; id: string }
   | { cmd: 'brainModels' | 'brainTest'; id?: string; provider?: string; url?: string; model?: string; key?: string }
   | { cmd: 'aiTest'; prompt?: string }
   /** People: list, one in detail, change values, move, kill. */
