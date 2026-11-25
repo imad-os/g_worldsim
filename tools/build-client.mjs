@@ -14,3 +14,7 @@ await build({ ...common, entryPoints: ['packages/panel/src/main.ts'], outfile: '
 const ph = readFileSync('docs/panel/index.html', 'utf8').replace(/panel\.(js|css)\?v=[^"]+/g, (m, ext) => `panel.${ext}?v=${version}`);
 writeFileSync('docs/panel/index.html', ph);
 console.log(`app ${version} + debug view + panel built`);
+// The server is built too (tsc ran before this script): main.ts compiles again only when sources change after this.
+import { mkdirSync } from 'node:fs';
+mkdirSync('packages/server/dist', { recursive: true });
+writeFileSync('packages/server/dist/.built', new Date().toISOString());

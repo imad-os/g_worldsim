@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   Msg, Kind, EFlag, Act, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, encode, decode, packI32, chunkKey,
   type AdminCmd, type ClientMsg, type Role, type ServerMsg, type ServerStats,
+  type ServerBuild,
 } from '@worldsim/protocol';
 import type { World } from '../sim/world.js';
 import type { Logger } from '../log.js';
@@ -99,6 +100,8 @@ export class NetServer {
   health: () => Record<string, unknown> = () => ({ ok: true });
   admin: AdminHandler = () => { throw new Error('no admin handler'); };
   welcomeExtra: () => Record<string, unknown> = () => ({});
+  /** Admins' Welcome: the running build and its commands (app.ts). */
+  adminWelcome: () => ServerBuild | undefined = () => undefined;
   onStop: () => void = () => {};
   /** A viewer pressed A next to a person (viewer name, their character's slot, the person's slot). */
   onTalk: (name: string, player: number, agent: number, text?: string) => void = () => {};
@@ -262,7 +265,7 @@ export class NetServer {
         return;
       }
       if (!this.rate(session)) { ws.close(4008, 'too many messages'); return; }
-      this.onMessage(session, m).catch((err) => this.log.warn('message failed', { err: String(err) }));
+      this.onMessage(session, m).catch((err) => this.log.warn('message failed', { t: m.t, who: session?.name, err: String((err as Error)?.stack ?? err) }));
     });
     ws.on('close', () => {
       clearTimeout(helloTimer);
@@ -328,6 +331,7 @@ export class NetServer {
       body: { radius: w.sc.agents.radius, walk: w.sc.agents.walk, run: w.sc.agents.run },
       seer: role === 'viewer' && this.isSeer(name),
       account: acct ? { uid: acct.uid, role: acct.role, name: this.o.accounts!.get(acct.uid)?.name ?? '', email: acct.email } : undefined,
+      build: role === 'admin' ? this.adminWelcome() : undefined,
     });
     this.log.info('client joined', { name, role, resumed: !!(m as { resume?: string }).resume });
     return s;
@@ -610,6 +614,7 @@ export class NetServer {
         return;
       }
       default:
+        this.log.warn('unknown message', { source: 'net', t: String((m as { t?: unknown }).t), who: s.name, role: s.role });
         this.send(s, { t: Msg.Error, code: 'unknown' });
     }
   }

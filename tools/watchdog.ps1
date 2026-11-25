@@ -9,7 +9,8 @@
 $ErrorActionPreference = 'Continue'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-$node = Get-ChildItem (Join-Path $repo '.node') -Filter node.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+$node = if (Test-Path 'D:\node\node.exe') { 'D:\node\node.exe' } else { $null }   # imad 2026-11-25
+if (-not $node) { $node = Get-ChildItem (Join-Path $repo '.node') -Filter node.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }
 if (-not $node) { $node = 'node' }
 $data = Join-Path $repo 'data'
 $log = Join-Path $data 'watchdog.log'

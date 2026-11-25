@@ -139,7 +139,23 @@ export type AdminCmd =
   | { cmd: 'backups' }
   | { cmd: 'backupMake' }
   | { cmd: 'backupRestore'; file: string }
-  | { cmd: 'backupDelete'; file: string };
+  | { cmd: 'backupDelete'; file: string }
+  // The server's error log (2026-11-25): newest first, filters; clear all or one row.
+  | { cmd: 'errors'; limit?: number; source?: string; level?: string; q?: string; since?: number }
+  | { cmd: 'errorsClear'; id?: number };
+
+/** What the running server is (admins only, in the Welcome): the panel compares it with what it needs. */
+export interface ServerBuild {
+  /** git commit the server process started from ('' = unknown), and its subject line. */
+  commit: string;
+  subject: string;
+  /** When this process started (ms). */
+  started: number;
+  /** Every admin command this running server knows. */
+  cmds: string[];
+  /** Problems kept in the error log in the last 24 h. */
+  errors24h: number;
+}
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd & { force?: boolean } }
 
@@ -163,6 +179,8 @@ export interface Welcome {
   seer?: boolean;
   /** Signed in with Firebase: the account (role owner / admin / player, character name, '' until they join). */
   account?: { uid: string; role: 'owner' | 'admin' | 'player'; name: string; email: string };
+  /** Admins only: the running server's build and the commands it knows (older servers leave it out). */
+  build?: ServerBuild;
 }
 
 export interface ClockInfo {

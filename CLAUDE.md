@@ -368,3 +368,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   of that saved brain, counted in brain stats). Log types: people, life, work, danger, social, convo, travel, admin, ai, server (server = warn/error from
   `control.logTail`; switch to the error-log store when it lands). Prompt = stats JSON + ticked logs within 60k chars (newest kept), redacted;
   `analysisPreview` shows it. Answers in meta `analysis_log` (last 30), `analysisForget`. Test analysis.test.ts; proof `node tools/analysis-proof.mjs <outdir>`.
+## Error log, server build check (imad 2026-11-25: "I need an error log", "unknown command a lot")
+- "unknown command" / "bad maxPopulation" = the panel (Pages, always the newest) talks to a server process on the PC that runs OLDER code
+  (not pulled / rebuilt / restarted). Such a server can't update itself if it predates the Server controls: deploy on the PC by hand.
+- `App.build` { commit at start, subject, started, cmds = the `case '...'` labels of `runAdmin` + `playerCmd` } goes in the admin Welcome
+  (`build`, + `errors24h`). Panel `api.ts`: a command the server doesn't list = refused at once with a clear text + one red banner
+  (`#outdated`), no request; older servers' "unknown command" answer gets the same text. Server's own answer names the command and build.
+- `ops/errors.ts` `ErrorLog`: SQLite table `errors` (last 3000; same source + msg within 10 min = n + 1). Fed by `adminCmd` failures (not
+  'confirm:'; bad values = warn, others = error with stack), every `log.warn` / `log.error` (`Logger.onProblem`, source guessed by
+  `sourceOf`, `NOT_PROBLEMS` skipped), crashes (main.ts source 'crash'). Admin `errors { limit, source, level, q, since }`, `errorsClear { id? }`;
+  Notice `error` to admins. Panel page Errors (`panel/src/errors.ts`, nav badge). Test errors.test.ts.
+- **Pull + start is enough (imad 2026-11-25)**: `npm start` runs packages/server/dist (not in git). `main.ts` now only calls `fresh.ts ensureFresh()`
+  (package files newer than node_modules/.package-lock.json = npm install via npm-cli.js next to node; src newer than dist/.built = tsc -b),
+  then imports `run.ts` (the old main). `npm run build` writes dist/.built. `WORLDSIM_NO_AUTOBUILD=1` skips it.
+- `tools/restart.ps1 [-Pull]` (imad): pause the watchdog, clean stop if running, start hidden (PowerShell can close), wait for /health.
+  Node = `D:\node\node.exe` (imad's path; watchdog.ps1 prefers it too), else .node\, else PATH.

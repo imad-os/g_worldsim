@@ -25,7 +25,11 @@ export function meter(v: number, lack = true, label = ''): string {
 }
 
 let toastTimer = 0;
+let lastToast = '', lastToastAt = 0;
 export function toast(text: string, kind: 'ok' | 'err' | 'info' = 'info'): void {
+  // The same error again and again (a page polling a failing command) is shown once every 20 s, not stacked.
+  if (kind === 'err' && text === lastToast && Date.now() - lastToastAt < 20_000) return;
+  lastToast = text; lastToastAt = Date.now();
   const el = $('toast');
   el.textContent = text; el.className = `toast show ${kind}`;
   clearTimeout(toastTimer);

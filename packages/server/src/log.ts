@@ -8,6 +8,8 @@ const ORDER: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 export class Logger {
   private size = 0;
   readonly recent: string[] = [];
+  /** Every warning / error, whatever the level filter (app.ts keeps them in the error log). */
+  onProblem: (level: 'warn' | 'error', msg: string, data?: Record<string, unknown>) => void = () => {};
 
   constructor(private readonly level: Level = 'info', private readonly file?: string, private readonly quiet = false) {
     if (file) {
@@ -17,6 +19,7 @@ export class Logger {
   }
 
   private write(level: Level, msg: string, data?: Record<string, unknown>): void {
+    if (level === 'warn' || level === 'error') { try { this.onProblem(level, msg, data); } catch { /* never stop the simulation */ } }
     if (ORDER[level] < ORDER[this.level]) return;
     const line = JSON.stringify({ t: new Date().toISOString(), level, msg, ...data });
     this.recent.push(line);

@@ -1,5 +1,6 @@
 import type { ServerStats } from '@worldsim/protocol';
-import { connect, disconnect, listeners, serverAddress, setServer, token, onServer, stats } from './api.js';
+import { connect, disconnect, listeners, serverAddress, setServer, token, onServer, stats, build, missing, outdatedText } from './api.js';
+import { errorsScreen } from './errors.js';
 import { dashboard } from './dashboard.js';
 import { help, showHelp, closeHelp } from './help.js';
 import { peopleScreen, personScreen, personSaid } from './people.js';
@@ -18,8 +19,8 @@ const val2 = (id: string) => ($(id) as HTMLInputElement).value.trim();
  * World control panel 2 (imad 2026-11-20: "advanced, informative, '?' guides, responsive, a dashboard, a screen for
  * each kind of thing, hosted on GitHub"). One page, hash routes, a side menu on wide screens and a bottom bar on phones.
  */
-const ROUTES: Record<string, Screen> = { me: meScreen, users: usersScreen, dashboard, people: peopleScreen, person: personScreen, world, zombies, crafting, rules, ai, analysis: analysisScreen, agent: coderScreen, players, events, server, settings };
-const STAFF_NAV = ['dashboard', 'people', 'world', 'zombies', 'crafting', 'rules', 'ai', 'analysis', 'agent', 'players', 'events', 'server', 'me', 'users', 'settings'];
+const ROUTES: Record<string, Screen> = { me: meScreen, users: usersScreen, dashboard, people: peopleScreen, person: personScreen, world, zombies, crafting, rules, ai, analysis: analysisScreen, agent: coderScreen, players, events, server, errors: errorsScreen, settings };
+const STAFF_NAV = ['dashboard', 'people', 'world', 'zombies', 'crafting', 'rules', 'ai', 'analysis', 'agent', 'players', 'events', 'server', 'errors', 'me', 'users', 'settings'];
 const PLAYER_NAV = ['me', 'settings'];
 let NAV = STAFF_NAV;
 const BOTTOM = ['dashboard', 'people', 'world', 'events'];
@@ -44,6 +45,7 @@ function route(): void {
   clearInterval(timer);
   closeHelp();
   cur = s; curKey = key;
+  if (key === 'errors') { errNew = 0; errBadge(); }
   for (const a of document.querySelectorAll<HTMLElement>('[data-nav]')) a.classList.toggle('on', a.dataset.nav === (curKey === 'person' ? 'people' : curKey));
   $('title').innerHTML = `${esc(s.title)}${s.help ? help(s.help) : ''}`;
   document.title = `${s.title} · World`;
@@ -122,15 +124,32 @@ listeners.welcome = () => {
     $('moreBtn').onclick = () => { $('sheet').hidden = false; };
     $('pauseBtn').hidden = !isStaff();
   }
+  outdatedBanner();
+  errNew = build?.errors24h && Number(load('errSeen', 0)) < Date.now() - 60_000 ? Math.min(build.errors24h, 999) : 0; errBadge();
   if (!isStaff()) { if (first) route(); else cur?.refresh?.(); return; }
   void import('./state.js').then(async (m) => { await m.overview(true); await m.people(); if (first) route(); else cur?.refresh?.(); });
 };
+/** The server runs older code than this panel: one banner (not a toast per poll) saying what to do. */
+function outdatedBanner(): void {
+  const el = $('outdated');
+  if (!missing.size) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `${icon('alert')}<div><b>The server is older than this panel.</b> ${esc(outdatedText([...missing][0]!))}${missing.size > 1 ? ` <span class="dim">Missing: ${[...missing].map(esc).join(', ')}.</span>` : ''} <a href="#/errors">Details</a></div><button class="iconbtn" id="outdatedX" aria-label="Hide">${icon('x')}</button>`;
+  $('outdatedX').onclick = () => { el.hidden = true; };
+}
+listeners.outdated = () => outdatedBanner();
+/** New errors on the server since this browser last opened the Errors page. */
+let errNew = 0;
+function errBadge(): void {
+  for (const b of document.querySelectorAll<HTMLElement>('[data-badge="errors"]')) { b.hidden = !errNew; b.textContent = errNew > 99 ? '99+' : String(errNew); }
+}
 listeners.denied = (why) => { deniedAt = Date.now(); disconnect(); showSignin(why); };
 listeners.stats = (s) => topStats(s);
 listeners.notice = (kind, data) => {
   if (kind === 'pairing') { toast('A TV is waiting for approval on Players & TVs', 'info'); if (load('vibrate', true)) try { navigator.vibrate?.(200); } catch { /* */ } if (curKey === 'players') void cur?.refresh?.(); }
   if (kind === 'paired' && curKey === 'players') void cur?.refresh?.();
   if (kind === 'say') { const d = data as { id: number; name: string; text: string }; personSaid(d.id, d.name, d.text); if (load('sayToasts', false)) toast(`${d.name}: “${d.text}”`); }
+  if (kind === 'error') { if (curKey === 'errors') { if (!document.querySelector('#eList details[open]')) void cur?.refresh?.(); } else { errNew++; errBadge(); } }
   if (kind === 'url') toast(`Internet link changed: ${(data as { url: string }).url}`);
 };
 
@@ -158,6 +177,7 @@ document.body.innerHTML = `
     <div class="side-f"><span id="conn" class="conn"></span> <span class="dim small">${onServer ? 'on the server' : 'from GitHub'}</span></div></aside>
   <div class="main"><header class="top"><button class="iconbtn only-m" id="menuBtn" aria-label="Menu">${icon('more')}</button><h1 id="title"></h1>
     <div class="top-r"><span id="clock" class="clock"></span><button class="iconbtn" id="pauseBtn" aria-label="Pause or resume"></button></div></header>
+    <div id="outdated" class="outdated" role="alert" hidden></div>
     <main id="view" class="view"></main></div>
   <nav class="bottom">${bottomHtml(BOTTOM)}</nav>
   <div id="sheet" class="sheet" hidden><div class="sheet-b"><div class="sheet-h"><b>All pages</b><button class="iconbtn" id="sheetX" aria-label="Close">${icon('x')}</button></div><nav class="nav grid">${navHtml()}</nav></div></div>

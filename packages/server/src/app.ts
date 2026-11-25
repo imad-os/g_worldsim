@@ -29,6 +29,8 @@ import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 import { Control } from './ops/control.js';
 import { Agent } from './ops/agent.js';
 import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
+import { ErrorLog } from './ops/errors.js';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 /** The Firebase project of the panel's sign-in: docs/panel/firebase.json (the public web config, the same file the panel reads). */
@@ -37,11 +39,23 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
+
+/** Warnings that only say what happened (the server log keeps them): not problems for the error log. */
+const NOT_PROBLEMS = new Set(['restart asked', 'restarting', 'agent action', 'restore scheduled for the next start', 'database restored from a backup']);
+/** Where a log line comes from, by its words (the error log's Source filter). */
+function sourceOf(msg: string): string {
+  if (/^(ai |planner|brain|fallback|saved brain)/.test(msg)) return 'ai';
+  if (msg.startsWith('tunnel')) return 'tunnel';
+  if (msg.startsWith('cloud')) return 'cloud';
+  if (/^(hello|auth|message|firebase|unknown message)/.test(msg)) return 'net';
+  if (/^(snapshot|event flush|restore)/.test(msg)) return 'save';
+  return 'log';
+}
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
 export class App {
@@ -75,9 +89,32 @@ export class App {
   control!: Control;
   agent!: Agent;
   analysis!: Analysis;
+  /** Every warning / error the server meets (failed panel commands, its own log, crashes), kept in SQLite: panel page Errors. */
+  readonly errors = new ErrorLog();
+  /** The commit this process started from and the admin commands it knows (sent to the panel: an older server is told apart). */
+  readonly build = App.buildInfo();
 
   constructor(readonly cfg: Config, readonly secrets: Secrets, log?: Logger) {
     this.log = log ?? new Logger(cfg.logLevel, join(resolve(cfg.dataDir), 'server.log'));
+    this.log.onProblem = (level, msg, data) => {
+      const { source, stack, err, ...rest } = (data ?? {}) as Record<string, unknown>;
+      const text = err !== undefined ? `${msg}: ${String(err).split('\n')[0]}` : msg;
+      const st = typeof stack === 'string' ? stack : typeof err === 'string' && err.includes('\n    at ') ? err : undefined;
+      if (NOT_PROBLEMS.has(msg)) return;
+      this.errors.add(level, typeof source === 'string' ? source : sourceOf(msg), text, Object.keys(rest).length ? rest : undefined, st);
+    };
+  }
+
+  /** The git commit at start (the code running now, whatever was pulled since) and the commands of `runAdmin`. */
+  static buildInfo(): { commit: string; subject: string; started: number; cmds: string[] } {
+    let commit = '', subject = '';
+    try {
+      commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).toString().trim();
+      subject = execFileSync('git', ['log', '-1', '--format=%s'], { cwd: ROOT, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).toString().trim().slice(0, 160);
+    } catch { /* no git */ }
+    const src = App.prototype.runAdmin.toString() + App.prototype.playerCmd.toString(); // a signed-in person's own ones too
+    const cmds = [...new Set([...src.matchAll(/case '([A-Za-z]+)':/g)].map((m) => m[1]!))].sort();
+    return { commit, subject, started: Date.now(), cmds };
   }
 
   async start(): Promise<void> {
@@ -86,6 +123,8 @@ export class App {
     const dbFile = join(dataDir, `${c.worldId}.sqlite`);
     Control.applyPendingRestore(dataDir, dbFile, this.log); // a backup chosen in the panel replaces the database (before it opens)
     this.db = new Db(dbFile);
+    this.errors.attach(this.db);
+    this.errors.onAdd = (r) => this.net?.notifyAdmins('error', { id: r.id, level: r.level, source: r.source, msg: r.msg, n: r.n, last: r.last });
     this.control = new Control(ROOT, dataDir, dbFile, () => this.db, this.log);
     this.snaps = new Snapshots(this.db, c.snapshotsKept);
     this.events = new EventLog(this.db);
@@ -184,6 +223,7 @@ export class App {
     this.net.clockInfo = () => this.clock();
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
     this.net.admin = (cmd, who, owner) => this.adminCmd(cmd, who, owner);
+    this.net.adminWelcome = () => ({ ...this.build, errors24h: this.errors.recentCount() });
     this.net.onStop = () => this.onStopRequest();
     // A player pressed A next to someone: they stop, face the player and answer.
     this.net.onTalk = (name, player, i, text) => { void this.planner.chat(i, name, text ?? null, player).catch(() => {}); };
@@ -355,11 +395,12 @@ export class App {
       planner: () => this.planner, serverLog: (n) => this.control.logTail(n, 'warn', this.log.recent), ai: (id) => this.analysisAi(id),
       redact: (s) => this.agent.redact(s), players: () => this.net.characters(),
     });
+    this.errors.redact = (t) => this.agent.redact(t);
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
     this.sampleHistory();
     this.timers.push(setInterval(() => this.sampleHistory(), 60_000));
-    this.timers.push(setInterval(() => { void this.planner.tick(this.loop.paused).catch((err) => this.log.warn('planner', { err: String(err) })); }, 2000));
+    this.timers.push(setInterval(() => { void this.planner.tick(this.loop.paused).catch((err) => this.log.warn('planner', { err: String((err as Error)?.stack ?? err) })); }, 2000));
     this.timers.push(setInterval(() => { try { this.events.flush(); } catch (err) { this.log.error('event flush', { err: String(err) }); } }, 1000));
     this.timers.push(setInterval(() => { this.fallbackCheck(); try { this.brainStats.flush(); } catch (err) { this.log.error('brain stats', { err: String(err) }); } }, 15_000));
     if (c.cloud.enabled) {
@@ -488,7 +529,7 @@ export class App {
       this.lastSnapshotAt = Date.now();
       this.log.debug('snapshot', { ...r, tick: this.world.tick });
     } catch (err) {
-      this.log.error('snapshot failed', { err: String(err) });
+      this.log.error('snapshot failed', { err: String((err as Error)?.stack ?? err) });
     }
   }
 
@@ -831,8 +872,22 @@ export class App {
     };
   }
 
-  /** Control panel commands. Every value is checked here, whatever the client sent. */
+  /** Control panel commands. A failure is answered to the panel and kept in the error log (not the "are you sure?" ones). */
   async adminCmd(c: AdminCmd, who: string, owner = false): Promise<unknown> {
+    try { return await this.runAdmin(c, who, owner); } catch (err) {
+      const msg = String((err as Error)?.message ?? err);
+      if (!msg.startsWith(CONFIRM)) {
+        const { cmd, ...args } = (c ?? {}) as Record<string, unknown>;
+        // A bad value is the sender's mistake (warn); anything else is the server's (error, with where it happened).
+        const mine = /^(bad |unknown command|no such |only the owner|nobody |who should)/.test(msg);
+        this.errors.add(mine && !msg.startsWith('unknown command') ? 'warn' : 'error', 'admin', `${String(cmd)}: ${msg}`, { cmd, who, args }, mine ? undefined : (err as Error)?.stack);
+      }
+      throw err;
+    }
+  }
+
+  /** Every value is checked here, whatever the client sent. */
+  private async runAdmin(c: AdminCmd, who: string, owner = false): Promise<unknown> {
     const w = this.world;
     // lo..hi = the usual range. Outside it the panel asks "are you sure?" (error 'confirm: ...') and sends the command again
     // with force: true; the admin may then set anything inside `hard` (what the engine can hold: default >= 0 when lo >= 0).
@@ -1271,7 +1326,12 @@ export class App {
         if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to give orders');
         return { did: this.planner.orderFromPanel(i, String(c.kind ?? ''), String(c.target ?? '')) };
       }
-      default: throw new Error('unknown command');
+      case 'errors': return { ...this.errors.list({ limit: c.limit !== undefined ? fixed(c.limit, 1, 1000, 'limit') : 200, source: c.source ? String(c.source) : undefined, level: c.level ? String(c.level) : undefined, q: c.q ? String(c.q).slice(0, 100) : undefined, since: c.since !== undefined ? fixed(c.since, 0, 1e15, 'since') : undefined }), build: this.build };
+      case 'errorsClear': return { removed: this.errors.clear(c.id !== undefined ? fixed(c.id, 0, 2 ** 31, 'id') : undefined) };
+      default: {
+        const b = this.build;
+        throw new Error(`unknown command "${String((c as { cmd?: unknown } | undefined)?.cmd)}": this server runs ${b.commit ? 'build ' + b.commit : 'an unknown build'} (started ${new Date(b.started).toISOString().slice(0, 16).replace('T', ' ')} UTC), older than the panel. Update and restart it (Server page > Update)`);
+      }
     }
   }
 
@@ -1292,6 +1352,7 @@ export class App {
     try { this.events?.flush(); } catch { /* closing */ }
     try { this.brainStats?.flush(); } catch { /* closing */ }
     if (this.cfg.cloud.enabled && this.world) { this.cloud.collect(this.world); await this.cloud.flush(); }
+    this.errors.detach();
     this.db?.close();
     this.log.info('server stopped', { tick: this.world?.tick });
   }
