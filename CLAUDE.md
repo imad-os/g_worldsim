@@ -237,6 +237,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `brainSave` (key undefined = keep, '' = remove; `addKey` appends keys, `removeKey` = index; panel: key chips …last4 + ✕, "Add key"), `brainUse`, `brainDelete` (not the one in use), `brainModels` / `brainTest` (a temporary
   `Ai`, the live one untouched). Clients get keys only as a count + last 4 characters. First start seeds the AI in use (+ "Gemini (keys
   in .env)" when .env has keys). Old `aiSet` updates the brain in use. Provider `openai` = any OpenAI-compatible API (`/v1` base, Bearer key).
+- **Brain stats and fallback (imad 2026-11-25)**: `ai/brainstats.ts`. `BrainStats` counts every live AI call per brain (`Ai.tag` = brain id, `Ai.onResult`)
+  in hourly buckets (7 days) + lifetime, meta `brain_stats` (flushed every 15 s / at stop; panel Test calls not counted). `Failover`: the brain in use failing
+  3 calls in a row = the fallback brain (`Brains.fallbackId`, admin `brainFallback { id }`, '' = none) thinks for 30 min, then back. Use / save of the active
+  brain / aiSet end it. `brains` returns `stats` per brain + `failover`. Test brains.test.ts.
 - **Keys take turns**: `GEMINI_API_KEYS=k1,k2` (and/or `GEMINI_API_KEY`) in .env, or several comma-separated keys in a brain's key
   field: round robin per call (`Ai.nextKey`). A brain's own key wins over .env. `OPENAI_API_KEY` in .env also works.
 - **Rule kinds (imad 2026-11-20: "rules are not respected"; all his rules were "must" rules)**: `classify()` in sim/rules.ts:
