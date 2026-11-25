@@ -721,11 +721,13 @@ export class NetServer {
       const i = s.list[k]!;
       if (s.known[i]! > 0) { (del ??= []).push(s.known[i]! - 1); s.known[i] = 0; }
     }
+    let dead: number[] | undefined;
+    if (del && w.fell.size) for (const id of del) if (w.fell.has(id)) (dead ??= []).push(id);
     for (let k = 0; k < n; k++) { const i = this.scratch[k]!; s.known[i] = -s.known[i]!; s.list[k] = i; }
     s.listN = n;
     if (rn === 0 && !del && ++s.idle < this.o.netHz) return;
     s.idle = 0;
-    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn), cs: w.opt.clockScale });
+    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn), cs: w.opt.clockScale, ...(dead ? { dead } : {}) });
   }
 
   private broadcastStats(): void {

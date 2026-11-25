@@ -475,6 +475,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Screens** (`invui.ts`, Menu pages with a `grid` = own cursor, `big`): "Bag & crafting" (category tabs, 3x3 grid -> result, recipe book fills the grid,
   9x4 bag; A on a material = into the grid, on gear = equip, on a placeable = put down) and "Gear" (3D preview = a second small WebGLRenderer only while open,
   4 slots, choices Best / Nothing / items, Level up / Raise quality with costs). Strings `i18ng.ts` (TG). Proof: `ADMIN_TOKEN=... node tools/gear-proof.mjs <server> <sdk.js> <outdir>`.
+- **Bow aiming, animal deaths (imad 2026-11-25, app 0.12.1)**: holding Aim sends Do `aim` 1 (`Gear.aiming`, frame gx bit 23 = bow drawn and held,
+  anim shoot); letting go of Aim SHOOTS (Do `shoot` at the locked target / aim angle, then `aim` 0); Attack while aiming does nothing. My own character
+  shows the drawn bow at once (`aimGear`). `#aimhud` = arrows icon + count while aiming. Player arrows fly at `ARROW_SPEED` 100 m/s (`World.shoot(.., speed)`),
+  drawn as a streak along their flight. Killed animals: `World.fell` (id -> tick, 5 s) -> `Frame.dead` ids; the TV keeps them as `corpses` and
+  `Animals3D.add(.., dead = seconds)` staggers, rolls on the side, kicks, sinks (`DEATH_SECS` 4). Proof `ADMIN_TOKEN=... node tools/bow-proof.mjs <server> <sdk.js> <outdir>`.
 
 ## Quests, NPCs, deep clans (imad 2026-11-25, app 0.11.1)
 - **NPCs are not people (imad's choice)**: Kind.Npc 8 (`World.spawnNpc`, look in frame bits 24+, no profile / needs / age / clans, not population),

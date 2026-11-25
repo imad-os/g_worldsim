@@ -312,6 +312,8 @@ export class World {
 
   /** Characters whose player is away (entity ids): they sleep and their needs wait. */
   readonly away = new Set<number>();
+  /** Entity ids just killed (animals) -> tick: viewers get them in `Frame.dead` and show them fall. Forgotten after 5 s. */
+  readonly fell = new Map<number, number>();
 
   /** A person's character. Same body as an agent; moved by their controls, never by the AI. */
   spawnPlayer(map: number, x: number, y: number): number {
@@ -452,13 +454,13 @@ export class World {
     if (b) { b.getWorld().destroyBody(b); this.bodies[i] = null; }
   }
 
-  shoot(map: number, x: number, y: number, dx: number, dy: number, owner = -1): number {
-    const P = this.sc.projectile, e = this.e;
+  shoot(map: number, x: number, y: number, dx: number, dy: number, owner = -1, speed = 0): number {
+    const P = this.sc.projectile, e = this.e, sp = speed > 0 ? speed : P.speed;
     const len = Math.hypot(dx, dy) || 1;
     const i = e.create(Kind.Projectile, map, x, y, P.radius);
     if (i < 0) return -1;
     e.owner[i] = owner; e.life[i] = P.ttl; e.hp[i] = P.damage;
-    e.vx[i] = (dx / len) * P.speed; e.vy[i] = (dy / len) * P.speed;
+    e.vx[i] = (dx / len) * sp; e.vy[i] = (dy / len) * sp;
     const b = this.maps[map]!.phys.createProjectileBody(i, owner, x, y, P.radius);
     this.vel.x = e.vx[i]!; this.vel.y = e.vy[i]!;
     b.setLinearVelocity(this.vel);
@@ -496,6 +498,7 @@ export class World {
     this.updateClock();
     this.brain.think();
     this.life.tick();
+    if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
     if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); }
     this.zombies.update();
     this.animals.update();

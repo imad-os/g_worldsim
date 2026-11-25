@@ -53,18 +53,18 @@ export const HELD = ['', 'sword', 'axe', 'spear', 'bow'] as const;
 /** What a person is doing, for the viewer's animation (bits 15-17). */
 export const ANIMS = ['', 'attack', 'chop', 'mine', 'build', 'talk', 'shoot', 'use'] as const;
 export type Anim = (typeof ANIMS)[number];
-export interface GearLook { held: string; hq: number; helmet: boolean; headQ: number; body: '' | 'clothes' | 'armor'; bodyQ: number; anim: Anim; seq: number; back: boolean }
+export interface GearLook { held: string; hq: number; helmet: boolean; headQ: number; body: '' | 'clothes' | 'armor'; bodyQ: number; anim: Anim; seq: number; back: boolean; aim?: boolean }
 /**
  * One Int32 per person in a frame (`Frame.gx`, parallel to the records): held 3 bits + its quality 3, helmet 1 + quality 3,
- * body 2 (1 clothes, 2 armor) + quality 3, anim 3, anim count 4 (a new swing restarts the move), bow on the back 1.
+ * body 2 (1 clothes, 2 armor) + quality 3, anim 3, anim count 4 (a new swing restarts the move), bow on the back 1, aiming (bow drawn and held) 1.
  */
 export function packGear(g: GearLook): number {
   const h = Math.max(0, HELD.indexOf(g.held as (typeof HELD)[number])), a = Math.max(0, ANIMS.indexOf(g.anim));
   return h | (g.hq & 7) << 3 | (g.helmet ? 1 : 0) << 6 | (g.headQ & 7) << 7 | (g.body === 'armor' ? 2 : g.body === 'clothes' ? 1 : 0) << 10
-    | (g.bodyQ & 7) << 12 | a << 15 | (g.seq & 15) << 18 | (g.back ? 1 : 0) << 22;
+    | (g.bodyQ & 7) << 12 | a << 15 | (g.seq & 15) << 18 | (g.back ? 1 : 0) << 22 | (g.aim ? 1 : 0) << 23;
 }
 export function unpackGear(v: number): GearLook {
   const b = (v >> 10) & 3;
   return { held: HELD[v & 7] ?? '', hq: (v >> 3) & 7, helmet: ((v >> 6) & 1) === 1, headQ: (v >> 7) & 7, body: b === 2 ? 'armor' : b === 1 ? 'clothes' : '', bodyQ: (v >> 12) & 7,
-    anim: ANIMS[(v >> 15) & 7] ?? '', seq: (v >> 18) & 15, back: ((v >> 22) & 1) === 1 };
+    anim: ANIMS[(v >> 15) & 7] ?? '', seq: (v >> 18) & 15, back: ((v >> 22) & 1) === 1, aim: ((v >> 23) & 1) === 1 };
 }

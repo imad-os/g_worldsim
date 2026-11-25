@@ -56,8 +56,39 @@ test('gear: the best weapon is used unless one is chosen; levels and quality rai
   assert.equal(look.anim, 'attack');
   assert.equal(look.seq, (seq0 + 1) & 15, 'a new swing restarts the move');
   // Round trip of every field.
-  const all = { held: 'bow', hq: 4, helmet: true, headQ: 3, body: 'clothes' as const, bodyQ: 2, anim: 'shoot' as const, seq: 9, back: false };
+  const all = { held: 'bow', hq: 4, helmet: true, headQ: 3, body: 'clothes' as const, bodyQ: 2, anim: 'shoot' as const, seq: 9, back: false, aim: true };
   assert.deepEqual(unpackGear(packGear(all)), all);
   // Saved with the profile.
   assert.deepEqual(w.profileOf(i)!.gear!.up!.sword, [2, 1]);
+});
+
+test('aiming: a player holding the aim with a bow is sent drawing it; a killed animal is marked for viewers to show it fall', () => {
+  const w = mk('aim-test');
+  w.populate();
+  const e = w.e;
+  const i = w.spawnPlayer(0, 20, 20);
+  assert.ok(i >= 0);
+  w.playerProfile(i, 'Tester');
+  const sv = w.survival, g = w.gear;
+  for (const k of Object.keys(sv.inv(i))) delete sv.inv(i)[k];
+  sv.add(i, 'sword', 1); sv.add(i, 'bow', 1);
+  assert.equal(unpackGear(g.code(i)).held, 'sword');
+  g.aiming[i] = 1;
+  const a = unpackGear(g.code(i));
+  assert.equal(a.held, 'bow'); assert.equal(a.anim, 'shoot'); assert.equal(a.aim, true); assert.equal(a.back, false);
+  g.play(i, 'shoot'); // let go: the shot plays, not the held draw
+  assert.equal(unpackGear(g.code(i)).aim, false);
+  g.aiming[i] = 0;
+  sv.add(i, 'bow', -1); g.aiming[i] = 1;
+  assert.equal(unpackGear(g.code(i)).aim, false, 'no bow, no aiming');
+  // An arrow can fly faster than the scenario's projectiles.
+  const p = w.shoot(e.map[i]!, e.x[i]! + 1, e.y[i]!, 1, 0, i, 100);
+  assert.ok(p >= 0); assert.equal(Math.round(e.vx[p]!), 100);
+  // A hunted animal: removed, and its id kept a moment in `fell`.
+  const an = w.animals.spawn(e.map[i]!, e.x[i]! + 3, e.y[i]!, 0);
+  assert.ok(an >= 0);
+  const id = e.id(an);
+  assert.ok(w.animals.hit(an, 999, i));
+  assert.equal(w.fell.has(id), true);
+  assert.equal(e.alive(an), false);
 });

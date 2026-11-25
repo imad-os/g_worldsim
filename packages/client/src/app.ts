@@ -16,7 +16,8 @@ import {
 } from './ui.js';
 import { Wheel, type WheelItem } from './wheel.js';
 import { Sound, SOUND_DEFAULTS, type SoundPrefs } from './audio.js';
-import { loadItems } from './gfx/items.js';
+import { loadItems, iconStyle } from './gfx/items.js';
+import { DEATH_SECS } from './gfx/animals.js';
 import { InvScreen, GearScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
 
@@ -50,6 +51,7 @@ const screenEl = document.getElementById('screen')!;
 const hudTop = document.getElementById('top')!;
 const hudHint = document.getElementById('hint')!;
 const noteEl = document.getElementById('note')!;
+const aimEl = document.getElementById('aimhud') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'aimhud', hidden: true }));
 const cardEl = document.getElementById('card')!;
 
 // ------------------------------------------------------------ state
@@ -120,7 +122,9 @@ let binds: Binds = cloneBinds(DEFAULT_BINDS);
 let bindsNews = false;
 let capture: ActionId | null = null;
 /** The bow's aim (imad 2026-11-20 "a good system to attack with a bow"): held Aim = the stick points, Attack shoots along it. */
-let aimOn = false, aimAng = 0, aimLock = -1, moveAng = NaN;
+let aimOn = false, aimAng = 0, aimLock = -1, moveAng = NaN, aimAt = 0, aimShown = -1;
+/** Animals just killed, falling over where they were (Frame.dead; imad 2026-11-25). */
+const corpses: { type: number; x: number; y: number; f: number; at: number }[] = [];
 /** The way my character faces, as the server counts angles (0 = east, +y = south). */
 function myAng(): number {
   if (aimOn) return aimAng;
@@ -337,7 +341,7 @@ function onMsg(m: ServerMsg): void {
         const hp = (m.data as { hp?: number }).hp ?? 100;
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
         lastHp = hp;
-        meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight' || menu.page === 'inv' || menu.page === 'gear')) menu.refresh(); }
+        meNeeds = m.data as typeof meNeeds; drawCard(); aimHud(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight' || menu.page === 'inv' || menu.page === 'gear')) menu.refresh(); }
       if (m.kind === 'blocked') note(t((m.data as { why?: string } | null)?.why === 'door' ? 'dDoorShut' : 'dBlocked'), 5000);
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
@@ -375,7 +379,7 @@ function onMsg(m: ServerMsg): void {
         const s = slotFor(r[o]!);
         if (s < 0) continue;
         const fresh = kind[s] === 0;
-        const g = gx ? gx[o / ENT_REC] ?? 0 : 0, ak = (g >> 15) & 127;
+        const g = gx ? gx[o / ENT_REC] ?? 0 : 0, ak = ((g >> 15) & 127) | ((g >> 16) & 128); // anim + count + aiming
         if (ak !== animKey[s] || fresh) { animKey[s] = ak; animAt[s] = now; }
         gearOf[s] = g;
         kind[s] = r[o + 1]! & 127; riding[s] = (r[o + 1]! & KIND_RIDING) ? 1 : 0; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255; alook[s] = r[o + 1]! >>> 24; atype[s] = kind[s] === Kind.Animal ? alook[s]! & 7 : alook[s]! & 63; // kind bit 7 = riding; horses: quality bits 3-4, coat 5-7
@@ -389,6 +393,10 @@ function onMsg(m: ServerMsg): void {
       }
       for (const id of m.del) {
         const s = slotOf.get(id);
+        if (s !== undefined && kind[s] === Kind.Animal && m.dead?.includes(id) && drawnF[s]! > 0 && frameNo - drawnF[s]! < 30) { // killed: it falls where it was drawn
+          if (corpses.length >= 32) corpses.shift();
+          corpses.push({ type: atype[s]!, x: drawnX[s]!, y: drawnY[s]!, f: face[s]!, at: now });
+        }
         if (s !== undefined) { eid[s] = -1; kind[s] = 0; slotOf.delete(id); }
         if (id === follow) follow = -1;
       }
@@ -960,7 +968,7 @@ function nearestNpc(r: number): boolean {
 /** One of the player's actions, from any button. */
 function doAction(a: ActionId, pressed: boolean): void {
   if (a === 'run') { runHeld = pressed; return; }
-  if (a === 'aim') { setAim(pressed); return; }
+  if (a === 'aim') { setAim(pressed, !pressed); return; }
   if (!pressed || mode !== 'world') return;
   switch (a) {
     case 'menu': openMenu(); return;
@@ -1009,12 +1017,7 @@ function doAction(a: ActionId, pressed: boolean): void {
 function attack(): void {
   const inv = meNeeds?.inv ?? {}, bow = (inv.bow ?? 0) > 0 && (inv.arrows ?? 0) > 0;
   const x = focusX(), y = focusY(), a = myAng();
-  if (aimOn) {
-    if (!bow) { note(t((inv.bow ?? 0) > 0 ? 'noArrows' : 'noBow'), 3500); return; }
-    const t0 = aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng;
-    send({ t: Msg.Do, a: 'shoot', text: t0.toFixed(3) });
-    return;
-  }
+  if (aimOn) return; // aiming: letting go of the aim button shoots (imad 2026-11-25)
   const near = targetNear(x, y, a, 2.6, 1.2);
   if (near < 0 && bow) {
     const far = targetNear(x, y, a, 20, 0.45);
@@ -1022,17 +1025,45 @@ function attack(): void {
   }
   send({ t: Msg.Do, a: 'hit', text: a.toFixed(3) });
 }
-function setAim(on: boolean): void {
+/** Aim button held: the stick turns the aim, my character holds the bow drawn; let go = the arrow flies (`fire`). */
+function setAim(on: boolean, fire = false): void {
   if (on === aimOn) return;
   if (on && (how !== 'play' || !playing() || menu.open || mode !== 'world')) return;
   aimOn = on;
+  const inv = meNeeds?.inv ?? {}, bow = (inv.bow ?? 0) > 0, arrows = inv.arrows ?? 0;
   if (on) {
-    aimAng = Number.isFinite(moveAng) ? moveAng : myAng();
-    const inv = meNeeds?.inv ?? {};
-    if ((inv.bow ?? 0) < 1) note(t('noBow'), 3500);
-    else if ((inv.arrows ?? 0) < 1) note(t('noArrows'), 3500);
-    else note(tf('aimOn', keyName('attack')), 2500);
-  } else { aimLock = -1; g3?.aim(false); }
+    aimAng = Number.isFinite(moveAng) ? moveAng : myAng(); aimAt = performance.now();
+    if (!bow) note(t('noBow'), 3500);
+    else if (arrows < 1) note(t('noArrows'), 3500);
+    else note(tf('aimOn', keyName('aim')), 2500);
+    if (bow) send({ t: Msg.Do, a: 'aim', text: '1' }); // everyone sees the bow in my hands
+  } else {
+    if (fire && bow && arrows > 0) {
+      const x = focusX(), y = focusY();
+      const t0 = aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng;
+      send({ t: Msg.Do, a: 'shoot', text: t0.toFixed(3) });
+    }
+    if (bow) send({ t: Msg.Do, a: 'aim', text: '0' });
+    aimLock = -1; g3?.aim(false);
+  }
+  aimHud();
+}
+/** My own character while I aim: the bow drawn in my hands at once (the server's frames follow a moment later). */
+function aimGear(g: number): number {
+  if ((meNeeds?.inv?.bow ?? 0) < 1) return g;
+  const q = (meNeeds?.gear as { up?: Record<string, [number, number]> } | undefined)?.up?.bow?.[1] ?? 0;
+  return (g & ~(7 | 7 << 3 | 127 << 15 | 1 << 22)) | 4 | (q & 7) << 3 | 6 << 15 | 1 << 23;
+}
+/** While aiming: my arrows, next to the aim (imad 2026-11-25: "when aiming show the arrows I have"). */
+function aimHud(): void {
+  const n = aimOn && (meNeeds?.inv?.bow ?? 0) > 0 ? meNeeds?.inv?.arrows ?? 0 : -1;
+  if (n === aimShown) return;
+  aimShown = n;
+  if (n < 0) { aimEl.hidden = true; return; }
+  const ic = iconStyle('arrows', 48);
+  aimEl.innerHTML = `${ic ? `<i style="${ic}"></i>` : ''}<b>${n}</b><span>${tf('arrowsLeft', n)}</span>`;
+  aimEl.classList.toggle('none', n < 1);
+  aimEl.hidden = false;
 }
 /** The button for an action as the player sees it (the controller's printed name, else the remote's). */
 function keyName(a: ActionId): string {
@@ -1119,7 +1150,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     if (why[d.code]) { sound.play('ui_error'); note(t(why[d.code]!), 3000); return; }
     if (d.code === 'needHut') { sound.play('ui_error'); note(tf('needHut2', needText(HUT_NEED)), 3500); return; }
   }
-  if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 180); }
+  if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 110); }
   else if (DID_SOUND[d.code]) sound.play(DID_SOUND[d.code]!, undefined, undefined, d.code === 'zKilled' ? 0.9 : 1);
   if (d.code === 'chopped' && (d as { got?: Record<string, number> }).got?.wood && Math.random() < 0.25) sound.play('tree_fall', undefined, undefined, 0.6);
   const dm = d as typeof d & { me?: MeChar; days?: number; why?: string; what?: string; on?: boolean; dmg?: number };
@@ -1607,7 +1638,7 @@ function draw(now: number, dt: number): void {
   if (rp) { // a past event: only the recorded people and zombies
     rp.draw(P, dt, actName);
     g3.dist += (Math.max(16, Math.min(42, rp.span * 1.1 + 10)) - g3.dist) * Math.min(1, dt * 2);
-    P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
+  P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
     return;
   }
   for (let i = 0; i < CAP; i++) {
@@ -1615,7 +1646,7 @@ function draw(now: number, dt: number): void {
     let x = px[i]! + (nx[i]! - px[i]!) * a, y = py[i]! + (ny[i]! - py[i]!) * a;
     if (i === me) { x = predX; y = predY; }
     if (Math.abs(x - fx) > r || Math.abs(y - fy) > r) continue;
-    if (kind[i] === Kind.Projectile) { g3.shot(x, y); continue; }
+    if (kind[i] === Kind.Projectile) { g3.shot(x, y, vx[i]!, vy[i]!); continue; }
     if (kind[i] === Kind.Item) { g3.item(x, y, sub[i]!, eid[i]!); continue; }
     if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat && kind[i] !== Kind.Animal && kind[i] !== Kind.Npc) continue;
     // Walk cycle from the distance really covered on screen.
@@ -1656,10 +1687,15 @@ function draw(now: number, dt: number): void {
     const mine = i === me || eid[i] === meId;
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     const seat = riding[i] ? riderSeat(x, y) : 0;
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : gearOf[i]!, (now - animAt[i]!) / 1000, seat);
+    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (kind[i] === Kind.Npc) P.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
+  }
+  for (let k = corpses.length - 1; k >= 0; k--) { // animals just killed: falling over, then sinking
+    const c = corpses[k]!, age = (now - c.at) / 1000;
+    if (age > DEATH_SECS) { corpses.splice(k, 1); continue; }
+    g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
   }
   P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
   if (aimOn && me >= 0) {
@@ -1862,7 +1898,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: () => ({ aimOn, aimAng, aimLock }), me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
     MyPC.ready();
   },
   onStart() {

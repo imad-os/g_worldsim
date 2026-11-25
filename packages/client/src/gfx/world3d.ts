@@ -92,7 +92,7 @@ export class World3D {
     this.people = new People(this.scene, 512, shadows);
     this.animals = new Animals3D(this.scene, 128, shadows);
     this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
-    this.shots = new InstancedMesh(new SphereGeometry(0.07, 6, 4), new MeshBasicMaterial({ color: 0xfff1a0 }), 256);
+    this.shots = new InstancedMesh(new BoxGeometry(0.04, 0.04, 0.9), new MeshBasicMaterial({ color: 0xfff1a0 }), 256); // an arrow streak along its flight
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
     this.scene.add(this.shots);
@@ -211,9 +211,9 @@ export class World3D {
   clearChunks(): void { for (const g of this.chunks.children.slice()) this.removeChunk(g as Group); }
 
   beginShots(): void { this.nShots = 0; }
-  shot(x: number, z: number): void {
+  shot(x: number, z: number, vx = 0, vz = 0): void {
     if (this.nShots >= 256) return;
-    this.m.makeTranslation(x, 1.0, z);
+    this.m.makeRotationY(vx || vz ? Math.atan2(vx, vz) : 0).setPosition(x, 1.0, z);
     this.shots.setMatrixAt(this.nShots++, this.m);
   }
   endShots(): void { this.shots.count = this.nShots; this.shots.instanceMatrix.needsUpdate = true; }

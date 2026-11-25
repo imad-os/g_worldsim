@@ -19,11 +19,13 @@ export class Gear {
   private readonly anim: Uint8Array;
   private readonly seq: Uint8Array;
   private readonly until: Float64Array;
+  /** Players holding the aim button with a bow: the bow is drawn and held (Do `aim` 1 / 0). */
+  readonly aiming: Uint8Array;
   private lastHour = -1;
 
   constructor(private readonly w: World) {
     const cap = w.e.cap;
-    this.anim = new Uint8Array(cap); this.seq = new Uint8Array(cap); this.until = new Float64Array(cap);
+    this.anim = new Uint8Array(cap); this.seq = new Uint8Array(cap); this.until = new Float64Array(cap); this.aiming = new Uint8Array(cap);
   }
 
   state(i: number): GearState {
@@ -112,8 +114,10 @@ export class Gear {
     const w = this.w, e = w.e, kd = e.kind[i];
     if (kd !== Kind.Agent && kd !== Kind.Player) return 0;
     const wp = this.equipped(i, 'weapon'), bow = this.equipped(i, 'ranged'), head = this.equipped(i, 'head'), body = this.equipped(i, 'body');
-    let anim: Anim = '';
+    let anim: Anim = '', aim = false;
+    if (this.aiming[i] && (kd !== Kind.Player || (w.survival.inv(i).bow ?? 0) < 1)) this.aiming[i] = 0;
     if (this.until[i]! > w.tick) anim = (['', 'attack', 'chop', 'mine', 'build', 'talk', 'shoot', 'use'] as const)[this.anim[i]!] ?? '';
+    else if (this.aiming[i]) { anim = 'shoot'; aim = true; }
     else {
       const a = e.act[i];
       if (a === Act.Fight) anim = 'attack';
@@ -127,7 +131,7 @@ export class Gear {
       held, hq: held ? this.up(i, held)[1] : 0,
       helmet: head === 'helmet', headQ: head ? this.up(i, head)[1] : 0,
       body: body === 'armor' ? 'armor' : body === 'clothes' ? 'clothes' : '', bodyQ: body ? this.up(i, body)[1] : 0,
-      anim, seq: this.seq[i]!, back: !!bow && held !== 'bow',
+      anim, seq: this.seq[i]!, back: !!bow && held !== 'bow', aim,
     });
   }
   private nearTree(i: number): boolean {

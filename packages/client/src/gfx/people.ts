@@ -107,9 +107,12 @@ export class People {
     } else if (anim === 5) { // talk: hands moving, a nod now and then
       rx = -0.45 - 0.35 * (0.5 + 0.5 * Math.sin(at * 5.2)); rz = 0.35;
       lx = -0.2 - 0.25 * (0.5 + 0.5 * Math.sin(at * 3.7 + 1)); lz = 0.25; nod = 0.12 * Math.sin(at * 7.5); armsSet = true;
-    } else if (anim === 6) { // shoot: bow arm out, the other draws the string, then lets go
-      const p = Math.min(1, at / 0.9);
-      lx = -1.55; lz = -0.05; rx = -1.5; rz = p < 0.7 ? -0.15 - 0.35 * ease(p / 0.7) : -0.1; twist = 0.25; armsSet = true;
+    } else if (anim === 6 && (gear >> 23) & 1) { // aiming: the bow arm out at the target, the string hand drawn back to the shoulder and held
+      const p = Math.min(1, at / 0.35);
+      lx = -1.55 + 0.03 * Math.sin(at * 2.1); lz = -0.05; rx = -1.5; rz = 0.45 + 0.8 * ease(p); twist = 0.3; armsSet = true; // rz > 0 = across the chest
+    } else if (anim === 6) { // shoot: a quick draw, then the string goes and the hand springs forward
+      const p = Math.min(1, at / 0.5);
+      lx = -1.55; lz = -0.05; rx = -1.5; rz = p < 0.3 ? 0.45 + 0.8 * ease(p / 0.3) : 1.25 - 0.95 * ease(Math.min(1, (p - 0.3) / 0.12)); twist = 0.25; armsSet = true;
     } else if (anim === 7) { // use: reach down and pick up
       const p = Math.min(1, at / 0.6);
       rx = -0.9 * Math.sin(p * Math.PI); lean = 0.3 * Math.sin(p * Math.PI); armsSet = true;

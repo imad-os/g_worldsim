@@ -38,6 +38,7 @@ import { Chats } from './ai/chatroom.js';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
+const ARROW_SPEED = 100; // m/s: a player's bow arrow (imad 2026-11-25: "make the arrow faster"; other projectiles use the scenario's speed)
 /** The Firebase project of the panel's sign-in: docs/panel/firebase.json (the public web config, the same file the panel reads). */
 function firebaseProject(): string {
   const f = join(ROOT, 'docs', 'panel', 'firebase.json');
@@ -282,6 +283,11 @@ export class App {
       const sv = w.survival;
       if (a === 'equip') return w.gear.equip(player, String(text ?? '')); // gear screen: "slot:item"
       if (a === 'upgrade') return w.gear.upgrade(player, String(text ?? '')); // "item:lv" | "item:q"
+      if (a === 'aim') { // aim button held / let go: viewers see the bow drawn in my hands (imad 2026-11-25)
+        const on = String(text ?? '') === '1' && (sv.inv(player).bow ?? 0) > 0;
+        w.gear.aiming[player] = on ? 1 : 0;
+        return { ok: true, code: 'aim', on };
+      }
       { // what viewers see me do (a swing, a chop, a shot...)
         const an = a === 'hit' || a === 'hitperson' ? 'attack' : a === 'shoot' ? 'shoot' : a === 'build' || a === 'place' ? 'build' : a === 'talk' || a === 'hold' ? 'talk' : '';
         if (an) w.gear.play(player, an, an === 'talk' ? 4 : undefined);
@@ -350,7 +356,7 @@ export class App {
         // The arrow flies along the aim; it hits the first zombie or animal within 0.9 m of that line, up to 22 m.
         const t = this.lineTarget(player, aim, 22, 0.9);
         const dx = Math.cos(aim), dy = Math.sin(aim);
-        w.shoot(m, x + dx * 0.6, y + dy * 0.6, dx * 30, dy * 30, player);
+        w.shoot(m, x + dx * 0.6, y + dy * 0.6, dx, dy, player, ARROW_SPEED);
         if (t < 0) return { ok: false, code: 'missed', left: inv.arrows ?? 0 };
         const d = Math.hypot(e.x[t]! - x, e.y[t]! - y), dmg = (d < 10 ? 30 : d < 16 ? 24 : 18) * w.gear.bowMul(player);
         if (e.kind[t] === Kind.Threat) return { ok: true, code: w.zombies.hit(t, dmg, player) ? 'zKilled' : 'zHit', left: inv.arrows ?? 0 };

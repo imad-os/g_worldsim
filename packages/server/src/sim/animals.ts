@@ -167,6 +167,7 @@ export class Animals {
     }
     w.emit('hunt', { id: by >= 0 ? e.id(by) : -1, animal: ANIMAL_NAMES[type] ?? 'horse', map: w.maps[e.map[a]!]!.def.id, ...d });
     this.cool.delete(id); this.wander.delete(id); this.angry.delete(id);
+    w.fell.set(id, w.tick); // viewers show it fall
     w.remove(a, 'hunted');
     return d;
   }
