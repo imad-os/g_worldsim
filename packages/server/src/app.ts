@@ -11,7 +11,7 @@ import { CloudSync } from './persist/cloud.js';
 import { Players } from './persist/players.js';
 import { Accounts } from './persist/accounts.js';
 import { FirebaseAuth } from './auth/firebase.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
 import { NetServer } from './net/server.js';
@@ -26,6 +26,8 @@ import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { pvpDamage } from './sim/clans.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
+import { Control } from './ops/control.js';
+import { Agent } from './ops/agent.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 /** The Firebase project of the panel's sign-in: docs/panel/firebase.json (the public web config, the same file the panel reads). */
@@ -34,7 +36,7 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+const READS = new Set<string>(['coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
@@ -67,6 +69,10 @@ export class App {
   private timers: NodeJS.Timeout[] = [];
   private stopping = false;
   onStopRequest: () => void = () => {};
+  /** Stop cleanly and start again (main.ts starts a new server process). */
+  onRestartRequest: () => void = () => {};
+  control!: Control;
+  agent!: Agent;
 
   constructor(readonly cfg: Config, readonly secrets: Secrets, log?: Logger) {
     this.log = log ?? new Logger(cfg.logLevel, join(resolve(cfg.dataDir), 'server.log'));
@@ -75,7 +81,10 @@ export class App {
   async start(): Promise<void> {
     const c = this.cfg;
     const dataDir = resolve(c.dataDir);
-    this.db = new Db(join(dataDir, `${c.worldId}.sqlite`));
+    const dbFile = join(dataDir, `${c.worldId}.sqlite`);
+    Control.applyPendingRestore(dataDir, dbFile, this.log); // a backup chosen in the panel replaces the database (before it opens)
+    this.db = new Db(dbFile);
+    this.control = new Control(ROOT, dataDir, dbFile, () => this.db, this.log);
     this.snaps = new Snapshots(this.db, c.snapshotsKept);
     this.events = new EventLog(this.db);
     this.players = new Players(this.db, this.secrets.viewers);
@@ -172,7 +181,7 @@ export class App {
     this.net.stats = () => this.stats();
     this.net.clockInfo = () => this.clock();
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
-    this.net.admin = (cmd, who) => this.adminCmd(cmd, who);
+    this.net.admin = (cmd, who, owner) => this.adminCmd(cmd, who, owner);
     this.net.onStop = () => this.onStopRequest();
     // A player pressed A next to someone: they stop, face the player and answer.
     this.net.onTalk = (name, player, i, text) => { void this.planner.chat(i, name, text ?? null, player).catch(() => {}); };
@@ -327,6 +336,12 @@ export class App {
       this.db.setMeta('replays', JSON.stringify(list));
     };
     await this.net.listen();
+    // A restart from the panel paused the PC's watchdog: up again, it may watch again.
+    if (existsSync(join(dataDir, 'restart.flag'))) { rmSync(join(dataDir, 'restart.flag'), { force: true }); rmSync(join(dataDir, 'watchdog.pause'), { force: true }); }
+    this.agent = new Agent(ROOT, this.db, dbFile, this.control, {
+      ai: () => this.agentAi(), brainName: () => this.agentBrain()?.name ?? 'none',
+      scope: (print) => this.agentScope(print), data: () => this.agentData(), snapshot: () => this.snapshot(), secrets: () => this.secretList(),
+    }, this.log);
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
     this.sampleHistory();
@@ -349,6 +364,59 @@ export class App {
     this.loop.start();
     this.log.info('server up', { url: this.net.address(), tickRate: c.tickRate, speed: c.speed, lowSpec: c.lowSpec });
   }
+
+  // ------------------------------------------------------------ the panel's AI agent and server controls (2026-11-25)
+
+  /** The agent's brain: its own choice (meta agent_brain), else a cloud brain (code needs a strong model), else the one in use. */
+  private agentBrain() {
+    const v = this.brains.view(), chosen = this.db.getMeta('agent_brain');
+    const id = (chosen && v.list.some((b) => b.id === chosen) ? chosen : undefined) ?? v.list.find((b) => b.provider === 'gemini' || b.provider === 'openai')?.id ?? this.brains.active.id;
+    return this.brains.get(id);
+  }
+  private agentAi(): Ai {
+    const b = this.agentBrain();
+    if (!b || b.provider === 'none') throw new Error('the agent needs an AI brain: pick one on the AI agent page');
+    const ai = new Ai({ ...this.cfg.ai, provider: 'none', timeoutMs: Math.max(this.cfg.ai.timeoutMs, 240_000) }, this.aiKeys(), this.log);
+    ai.apply(this.brains.settingsOf(b));
+    return ai;
+  }
+  private secretList(): string[] {
+    const s = this.secrets, out = [s.adminToken, s.cloudflareToken ?? '', s.ollamaKey ?? '', s.openaiKey ?? '', s.firebase?.private_key ?? '', ...keyList(s.geminiKey), ...s.viewers.values()];
+    for (const b of this.brains.view().list) out.push(...keyList(this.brains.get(b.id)?.key));
+    return out.filter((x) => x && x.length >= 6);
+  }
+  /** What agent code can use. */
+  private agentScope(print: (...v: unknown[]) => void): Record<string, unknown> {
+    const w = this.world;
+    const find = (name: string): number => {
+      const n = String(name ?? '').trim().toLowerCase();
+      for (let i = 0; i < w.e.hi; i++) {
+        if (w.e.kind[i] !== Kind.Agent && w.e.kind[i] !== Kind.Player) continue;
+        const p = w.profileOf(i);
+        if (p && p.died === undefined && (p.name.toLowerCase() === n || p.player?.toLowerCase() === n)) return i;
+      }
+      return -1;
+    };
+    const person = (name: string) => { const i = find(name); return i < 0 ? null : { i, id: w.e.id(i), p: w.profileOf(i)! }; };
+    return { world: w, db: this.db, app: this, find, person, print, Kind, admin: (c: AdminCmd) => this.adminCmd(c, 'agent', true), console: { log: print, warn: print, error: print } };
+  }
+  /** A JSON copy of the world for the agent's sandboxed looks. */
+  private agentData(): unknown {
+    const w = this.world, agents: unknown[] = [];
+    for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent || w.e.kind[i] === Kind.Player) agents.push(this.agentInfo(i));
+    const meta = Object.fromEntries((this.db.sql.prepare("SELECT k, v FROM meta WHERE k NOT IN ('brains', 'ai', 'agent_chat', 'replays') AND k NOT LIKE 'replay:%'").all() as { k: string; v: string }[]).map((r) => [r.k, r.v.length > 2000 ? r.v.slice(0, 2000) + '…' : r.v]));
+    const people = [...w.profiles].map(([id, p]) => ({ id, ...p, mind: p.mind ? { mood: p.mind.mood, summary: p.mind.summary } : undefined, bonds: undefined }));
+    return { people, agents, overview: this.overview(), maps: w.maps.map((m) => ({ index: m.index, id: m.def.id, name: m.def.name, w: m.def.w, h: m.def.h })), meta };
+  }
+  /** Restart: the PC's watchdog is paused meanwhile (it would start a second server), the new process lifts the pause. */
+  private restartSoon(who: string): { ok: true; restarting: true } {
+    const d = resolve(this.cfg.dataDir);
+    try { writeFileSync(join(d, 'watchdog.pause'), `restart from the panel by ${who}`); writeFileSync(join(d, 'restart.flag'), String(Date.now())); } catch { /* tests, read-only */ }
+    this.log.warn('restart asked', { who });
+    setTimeout(() => this.onRestartRequest(), 300);
+    return { ok: true, restarting: true };
+  }
+  private ownerOnly(owner: boolean): void { if (!owner) throw new Error('only the owner (or the admin token) can do this'); }
 
   private readonly workAt = new Map<string, number>();
   /** Players (lower case) who switched PvP on: only they can hit or be hit by other people (imad 2026-11-21). */
@@ -739,7 +807,7 @@ export class App {
   }
 
   /** Control panel commands. Every value is checked here, whatever the client sent. */
-  async adminCmd(c: AdminCmd, who: string): Promise<unknown> {
+  async adminCmd(c: AdminCmd, who: string, owner = false): Promise<unknown> {
     const w = this.world;
     const num = (v: unknown, lo: number, hi: number, name: string) => {
       if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) throw new Error(`bad ${name}`);
@@ -976,6 +1044,35 @@ export class App {
         this.db.setMeta('difficulty', String(w.brain.life.difficulty));
         return { value: w.brain.life.difficulty };
       }
+      case 'coder': this.ownerOnly(owner); return { ...this.agent.view(), brains: this.brains.view().list.map((b) => ({ id: b.id, name: b.name, provider: b.provider, model: b.model })), brainId: this.agentBrain()?.id ?? '' };
+      case 'coderAsk': this.ownerOnly(owner); this.agent.ask(String(c.text ?? ''), who); return this.agent.view();
+      case 'coderRun': {
+        this.ownerOnly(owner);
+        const p = await this.agent.execute(num(c.id, 1, 1e9, 'id'), who, typeof c.code === 'string' ? c.code : undefined);
+        return { proposal: p, ...this.agent.view() };
+      }
+      case 'coderCancel': this.ownerOnly(owner); this.agent.cancel(num(c.id, 1, 1e9, 'id')); return this.agent.view();
+      case 'coderUndo': {
+        this.ownerOnly(owner);
+        const r = await this.agent.undo(num(c.id, 1, 1e9, 'id'));
+        if (r.restart) this.restartSoon(who);
+        return { ...r, ...this.agent.view() };
+      }
+      case 'coderReset': this.ownerOnly(owner); this.agent.reset(); return this.agent.view();
+      case 'coderBrain': { this.ownerOnly(owner); if (!this.brains.get(String(c.id))) throw new Error('no such brain'); this.db.setMeta('agent_brain', String(c.id)); return this.agent.view(); }
+      case 'coderAudit': this.ownerOnly(owner); return this.agent.audit(c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 50);
+      case 'serverInfo': return { ...(await this.control.info()), owner };
+      case 'serverLog': return this.control.logTail(c.lines !== undefined ? num(c.lines, 1, 2000, 'lines') : 300, String(c.level ?? 'info'), this.log.recent).map((l) => ({ ...l, msg: this.agent.redact(l.msg), data: this.agent.redact(l.data) }));
+      case 'serverRestart': this.ownerOnly(owner); return this.restartSoon(who);
+      case 'serverBuild': case 'serverUpdate': {
+        this.ownerOnly(owner);
+        const job = this.control.startJob(c.cmd === 'serverBuild' ? 'build' : 'update', (ok) => { if (ok && c.restart) this.restartSoon(who); });
+        return { job };
+      }
+      case 'backups': return this.control.backups();
+      case 'backupMake': this.snapshot(); return { made: this.control.backup('manual'), list: this.control.backups() };
+      case 'backupRestore': { this.ownerOnly(owner); this.control.scheduleRestore(String(c.file)); return this.restartSoon(who); }
+      case 'backupDelete': this.ownerOnly(owner); this.control.deleteBackup(String(c.file)); return this.control.backups();
       case 'overview': return this.overview();
       case 'history': return this.hist;
       case 'replays': return this.replayList();

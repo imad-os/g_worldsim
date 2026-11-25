@@ -325,3 +325,19 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Clans** (`Clans`, saved in snapshots): the map leader founds one, others join by feelings (`mind.rel`) and family; loyalty moves hourly; 6+ adults: a strong rival of the leader may split
   off with friends and a home of their own; rival clans get tense (`tension` 0-10). Quarrels (`quarrel`, 8 people a second): tension >= 4, dislike <= -2 or "on edge" (hungry, grumpy...) start a duel
   (`Brain.duelMove` / `duelEnd`): small hits, loser yields. Panel People page "Clans" card; clan line in every prompt. Territory = a home point only (one camp per map for now).
+
+## Panel AI agent and server controls (imad 2026-11-25)
+- **AI agent** (`ops/agent.ts`, panel page "AI agent" = `panel/src/coder.ts`, admin `coder*` commands, OWNER ONLY = admin token or a Firebase
+  owner; `AdminHandler` gets `owner`): the owner asks in words; the model answers JSON and may LOOK freely (`read` files with line ranges,
+  `grep`, read-only `sql` on a readOnly connection, `peek` = JS in node:vm on a JSON copy of the world, 3 s limit), then PROPOSES `run` (async
+  JS in the live server: `world, db, app, find, person, admin, print, Kind`) or `edit` (find-once / create in packages/*/src or scenarios only).
+  Nothing changes until Run / Apply. Run: snapshot + `VACUUM INTO` backup first, snapshot after; Undo = restore that backup at a restart.
+  Apply: originals kept in data/agent/edit-<id>/, rebuild (`Control.build`), a failed build puts them back; Undo = put back + rebuild.
+  Audit table `agent_audit`; chat in meta `agent_chat`; its brain = meta `agent_brain` (default: first gemini / openai brain, else the one in
+  use; a separate `Ai`, not the people's budget). Secrets (brain keys, .env keys, tokens) are replaced by *** in everything shown / sent.
+  Agent edits live only on the PC: bring them into the repo or `git pull --ff-only` refuses.
+- **Server controls** (`ops/control.ts`, Server page `panel/src/serverctl.ts`): `serverInfo` (git commit / local changes, pid, db size, job),
+  `serverLog`, `serverRestart` (writes data/watchdog.pause + restart.flag, clean stop, main.ts spawns the same command detached; the new
+  process removes both), `serverBuild` / `serverUpdate` (git pull --ff-only, npm install if package files changed, build; then restart),
+  `backups` / `backupMake` / `backupRestore` (data/restore.json, applied at start before the db opens; the old db kept as before-restore) /
+  `backupDelete`. Last 15 backups kept. Test `agent.test.ts`; proof `ADMIN_TOKEN=... node tools/agent-proof.mjs <server> <outdir>` (fake model).

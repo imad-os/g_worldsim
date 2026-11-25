@@ -7,6 +7,7 @@ import { card, on, setHtml, val, type Screen } from './screen.js';
 import { S, overview, people, history, describe, groupOf, KINDS } from './state.js';
 import { esc, gameTime, ago, icon, load, save, toast } from './util.js';
 import { WIDGETS, dashOn, setDash } from './dashboard.js';
+import { ctlCards, ctlMount, ctlRefresh, ctlLeave } from './serverctl.js';
 
 const err = (e: unknown) => toast(e instanceof Error ? e.message : String(e), 'err');
 const mapOpts = () => (S.ov?.maps ?? [{ id: 'town', name: 'Old Town' }, { id: 'woods', name: 'Woods' }]).map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
@@ -440,15 +441,19 @@ export const server: Screen = {
       ${card('Memory', `<div id="sRam" class="chartbox"></div>`, { cls: 'span2' })}
       ${card('This panel', `<div class="stat"><div class="statrow"><span>Server address</span><b>${esc(serverAddress())}</b></div><div class="statrow"><span>Panel opened from</span><b>${onServer ? 'the server itself' : esc(location.host)}</b></div>
         <div class="statrow"><span>Panel on GitHub</span><b><a href="https://imad-os.github.io/g_worldsim/panel/" target="_blank" rel="noopener">imad-os.github.io/g_worldsim/panel</a></b></div></div>`)}
-      ${card('Save', `<button class="btn" id="sSnap">Save the world now</button>`, { help: help('snapshot') })}</div>`;
+      ${card('Save', `<button class="btn" id="sSnap">Save the world now</button>`, { help: help('snapshot') })}
+      ${ctlCards()}</div>`;
   },
   async mount() {
     on('#sSwitch', 'click', async () => { const p = val('sProv'); if (!confirm(`Switch the internet link to ${p}? TVs and this panel lose the link for a few seconds${p === 'none' ? ' (and for good from outside your PC)' : ''}.`)) return; try { const st = await cmd<{ url: string }>({ cmd: 'tunnelSwitch', provider: p as 'ngrok' }, 60000); toast(`Link: ${st.url || 'off'}`, 'ok'); } catch (e) { err(e); } });
     on('#sSnap', 'click', async () => { try { await cmd({ cmd: 'snapshot' }); toast('Saved', 'ok'); } catch (e) { err(e); } });
     if (stats) { this.onStats!(stats); (document.getElementById('sProv') as HTMLSelectElement).value = stats.tunnel?.provider ?? 'ngrok'; }
     await this.refresh!();
+    await ctlMount();
   },
+  leave() { ctlLeave(); },
   async refresh() {
+    void ctlRefresh();
     const h = await history(), t = h.map((r) => r[0]!);
     setHtml('sChart', lineChart([{ name: 'Ticks/s', color: '#22c55e', values: h.map((r) => r[10]!) }, { name: 'CPU %', color: '#f59e0b', values: h.map((r) => r[11]!) }], t, { min: 0 }));
     setHtml('sRam', lineChart([{ name: 'RAM MB', color: '#8b5cf6', values: h.map((r) => r[12]!) }], t, { min: 0 }));

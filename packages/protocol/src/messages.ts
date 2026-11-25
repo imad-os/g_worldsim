@@ -110,7 +110,26 @@ export type AdminCmd =
   | { cmd: 'mapTiles'; map: string }
   | { cmd: 'live'; map: string }
   | { cmd: 'people' }
-  | { cmd: 'replays' };
+  | { cmd: 'replays' }
+  // The panel's AI agent (2026-11-25, owner only): it looks on its own, proposes code; nothing runs until agentRun.
+  | { cmd: 'coder' }
+  | { cmd: 'coderAsk'; text: string }
+  | { cmd: 'coderRun'; id: number; code?: string }
+  | { cmd: 'coderCancel'; id: number }
+  | { cmd: 'coderUndo'; id: number }
+  | { cmd: 'coderReset' }
+  | { cmd: 'coderBrain'; id: string }
+  | { cmd: 'coderAudit'; limit?: number }
+  // Server controls (2026-11-25, owner only for the ones that change the PC).
+  | { cmd: 'serverInfo' }
+  | { cmd: 'serverLog'; lines?: number; level?: string }
+  | { cmd: 'serverRestart' }
+  | { cmd: 'serverBuild'; restart?: boolean }
+  | { cmd: 'serverUpdate'; restart?: boolean }
+  | { cmd: 'backups' }
+  | { cmd: 'backupMake' }
+  | { cmd: 'backupRestore'; file: string }
+  | { cmd: 'backupDelete'; file: string };
 
 export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
 

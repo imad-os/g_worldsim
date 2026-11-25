@@ -30,7 +30,8 @@ export interface NetOptions {
   staticDirs: { prefix: string; dir: string }[];
 }
 
-export interface AdminHandler { (cmd: AdminCmd, who: string): unknown | Promise<unknown> }
+/** `owner` = the admin token or a Firebase owner (not an admin account): code-running and PC controls need it. */
+export interface AdminHandler { (cmd: AdminCmd, who: string, owner: boolean): unknown | Promise<unknown> }
 
 interface Session {
   id: string;
@@ -600,7 +601,7 @@ export class NetServer {
         if (s.role !== 'admin' && !(mine && s.acct)) { this.send(s, { t: Msg.Error, code: 'forbidden' }); return; }
         try {
           // A Firebase player only asks about themselves; staff use the same commands for their own character.
-          const data = mine && s.acct ? await this.playerCmd(m.c, s.acct.uid, s.acct.role) : await this.admin(m.c, s.name);
+          const data = mine && s.acct ? await this.playerCmd(m.c, s.acct.uid, s.acct.role) : await this.admin(m.c, s.name, !s.acct || s.acct.role === 'owner');
           if (mine && s.acct && (m.c as { cmd: string }).cmd === 'joinWorld') s.name = this.o.accounts!.get(s.acct.uid)?.name || s.name;
           this.send(s, { t: Msg.AdminResult, id, ok: true, data });
         } catch (err) {

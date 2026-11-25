@@ -227,3 +227,20 @@ a.pcard:hover{border-color:color-mix(in srgb,var(--acc) 55%,var(--line));transfo
 details.si-tok{margin-top:16px;font-size:13px;color:var(--dim)}details.si-tok summary{cursor:pointer}
 .keys{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.keys:empty{display:none}.keytag{display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,monospace}.keytag .iconbtn{width:22px;height:22px;padding:0}
 .goal{margin-top:8px}.goal-t{display:flex;flex-direction:column;gap:2px;font-size:13px;margin-bottom:4px}.goal-t small{color:var(--dim)}.goal.ordered .goal-m i{background:var(--accent)}.goal-m{height:8px}
+
+/* AI agent page and server controls (2026-11-25) */
+.ag-chat{max-height:520px}
+.ag-chat .logi{border:0;padding:2px 0}.ag-look summary{color:var(--dim);font-size:13px}
+.ag-res{max-width:100%;align-self:stretch}.ag-res pre,.ag-log{white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,Menlo,Consolas,monospace;color:var(--soft);background:var(--bg2);padding:10px;border-radius:8px;margin:0;text-align:left;max-height:320px;overflow:auto}
+.ag-log{max-height:420px}.ag-log .lv-warn{color:#f59e0b}.ag-log .lv-error{color:var(--bad)}
+.ag-ask textarea{width:100%;resize:vertical;margin-bottom:8px}
+.ag-code{width:100%;font:12.5px ui-monospace,Menlo,Consolas,monospace;resize:vertical;white-space:pre;tab-size:2}
+.ag-btns{margin-top:10px;flex-wrap:wrap;align-items:center}
+.ag-prop{border-color:var(--acc);margin:4px 0 12px}
+.ag-edit{margin:8px 0}.ag-path{font:600 13px ui-monospace,monospace;margin-bottom:4px}
+.ag-edit pre{white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,monospace;margin:0;padding:8px 10px;max-height:260px;overflow:auto}
+.ag-del{background:color-mix(in srgb,var(--bad) 12%,transparent);border-left:3px solid var(--bad)}
+.ag-add{background:color-mix(in srgb,var(--ok) 12%,transparent);border-left:3px solid var(--ok)}
+.ag-ex{cursor:pointer;color:var(--acc)}
+.msg.bad{color:var(--bad)}
+.ag-dots::after{content:'…';animation:agd 1.2s steps(3) infinite}@keyframes agd{0%{content:'.'}50%{content:'..'}100%{content:'...'}}
