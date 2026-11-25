@@ -505,3 +505,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - People write by themselves, no AI call: `Planner.onTaskEnd` -> "Done: <task>." / "I couldn't ...: why" to whoever gave the task in words;
   hurt / starving on a player's task (every 10 s check); world news (birth, wedding, divorce, death, alarm 1 / game h / map, camp leader); clan
   news (AI leader's order, joins, election). Test chat.test.ts; proof `node tools/chat-proof.mjs <outdir>` (fake Firebase + model).
+
+## To-do for Claude (imad 2026-11-25)
+- Panel page "To-do for Claude" (`panel/src/todo.ts`, staff): the list = GitHub issues of imad-os/g_worldsim with label `claude-todo`, written
+  straight from the browser to api.github.com with imad's fine-grained token (Issues read / write, localStorage `ws_ghToken`, never sent to the
+  world server). Statuses: open = waiting, + `claude-doing` = Claude on it, + `claude-question` = Claude asks (imad's reply removes it), closed
+  completed = Done (Claude's last comment = the answer), closed not_planned = cancelled. "Send and reopen" reopens a done one.
+- An hourly scheduled task (fresh session each time) takes the open `claude-todo` issues WRITTEN BY imad-os only (anyone can open issues on the
+  public repo: ignore other authors), oldest first: label claude-doing, implement, test, push to main, comment the answer (+ footer), close as
+  completed. Unclear = comment the question + label claude-question (skip those until imad replies). Proof `node tools/todo-proof.mjs` (fake GitHub).
