@@ -208,7 +208,7 @@ export class Quests {
     for (let i = 0; i < e.hi; i++) {
       if (e.kind[i] !== Kind.Agent || e.map[i] !== this.map || e.map[i] === NO_MAP) continue;
       const p = w.profileOf(i);
-      if (!p || ageOf(p, w.gameSec, w.yearSec) < 14 || p.mind?.task) continue;
+      if (!p || ageOf(p, w.gameSec, w.yearSec) < 14 || p.mind?.task || w.survival.busy(e.id(i))) continue;
       if (e.hunger[i]! > 65 || e.thirst[i]! > 65 || e.tired[i]! > 80 || e.hp[i]! < 45) continue;
       if (w.clans.duelling(i) || w.rules.forbidden(i, 'npc')) continue;
       if (!w.rng.chance(0.35)) continue;

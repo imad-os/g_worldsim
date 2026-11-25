@@ -136,7 +136,7 @@ export class Clans {
   private member(i: number): boolean { const e = this.w.e; return (e.kind[i] === Kind.Agent || (e.kind[i] === Kind.Player && !!this.w.charName(i))) && !(e.flags[i]! & 32); }
   /** The engine may move this person between clans by itself (never a player's character). */
   private auto(i: number): boolean { return this.w.e.kind[i] === Kind.Agent && !this.w.charName(i); }
-  private free(i: number): boolean { const p = this.w.profileOf(i), e = this.w.e; return !!p && !p.mind?.task && e.hunger[i]! < 70 && e.thirst[i]! < 70 && e.hp[i]! > 40 && e.act[i] !== Act.Sleep; }
+  private free(i: number): boolean { const p = this.w.profileOf(i), e = this.w.e; return !!p && !p.mind?.task && !this.w.survival.busy(e.id(i)) && e.hunger[i]! < 70 && e.thirst[i]! < 70 && e.hp[i]! > 40 && e.act[i] !== Act.Sleep; }
   private name(id: number): string { return this.w.profiles.get(id)?.name ?? 'someone'; }
 
   // ------------------------------------------------------------------ hourly: who belongs where, elections, orders
@@ -277,17 +277,16 @@ export class Clans {
   /** An AI leader gives the clan an order of the day; members who are free do it, the more loyal the more surely. */
   private leaderOrder(c: Clan): void {
     const w = this.w, e = w.e, L = e.slot(c.leader);
-    if (L < 0 || e.kind[L] !== Kind.Agent || e.act[L] === Act.Sleep || c.members.length < 2) return;
+    if (L < 0 || e.kind[L] !== Kind.Agent || e.act[L] === Act.Sleep || c.members.length < 3) return;
     if (w.gameSec - (c.orderAt ?? -1e9) < ORDER_EVERY) return;
     const hour = w.brain.hour();
     const danger = (hour >= 18 || hour < 5) && (w.zombies.perNight > 0 || w.zombies.count(c.map) > 0);
-    const st = w.survival.stash[c.map];
+    const st = w.survival.stash[c.map]; // only once the camp has a store (an order never picks the store's spot)
     type S = Parameters<typeof w.tasks.start>[3];
     let text: string, steps: (i: number) => S;
     if (danger) { text = 'Night is coming: arm yourselves and gather by me.'; steps = (i) => [...(w.survival.weapon(i)[1] > 0 ? [] : [{ do: 'craft', what: 'spear' }]), { do: 'goto', who: c.leader }, { do: 'stay', minutes: 90 }]; }
-    else if (hour >= 5 && hour < 18 && (st?.food ?? 0) < 4) { text = 'We need food in the store. Collect some and put it there.'; steps = () => [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]; }
-    else if (hour >= 5 && hour < 18 && (st?.wood ?? 0) < 6) { text = 'Bring wood for the store: fires and walls need it.'; steps = () => [{ do: 'gather', what: 'wood', times: 3 }, { do: 'store', what: 'wood' }]; }
-    else if (hour >= 6 && hour < 17) { text = 'Go hunting: meat and leather for the clan.'; steps = () => [{ do: 'hunt', what: '', times: 1 }]; }
+    else if (st && hour >= 5 && hour < 18 && st.food < 4) { text = 'We need food in the store. Collect some and put it there.'; steps = () => [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]; }
+    else if (st && hour >= 5 && hour < 18 && st.wood < 6) { text = 'Bring wood for the store: fires and walls need it.'; steps = () => [{ do: 'gather', what: 'wood', times: 3 }, { do: 'store', what: 'wood' }]; }
     else return;
     c.order = text; c.orderAt = w.gameSec;
     w.speak(L, `${c.name}! ${text}`);
@@ -295,7 +294,7 @@ export class Clans {
     for (const id of c.members) {
       const i = e.slot(id);
       if (id === c.leader || i < 0 || e.kind[i] !== Kind.Agent || e.map[i] !== c.map || !this.free(i)) continue;
-      if (!w.rng.chance(0.3 + (this.loyal.get(id) ?? 0.5) * 0.7)) continue;
+      if (!w.rng.chance(0.15 + (this.loyal.get(id) ?? 0.5) * 0.6)) continue;
       if (w.tasks.start(i, text.replace(/[.:!].*$/, '').toLowerCase().slice(0, 60) || 'the clan\'s order', this.name(c.leader), steps(i))) n++;
     }
     w.emit('clanOrder', { clan: c.name, id: c.leader, text, n });

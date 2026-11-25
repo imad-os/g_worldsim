@@ -129,7 +129,8 @@ test('clans: an AI leader gives an order of the day and the members do it as a t
   const e = w.e, town = w.mapIndex.get('town')!, people = agentsOn(w, town);
   const cl = w.clans.found(town, e.id(people[0]!), people.slice(1).map((i) => e.id(i)));
   for (const i of people) w.tasks.stop(i);
-  // Morning, nothing in the store: "collect food" orders.
+  assert.ok(w.survival.crateOf(town, e.x[people[0]!]!, e.y[people[0]!]!), 'the camp has a store');
+  // Morning, nothing in the store: "collect food and store it".
   w.gameSec += ((9 - w.brain.hour() + 24) % 24) * 3600;
   let ordered = 0;
   w.listeners.push((x) => { if (x.kind === 'clanOrder') ordered = Number(x.data.n); });
