@@ -552,3 +552,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Delete a player** (admin `playerDelete { name }`, panel Players & TVs > Delete): snapshot + backup "before-delete", kick, TV token row, character + profile,
   bag, place, seer, account link. `players` also lists characters with no TV row (`noTv`) so leftovers ("name (2)") can be deleted. "Unlink TV" = the old revoke.
 - Tools: `node tools/admin-cmd.mjs <ws url>/ws '<json>'...` (ADMIN_TOKEN; MAX = answer length), proof `node tools/room-proof.mjs <server> <outdir>`.
+
+## Day / night / sleep clock speeds (imad 2026-11-25: "make the day faster ... so I don't spend all login time sleeping")
+- `World.clockMul` { day, night, sleep } (meta `clock_mul`, admin `clockSpeed { day?, night?, sleep? }`, usual 0.25-20 else confirm): x on the
+  configured clockScale; `World.updateClock()` at the start of every step (phase picked each sim second) sets the live `opt.clockScale`, which every
+  system already reads. Day 06-20, night 20-06; sleep = `playersAsleep()` (App: at least one online player, every online player's character
+  EFlag.Sleeping) when faster than the hour's own. Ticks / physics unchanged (deterministic, same real walking pace). Frames carry `cs` (live
+  clockScale) so TVs extrapolate the sun right; Welcome clockScale = live. Panel World > Time rows + "Now: ..." line (stats `clock`). Test clock.test.ts.

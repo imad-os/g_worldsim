@@ -115,6 +115,7 @@ export class World {
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
     this.opt = opt;
+    this.clockBase = opt.clockScale;
     this.ai = { goap: true, learn: true, siting: true, instinct: true, ...opt.ai };
     this.seed = String(opt.seed ?? sc.seed);
     this.dt = 1 / opt.tickRate;
@@ -285,6 +286,28 @@ export class World {
     e.hp[i] = 100; e.sub[i] = look; e.tx[i] = x; e.ty[i] = y; e.speed[i] = 1;
     this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, x, y, this.agentR);
     return i;
+  }
+
+  /**
+   * How fast the game clock runs (imad 2026-11-25: "make the day faster ... and sleep so I don't spend my login time sleeping"):
+   * x on the configured clockScale by day (06:00-20:00), by night (20:00-06:00) and while every player in the game sleeps
+   * (the faster of sleep and the hour's own). Ticks and physics stay the same: only game seconds per tick change, so the
+   * world stays deterministic and people walk at the same real pace; `opt.clockScale` is the live value everyone reads.
+   */
+  readonly clockMul = { day: 1, night: 1, sleep: 1 };
+  /** The configured clockScale (x1 of every phase). */
+  readonly clockBase: number;
+  clockPhase: 'day' | 'night' | 'sleep' = 'day';
+  /** Set by the server: is at least one player in the game and every one of them asleep? */
+  playersAsleep: () => boolean = () => false;
+  /** Pick the phase (each simulated second, or at once after a change) and set the live clockScale. */
+  updateClock(now = false): void {
+    if (now || this.tick % 20 === 0) {
+      const h = this.brain.hour(), night = h >= 20 || h < 6, m = this.clockMul;
+      const hourMul = night ? m.night : m.day;
+      this.clockPhase = m.sleep > hourMul && this.playersAsleep() ? 'sleep' : night ? 'night' : 'day';
+    }
+    this.opt.clockScale = this.clockBase * this.clockMul[this.clockPhase];
   }
 
   /** Characters whose player is away (entity ids): they sleep and their needs wait. */
@@ -470,6 +493,7 @@ export class World {
 
   step(): void {
     const e = this.e, dt = this.dt;
+    this.updateClock();
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); }

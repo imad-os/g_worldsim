@@ -725,7 +725,7 @@ export class NetServer {
     s.listN = n;
     if (rn === 0 && !del && ++s.idle < this.o.netHz) return;
     s.idle = 0;
-    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn) });
+    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn), cs: w.opt.clockScale });
   }
 
   private broadcastStats(): void {

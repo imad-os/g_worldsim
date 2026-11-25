@@ -368,6 +368,7 @@ function onMsg(m: ServerMsg): void {
       frameGap = frameGap * 0.85 + Math.min(400, now - frameAt) * 0.15;
       frameAt = now;
       gameSec = m.gameSec; tickAt = now;
+      if (m.cs) clockScale = m.cs; // the clock runs faster by night / while everyone sleeps (World > Time)
       for (let i = 0; i < CAP; i++) if (eid[i] !== -1) { px[i] = nx[i]!; py[i] = ny[i]!; }
       const r = unpackI32(m.upd), gx = m.gx ? unpackI32(m.gx) : null;
       for (let o = 0; o < r.length; o += ENT_REC) {

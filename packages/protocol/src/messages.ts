@@ -52,6 +52,7 @@ export type AdminCmd =
   // staff
   | { cmd: 'accounts' }
   | { cmd: 'speed'; speed: number }
+  | { cmd: 'clockSpeed'; day?: number; night?: number; sleep?: number }
   | { cmd: 'pause'; paused: boolean }
   | { cmd: 'snapshot' }
   | { cmd: 'stats' }
@@ -220,7 +221,7 @@ export interface ChunkDrop { t: typeof Msg.ChunkDrop; map: string; keys: number[
  * `del` = ids that left the view or died. A client interpolates between frames using `tick`.
  * `gx` = one packed Int32 per record, same order: people's gear and animation (`packGear` in gear.ts; 0 for the rest).
  */
-export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[]; gx?: Uint8Array }
+export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[]; gx?: Uint8Array; /** game seconds per simulated second now (day / night / sleep speeds) */ cs?: number }
 export const ENT_REC = 7;
 
 export interface Stats { t: typeof Msg.Stats; s: ServerStats }
@@ -245,6 +246,8 @@ export interface ServerStats {
   tunnel?: { provider: string; state: string; url: string; error?: string };
   pairings?: number;
   travelOpen?: boolean;
+  /** Game clock speed by phase (x on `base` game seconds per simulated second); phase = what runs now, mul = its x. */
+  clock?: { day: number; night: number; sleep: number; phase: 'day' | 'night' | 'sleep'; mul: number; base: number };
   difficulty?: number;
   yearDays?: number;
   maxPopulation?: number;

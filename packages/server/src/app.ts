@@ -231,6 +231,21 @@ export class App {
       ],
     }, this.log);
     this.net.stats = () => this.stats();
+    // Day / night / sleep clock speeds (World > Time): the sleep speed needs every player who is in the game asleep.
+    w.playersAsleep = () => {
+      let any = false;
+      for (const [name, i] of this.net.characters()) {
+        if (!this.net.online(name)) continue;
+        if (!(w.e.flags[i]! & EFlag.Sleeping)) return false;
+        any = true;
+      }
+      return any;
+    };
+    try {
+      const saved = JSON.parse(this.db.getMeta('clock_mul') ?? '{}') as Record<string, unknown>;
+      for (const k of ['day', 'night', 'sleep'] as const) { const v = saved[k]; if (typeof v === 'number' && v > 0 && v <= 1000) w.clockMul[k] = v; }
+    } catch { /* keep x1 */ }
+    w.updateClock(true);
     this.net.clockInfo = () => this.clock();
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
     this.net.admin = (cmd, who, owner) => this.adminCmd(cmd, who, owner);
@@ -590,8 +605,14 @@ export class App {
     return d ? { ok: true, code: 'aKilled', item: ANIMAL_NAMES[type] ?? 'horse', got: d } : { ok: true, code: 'aHit', item: ANIMAL_NAMES[type] ?? 'horse' };
   }
 
+  /** The clock speeds by phase and what runs now (stats + the clockSpeed command). */
+  clockSpeeds(): NonNullable<ServerStats['clock']> {
+    const w = this.world;
+    return { ...w.clockMul, phase: w.clockPhase, mul: w.opt.clockScale / w.clockBase, base: w.clockBase };
+  }
+
   clock(): ClockInfo {
-    return { tick: this.world.tick, gameSec: this.world.gameSec, speed: this.loop?.speed ?? this.cfg.speed, paused: this.loop?.paused ?? false, clockScale: this.cfg.clockScale, tickRate: this.cfg.tickRate };
+    return { tick: this.world.tick, gameSec: this.world.gameSec, speed: this.loop?.speed ?? this.cfg.speed, paused: this.loop?.paused ?? false, clockScale: this.world.opt.clockScale, tickRate: this.cfg.tickRate };
   }
 
   snapshot(): void {
@@ -613,6 +634,7 @@ export class App {
       entities: w.e.count, agents: w.e.countKind(Kind.Agent), clients: this.net.clientCount(),
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
+      clock: this.clockSpeeds(),
       travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty, yearDays: w.brain.life.yearDays, maxPopulation: w.brain.life.maxPopulation,
       zombies: { now: w.zombies.count(), perNight: w.zombies.perNight },
       camps: w.maps.flatMap((m, mi) => { const c = w.survival.campOf(mi); return c ? [{ map: m.def.id, x: Math.round(c.x), y: Math.round(c.y), huts: w.survival.huts[mi]!.length, fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length }] : []; }),
@@ -1026,6 +1048,13 @@ export class App {
     if (!reads) w.emit('admin', { who, cmd: c.cmd }); // only changes are logged (the panel polls the reads)
     switch (c?.cmd) {
       case 'speed': this.loop.setSpeed(num(c.speed, 0.01, this.cfg.maxSpeed, 'speed', [0.001, 1e4]), force); return this.clock();
+      case 'clockSpeed': { // how fast the game clock runs by day, by night and while every player sleeps (x on the usual clock)
+        const m = w.clockMul;
+        for (const k of ['day', 'night', 'sleep'] as const) if (c[k] !== undefined) m[k] = num(c[k], 0.25, 20, `${k} clock speed`, [0.01, 1000]);
+        this.db.setMeta('clock_mul', JSON.stringify(m));
+        w.updateClock(true);
+        return this.clockSpeeds();
+      }
       case 'pause': this.loop.paused = !!c.paused; return this.clock();
       case 'snapshot': this.snapshot(); return { at: this.lastSnapshotAt };
       case 'stats': return this.stats();

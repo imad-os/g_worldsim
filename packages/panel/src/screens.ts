@@ -22,7 +22,11 @@ export const world: Screen = {
     ${card('Time', `<div class="bigclock" id="wClock">-</div>
       <div class="row wrap"><button class="btn primary" id="wPause">${icon('pause')} Pause</button><button class="btn" id="wResume">${icon('play')} Resume</button></div>
       ${row('Speed', `<div class="seg" id="wSpeed">${[0.5, 1, 2, 5, 10, 25, 100].map((v) => `<button data-v="${v}">x${v}</button>`).join('')}</div>`, help('speed'))}
-      ${row('Custom speed', `<input type="number" id="wSpeedN" min="0.1" step="0.1" style="width:90px"> <button class="btn sm" id="wSpeedGo">Set</button>`)}`)}
+      ${row('Custom speed', `<input type="number" id="wSpeedN" min="0.1" step="0.1" style="width:90px"> <button class="btn sm" id="wSpeedGo">Set</button>`)}
+      ${row('Game clock by day', `x <input type="number" id="wClkDay" min="0.25" step="0.25" style="width:80px"> <small class="dim">06:00-20:00</small>`, help('clockSpeed'))}
+      ${row('Game clock by night', `x <input type="number" id="wClkNight" min="0.25" step="0.25" style="width:80px"> <small class="dim">20:00-06:00</small>`)}
+      ${row('While players sleep', `x <input type="number" id="wClkSleep" min="0.25" step="0.25" style="width:80px"> <small class="dim">every player in the game asleep</small>`)}
+      <p class="dim" id="wClkNow"></p>`)}
     ${card('Life', `${row('Difficulty <b id="wDiffV" class="tag"></b>', `<input type="range" id="wDiff" min="0.25" max="3" step="0.25"> <input type="number" id="wDiffN" step="0.05" style="width:80px" aria-label="Custom difficulty">`, help('difficulty'))}
       ${row('Ageing', `<select id="wYear"><option value="0.041666666666666664">1 game hour = 1 year</option><option value="0.25">6 game hours = 1 year</option><option value="1">1 game day = 1 year</option><option value="7">7 game days = 1 year</option><option value="365">365 days (real life)</option></select>`, help('ageing'))}
       ${row('Population limit', `<input type="number" id="wMax" min="1" style="width:80px"> people`, help('maxPop'))}`)}
@@ -38,6 +42,9 @@ export const world: Screen = {
     on('#wResume', 'click', () => void cmd({ cmd: 'pause', paused: false }).then(() => toast('Running', 'ok'), err));
     on('#wSpeed button', 'click', (b) => void cmd({ cmd: 'speed', speed: Number(b.dataset.v) }).then(() => toast(`Speed x${b.dataset.v}`, 'ok'), err));
     on('#wSpeedGo', 'click', () => void cmd({ cmd: 'speed', speed: Number(val('wSpeedN')) }).then(() => toast('Speed set', 'ok'), err));
+    for (const [id, k] of [['wClkDay', 'day'], ['wClkNight', 'night'], ['wClkSleep', 'sleep']] as const) {
+      on('#' + id, 'change', (el) => void cmd({ cmd: 'clockSpeed', [k]: Number((el as HTMLInputElement).value) }).then(() => toast(`Clock x${(el as HTMLInputElement).value} ${k === 'sleep' ? 'while players sleep' : 'by ' + k}`, 'ok'), err));
+    }
     on('#wDiff', 'input', (el) => { document.getElementById('wDiffV')!.textContent = (el as HTMLInputElement).value; });
     on('#wDiff', 'change', (el) => void cmd({ cmd: 'difficulty', value: Number((el as HTMLInputElement).value) }).then(() => toast('Difficulty changed', 'ok'), err));
     on('#wDiffN', 'change', (el) => void cmd({ cmd: 'difficulty', value: Number((el as HTMLInputElement).value) }).then(() => toast('Difficulty changed', 'ok'), err));
@@ -71,6 +78,12 @@ export const world: Screen = {
     if (!s) return;
     setHtml('wClock', `${S.ov ? gameTime(S.ov.gameSec) : ''}<small>${s.paused ? 'Paused' : `Speed x${s.speed}${Math.abs(s.effSpeed - s.speed) > 0.5 ? ` (running x${s.effSpeed.toFixed(1)})` : ''}`}</small>`);
     for (const b of document.querySelectorAll<HTMLElement>('#wSpeed button')) b.classList.toggle('on', Number(b.dataset.v) === s.speed);
+    const k = s.clock;
+    if (k) {
+      for (const [id, v] of [['wClkDay', k.day], ['wClkNight', k.night], ['wClkSleep', k.sleep]] as const) { const n = document.getElementById(id) as HTMLInputElement | null; if (n && document.activeElement !== n) n.value = String(v); }
+      const perMin = Math.round(k.base * k.mul * s.speed * 10) / 10;
+      setHtml('wClkNow', `Now: ${k.phase === 'sleep' ? 'everyone in the game is asleep' : k.phase === 'night' ? 'night' : 'day'}, clock x${Math.round(k.mul * 100) / 100} = ${perMin} game minutes per real minute.`);
+    } else setHtml('wClkNow', 'This server is older and has no day / night / sleep clock speeds yet: update it.');
     setHtml('wSnapAt', s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-');
   },
 };

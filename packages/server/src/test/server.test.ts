@@ -368,6 +368,9 @@ test('players do what people do; only allowed players see thoughts; person info'
     me.send({ t: Msg.Do, a: 'sleep' });
     assert.equal((await notice(me, 'did', (d) => d.a === 'sleep')).code, 'sleep');
     assert.ok(e.flags[i]! & 4, 'asleep');
+    assert.equal(app.world.playersAsleep(), true, 'the only player in the game is asleep: the sleep clock speed may run');
+    const fr = await me.wait((m) => m.t === Msg.Frame) as { cs?: number };
+    assert.equal(fr.cs, app.world.opt.clockScale, 'frames carry the clock speed');
     for (let k = 0; k < 3; k++) { me.send({ t: Msg.Input, mx: 1, my: 0 }); await new Promise((r) => setTimeout(r, 100)); }
     me.send({ t: Msg.Input, mx: 0, my: 0 });
     assert.equal(e.flags[i]! & 4, 0, 'moving wakes me up');
