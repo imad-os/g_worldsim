@@ -1212,14 +1212,15 @@ export class Survival {
     const w = this.w, T = this.T;
     if (T.tree < 0) return;
     for (let mi = 0; mi < w.maps.length; mi++) {
+      this.regrowRubble(mi);
       const mp = w.maps[mi]!, tm = mp.tiles, n = this.countRes(mi);
       let tg = this.resTarget[mi];
       if (!tg) {
         let base = 0;
         if (tm.base) for (let k = 0; k < tm.base.length; k++) if (tm.base[k] === T.tree && !w.land.inRing(mi, k % tm.w, (k / tm.w) | 0)) base++;
-        tg = this.resTarget[mi] = { tree: Math.max(n.tree, base), rock: Math.min(n.rock, mp.def.gen.type === 'wilds' ? ROCKS_WILD : ROCKS_TOWN) };
-        if (T.rock >= 0 && tg.rock < 4) tg.rock = mp.def.gen.type === 'wilds' ? ROCKS_WILD / 2 : ROCKS_TOWN / 2;
+        tg = this.resTarget[mi] = { tree: Math.max(n.tree, base), rock: 0 };
       }
+      tg.rock = mp.def.gen.type === 'wilds' ? ROCKS_WILD : ROCKS_TOWN; // rare, but never mined out for good
       // Trees: about 3 % of what is missing an hour (at least one try).
       const lackT = tg.tree - n.tree;
       for (let tries = lackT > 0 ? Math.min(40, 1 + Math.ceil(lackT * 0.03)) : 0, grown = 0; tries > 0 && grown < Math.max(1, Math.ceil(lackT * 0.03)); tries--) {
@@ -1236,8 +1237,9 @@ export class Survival {
         }
         if (k >= 0 && this.growOk(mi, k, 0)) { tm.set(k % tm.w, (k / tm.w) | 0, T.tree); grown++; }
       }
-      // Rocks: slowly (about one every 7 game hours while some are missing).
-      if (T.rock >= 0 && n.rock < tg.rock && w.rng.chance(0.15)) {
+      // Rocks: slowly (one every 7 game hours when a few are missing, up to about one an hour when most are gone).
+      let rocksNow = T.rock >= 0 && n.rock < tg.rock ? (w.rng.chance(Math.max(0.15, (tg.rock - n.rock) / tg.rock)) ? 1 : 0) : 0;
+      while (rocksNow-- > 0) {
         for (let s = 0; s < 300; s++) {
           let t = w.rng.int(tm.tiles.length);
           if (tm.tiles[t] === T.rock && w.rng.chance(0.6)) { // the cluster grows
@@ -1254,6 +1256,25 @@ export class Survival {
       }
     }
   }
+  /**
+   * Ruins keep crumbling (imad 2026-11-25: "resources need to regenerate so we don't go extinct"): searched rubble (stone, brick,
+   * scrap) comes back slowly on the ruin tiles it came from, about 2 % of what is missing an hour, out of people's sight.
+   */
+  private regrowRubble(mi: number): void {
+    const w = this.w, T = this.T, tm = w.maps[mi]!.tiles;
+    if (!tm.base || T.rubble < 0) return;
+    let base = 0, now = 0;
+    for (let k = 0; k < tm.tiles.length; k++) { if (tm.base[k] === T.rubble) { base++; if (tm.tiles[k] === T.rubble) now++; } }
+    const lack = base - now;
+    if (lack <= 0) return;
+    const want = Math.max(1, Math.ceil(lack * 0.02));
+    for (let s = 0, n = 0; s < 400 && n < want; s++) {
+      const k = w.rng.int(tm.tiles.length);
+      if (tm.base[k] !== T.rubble || tm.tiles[k] !== tm.breaksTo[T.rubble]) continue;
+      if (!this.growOk(mi, k, 15, true)) continue;
+      tm.set(k % tm.w, (k / tm.w) | 0, T.rubble); n++;
+    }
+  }
   /** Trees (outside the ring nobody can cut) and rocks on map m. */
   countRes(m: number): { tree: number; rock: number } {
     const tm = this.w.maps[m]!.tiles, T = this.T;
@@ -1266,13 +1287,13 @@ export class Survival {
     return { tree, rock };
   }
   /** May something grow on tile k (nobody within `sight` metres, away from the camp, homes, doors, roads and portals)? */
-  private growOk(m: number, k: number, sight: number): boolean {
+  private growOk(m: number, k: number, sight: number, ruin = false): boolean {
     const w = this.w, tm = w.maps[m]!.tiles, x = k % tm.w, y = (k / tm.w) | 0;
     if (w.land.inRing(m, x, y) || this.homes.at(m, k) || this.occupied(m, x, y)) return false;
     const p = this.perimeter(m);
     if (p && Math.hypot(x - p.x, y - p.y) < p.r + 4) return false;
     for (const q of w.portals) if ((q.from === m && Math.hypot(q.x - x, q.y - y) < 6) || (q.dest === m && Math.hypot(q.toX - x, q.toY - y) < 6)) return false;
-    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (tm.inside(x + dx, y + dy) && tm.get(x + dx, y + dy) === 3 /* road */) return false;
+    if (!ruin) for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (tm.inside(x + dx, y + dy) && tm.get(x + dx, y + dy) === 3 /* road */) return false;
     if (this.aprons(m).has(k)) return false;
     if (sight > 0) {
       const e = w.e;

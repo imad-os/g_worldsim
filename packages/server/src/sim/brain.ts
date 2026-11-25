@@ -592,6 +592,23 @@ export class Brain {
 
   stop(i: number): void { const e = this.w.e; this.pN[i] = 0; e.tx[i] = e.x[i]!; e.ty[i] = e.y[i]!; e.speed[i] = 0; }
   walking(i: number): boolean { return this.pN[i]! > 0; }
+  /** Walks home that were cut short (sleep), per slot. */
+  private readonly homeTries: number[] = [];
+  /** A free tile inside my home's room (a bed first; spread by person so a family does not stack on one tile), or -1. */
+  homeSpot(i: number): number {
+    const w = this.w, e = w.e, homes = w.survival.homes, h = homes.homeOf(e.id(i));
+    if (!h || h.m !== e.map[i]) return -1;
+    const r = w.survival.hutRect(h.m, h.out, h.dir), tm = w.maps[h.m]!.tiles;
+    if (!r) return -1;
+    const cells: number[] = [];
+    for (let yy = 1; yy <= 3; yy++) for (let xx = 1; xx <= 3; xx++) { const k = (r.y0 + yy) * tm.w + r.x0 + xx; if (!tm.solid[tm.tiles[k]!] || tm.tiles[k] === w.survival.T.bed) cells.push(k); }
+    if (!cells.length) return -1;
+    const bed = cells.find((k) => tm.tiles[k] === w.survival.T.bed);
+    if (bed !== undefined && !tm.solid[w.survival.T.bed]) return bed;
+    const free = cells.filter((k) => k !== r.inside); // never block the doorway's inside tile
+    const list = free.length ? free : cells;
+    return list[(e.id(i) * 7) % list.length]!;
+  }
 
   // ------------------------------------------------------------------ needs + choice
   private decide(i: number): void {
@@ -738,10 +755,7 @@ export class Brain {
         let t = -1;
         // My own home (or my family's) first: people know where they live (imad 2026-11-25).
         const h = homes.homeOf(e.id(i));
-        if (h && h.m === m) {
-          const c = homes.middle(h);
-          if (Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!) < 150) t = this.nearestSpot(this.shelterSpots[m]!, W, c.x, c.y, 2.5, rng.next() * 2);
-        }
+        if (h && h.m === m && (e.tired[i]! < 92 || Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!) < 40)) t = this.homeSpot(i); // anywhere on the map, unless too tired to walk
         if (t < 0 && camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
           t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3, mine);
           if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
@@ -770,8 +784,16 @@ export class Brain {
       case Act.Wander:
         if (!this.wanderGo(i, 22)) return false;
         this.setAct(i, Act.Wander); this.schedule(i, 1); return true;
-      case Act.Rest:
-        this.stop(i); this.setAct(i, Act.Rest, 10 + rng.next() * 30); this.schedule(i, 2, this.ticksLeft(i)); return true;
+      case Act.Rest: {
+        // Rest at home when it is near (imad 2026-11-25: "keep resting in their home except if some urgency").
+        const h = w.survival.homes.homeOf(e.id(i));
+        if (h && h.m === m && !w.survival.homes.inside(i, h)) {
+          const c = w.survival.homes.middle(h), d = Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!), t = this.homeSpot(i), W = w.maps[m]!.tiles.w;
+          const night = this.hour() >= 20 || this.hour() < 6;
+          if ((d < 90 || night) && t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.setAct(i, Act.Rest, 0); e.goal[i] = -5; this.schedule(i, 1); return true; }
+        }
+        this.stop(i); this.setAct(i, Act.Rest, h && w.survival.homes.inside(i, h) ? 30 + rng.next() * 60 : 10 + rng.next() * 30); this.schedule(i, 2, this.ticksLeft(i)); return true;
+      }
       case Act.Travel: {
         if (!w.travelOpen) return false;
         let best = -1, bd = Infinity;
@@ -825,7 +847,16 @@ export class Brain {
         return false;
       }
       case Act.Sleep: {
-        if (!(e.flags[i]! & EFlag.Sleeping)) { this.stop(i); this.setAct(i, Act.Sleep); w.emit('sleep', { id: e.id(i) }); } // arrived at the bed
+        if (!(e.flags[i]! & EFlag.Sleeping)) { // the walk ended: at home? (a blocked or cut-short walk is tried again, twice)
+          const homes = w.survival.homes, h = homes.homeOf(e.id(i));
+          if (h && h.m === e.map[i] && !homes.inside(i, h) && this.guardian(i) < 0 && (this.homeTries[i] ?? 0) < 2 && e.tired[i]! < 95 && e.tired[i]! > 3) {
+            this.homeTries[i] = (this.homeTries[i] ?? 0) + 1;
+            const t = this.homeSpot(i), W = w.maps[e.map[i]!]!.tiles.w;
+            if (t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.schedule(i, 1); return true; }
+          }
+          this.homeTries[i] = 0;
+          this.stop(i); this.setAct(i, Act.Sleep); w.emit('sleep', { id: e.id(i) }); // arrived at the bed
+        }
         const night = this.hour() >= 22 || this.hour() < 6;
         if (e.tired[i]! > 3 || (night && e.tired[i]! > 0)) {
           const g = this.guardian(i);
@@ -869,6 +900,10 @@ export class Brain {
         this.schedule(i, 1); return true; // the other one moved: follow
       }
       case Act.Rest:
+        if (e.goal[i] === -5) { // on the way home to rest
+          if (this.walking(i)) { this.schedule(i, 1); return true; }
+          e.goal[i] = -1; this.stop(i); this.setAct(i, Act.Rest, 30 + this.w.rng.next() * 60); this.schedule(i, 2, this.ticksLeft(i)); return true;
+        }
         if (e.actT[i]! > 0) { this.schedule(i, 2, this.ticksLeft(i)); return true; }
         return false;
       case Act.Travel:

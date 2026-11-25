@@ -418,7 +418,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   doorway (`World.step` via `homes.shut(i, m, fromTile, toTile)`, and `trustMove` for players; event / Notice `blocked { why: 'door' }`). No owner,
   camp-wall gates, ruin doors = open. Builder without a home owns a new hut; hourly `homes.hourly()`: dead owner -> partner / grown child; free huts
   -> households without one (couples with kids first). `Profile.home` + a memory note; prompt line `homes.describe` in `selfText`; people sleep at
-  home and flee to a roof whose door opens for them. Colony / ownPlans build huts until every household has one (`homes.needed`).
+  home and flee to a roof whose door opens for them.
+  **Rest at home (imad 2026-11-25)**: `Brain.homeSpot` (bed, else an inside tile); sleep goes home from anywhere on the map unless exhausted
+  (tired >= 92 and > 40 m), rest walks home (goal -5) within 90 m or at night; 2 tries then sleep where they are. 4-day run: ~97 % of sleep, ~94 % of rest at home.
+  Clan orders replace a member's own task (not owner / player / rule ones). Colony / ownPlans build huts until every household has one (`homes.needed`).
 - **Huts come with their own door** (agents and players), cost `HUT_NEED` = 14 wood + 4 stone (protocol craft.ts).
 - **Aimed building** (TV): picking a build row / Put down / Me > hut opens a see-through model (`World3D.ghost`, green / red) moved tile by tile
   with stick / arrows (camera-relative in third / first), X / Y / shoulders / Build / CH+- turn a hut's door, A / OK build, B / Back cancel.
@@ -427,6 +430,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `__dev.place / unplace / tile`). Admin `agentSet { set: { inv: { wood: 14 } } }` sets a bag.
 - **Resources** (`Survival.regrow`, hourly): steady level per map counted once (`resTarget`, saved `res`): trees never below the generated count,
   regrow on stumps + seed next to trees (~3 % of the gap / h); rocks capped (woods 60 / town 12), one surfaces ~every 7 h out of sight (25 m).
+  Rocks always refill to the cap (one an hour at most, chance = max(0.15, lack)); rubble regrows on its base tiles (~2 % of the lack / h).
   Never in the camp wall circle, homes, door aprons, roads, near portals. Rocks are hard: 15 damage a blow (6 blows), stone 60 %, ore 10 % a blow;
   agents' `mine` job 240 s, players 1.6 s between blows. New worlds: 18 rock clusters in the woods, 5 in town. Test homes.test.ts.
 

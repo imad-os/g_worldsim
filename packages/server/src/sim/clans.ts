@@ -136,7 +136,14 @@ export class Clans {
   private member(i: number): boolean { const e = this.w.e; return (e.kind[i] === Kind.Agent || (e.kind[i] === Kind.Player && !!this.w.charName(i))) && !(e.flags[i]! & 32); }
   /** The engine may move this person between clans by itself (never a player's character). */
   private auto(i: number): boolean { return this.w.e.kind[i] === Kind.Agent && !this.w.charName(i); }
-  private free(i: number): boolean { const p = this.w.profileOf(i), e = this.w.e; return !!p && !p.mind?.task && !this.w.survival.busy(e.id(i)) && e.hunger[i]! < 70 && e.thirst[i]! < 70 && e.hp[i]! > 40 && e.act[i] !== Act.Sleep; }
+  /** A task of their own (not an order from the owner, a player or a strict rule): a clan order may replace it. */
+  private ownWork(t: { from: string; rule?: string } | undefined): boolean {
+    if (!t) return true;
+    if (t.rule || t.from === 'owner' || t.from === 'the voice from the sky') return false;
+    for (const p of this.w.profiles.values()) if (p.player && p.player === t.from) return false;
+    return true;
+  }
+  private free(i: number): boolean { const p = this.w.profileOf(i), e = this.w.e; return !!p && this.ownWork(p.mind?.task) && (!!p.mind?.task || !this.w.survival.busy(e.id(i))) && e.hunger[i]! < 70 && e.thirst[i]! < 70 && e.hp[i]! > 40 && e.act[i] !== Act.Sleep; }
   private name(id: number): string { return this.w.profiles.get(id)?.name ?? 'someone'; }
 
   // ------------------------------------------------------------------ hourly: who belongs where, elections, orders
@@ -295,6 +302,7 @@ export class Clans {
       const i = e.slot(id);
       if (id === c.leader || i < 0 || e.kind[i] !== Kind.Agent || e.map[i] !== c.map || !this.free(i)) continue;
       if (!w.rng.chance(0.15 + (this.loyal.get(id) ?? 0.5) * 0.6)) continue;
+      if (w.profileOf(i)?.mind?.task) w.tasks.stop(i); // their own work waits for the clan's order
       if (w.tasks.start(i, text.replace(/[.:!].*$/, '').toLowerCase().slice(0, 60) || 'the clan\'s order', this.name(c.leader), steps(i))) n++;
     }
     w.emit('clanOrder', { clan: c.name, id: c.leader, text, n });

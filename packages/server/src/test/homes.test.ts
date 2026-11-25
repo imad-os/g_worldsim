@@ -142,12 +142,19 @@ test('natural resources come back to a steady level; rocks are hard and ore is r
   for (let k = 0; k < tm.tiles.length && cut < before.tree / 3; k++) if (tm.tiles[k] === T.tree && !w.land.inRing(woods, k % tm.w, (k / tm.w) | 0)) { tm.set(k % tm.w, (k / tm.w) | 0, T.dirt); cut++; }
   let broke = 0;
   for (let k = 0; k < tm.tiles.length; k++) if (tm.tiles[k] === T.rock && broke < before.rock - 2) { tm.set(k % tm.w, (k / tm.w) | 0, T.grass); broke++; }
+  const town0 = w.mapIndex.get('town')!, ttm0 = w.maps[town0]!.tiles, RUB = T.rubble;
+  const rubble = () => { let n = 0; for (const t of ttm0.tiles) if (t === RUB) n++; return n; };
+  const rub0 = rubble();
+  let gone = 0;
+  for (let k = 0; k < ttm0.tiles.length && gone < rub0 / 2; k++) if (ttm0.tiles[k] === RUB) { ttm0.set(k % ttm0.w, (k / ttm0.w) | 0, ttm0.breaksTo[RUB]!); gone++; }
+  const rubLow = rubble();
   const low = sv.countRes(woods);
   for (let h = 0; h < 24 * 6; h++) hourly.regrow.call(sv);
   const after = sv.countRes(woods);
   assert.ok(after.tree > low.tree + cut * 0.5, `trees grow back (${low.tree} -> ${after.tree}, target ${target.tree})`);
   assert.ok(after.tree <= target.tree + 5, 'never past the steady level');
   assert.ok(after.rock > low.rock && after.rock <= target.rock, `rocks surface slowly (${low.rock} -> ${after.rock})`);
+  assert.ok(rubble() > rubLow + gone * 0.3, `ruins crumble again: rubble ${rubLow} -> ${rubble()} (of ${rub0})`);
   // Hard: a rock takes several blows; ore is rare.
   const town = w.mapIndex.get('town')!, ttm = w.maps[town]!.tiles;
   const pl = w.spawnPlayer(town, 30, 30); w.playerProfile(pl, 'miner');

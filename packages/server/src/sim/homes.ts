@@ -50,6 +50,12 @@ export class Homes {
 
   /** The hut that tile k of map m belongs to (its walls, floor or doorway). */
   at(m: number, k: number): Home | undefined { return this.tileOf.get(m * 0x1000000 + k); }
+  /** Is this person (slot) inside the room of hut h? */
+  inside(i: number, h: Home): boolean {
+    const e = this.w.e, tm = this.w.maps[h.m]!.tiles;
+    if (e.map[i] !== h.m) return false;
+    return this.tileOf.get(h.m * 0x1000000 + Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!)) === h;
+  }
   /** A hut's doorway tile. */
   doorOf(h: Home): number { return this.w.survival.hutRect(h.m, h.out, h.dir)!.door; }
   /** The middle of a hut's room (x, y in metres). */
