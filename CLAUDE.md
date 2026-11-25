@@ -429,7 +429,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   places 4 per kind; `story(i)` in every prompt). Experiments: `experiment-requests.js` (E6), `experiment-defence.js` (E7);
   the harnesses call `w.land.setup()` like the server. The long-term-plan strictness question: imad said skip for now.
 
-## Items, gear, moves (imad 2026-11-25, app 0.11.0)
+## Items, gear, moves (imad 2026-11-25, app 0.11.1)
 - **Assets**: CC0 models only (Quaternius, KayKit, Kenney; `docs/models/CREDITS.md`). `tools/assets/fetch.sh` (KayKit packs at pinned commits into
   .cache/) + `node tools/assets/build-items.mjs` (headless Chromium: FBX / glTF -> flat-shaded face-colour triangles; `tools/assets/items.mjs` = which
   model, turn, size, icon angle) -> `docs/models/items.json` (models used in game: sword axe spear bow hammer sledge helmet pads) + `docs/icons/items.png/json`
@@ -448,3 +448,26 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Screens** (`invui.ts`, Menu pages with a `grid` = own cursor, `big`): "Bag & crafting" (category tabs, 3x3 grid -> result, recipe book fills the grid,
   9x4 bag; A on a material = into the grid, on gear = equip, on a placeable = put down) and "Gear" (3D preview = a second small WebGLRenderer only while open,
   4 slots, choices Best / Nothing / items, Level up / Raise quality with costs). Strings `i18ng.ts` (TG). Proof: `ADMIN_TOKEN=... node tools/gear-proof.mjs <server> <sdk.js> <outdir>`.
+
+## Quests, NPCs, deep clans (imad 2026-11-25, app 0.11.1)
+- **NPCs are not people (imad's choice)**: Kind.Npc 8 (`World.spawnNpc`, look in frame bits 24+, no profile / needs / age / clans, not population),
+  5 in the middle of the start map (`protocol/quests.ts NPCS`: guide Mara, smith Joren, hunter Sela, warden Bram, registrar Odile). Kept in
+  snapshots; `Quests.setup()` (App start, after land) finds them by look or makes them. TV: a cyan ring; Talk next to one = Do `npc`.
+- **Quests** (`sim/quests.ts`, table in `protocol/quests.ts` with en/fr/es/ar texts, ONE table for server + TV): 10 in order, taken from the giver,
+  counted from world events by that person after taking (`need` ev/what/n: npc, drink, pickup, gather, craft, build, tend, hunt, clanJoin), handed
+  in to the giver (xp, items, food; level ups; lesson -> memory note + `Profile.quests` + `Quests.promptText` in every prompt). AI people do them
+  too: every 30 game min by day, free / safe adults get a task (skill `npc` = walk to a teacher and talk + the quest's `plan` steps), from the
+  NPC's name. Do `quests` = rows; Notice `quest` = progress. Admin `quests` (panel People: Quests card; person page Quests card).
+- **Two kinds of leader (imad's choice)**: the camp leader by traits (Survival.pickLeader) runs the camp's work; a clan leader is ELECTED.
+- **Clans** (`sim/clans.ts`): founded at the registrar (AI: task skill `clan found` walks there; player: talk to Odile > Found a clan, name by
+  keyboard; no registrar on that map = found at the camp). The first clan founded by an AI invites those who like the founder; a player recruits.
+  Join = walk to the leader and ask (`accepts`: AI leader refuses someone they dislike); quit; switch when another clan fits clearly better
+  (`fit`) and loyalty < 0.4. Players' characters never move by themselves. Respect (members' feelings + leadership), approval (feelings +
+  loyalty). Elections (`callVote` / `closeVote`): every 3 game days, after a day if approval < 35 %, or an ambitious member / a player / admin
+  `clanVote` calls one; leader + 2 most respected (+ caller) stand, 2 game hours, AI vote by feelings x respect x kin, players vote on the TV,
+  tie keeps the leader. AI leader orders every 6 game hours only for real needs (night + zombies = arm and rally; store low on food / wood, only
+  once the camp has a store); a player leader's order (Do `clan` `order:<words>`) goes to members via `Planner.chat` (speaker = their leader:
+  obeyed by loyalty). Do `clan` info / join:<id> / quit / found:<name> / vote:<id> / call / order:<text>. Events quest, questDone, clanJoin,
+  clanSwitch, clanVote(Start), clanOrder, clanRebel logged. TV: `client/src/questui.ts` (pages quests / npc / clan / clanJoin / clanVote).
+- Test quests.test.ts; proof `ADMIN_TOKEN=... node tools/quest-proof.mjs <server> <sdk.js> <outdir>` (sdk from raw.githubusercontent.com/imad-os/g/main/sdk/mypc-sdk.js).
+

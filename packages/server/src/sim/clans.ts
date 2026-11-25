@@ -317,9 +317,9 @@ export class Clans {
     const c: Clan = { id: this.nextId++, name, map: m, leader, founder: leader, members: [], hx: home?.x ?? camp?.x ?? e.x[L]!, hy: home?.y ?? camp?.y ?? e.y[L]!, at: w.gameSec, lastVote: w.gameSec };
     this.clans.push(c);
     this.join(c, leader, 1);
-    // The first clan of a place: those who like the founder (and family) come along.
+    // The first clan of a place founded by an AI person: those who like the founder (and family) come along (a player recruits by hand).
     const first = this.clans.filter((x) => x.map === m).length === 1;
-    const invited = members.length ? members : first ? (() => { const out: number[] = []; for (let i = 0; i < e.hi; i++) if (e.map[i] === m && this.auto(i) && this.member(i) && !this.of.has(e.id(i)) && (this.rel(e.id(i), leader) >= -1 || this.kin(e.id(i), leader))) out.push(e.id(i)); return out; })() : [];
+    const invited = members.length ? members : first && this.auto(L) ? (() => { const out: number[] = []; for (let i = 0; i < e.hi; i++) if (e.map[i] === m && this.auto(i) && this.member(i) && !this.of.has(e.id(i)) && (this.rel(e.id(i), leader) >= -1 || this.kin(e.id(i), leader))) out.push(e.id(i)); return out; })() : [];
     for (const id of invited) if (!this.of.has(id) && id !== leader) this.join(c, id, 0.5 + Math.max(0, this.rel(id, leader)) * 0.08);
     w.emit('clan', { clan: name, leader, n: c.members.length, map: w.maps[m]!.def.id });
     return c;

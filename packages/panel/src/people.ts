@@ -62,15 +62,29 @@ export const peopleScreen: Screen = {
     try { if (tab === 'alive') await people(true); else await profiles(); setHtml('pList', listHtml()); bindList(); void loadClans(); } catch (e) { toast(String(e), 'err'); }
   },
 };
-type ClanRow = { id: number; name: string; map: string; leader: string; leaderId: number; home: number[]; members: { id: number; name: string; loyalty: number }[]; rivals: { name: string; tension: number }[] };
-/** The clans that formed by themselves: leader, members with loyalty, rivals with tension (imad 2026-11-21). */
+type ClanRow = { id: number; name: string; map: string; leader: string; leaderId: number; home: number[]; founder: string; approval: number; order: string; lastVote: number;
+  vote: { end: number; why: string; cands: string[]; votes: number } | null; result: { at: number; winner: string; old: string; tally: [string, number][] } | null;
+  members: { id: number; name: string; loyalty: number; respect: number }[]; rivals: { name: string; tension: number }[] };
+type QuestsInfo = { npcs: { key: string; name: string; x: number; y: number; map: string }[]; quests: { id: string; title: string; npc: string; lesson: string; xp: number }[];
+  people: { id: number; name: string; player: boolean; done: number; cur: string; n: number; need: number; ready: boolean }[] };
+/**
+ * Clans (imad 2026-11-25: deep clans): elected leader with the members' approval, members by respect with loyalty, the election under way or the
+ * last result, the leader's order of the day, rivals; "Call a vote" opens an election. Quests: the town's teachers and everyone's progress.
+ */
 async function loadClans(): Promise<void> {
   const el = document.getElementById('pClans'); if (!el) return;
   try {
-    const r = await cmd<{ clans: ClanRow[] }>({ cmd: 'clans' });
-    el.innerHTML = r.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">led by <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · ${esc(mapName(c.map))} · home (${c.home.join(', ')})</span>
-      <div class="chips">${c.members.map((m) => `<a class="chip" href="#/person/${m.id}">${esc(m.name)} <small class="dim">${m.loyalty}%</small></a>`).join('')}</div>
-      ${c.rivals.length ? `<small class="dim">Rivals: ${c.rivals.map((x) => `${esc(x.name)} (tension ${x.tension}/10)`).join(', ')}</small>` : ''}</div>`).join('')) : '';
+    const [r, q] = await Promise.all([cmd<{ clans: ClanRow[]; now: number }>({ cmd: 'clans' }), cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null)]);
+    const clans = r.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
+      <div class="chips">${c.members.map((m) => `<a class="chip" href="#/person/${m.id}" title="respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.loyalty}% · ★${m.respect}</small></a>`).join('')}</div>
+      ${c.vote ? `<small><b>Election on</b>: ${esc(c.vote.cands.join(' / '))} (${esc(c.vote.why)}), ${c.vote.votes} votes so far, closes ${gameTime(c.vote.end)}</small><br>` : c.result ? `<small class="dim">Last vote ${gameTime(c.result.at)}: ${esc(c.result.winner)} won${c.result.winner !== c.result.old ? ' (was ' + esc(c.result.old) + ')' : ''} · ${c.result.tally.map(([n, v]) => `${esc(n)} ${v}`).join(', ')}</small><br>` : ''}
+      ${c.order ? `<small class="dim">Leader's order: “${esc(c.order)}”</small><br>` : ''}
+      ${c.rivals.length ? `<small class="dim">Rivals: ${c.rivals.map((x) => `${esc(x.name)} (tension ${x.tension}/10)`).join(', ')}</small><br>` : ''}
+      ${c.vote ? '' : `<button class="btn sm" data-vote="${c.id}">Call a vote</button>`}</div>`).join('')) : '';
+    const quests = q ? card('Quests', `<p class="dim">Teachers in ${esc(mapName(q.npcs[0]?.map ?? ''))}: ${q.npcs.map((n) => `${esc(n.name)} (${n.x}, ${n.y})`).join(', ')}. Ten quests in order; each lesson stays in the person's prompts.</p>
+      <table><tr><th>Person</th><th>Done</th><th>Now</th></tr>${q.people.sort((a, b) => b.done - a.done).map((p) => `<tr><td><a href="#/person/${p.id}">${esc(p.name)}</a>${p.player ? ' <small class="dim">player</small>' : ''}</td><td>${p.done} / ${q.quests.length}</td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <small>(hand it in)</small>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</table>`) : '';
+    el.innerHTML = clans + quests;
+    on('[data-vote]', 'click', (b) => { void cmd({ cmd: 'clanVote', id: Number(b.dataset.vote) }).then(() => { toast('Election opened (2 game hours)'); void loadClans(); }, (e) => toast(String(e), 'err')); });
   } catch { /* next time */ }
 }
 function bindList(): void { on('tr.link', 'click', (el) => { location.hash = `#/person/${el.dataset.id}`; }); }
@@ -117,7 +131,8 @@ function personHtml(d: Detail): string {
       <p>${icon('map')} ${esc(mapName(d.map))} at (${Math.round(d.x)}, ${Math.round(d.y)})</p>
       ${d.partner ? `<p>${icon('heart')} Partner: ${esc(d.partner)}${d.pregnant ? ' · expecting a baby' : ''}</p>` : ''}`)}
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
-    ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · led by ${esc(c.leader)}</p><p>Loyalty ${c.loyalty}%</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; rivals: string[] } }).clan)) : ''}
+    ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
+    ${((q) => q ? card('Quests', `<p>${q.done} of ${q.all} done${q.cur ? ` · now <b>${esc(q.cur)}</b> ${q.ready ? '(done: hand it in)' : `${q.n}/${q.need}`}` : ''}</p>`) : '')((d as { quests?: { done: number; all: number; cur: string; n: number; need: number; ready: boolean } }).quests)}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
     ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div><b>${Math.round(v * 100)}%</b>`).join('')}</div>`)}
     </div>`;

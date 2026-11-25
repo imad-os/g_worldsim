@@ -18,6 +18,7 @@ import { Wheel, type WheelItem } from './wheel.js';
 import { Sound, SOUND_DEFAULTS, type SoundPrefs } from './audio.js';
 import { loadItems } from './gfx/items.js';
 import { InvScreen, GearScreen, type InvCtx } from './invui.js';
+import { QuestUi } from './questui.js';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
 const sound = new Sound();
@@ -179,7 +180,7 @@ const PANTS = [0x3b3a40, 0x4a3d30, 0x2f3b4a, 0x50483d].map(C);
 const ZOMBIE: PersonLook = { tunic: C(0x6b6650), skin: C(0x9fbf7f), hair: C(0x56604a), pants: C(0x3e4436) };
 const ME: PersonLook = { tunic: C(0x2fa36b), skin: C(0xe8b890), hair: C(0x3a2416), pants: C(0x3a3f5a) };
 const OTHER_PLAYER: PersonLook = { tunic: C(0xd9822b), skin: C(0xd8a27a), hair: C(0x2b1d14), pants: C(0x40404a) };
-const GOLD = C(0xffd166), WHITE = C(0xffffff);
+const GOLD = C(0xffd166), WHITE = C(0xffffff), NPC_RING = C(0x5ad1ff);
 /** A player's character: their skin tone (1 + tone, + 8 = woman: the trousers match the top, like a dress). Made once each. */
 const playerLooks = new Map<number, PersonLook>();
 function playerLook(mine: boolean, code: number): PersonLook {
@@ -327,6 +328,7 @@ function onMsg(m: ServerMsg): void {
         note(`${d.name}: “${d.text}”`, 7000);
       }
       if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
+      if (m.kind === 'quest' || m.kind === 'clanVote') quests.notice(m.kind, m.data);
       if (m.kind === 'me') {
         const hp = (m.data as { hp?: number }).hp ?? 100;
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
@@ -879,6 +881,18 @@ function nearestPerson(r: number): number {
   return best;
 }
 
+/** Is one of the town's teachers (NPC) within r metres, nearer than any person? */
+function nearestNpc(r: number): boolean {
+  const x = focusX(), y = focusY();
+  let npc = Infinity, person = Infinity;
+  for (let i = 0; i < CAP; i++) {
+    if (eid[i] === -1 || (kind[i] !== Kind.Npc && kind[i] !== Kind.Agent)) continue;
+    const d = Math.hypot(nx[i]! - x, ny[i]! - y);
+    if (kind[i] === Kind.Npc) npc = Math.min(npc, d); else person = Math.min(person, d);
+  }
+  return npc < r && npc <= person;
+}
+
 /** One of the player's actions, from any button. */
 function doAction(a: ActionId, pressed: boolean): void {
   if (a === 'run') { runHeld = pressed; return; }
@@ -913,6 +927,7 @@ function doAction(a: ActionId, pressed: boolean): void {
     return;
   }
   if (a === 'talk') {
+    if (nearestNpc(3.5)) { quests.talkToNpc(); return; } // a town teacher: quests (and clans at the registrar)
     if (nearestPerson(3.5) < 0) { note(t('dNobodyNear'), 2000); return; }
     // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
     // empty = just say hello. They may do what you ask.
@@ -1019,6 +1034,7 @@ function onSttText(e: { text: string }): void {
 }
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+  if (quests.did(d as never)) return;
   if (d.a === 'build' && placing) { // the aimed build's answer: done = close the model, else say why and keep aiming
     if (d.ok) stopPlacing();
     else { placing.sent = false; setTimeout(placeNote, 3200); }
@@ -1120,13 +1136,14 @@ function bindText(a: ActionId): string {
 }
 
 function buildPage(id: string): Page {
+  { const qp = quests.page(id); if (qp) return qp; } // quests, NPC talk, clan (questui.ts)
   const rows: Row[] = [];
   switch (id) {
     case 'inv': return { id, title: t('invTitle'), rows, big: true, html: invScreen.html(), grid: invScreen };
     case 'gear': return { id, title: t('gearTitle'), rows, big: true, html: gearScreen.html(), grid: gearScreen };
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
+      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true }, ...quests.rootRows());
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push(...(meId >= 0 ? [{ id: 'mine', label: t('mFollowMe') }] : []), { id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
@@ -1294,6 +1311,7 @@ function buildPage(id: string): Page {
 }
 
 function pickRow(page: string, row: string): void {
+  if (quests.pick(page, row, () => menu.back())) return;
   if (page === 'root') {
     if (row === 'resume') menu.close();
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
@@ -1416,6 +1434,14 @@ const invCtx: InvCtx = {
 };
 const invScreen = new InvScreen(invCtx), gearScreen = new GearScreen(invCtx);
 const menu = new Menu(buildPage, pickRow, () => { capture = null; noteEl.hidden = true; drawCard(); MyPC.back?.(false); });
+const quests = new QuestUi({
+  send: (m) => send(m as never),
+  push: (p) => { if (!menu.open) menu.show(p); else menu.push(p); },
+  refresh: (p) => { if (menu.open && menu.page === p) menu.refresh(); },
+  note: (text, ms) => note(text, ms),
+  keyboard: (label, cb) => { if (!MyPC.text?.keyboard) return; void (MyPC.text.keyboard({ value: '', kind: 'text', label, ok: 'OK' }) as Promise<string | null>).then((v) => { if (v) cb(v); }); },
+  thing: (k) => thing(k),
+});
 menu.onSound = (id) => sound.play(id);
 const bubbles = new Bubbles(8);
 
@@ -1502,7 +1528,7 @@ function draw(now: number, dt: number): void {
     if (Math.abs(x - fx) > r || Math.abs(y - fy) > r) continue;
     if (kind[i] === Kind.Projectile) { g3.shot(x, y); continue; }
     if (kind[i] === Kind.Item) { g3.item(x, y, sub[i]!, eid[i]!); continue; }
-    if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat && kind[i] !== Kind.Animal) continue;
+    if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat && kind[i] !== Kind.Animal && kind[i] !== Kind.Npc) continue;
     // Walk cycle from the distance really covered on screen.
     const ddx = x - lastX[i]!, ddy = y - lastY[i]!, moved = Math.hypot(ddx, ddy);
     lastX[i] = x; lastY[i] = y;
@@ -1531,9 +1557,10 @@ function draw(now: number, dt: number): void {
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const zed = kind[i] === Kind.Threat;
     const mine = i === me || eid[i] === meId;
-    const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
+    const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : gearOf[i]!, (now - animAt[i]!) / 1000);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
+    else if (kind[i] === Kind.Npc) P.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
   P.end(); g3.endShots(); g3.endItems(); g3.animals.end();
