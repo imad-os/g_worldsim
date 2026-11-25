@@ -14,13 +14,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { parseJsonReply, type Ai } from '../ai/llm.js';
 import type { Db } from '../persist/db.js';
 import type { Logger } from '../log.js';
-import type { Control } from './control.js';
+import { run, type Control } from './control.js';
 
 export interface Edit { path: string; find?: string; replace?: string; create?: string }
 export interface Step { at: number; role: 'you' | 'agent' | 'look' | 'result' | 'error'; text: string; who?: string; proposal?: number }
 export interface Proposal {
   id: number; kind: 'run' | 'edit'; why: string; code?: string; edits?: Edit[]; restart?: boolean;
   status: 'waiting' | 'running' | 'done' | 'failed' | 'cancelled' | 'undone'; result?: string; backup?: string; at: number; by?: string; ask: string;
+  /** Edits: the local git commit that holds them (the trace; Revert = git revert of it). */
+  commit?: string; revertCommit?: string;
 }
 export interface AgentHost {
   /** The model the agent thinks with (a separate Ai object: the people's budget is not touched). */
@@ -55,6 +57,7 @@ export class Agent {
     db.sql.exec(`CREATE TABLE IF NOT EXISTS agent_audit (
       id INTEGER PRIMARY KEY, at INTEGER NOT NULL, who TEXT NOT NULL, kind TEXT NOT NULL, ask TEXT NOT NULL, why TEXT NOT NULL,
       code TEXT NOT NULL, status TEXT NOT NULL, result TEXT NOT NULL DEFAULT '', backup TEXT NOT NULL DEFAULT '', ran_at INTEGER)`);
+    for (const col of ['git TEXT NOT NULL DEFAULT \'\'', 'revert_git TEXT NOT NULL DEFAULT \'\'']) { try { db.sql.exec(`ALTER TABLE agent_audit ADD COLUMN ${col}`); } catch { /* there */ } }
     const top = db.sql.prepare('SELECT MAX(id) AS m FROM agent_audit').get() as { m: number | null };
     this.nextId = (top.m ?? 0) + 1;
     try { const s = JSON.parse(db.getMeta('agent_chat') ?? '{}') as { steps?: Step[] }; this.steps = s.steps ?? []; } catch { /* fresh */ }
@@ -88,7 +91,8 @@ export class Agent {
     let edits: Edit[] | undefined, restart: boolean | undefined;
     if (kind === 'edit') { try { const j = JSON.parse(code) as { edits: Edit[]; restart?: boolean }; edits = j.edits; restart = j.restart; } catch { edits = []; } }
     return { id: Number(r.id), kind, why: String(r.why), code: kind === 'run' ? code : undefined, edits, restart, status: String(r.status) as Proposal['status'],
-      result: String(r.result ?? ''), backup: String(r.backup ?? ''), at: Number(r.at), by: String(r.who), ask: String(r.ask) };
+      result: String(r.result ?? ''), backup: String(r.backup ?? ''), at: Number(r.at), by: String(r.who), ask: String(r.ask),
+      commit: String(r.git ?? '') || undefined, revertCommit: String(r.revert_git ?? '') || undefined };
   }
 
   private push(role: Step['role'], text: string, extra: Partial<Step> = {}): void {
@@ -272,7 +276,26 @@ export class Agent {
       this.setStatus(p, 'failed', `The build failed, the files were put back as they were:\n${tail(out.join('\n'), 6000)}`);
       return;
     }
-    this.setStatus(p, 'done', `Changed ${Object.keys(orig).join(', ')} and built. ${p.restart !== false ? 'Restart the server to use the new code.' : ''}\n${tail(out.join('\n'), 1500)}`);
+    // The trace (imad 2026-11-25: "any code changes stay traced and revertable by a button"): one local git commit per change.
+    const c = await this.commit(Object.keys(orig), `World agent #${p.id}: ${p.ask.split('\n')[0]!.slice(0, 72)}`, `${p.why}\n\nRun by ${p.by ?? '?'} from the control panel.`);
+    if (c.hash) { p.commit = c.hash; this.db.sql.prepare('UPDATE agent_audit SET git = ? WHERE id = ?').run(c.hash, p.id); }
+    this.setStatus(p, 'done', `Changed ${Object.keys(orig).join(', ')} and built. ${c.hash ? `Git commit ${c.hash.slice(0, 8)} (Revert undoes exactly this).` : `Not traced in git (${c.why}); Revert puts the kept originals back.`} ${p.restart !== false ? 'Restart the server to use the new code.' : ''}\n${tail(out.join('\n'), 1500)}`);
+  }
+
+  private git(args: string[]) {
+    return run('git', ['-c', 'user.name=World agent', '-c', 'user.email=agent@worldsim.local', '-c', 'core.autocrlf=false', ...args], this.root, 60_000);
+  }
+
+  /** Commit only these files (other local changes are left alone). */
+  private async commit(paths: string[], subject: string, body: string): Promise<{ hash?: string; why?: string }> {
+    const inside = await this.git(['rev-parse', '--is-inside-work-tree']);
+    if (inside.code !== 0) return { why: 'not a git repository' };
+    const add = await this.git(['add', '--', ...paths]);
+    if (add.code !== 0) return { why: add.out.slice(0, 300) };
+    const c = await this.git(['commit', '-q', '-m', subject, '-m', body, '--', ...paths]);
+    if (c.code !== 0) return { why: c.out.slice(0, 300) };
+    const h = await this.git(['rev-parse', 'HEAD']);
+    return h.code === 0 ? { hash: h.out.trim() } : { why: h.out.slice(0, 300) };
   }
 
   private putBack(orig: Record<string, string | null>): void {
@@ -286,6 +309,21 @@ export class Agent {
   async undo(id: number): Promise<{ restart: boolean; text: string }> {
     const p = this.get(id);
     if (!p || (p.status !== 'done' && p.status !== 'failed')) throw new Error('only a finished action can be undone');
+    if (p.kind === 'edit' && p.commit) {
+      // git revert = a new commit that takes out exactly this change, even after later changes (if they touch other lines).
+      const r = await this.git(['revert', '--no-edit', p.commit]);
+      if (r.code !== 0) {
+        await this.git(['revert', '--abort']);
+        throw new Error(`git could not revert #${id}: a later change touches the same lines (revert the later one first). ${r.out.slice(0, 300)}`);
+      }
+      const h = (await this.git(['rev-parse', 'HEAD'])).out.trim();
+      const out: string[] = [];
+      const ok = await this.control.build(out);
+      this.db.sql.prepare('UPDATE agent_audit SET revert_git = ? WHERE id = ?').run(h, id);
+      this.setStatus(p, 'undone', `reverted by git commit ${h.slice(0, 8)}${ok ? ', rebuilt' : ', BUT the build failed: ' + tail(out.join('\n'), 3000)}`);
+      this.push('result', `#${id} reverted (git ${h.slice(0, 8)}); the server restarts with the old code.`);
+      return { restart: ok, text: `reverted (git ${h.slice(0, 8)})${ok ? ', restarting' : ', build failed: not restarted'}` };
+    }
     if (p.kind === 'edit') {
       const f = join(this.editDir(id), 'original.json');
       if (!existsSync(f)) throw new Error('the original files of this change are not kept');
@@ -293,8 +331,8 @@ export class Agent {
       const out: string[] = [];
       const ok = await this.control.build(out);
       this.setStatus(p, 'undone', `files put back${ok ? ' and rebuilt' : ', BUT the build failed: ' + tail(out.join('\n'), 3000)}`);
-      this.push('result', `#${id} undone: the files are back as they were. Restart the server to use the old code.`);
-      return { restart: false, text: 'files put back, restart to use them' };
+      this.push('result', `#${id} reverted: the files are back as they were; the server restarts with the old code.`);
+      return { restart: ok, text: `files put back${ok ? ', restarting' : ', build failed: not restarted'}` };
     }
     if (!p.backup) throw new Error('no database copy was made for this run');
     this.control.scheduleRestore(p.backup);

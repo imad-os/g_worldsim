@@ -335,9 +335,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Apply: originals kept in data/agent/edit-<id>/, rebuild (`Control.build`), a failed build puts them back; Undo = put back + rebuild.
   Audit table `agent_audit`; chat in meta `agent_chat`; its brain = meta `agent_brain` (default: first gemini / openai brain, else the one in
   use; a separate `Ai`, not the people's budget). Secrets (brain keys, .env keys, tokens) are replaced by *** in everything shown / sent.
-  Agent edits live only on the PC: bring them into the repo or `git pull --ff-only` refuses.
+  **Traced and revertable (imad 2026-11-25)**: every applied edit = a local git commit of only those files ("World agent #id: ask", column `git`);
+  Revert = `git revert` of it (column `revert_git`; a clash with a later change aborts and says so) + rebuild + restart. Runs: Revert = backup restore.
+  No git = the kept originals. Agent commits stay local: bring them into the repo by hand.
 - **Server controls** (`ops/control.ts`, Server page `panel/src/serverctl.ts`): `serverInfo` (git commit / local changes, pid, db size, job),
   `serverLog`, `serverRestart` (writes data/watchdog.pause + restart.flag, clean stop, main.ts spawns the same command detached; the new
-  process removes both), `serverBuild` / `serverUpdate` (git pull --ff-only, npm install if package files changed, build; then restart),
+  process removes both), `serverBuild` / `serverUpdate` (git checkout -- docs, git pull --rebase --autostash so agent commits ride on top, abort on conflict, npm install if package files changed, build; then restart),
   `backups` / `backupMake` / `backupRestore` (data/restore.json, applied at start before the db opens; the old db kept as before-restore) /
   `backupDelete`. Last 15 backups kept. Test `agent.test.ts`; proof `ADMIN_TOKEN=... node tools/agent-proof.mjs <server> <outdir>` (fake model).

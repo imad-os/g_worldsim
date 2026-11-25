@@ -168,9 +168,12 @@ export class Control {
       try {
         if (what === 'update') {
           const before = (await run('git', ['rev-parse', 'HEAD'], this.root, 10_000)).out;
-          const p = await run('git', ['pull', '--ff-only'], this.root, 120_000);
-          out.push(`$ git pull --ff-only (exit ${p.code})`, p.out); flush();
-          if (p.code !== 0) throw new Error('git pull failed');
+          // Built bundles (docs/) are made again below: their local copies never block the pull. Changes the panel's agent
+          // committed locally are replayed on top of GitHub's (rebase); a conflict stops and leaves everything as it was.
+          await run('git', ['checkout', '--', 'docs'], this.root, 30_000);
+          const p = await run('git', ['-c', 'user.name=World agent', '-c', 'user.email=agent@worldsim.local', 'pull', '--rebase', '--autostash'], this.root, 120_000);
+          out.push(`$ git pull --rebase --autostash (exit ${p.code})`, p.out); flush();
+          if (p.code !== 0) { const ab = await run('git', ['rebase', '--abort'], this.root, 30_000); out.push(ab.code === 0 ? 'rebase aborted: nothing changed' : ''); throw new Error('git pull failed'); }
           const lock = await run('git', ['diff', '--name-only', before, 'HEAD', '--', 'package-lock.json', 'package.json', 'packages/*/package.json'], this.root, 10_000);
           if (lock.out.trim()) {
             const npm = this.npmCli();

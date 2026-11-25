@@ -9,7 +9,7 @@ import { ago, esc, icon, toast } from './util.js';
  * Run / Apply is pressed; the database is copied first, and every action can be undone.
  */
 interface Edit { path: string; find?: string; replace?: string; create?: string }
-interface Proposal { id: number; kind: 'run' | 'edit'; why: string; code?: string; edits?: Edit[]; restart?: boolean; status: string; result?: string; backup?: string; at: number; by?: string; ask: string }
+interface Proposal { id: number; kind: 'run' | 'edit'; commit?: string; revertCommit?: string; why: string; code?: string; edits?: Edit[]; restart?: boolean; status: string; result?: string; backup?: string; at: number; by?: string; ask: string }
 interface Step { at: number; role: 'you' | 'agent' | 'look' | 'result' | 'error'; text: string; who?: string; proposal?: number }
 interface View { busy: boolean; phase: string; brain: string; steps: Step[]; pending: Proposal | null; brains?: { id: string; name: string; provider: string; model: string }[]; brainId?: string }
 
@@ -92,13 +92,14 @@ const STATUS_TAG: Record<string, string> = { done: 'ok', failed: 'bad', undone: 
 async function loadAudit(): Promise<void> {
   try {
     const list = await cmd<Proposal[]>({ cmd: 'coderAudit', limit: 40 });
-    setHtml('agAudit', list.length ? list.map((p) => `<details class="logi"><summary><span class="tag ${STATUS_TAG[p.status] ?? ''}">${esc(p.status)}</span> #${p.id} ${p.kind === 'run' ? 'code' : 'files'} · ${esc(p.ask.slice(0, 80))} <span class="dim small">${ago(p.at)}${p.by && p.by !== 'agent' ? ' · ' + esc(p.by) : ''}</span></summary>
+    setHtml('agAudit', list.length ? list.map((p) => `<details class="logi"><summary><span class="tag ${STATUS_TAG[p.status] ?? ''}">${esc(p.status === 'undone' ? 'reverted' : p.status)}</span> #${p.id} ${p.kind === 'run' ? 'code' : 'files'} · ${esc(p.ask.slice(0, 80))} <span class="dim small">${ago(p.at)}${p.by && p.by !== 'agent' ? ' · ' + esc(p.by) : ''}</span></summary>
       ${p.why ? `<p class="small">${esc(p.why)}</p>` : ''}${p.kind === 'run' ? `<h5>Code</h5><pre>${esc(p.code ?? '')}</pre>` : (p.edits ?? []).map(editHtml).join('')}
+      ${p.commit ? `<p class="small">Git commit <b>${esc(p.commit.slice(0, 10))}</b>${p.revertCommit ? ` · reverted by <b>${esc(p.revertCommit.slice(0, 10))}</b>` : ''}</p>` : p.backup ? `<p class="small">Database copy before it: <b>${esc(p.backup)}</b></p>` : ''}
       ${p.result ? `<h5>Result</h5><pre>${esc(p.result)}</pre>` : ''}
-      ${(p.status === 'done' || p.status === 'failed') && (p.kind === 'edit' || p.backup) ? `<button class="btn sm danger" data-undo="${p.id}" data-kind="${p.kind}">${icon('refresh')} Undo</button>` : ''}</details>`).join('') : '<div class="empty">Nothing run yet.</div>');
+      ${(p.status === 'done' || p.status === 'failed') && (p.kind === 'edit' || p.backup) ? `<button class="btn sm danger" data-undo="${p.id}" data-kind="${p.kind}">${icon('refresh')} Revert</button>` : ''}</details>`).join('') : '<div class="empty">Nothing run yet.</div>');
     on('[data-undo]', 'click', async (el) => {
       const run = el.dataset.kind === 'run';
-      if (!confirm(run ? 'Undo this run? The whole world goes back to the copy made just before it (anything that happened since is lost) and the server restarts.' : 'Undo these file changes? The files are put back and the server rebuilt.')) return;
+      if (!confirm(run ? 'Revert this run? The whole world goes back to the copy made just before it (anything that happened since is lost) and the server restarts.' : 'Revert these code changes? Git takes out exactly this change, the server rebuilds and restarts.')) return;
       try { const r = await cmd<View & { text: string }>({ cmd: 'coderUndo', id: Number(el.dataset.undo) }, 600_000); toast(r.text, 'ok'); draw(r); void loadAudit(); } catch (e) { err(e); }
     });
   } catch (e) { setHtml('agAudit', `<div class="empty">${esc(e instanceof Error ? e.message : e)}</div>`); }
