@@ -50,7 +50,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   const T: [RegExp, string][] = [
     [/sword|épée|epee|espada|سيف/, 'sword'], [/\baxe|hache|hacha|فأس/, 'axe'], [/bow\b|\barc\b|arco|قوس/, 'bow'], [/arrow|flèche|fleche|flecha|سهم|سهام/, 'arrows'],
     [/spear|lance|lanza|رمح/, 'spear'], [/armou?r|armure|armadura|درع/, 'armor'], [/helmet|casque|casco|خوذة/, 'helmet'], [/cloth|vêtement|vetement|ropa|ملابس|لباس/, 'clothes'],
-    [/palisade|fence|barricade|palissade|cerca|valla|سياج|حاجز/, 'palisade'], [/spike|pieu|estaca|أوتاد|شوك/, 'spikes'], [/stone ?wall|brick ?wall|mur de pierre|muro de piedra|جدار حجر/, 'stonewall'],
+    [/palisade|fence|barricade|palissade|cerca|valla|سياج|حاجز/, 'palisade'], [/spike|pieu|estaca|أوتاد|شوك/, 'spikes'], [/stone ?wall|brick ?wall|mur de pierre|muro de piedra|جدار حجر/, 'stonewall'], [/\bwall|\bmur\b|muro|muralla|جدار|سور/, 'palisade'],
     [/door|porte|puerta|باب/, 'door'], [/window|fenêtre|fenetre|ventana|نافذة|شباك/, 'window'], [/\bbed|\blit\b|cama|سرير/, 'bed'], [/lamp|light|lantern|lampe|lanterne|lámpara|lampara|farol|مصباح|فانوس/, 'lamp'],
     [/hut|house|home|shelter|cabane|maison|abri|casa|cabaña|refugio|بيت|منزل|كوخ/, 'hut'], [/fire|feu|fuego|campfire|نار/, 'campfire'],
   ];
@@ -58,7 +58,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   if (/weapon|arme|arma|سلاح/.test(q)) return 'spear';
   return kind === 'craft' ? 'axe' : 'campfire';
 }
-export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean }
+export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean; p0?: number; n1?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
@@ -76,7 +76,61 @@ export class Tasks {
   onAsk: (a: number, b: number, what: 'marry' | 'divorce') => Promise<string> = async () => 'no one answers';
   private readonly asks = new Map<number, { done: boolean; res: string }>();
 
-  constructor(private w: World) {}
+  /**
+   * What each person really did (entity id -> what -> how many times), counted from the world's events. A step is only done
+   * with proof (imad 2026-11-25: "they mark objectives done but they are not done"): a hunt needs that many kills, a build a
+   * new building of that kind, a drink a drink... A step that ends without its proof fails with the real reason.
+   */
+  private readonly did = new Map<number, Map<string, number>>();
+
+  constructor(private w: World) {
+    w.listeners.push((ev) => {
+      const d = ev.data, id = Number(d.id ?? -1);
+      if (!(id >= 0)) return;
+      const keys: string[] = [];
+      switch (ev.kind) {
+        case 'hunt': keys.push('hunt'); break;
+        case 'build': keys.push('build', `build:${String(d.what)}`); break;
+        case 'craft': keys.push(`craft:${String(d.what)}`); break;
+        case 'pickup': case 'store': case 'take': case 'loot': case 'repair': case 'heal': case 'tend': case 'drink': case 'eat': case 'sleep': case 'give': case 'destroy':
+          keys.push(ev.kind); break;
+        default: return;
+      }
+      let m = this.did.get(id);
+      if (!m) this.did.set(id, (m = new Map()));
+      for (const k of keys) m.set(k, (m.get(k) ?? 0) + 1);
+    });
+  }
+
+  /** How many times person `id` did `what` so far (events counted since the server started). */
+  didCount(id: number, what: string): number { return this.did.get(id)?.get(what) ?? 0; }
+
+  /** The proof a finished step needs: [event key, how many] (null = the step checks its outcome itself, or nothing to check). */
+  private proof(s: Step): [string, number] | null {
+    const what = s.what ?? '';
+    switch (s.do) {
+      case 'hunt': return ['hunt', Math.max(1, Math.min(6, s.times ?? 1))];
+      case 'build': { const th = thingOf(what, 'build'); return [th === 'farm' || th === 'field' ? 'build:field' : `build:${th}`, 1]; }
+      case 'craft': return [`craft:${thingOf(what, 'craft')}`, 1];
+      case 'farm': return ['build:field', 1];
+      case 'tend': case 'store': case 'take': case 'loot': case 'repair': case 'heal': case 'drink': case 'eat': case 'destroy': return [s.do, 1];
+      case 'bring': return ['give', 1];
+      case 'forage': case 'collect': return ['pickup', 1];
+      default: return null;
+    }
+  }
+  /** Is the step's outcome real? (some outcomes need no new event: a tool already owned, hands already full of food). */
+  private proved(i: number, s: Step): boolean {
+    const pr = this.proof(s);
+    if (!pr) return true;
+    const w = this.w, e = w.e, id = e.id(i);
+    const got = this.didCount(id, pr[0]) - (s.p0 ?? 0);
+    if (got >= pr[1]) return true;
+    if (s.do === 'craft') return (w.survival.inv(i)[thingOf(s.what ?? '', 'craft')] ?? 0) >= 1; // "make an axe" with one in the bag
+    if (s.do === 'collect' || s.do === 'forage') return e.carry[i]! >= 5 || (s.do === 'forage' && this.didCount(id, 'eat') - (s.n0 ?? 0) > 0);
+    if (s.do === 'sleep') return true;
+    return false;
+  }
 
   private taskOf(id: number): Task | undefined { return this.w.profiles.get(id)?.mind?.task as Task | undefined; }
 
@@ -109,9 +163,16 @@ export class Tasks {
         for (let k = t.k - 1; k >= 0; k--) if (t.steps[k]!.do === 'find' && (t.steps[k]!.who ?? -1) >= 0) { s.who = t.steps[k]!.who; break; }
         if (s.who === -2) { this.end(i, t, false, 'I did not find anyone'); continue; }
       }
-      if (s.t0 === undefined) { s.t0 = w.gameSec; s.phase = 0; }
+      if (s.t0 === undefined) {
+        s.t0 = w.gameSec; s.phase = 0;
+        const pr = this.proof(s);
+        s.p0 = pr ? this.didCount(e.id(i), pr[0]) : 0;
+        if (s.do === 'forage') s.n0 = this.didCount(e.id(i), 'eat');
+      }
       else if (w.gameSec - s.t0 > MAX_STEP_SEC) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
-      const r = this.run(i, s, t);
+      let r = this.run(i, s, t);
+      // Done only with proof: a hunt that killed nothing, a build with no new building, a drink never drunk is not done.
+      if (r === true && !this.proved(i, s)) r = `I did not manage to ${s.do === 'bring' ? 'bring it' : s.do + (s.what ? ' ' + String(s.what).trim().slice(0, 40) : '')}`;
       if (r === true) { if (s.key) w.colony.record(i, s.key, true, w.gameSec - (s.t0 ?? w.gameSec), s.units ?? s.times ?? 1); t.k++; if (t.k >= t.steps.length) this.end(i, t, true, ''); }
       else if (typeof r === 'string') { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, r); }
     }
@@ -333,14 +394,17 @@ export class Tasks {
       }
       case 'hunt': {
         const id = e.id(i);
-        if (first) { s.phase = 1; s.n0 = Math.max(1, Math.min(4, s.times ?? 1)); s.got = false; }
+        const want = Math.max(1, Math.min(6, s.times ?? 1));
+        if (first) { s.phase = 1; s.n0 = this.didCount(id, 'hunt'); s.got = false; }
         if (b.huntOf(i) >= 0) return false;
         if (s.got) {
-          const k = w.animals.kills.get(id);
           s.got = false;
-          if (k && k[0] >= (s.t0 ?? 0)) { if (--s.n0! <= 0) return true; }
-          else if ((s.fails = (s.fails ?? 0) + 1) >= (w.ai.instinct ? 3 : 2)) return 'it got away';
+          // Kills counted from the world's hunt events since this step began (not "the last kill", which may be old or another's).
+          if (this.didCount(id, 'hunt') - s.n0! >= want) return true;
+          // This chase got nothing (no kill since it began): one escape more.
+          if (this.didCount(id, 'hunt') === (s.n1 ?? s.n0!) && (s.fails = (s.fails ?? 0) + 1) >= (w.ai.instinct ? 3 : 2)) return 'it got away';
         }
+        s.n1 = this.didCount(id, 'hunt');
         const r = w.survival.hunt(i, s.what ?? '');
         if (r !== true) return r;
         s.got = true;

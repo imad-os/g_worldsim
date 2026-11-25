@@ -59,6 +59,11 @@ export const REQUESTS: [string, Record<string, unknown>[]][] = [
   ['Make clothes', [{ do: 'craft', what: 'clothes' }]],
   ['Put a lamp at the camp', [{ do: 'build', what: 'lamp' }]],
   ['Search the ruins', [{ do: 'loot', times: 2 }]],
+  ['Hunt 3 animals', [{ do: 'hunt' }]],
+  ['Gather 6 wood', [{ do: 'gather', what: 'wood' }]],
+  ['Keep the fire going', [{ do: 'tend' }]],
+  ['Go and drink some water', [{ do: 'drink' }]],
+  ['Bring me some food', [{ do: 'bring', who: 'me' }]],
 ];
 
 async function runOnce(arm: string, seed: string) {

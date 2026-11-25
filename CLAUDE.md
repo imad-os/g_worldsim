@@ -449,6 +449,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `Survival.findTile`) or fail with the real reason. `sim/memory.ts` (`w.memory`, `Profile.mind.mem`: short 10, long 100,
   places 4 per kind; `story(i)` in every prompt). Experiments: `experiment-requests.js` (E6), `experiment-defence.js` (E7);
   the harnesses call `w.land.setup()` like the server. The long-term-plan strictness question: imad said skip for now.
+- **Done needs proof (imad 2026-11-25: "hunt 3 animals marked done after a minute, many examples")**: `Tasks` keeps a ledger of what each
+  person really did from world events (`didCount(id, key)`: hunt, build:<what>, craft:<what>, pickup, store, take, loot, repair, heal, tend,
+  drink, eat, sleep, give, destroy); `proof(step)` = the key + count a step needs, snapshotted at step start (`p0`); a step returning true
+  without it fails "I did not manage to ...". Hunts count their own kills since the step began (not "the last kill"). `countIn(text)`
+  (digits + number words en/fr/es/ar, 2+) puts the said count on the repeating step (askedWork and models' one-step plans); thingOf "wall" =
+  palisade (was campfire). Test tasks.proof.test.ts.
 
 ## Items, gear, moves (imad 2026-11-25, app 0.11.1)
 - **Assets**: CC0 models only (Quaternius, KayKit, Kenney; `docs/models/CREDITS.md`). `tools/assets/fetch.sh` (KayKit packs at pinned commits into

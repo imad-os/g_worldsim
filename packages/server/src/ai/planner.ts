@@ -77,8 +77,30 @@ export function askedFor(text: string): string {
   if (/\b(stop following|forget it|never ?mind|laisse tomber|olvídalo|olvidalo)\b|انس الأمر/.test(t)) return 'stop';
   return '';
 }
+/** A number in the words ("hunt 3 animals", "trois", "dos", "ثلاثة"): 0 = none said. */
+export function countIn(text: string): number {
+  const t = ' ' + text.toLowerCase() + ' ';
+  const d = /(?:^|\s)(\d{1,2})(?=\s|[a-zà-ÿ])/.exec(t);
+  if (d) return Math.min(20, Number(d[1]));
+  // Arabic words only as whole words (with spaces round them): short stems like ست sit inside many other words.
+  const W: [RegExp, number][] = [[/\b(two|a couple|deux|dos)\b|\s(اثنين|اثنان|إثنين)\s/, 2], [/\b(three|trois|tres)\b|\sثلاث[ةه]?\s/, 3],
+    [/\b(four|quatre|cuatro)\b|\s[أا]ربع[ةه]?\s/, 4], [/\b(five|cinq|cinco)\b|\sخمس[ةه]?\s/, 5], [/\b(six|seis)\b|\sست[ةه]\s/, 6], [/\b(seven|sept|siete)\b|\sسبع[ةه]?\s/, 7],
+    [/\b(eight|huit|ocho)\b|\sثماني[ةه]?\s/, 8], [/\b(nine|neuf|nueve)\b|\sتسع[ةه]?\s/, 9], [/\b(ten|dix|diez)\b|\sعشر[ةه]?\s/, 10]];
+  for (const [re, n] of W) if (re.test(t)) return n; // "one" / "un" are mostly articles: only 2 and up
+  return 0;
+}
+
 /** Work the speaker asks for (en / fr / es / ar): steps, or null. A safety net for small models that answer without a plan. */
 export function askedWork(text: string): { task: string; steps: Step[] } | null {
+  const r = askedWork0(text), n = countIn(text);
+  if (!r || n < 2) return r;
+  // "hunt 3 animals", "bring me 5 stones": the count goes on the step that repeats, and in the words of the task.
+  const st = r.steps.find((x) => ['hunt', 'gather', 'collect', 'loot', 'take'].includes(x.do));
+  if (st) { st.times = n; r.task = `${r.task} (${n})`; }
+  return r;
+}
+
+function askedWork0(text: string): { task: string; steps: Step[] } | null {
   const t = ' ' + text.toLowerCase() + ' ';
   // Pull down your own building (imad 2026-11-25: only one's own, or a dead owner's: Survival.mayDestroy decides).
   if (/\b(destroy|demolish|tear down|pull down|knock down|take down|dismantle|détruis|détruire|démolis|démolir|démonte|destruye|destruir|derriba|derribar|desmonta)\b|اهدم|هدم|دمر|فكك/.test(t)) {
@@ -596,6 +618,8 @@ export class Planner {
     }
     // A plan of steps wins over a single "do": that is how any request becomes something they really do.
     let steps = planRaw ? this.toSteps(i, planRaw, player) : [];
+    // A model's one-step plan often drops the count the speaker said ("hunt 3 animals" -> [{do: 'hunt'}]): the words give it.
+    if (steps.length === 1 && text && !steps[0]!.times && ['hunt', 'gather', 'collect', 'loot', 'take'].includes(steps[0]!.do)) { const n = countIn(text); if (n >= 2) steps[0]!.times = n; }
     const work = text && !steps.length && (!doRaw || doRaw === 'nothing') ? askedWork(text) : null;
     if (work && (owner || loyalBoss || agreed || !usedAi)) { steps = work.steps; if (!taskText) taskText = work.task; }
     // "Go ask Sara to marry you" / "divorce her": the words are enough when a small model gave no plan.
