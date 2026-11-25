@@ -231,17 +231,41 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
         addTpl(o, t.rock, place(wx + 0.3 + b2 * 0.4, sz * 0.45, wy + 0.3 + a * 0.4, a * 3, b2 * 6, b2, sz, sz * 0.8, sz * 0.95), c, 0.55);
       }
     } else if (L.shape === Shape.Wreck) {
-      // Wrecked cars across the road: a rusty body, a crushed cabin, a wheel or two, tilted.
-      const yaw = (r1 - 0.5) * 1.2 + ((wx + wy) & 1 ? Math.PI / 2 : 0), tilt = (r2 - 0.5) * 0.25;
-      const cx0 = wx + 0.5, cz0 = wy + 0.5;
-      WARM.setHex([0x8a4e32, 0x5f6b72, 0x7a6a3a, 0x6e3a30][Math.floor(r3 * 4)]!);
-      c.copy(WARM).multiplyScalar(0.85 + r1 * 0.2);
-      addTpl(o, t.box, place(cx0, 0.18, cz0, tilt, yaw, tilt * 0.6, 1.15, 0.42, 0.62), c, 0.6);
-      c.multiplyScalar(0.8);
-      addTpl(o, t.box, place(cx0 + Math.cos(yaw) * 0.1, 0.58, cz0 - Math.sin(yaw) * 0.1, tilt, yaw, tilt + 0.1, 0.6, 0.3 * (0.5 + r2), 0.55), c, 0.7);
-      colOf(L.side, c);
-      addTpl(o, t.wheel, place(cx0 + Math.cos(yaw) * 0.4, 0.17, cz0 - Math.sin(yaw) * 0.4 + 0.3, 0, yaw, 0, 0.17, 0.34, 0.34), c, 0.5);
-      if (r1 < 0.6) addTpl(o, t.wheel, place(cx0 - Math.cos(yaw) * 0.4, 0.12, cz0 + Math.sin(yaw) * 0.4 - 0.3, 0.4, yaw, 1.2, 0.17, 0.3, 0.3), c, 0.5);
+      // Wrecked cars across the road (imad 2026-11-25: "the wrecked cars are tiny"): one full-size car (about 3 m long) per 3 tiles of the
+      // barrier, drawn by the first wreck tile of its group, lying along the barrier, a little tilted; loose tyres and bits between them.
+      const isW = (x: number, y: number) => { const id2 = at(x, y); return id2 >= 0 && looks[id2]!.shape === Shape.Wreck; };
+      const rowH = (x: number, y: number) => isW(x - 1, y) || isW(x + 1, y), rowV = (x: number, y: number) => isW(x, y - 1) || isW(x, y + 1);
+      // A lone wreck tile next to a barrier row (the ragged second row) is wreckage, not a car of its own (two cars would overlap).
+      const stray = (!rowH(lx, ly) && ((isW(lx, ly - 1) && rowH(lx, ly - 1)) || (isW(lx, ly + 1) && rowH(lx, ly + 1))))
+        || (!rowV(lx, ly) && ((isW(lx - 1, ly) && rowV(lx - 1, ly)) || (isW(lx + 1, ly) && rowV(lx + 1, ly))));
+      const alongX = isW(lx - 1, ly) || isW(lx + 1, ly) || !(isW(lx, ly - 1) || isW(lx, ly + 1));
+      const along = alongX ? wx : wy, across = alongX ? wy : wx, g0 = Math.floor((along + across) / 3) * 3 - across;
+      let first = -1;
+      for (let k = 0; k < 3 && first < 0; k++) if (alongX ? isW(g0 + k - ox, ly) : isW(lx, g0 + k - oy)) first = g0 + k;
+      if (stray) { // scattered parts: a tyre, a door panel
+        colOf(L.side, c); addTpl(o, t.wheel, place(wx + 0.3 + r2 * 0.4, 0.1, wy + 0.3 + r3 * 0.4, 0, r2 * 6, Math.PI / 2, 0.2, 0.6, 0.6), c, 0.5);
+        WARM.setHex(0x6e5a48); c.copy(WARM).multiplyScalar(0.8 + r1 * 0.3);
+        addTpl(o, t.box, place(wx + 0.5 + (r1 - 0.5) * 0.4, 0.05, wy + 0.5 + (r3 - 0.5) * 0.4, 0, r1 * 6, 0.08, 1.0, 0.08, 0.7), c, 0.6);
+      } else if (first === along) {
+        const mid = g0 + 1.5, cx0 = alongX ? mid : wx + 0.5, cz0 = alongX ? wy + 0.5 : mid;
+        const yaw = (alongX ? 0 : Math.PI / 2) + (r1 - 0.5) * 0.5, tilt = (r2 - 0.5) * 0.18, cs = Math.cos(yaw), sn = Math.sin(yaw);
+        const at2 = (f: number, s2: number): [number, number] => [cx0 + cs * f + sn * s2, cz0 - sn * f + cs * s2];
+        WARM.setHex([0x8a4e32, 0x5f6b72, 0x7a6a3a, 0x6e3a30, 0x3f5560][Math.floor(r3 * 5)]!);
+        c.copy(WARM).multiplyScalar(0.85 + r1 * 0.2);
+        addTpl(o, t.box, place(cx0, 0.3, cz0, tilt * 0.5, yaw, tilt, 3.0, 0.62, 1.45), c, 0.6); // body
+        let [px, pz] = at2(0.25, 0);
+        c.multiplyScalar(0.85);
+        addTpl(o, t.box, place(px, 0.9, pz, tilt * 0.5, yaw, tilt + 0.06, 1.5, 0.5 * (0.7 + r2 * 0.4), 1.3), c, 0.7); // crushed cabin
+        colOf(0x2a3236, c);
+        [px, pz] = at2(0.25, 0); addTpl(o, t.box, place(px, 1.05, pz, tilt * 0.5, yaw, tilt + 0.06, 1.3, 0.28 * (0.7 + r2 * 0.4), 1.34), c, 0.9); // dark broken glass band
+        colOf(L.side, c);
+        for (const [f, s2] of [[1.0, 0.72], [-1.0, 0.72], [1.0, -0.72], [-1.0, -0.72]] as const) {
+          if (hash2(wx * 7 + f * 3, wy + s2 * 5) < 0.25) continue; // a wheel gone
+          [px, pz] = at2(f, s2); addTpl(o, t.wheel, place(px, 0.32, pz, 0, yaw + Math.PI / 2, 0, 0.2, 0.62, 0.62), c, 0.5);
+        }
+      } else if (r1 < 0.35) { // a loose tyre or a bit of metal
+        colOf(L.side, c); addTpl(o, t.wheel, place(wx + 0.3 + r2 * 0.4, 0.1, wy + 0.3 + r3 * 0.4, 0, r2 * 6, Math.PI / 2, 0.2, 0.6, 0.6), c, 0.5);
+      }
     } else if (L.shape === Shape.Palisade) {
       // Sharpened logs side by side.
       for (let k = 0; k < 3; k++) {
@@ -267,13 +291,22 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
         }
       }
     } else if (L.shape === Shape.Door) {
-      // A frame and a plank door, half open.
+      // A frame and a plank door, set in the line of the wall around it (imad 2026-11-25: doors in east / west walls were drawn across
+      // the doorway); shut, or swung open inwards (the interact button opens and closes it).
+      const wl = (x: number, y: number) => { const id2 = at(x, y); if (id2 < 0) return 0; const S = looks[id2]!.shape; return S === Shape.Wall || S === Shape.Window || S === Shape.Palisade ? 1 : 0; };
+      const vert = wl(lx, ly - 1) + wl(lx, ly + 1) > wl(lx - 1, ly) + wl(lx + 1, ly), yaw = vert ? Math.PI / 2 : 0;
+      const cx0 = wx + 0.5, cz0 = wy + 0.5, cs = Math.cos(yaw), sn = Math.sin(yaw);
+      const at2 = (f: number, s2: number): [number, number] => [cx0 + cs * f + sn * s2, cz0 - sn * f + cs * s2];
       colOf(L.side, c);
-      addTpl(o, t.box, place(wx + 0.06, 0, wy + 0.5, 0, 0, 0, 0.12, 1.8, 0.14), c, 0.6);
-      addTpl(o, t.box, place(wx + 0.94, 0, wy + 0.5, 0, 0, 0, 0.12, 1.8, 0.14), c, 0.6);
-      addTpl(o, t.box, place(wx + 0.5, 1.72, wy + 0.5, 0, 0, 0, 1, 0.12, 0.16), c, 0.8);
+      let [px, pz] = at2(-0.44, 0); addTpl(o, t.box, place(px, 0, pz, 0, yaw, 0, 0.12, 1.85, 0.2), c, 0.6);
+      [px, pz] = at2(0.44, 0); addTpl(o, t.box, place(px, 0, pz, 0, yaw, 0, 0.12, 1.85, 0.2), c, 0.6);
+      addTpl(o, t.box, place(cx0, 1.78, cz0, 0, yaw, 0, 1, 0.14, 0.22), c, 0.8);
       colOf(L.top, c);
-      addTpl(o, t.box, place(wx + 0.12 + 0.3, 0.02, wy + 0.5 + 0.3, 0, -0.9, 0, 0.78, 1.65, 0.07), c, 0.7);
+      if (L.open) { [px, pz] = at2(-0.38, -0.4); addTpl(o, t.box, place(px, 0.03, pz, 0, yaw + Math.PI / 2, 0, 0.78, 1.7, 0.07), c, 0.7); }
+      else {
+        addTpl(o, t.box, place(cx0, 0.03, cz0, 0, yaw, 0, 0.76, 1.7, 0.08), c, 0.7);
+        colOf(0x3b2a1a, c); [px, pz] = at2(0.24, 0); addTpl(o, t.box, place(px, 0.85, pz, 0, yaw, 0, 0.07, 0.07, 0.14), c, 0.9); // the handle
+      }
     } else if (L.shape === Shape.Window) {
       // A low plank wall, glass above it, posts and a beam.
       colOf(L.side, c);
@@ -283,10 +316,15 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       addTpl(o, t.box, place(wx + 0.5, 1.6, wy + 0.5, 0, 0, 0, 1, 0.12, 0.92), c, 0.85);
       colOf(0x9fd4e8, c); addTpl(og, t.box, place(wx + 0.5, 0.8, wy + 0.5, 0, 0, 0, 0.78, 0.8, 0.04), c, 1);
     } else if (L.shape === Shape.Bed) {
-      // A wooden frame, a red blanket, a pillow.
-      colOf(L.side, c); addTpl(o, t.box, place(wx + 0.5, 0, wy + 0.5, 0, 0, 0, 0.72, 0.28, 0.96), c, 0.6);
-      colOf(L.top, c); addTpl(o, t.box, place(wx + 0.5, 0.28, wy + 0.56, 0, 0, 0, 0.66, 0.1, 0.76), c, 0.85);
-      colOf(0xeee6d6, c); addTpl(o, t.box, place(wx + 0.5, 0.28, wy + 0.13, 0, 0, 0, 0.5, 0.12, 0.18), c, 0.9);
+      // A bed a grown person fits in (imad 2026-11-25: "beds are tiny"): about 1 x 1.9 m, the head on this tile against the wall,
+      // the foot reaching over the open floor next to it; a wooden frame, a red blanket, a pillow.
+      const open = (x: number, y: number) => { const id2 = at(x, y); return id2 >= 0 && looks[id2]!.shape === Shape.Ground; };
+      const [fx, fz] = open(lx, ly + 1) ? [0, 1] : open(lx, ly - 1) ? [0, -1] : open(lx + 1, ly) ? [1, 0] : open(lx - 1, ly) ? [-1, 0] : [0, 0];
+      const reach = fx || fz ? 0.45 : 0, yaw = fx ? Math.PI / 2 : 0, len = fx || fz ? 1.9 : 1.0;
+      const bx = wx + 0.5 + fx * reach, bz = wy + 0.5 + fz * reach;
+      colOf(L.side, c); addTpl(o, t.box, place(bx, 0, bz, 0, yaw, 0, 0.98, 0.42, len), c, 0.6);
+      colOf(L.top, c); addTpl(o, t.box, place(bx + fx * 0.15, 0.42, bz + fz * 0.15, 0, yaw, 0, 0.92, 0.14, len * 0.72), c, 0.85);
+      colOf(0xeee6d6, c); addTpl(o, t.box, place(wx + 0.5 - fx * 0.22, 0.42, wy + 0.5 - fz * 0.22, 0, yaw, 0, 0.7, 0.16, 0.34), c, 0.9);
     } else if (L.shape === Shape.Lamp) {
       // A post with a lantern; its light pools on the ground at night.
       colOf(L.side, c);

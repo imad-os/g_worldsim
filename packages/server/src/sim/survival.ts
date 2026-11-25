@@ -63,7 +63,7 @@ export class Survival {
   /** Each map's leader (entity id, -1 = none): chosen every hour by courage, mind, kindness, strength and level (imad 2026-11-20: "social life and leaders"). */
   readonly leader: number[] = [];
   private toldAt: number[] = [];
-  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number };
+  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number; doorOpen: number };
   /** Tile id of each thing that is put down (palisade, door, bed...). */
   readonly placeTile = new Map<string, number>();
   /** Players' things, by player name (agents keep theirs in Profile.inv). */
@@ -91,7 +91,7 @@ export class Survival {
 
   constructor(private w: World) {
     const id = (n: string) => w.sc.tiles.find((t) => t.name === n)?.id ?? -1;
-    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door') };
+    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door'), doorOpen: id('dooropen') };
     for (const n of PLACEABLE) if (id(n) >= 0) this.placeTile.set(n, id(n));
     for (const n of ['grass', 'dirt', 'sand', 'ashes']) if (id(n) >= 0) this.buildable.add(id(n));
     this.huts = w.maps.map(() => []);
@@ -605,11 +605,36 @@ export class Survival {
     return 'built';
   }
 
+  // ------------------------------------------------------------------ doors (imad 2026-11-25: "the doors can be opened and closed with the interaction button")
+  /** Is tile t a door, open or closed? */
+  isDoor(t: number): boolean { return t >= 0 && (t === this.T.door || t === this.T.doorOpen); }
+  /**
+   * A player opens or closes the door on tile (tx, ty), within 2.2 m. A hut's door only for its owner's family (sim/homes.ts); gates and
+   * ruin doors for anyone. Code: doorOpened / doorClosed / doorLocked / doorSomeone / tooFar / nothing.
+   */
+  toggleDoor(i: number, tx: number, ty: number): string {
+    const e = this.w.e, m = e.map[i]!, tm = this.w.maps[m]!.tiles;
+    if (!tm.inside(tx, ty)) return 'nothing';
+    const k = ty * tm.w + tx, t = tm.tiles[k]!;
+    if (!this.isDoor(t)) return 'nothing';
+    if (Math.hypot(tx + 0.5 - e.x[i]!, ty + 0.5 - e.y[i]!) > 2.2) return 'tooFar';
+    if (!this.homes.mayEnter(i, m, k)) return 'doorLocked';
+    if (t === this.T.doorOpen) {
+      for (let j = 0; j < e.hi; j++) if (e.map[j] === m && (e.kind[j] === Kind.Agent || e.kind[j] === Kind.Player || e.kind[j] === Kind.Threat || e.kind[j] === Kind.Animal) && Math.floor(e.x[j]!) === tx && Math.floor(e.y[j]!) === ty) return 'doorSomeone';
+      tm.set(tx, ty, this.T.door);
+      this.w.emit('door', { id: e.id(i), map: this.w.maps[m]!.def.id, tx, ty, open: false });
+      return 'doorClosed';
+    }
+    tm.set(tx, ty, this.T.doorOpen);
+    this.w.emit('door', { id: e.id(i), map: this.w.maps[m]!.def.id, tx, ty, open: true });
+    return 'doorOpened';
+  }
+
   // ------------------------------------------------------------------ pulling down (imad 2026-11-25: "only owned buildings or when the owner is dead")
   /** Tiles people build (walls, floors, doors, fires, fields, crates and everything put down). */
   builtTile(t: number): boolean {
     const T = this.T;
-    return t >= 0 && (t === T.woodwall || t === T.floor || t === T.door || t === T.campfire || t === T.ashes || t === T.crate || t === T.farm || [...this.placeTile.values()].includes(t));
+    return t >= 0 && (t === T.woodwall || t === T.floor || t === T.door || t === T.doorOpen || t === T.campfire || t === T.ashes || t === T.crate || t === T.farm || [...this.placeTile.values()].includes(t));
   }
   /** Something built here that the map did not start with. */
   private isBuilt(m: number, k: number): boolean {
@@ -682,7 +707,7 @@ export class Survival {
   /** Take it down: the ground comes back; a thing put down goes back into the bag, a hut gives back half its materials. */
   private pullDown(i: number, m: number, k: number): void {
     const w = this.w, tm = w.maps[m]!.tiles, h = this.homes.at(m, k), W = tm.w;
-    const what = h ? 'hut' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
+    const what = h ? 'hut' : tm.tiles[k] === this.T.doorOpen ? 'door' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
     for (const c of this.destroyCells(m, k)) {
       if (tm.tiles[c] !== this.T.water && this.builtTile(tm.tiles[c]!)) tm.set(c % W, (c / W) | 0, this.groundOf(m, c));
       this.owners.delete(`${m}:${c}`); this.fires.delete(`${m}:${c}`); this.farms.delete(`${m}:${c}`);

@@ -45,12 +45,18 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
+/** Tile colours / names / solid, indexed by tile id, for the panel's map and tools. */
+function byId(tiles: { id: number; name: string; color: number; solid?: boolean }[]): { colors: number[]; names: string[]; solid: boolean[] } {
+  const n = Math.max(0, ...tiles.map((t) => t.id)) + 1, colors = new Array<number>(n).fill(0), names = new Array<string>(n).fill(''), solid = new Array<boolean>(n).fill(false);
+  for (const t of tiles) { colors[t.id] = t.color; names[t.id] = t.name; solid[t.id] = !!t.solid; }
+  return { colors, names, solid };
+}
 const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give',
-  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm', 'destroy', 'reset']);
+  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm', 'destroy', 'reset', 'door']);
 
 /** Warnings that only say what happened (the server log keeps them): not problems for the error log. */
 const NOT_PROBLEMS = new Set(['restart asked', 'restarting', 'agent action', 'restore scheduled for the next start', 'database restored from a backup']);
@@ -397,6 +403,14 @@ export class App {
         }
         const pc = put();
         return { ok: pc === 'placed', code: pc, item: what };
+      }
+      if (a === 'door' || ((a === 'take' || a === 'use') && /^door:\d+,\d+$/.test(String(text ?? '')))) {
+        // The interact button on a door (imad 2026-11-25): open / close it, if this person may.
+        const at = /(\d+),(\d+)$/.exec(String(text ?? ''));
+        if (!at) return { ok: false, code: 'nothing' };
+        const c = sv.toggleDoor(player, Number(at[1]), Number(at[2]));
+        if (c === 'doorOpened' || c === 'doorClosed') w.gear.play(player, 'use');
+        return { ok: c === 'doorOpened' || c === 'doorClosed', code: c };
       }
       if (a === 'use' || a === 'take') {
         if (a === 'use') { // older TVs: "use" also hits what is next to me
@@ -1341,6 +1355,8 @@ export class App {
         if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const m = mapOf(c.map), def = w.maps[m]!.def;
         w.place(i, m, c.x !== undefined ? fixed(c.x, 0, def.w, 'x') : def.w / 2, c.y !== undefined ? fixed(c.y, 0, def.h, 'y') : def.h / 2);
+        // A player's TV follows its character there (else its camera stays behind and loses it).
+        if (w.isChar(i)) this.net.noticeTo(i, 'did', { a: 'tp', ok: true, code: 'tp', name: '', x: w.e.x[i], y: w.e.y[i], map: def.id });
         return this.agentInfo(i);
       }
       case 'kill': {
@@ -1404,7 +1420,7 @@ export class App {
       case 'replays': return this.replayList();
       case 'mapTiles': {
         const m = mapOf(c.map), mp = w.maps[m]!;
-        return { id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, tiles: mp.tiles.tiles, colors: w.sc.tiles.map((t) => t.color), names: w.sc.tiles.map((t) => t.name), solid: w.sc.tiles.map((t) => !!t.solid) };
+        return { id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, tiles: mp.tiles.tiles, ...byId(w.sc.tiles) }; // indexed by tile id (ids start at 1: by position they were one off)
       }
       case 'live': { // what moves on one map, for the panel's live map (small arrays, asked every few seconds)
         const m = mapOf(c.map), e = w.e, r1 = (v: number) => Math.round(v * 10) / 10;

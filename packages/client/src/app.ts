@@ -33,6 +33,7 @@ let tileName: string[] = [];
 /** What each answer from the server sounds like. */
 const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', drank: 'drink',
   ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
+  doorOpened: 'door_open', doorClosed: 'door_close', doorLocked: 'ui_error', doorSomeone: 'ui_error',
   noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
 const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar'];
 
@@ -294,6 +295,7 @@ function onMsg(m: ServerMsg): void {
       looks = looksFor(m.tiles);
       solid.fill(0);
       for (const x of m.tiles) if (x.solid) solid[x.id] = 1;
+      doorTileId = m.tiles.find((x) => x.name === 'door')?.id ?? -1; doorOpenId = m.tiles.find((x) => x.name === 'dooropen')?.id ?? -1;
       stepName = []; campfireTile = -1;
       tileName = [];
       for (const x of m.tiles) { stepName[x.id] = STEP_OF[x.name] ?? 'step_dirt'; tileName[x.id] = x.name; if (x.name === 'campfire') campfireTile = x.id; }
@@ -524,7 +526,81 @@ function ambience(now: number): void {
 }
 function blocked(x: number, y: number): boolean {
   const r = body.radius * 0.9;
-  return solidAt(x - r, y - r) || solidAt(x + r, y - r) || solidAt(x - r, y + r) || solidAt(x + r, y + r);
+  if (solidAt(x - r, y - r) || solidAt(x + r, y - r) || solidAt(x - r, y + r) || solidAt(x + r, y + r)) return true;
+  // A closed door stops me like a wall (the interact button opens it); one I already stand in lets me out.
+  if (doorTileId < 0) return false;
+  const k0x = Math.floor(predX), k0y = Math.floor(predY);
+  for (const [dx, dy] of [[-r, -r], [r, -r], [-r, r], [r, r]] as const) {
+    const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
+    if ((tx !== k0x || ty !== k0y) && tileUnder(tx + 0.5, ty + 0.5) === doorTileId) return true;
+  }
+  return false;
+}
+
+// ------------------------------------------------------------ the interact button's hint (imad 2026-11-25: "show A: mount near the horse, A: open door near it")
+let doorTileId = -1, doorOpenId = -1;
+const iaEl = document.getElementById('iahint')!;
+let iaAt = 0, iaShown = '';
+/** What the interact button does right now, in the server's own order for "take" (sim/brain.ts playerDo + app.ts). */
+let iaNow: { key: Key; door?: [number, number] } | null = null;
+/** The door within reach I face most (x, y, open?), or null. */
+function nearDoor(): [number, number, boolean] | null {
+  if (doorTileId < 0) return null;
+  const x = focusX(), y = focusY(), a = myAng();
+  let best: [number, number, boolean] | null = null, bs = Infinity;
+  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
+    const t = tileUnder(xx + 0.5, yy + 0.5);
+    if (t !== doorTileId && t !== doorOpenId) continue;
+    if (xx === Math.floor(x) && yy === Math.floor(y)) continue; // standing in the doorway: step out first
+    const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
+    if (d > 1.9) continue;
+    const sc = d - Math.cos(Math.atan2(yy + 0.5 - y, xx + 0.5 - x) - a) * 0.6;
+    if (sc < bs) { bs = sc; best = [xx, yy, t === doorOpenId]; }
+  }
+  return best;
+}
+function interactHint(): { key: Key; door?: [number, number] } | null {
+  if (how !== 'play' || !playing() || !meNeeds || meNeeds.asleep) return null;
+  const x = focusX(), y = focusY();
+  if (meNeeds.ride) return { key: 'iaOff' };
+  const dr = nearDoor();
+  if (dr) return { key: dr[2] ? 'iaClose' : 'iaOpen', door: [dr[0], dr[1]] };
+  for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.8) return { key: 'iaPick' };
+  if (meNeeds.thirst > 5) {
+    for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
+      if (tileName[tileUnder(xx + 0.5, yy + 0.5)] === 'water' && Math.abs(xx + 0.5 - x) < 2.1 && Math.abs(yy + 0.5 - y) < 2.1) return { key: 'iaDrink' };
+    }
+  }
+  if (meNeeds.carry > 0 && meNeeds.hunger > 15) return { key: 'iaEat' };
+  let best = '', bd = 1.6;
+  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
+    const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
+    if (n !== 'tree' && n !== 'rock' && n !== 'rubble') continue;
+    const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
+    if (d < bd) { bd = d; best = n; }
+  }
+  if (best) return { key: best === 'tree' ? 'iaChop' : best === 'rock' ? 'iaMine' : 'iaSearch' };
+  for (let i = 0; i < CAP; i++) {
+    if (eid[i] === -1 || kind[i] !== Kind.Animal) continue;
+    const h = horseInfo.get(eid[i]!);
+    if (!h) continue;
+    const d = Math.hypot(nx[i]! - x, ny[i]! - y);
+    if (h[4] && d < 3.5) return { key: 'iaMount' };
+    if (!h[3] && d < 3.4) return { key: 'iaTame' };
+  }
+  return null;
+}
+/** Five times a second: the chip "A  Open the door" over the hints. */
+function updateInteract(now: number): void {
+  if (now - iaAt < 200) return;
+  iaAt = now;
+  iaNow = mode === 'world' && !menu.open && !placing && !aimOn && !wheel.open ? interactHint() : null;
+  const k = keyName('use');
+  const txt = iaNow && k ? `<b>${esc(k)}</b><span>${esc(t(iaNow.key))}</span>` : '';
+  if (txt === iaShown) return;
+  iaShown = txt;
+  iaEl.innerHTML = txt;
+  iaEl.hidden = !txt;
 }
 
 function stick(): [number, number] {
@@ -991,7 +1067,11 @@ function doAction(a: ActionId, pressed: boolean): void {
     return;
   }
   if (!playing()) return;
-  if (a === 'use') { send({ t: Msg.Do, a: 'take' }); return; } // things: take, gather, drink... (never people, never a fight)
+  if (a === 'use') { // things: a door, take, gather, drink... (never people, never a fight)
+    const h = interactHint();
+    send(h?.door ? { t: Msg.Do, a: 'take', text: `door:${h.door[0]},${h.door[1]}` } : { t: Msg.Do, a: 'take' });
+    return;
+  }
   if (a === 'attack') { attack(); return; }
   if (a === 'horse') { send({ t: Msg.Do, a: 'horse' }); return; } // off when riding, on my horse, tame a wild one, or call mine
   if (a === 'attackPerson') { // a person, never by mistake: PvP must be on first
@@ -1061,7 +1141,7 @@ function aimHud(): void {
   aimShown = n;
   if (n < 0) { aimEl.hidden = true; return; }
   const ic = iconStyle('arrows', 48);
-  aimEl.innerHTML = `${ic ? `<i style="${ic}"></i>` : ''}<b>${n}</b><span>${tf('arrowsLeft', n)}</span>`;
+  aimEl.innerHTML = `${ic ? `<i style="${ic}"></i>` : ''}<b>${n}</b><span>${tf('arrowsLeft', String(n))}</span>`;
   aimEl.classList.toggle('none', n < 1);
   aimEl.hidden = false;
 }
@@ -1161,10 +1241,11 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     if (!meChar.chose && how === 'play' && mode === 'world' && !menu.open) { lookDraft.sex = meChar.sex; lookDraft.skin = meChar.skin; openMenu('look'); }
   }
   if (d.code === 'mine') return;
-  const charCodes: Record<string, Key> = { looked: 'looked', sexPregnant: 'sexPregnant', autoOn: 'autoOn', autoOff: 'autoOff', ruleAdded: 'ruleAdded', ruleRemoved: 'ruleRemoved',
+  const charCodes: Record<string, Key> = { doorLocked: 'doorLocked', doorSomeone: 'doorSomeone', looked: 'looked', sexPregnant: 'sexPregnant', autoOn: 'autoOn', autoOff: 'autoOff', ruleAdded: 'ruleAdded', ruleRemoved: 'ruleRemoved',
     rulesFull: 'rulesFull', built: 'built', needHut: 'needHut', expecting: 'expecting', tooFar: 'tooFar',
     kinSet: 'kinSet', kinRefused: 'kinRefused', kinDropped: 'kinDropped', kinAlready: 'kinAlready', kinOnlyPlayers: 'kinOnlyPlayers',
     kidFed: 'kidFed', kidWater: 'kidWater', kidUp: 'kidUp', kidDown: 'kidDown', kidBed: 'kidBed', kidNone: 'kidNone', kidNotMine: 'kidNotMine', kidFar: 'kidFar' };
+  if (d.code === 'doorOpened' || d.code === 'doorClosed') { iaAt = 0; return; }
   if (charCodes[d.code]) { note(t(charCodes[d.code]!), 3000); if (d.code === 'looked' && menu.page === 'look') menu.back(); return; }
   if (d.code === 'sexWeek') { note(tf('sexWeek', String(dm.days ?? 7)), 3500); return; }
   if (d.code === 'partners') { note(tf('partners', d.name ?? ''), 4000); return; }
@@ -1177,7 +1258,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }
   if (d.code === 'noReplay') { note(t('pastNone'), 2500); return; }
   if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
-  if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); note(tf('dTp', d.name ?? ''), 3000); return; }
+  if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); if (d.name) note(tf('dTp', d.name), 3000); return; }
   const dd = d as typeof d & { got?: Record<string, number>; left?: number; need?: Record<string, number>; kept?: boolean; lv?: number; q?: number };
   const arrows = dd.left !== undefined ? ' ' + tf('arrowsLeft', String(dd.left)) : '';
   { // horses
@@ -1731,6 +1812,7 @@ function frame(ts: number): void {
   if (gfx.fps && ts - fpsAt > 500) { fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms`; fpsN = 0; fpsAt = ts; }
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
   if (ts - pingAt > 3000) { pingAt = ts; send({ t: Msg.Ping, c: ts }); }
+  updateInteract(ts);
   if (ts - hudAt > 500 && mode === 'world') {
     hudAt = ts; updateHud(ts);
     if (how === 'watch' && follow >= 0) askInfo(follow); else if (menu.open && menu.page === 'person') askInfo(infoFor);

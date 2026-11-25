@@ -95,7 +95,7 @@ export class Homes {
     const h = this.tileOf.get(m * 0x1000000 + to);
     if (!h || h.owner < 0 || this.tileOf.get(m * 0x1000000 + from) === h) return false;
     const tm = this.w.maps[m]!.tiles, r = this.w.survival.hutRect(m, h.out, h.dir);
-    if (!r || tm.tiles[r.door] !== this.w.survival.T.door) return false;
+    if (!r || !this.w.survival.isDoor(tm.tiles[r.door]!)) return false;
     return !this.mayEnter(i, m, to);
   }
 

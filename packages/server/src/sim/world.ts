@@ -111,6 +111,13 @@ export class World {
   /** The town's teachers (NPCs) and their quests (sim/quests.ts). */
   readonly quests: Quests;
   private doorTile = -1;
+  private doorOpenTile = -1;
+  /** Anyone (but slot `but`) standing on tile k of map m? */
+  private someoneOn(m: number, k: number, but: number): boolean {
+    const e = this.e, W = this.maps[m]!.tiles.w;
+    for (let j = 0; j < e.hi; j++) if (j !== but && e.map[j] === m && e.kind[j] !== Kind.Item && Math.floor(e.y[j]!) * W + Math.floor(e.x[j]!) === k) return true;
+    return false;
+  }
 
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
@@ -152,6 +159,7 @@ export class World {
     this.land = new Land(this);
     this.quests = new Quests(this);
     this.doorTile = sc.tiles.find((t) => t.name === 'door')?.id ?? -1;
+    this.doorOpenTile = sc.tiles.find((t) => t.name === 'dooropen')?.id ?? -1;
   }
   /** Game seconds per year of age. */
   get yearSec(): number { return this.brain.life.yearDays * 86400; }
@@ -352,7 +360,9 @@ export class World {
     for (const [dx, dy] of [[-r, -r], [r, -r], [-r, r], [r, r]] as const) {
       const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
       if (!tm.inside(tx, ty) || tm.cost[tm.get(tx, ty)]! <= 0) return false;
-      if (this.survival.homes.shut(i, m, Math.floor(e.y[i]! + dy) * tm.w + Math.floor(e.x[i]! + dx), ty * tm.w + tx)) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' }); return false; }
+      const from = Math.floor(e.y[i]! + dy) * tm.w + Math.floor(e.x[i]! + dx), to = ty * tm.w + tx;
+      if (from !== to && tm.tiles[to] === this.doorTile && Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!) !== to) return false; // a closed door: open it first (the interact button)
+      if (this.survival.homes.shut(i, m, from, to)) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' }); return false; }
     }
     const b = this.bodies[i];
     if (b) { this.pos.x = x; this.pos.y = y; b.setPosition(this.pos); }
@@ -552,8 +562,11 @@ export class World {
       }
       // A hut's door opens only for its owner and their family (sim/homes.ts): anyone else stays outside.
       if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && this.doorTile >= 0) {
-        const tm = this.maps[e.map[i]!]!.tiles, k = Math.floor(p.y) * tm.w + Math.floor(p.x);
-        if (this.survival.homes.shut(i, e.map[i]!, Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!), k)) {
+        const tm = this.maps[e.map[i]!]!.tiles, k = Math.floor(p.y) * tm.w + Math.floor(p.x), k0 = Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!);
+        // A player walks into a closed door like a wall (they open it with the interact button); people open and close it as they pass.
+        const closed = e.kind[i] === Kind.Player && k !== k0 && tm.tiles[k] === this.doorTile;
+        if (e.kind[i] === Kind.Agent && k !== k0 && tm.tiles[k0] === this.doorOpenTile && !this.someoneOn(e.map[i]!, k0, i)) tm.set(k0 % tm.w, (k0 / tm.w) | 0, this.doorTile); // tidy: closed behind them
+        if (closed || this.survival.homes.shut(i, e.map[i]!, k0, k)) {
           this.pos.x = e.x[i]!; this.pos.y = e.y[i]!; b.setPosition(this.pos); this.vel.x = 0; this.vel.y = 0; b.setLinearVelocity(this.vel);
           e.vx[i] = 0; e.vy[i] = 0;
           if (e.kind[i] === Kind.Player && this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' });

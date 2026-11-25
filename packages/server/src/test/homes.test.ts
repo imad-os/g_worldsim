@@ -62,6 +62,8 @@ test('a hut\'s door opens only for its owner and their family; strangers stay ou
   w.playerProfile(owner, 'imad');
   sv.add(owner, 'wood', 14); sv.add(owner, 'stone', 4);
   assert.equal(sv.placeAt(owner, 'hut', s.x0, s.y0, 0), 'built');
+  w.place(owner, town, s.x0 + 2.5, s.y0 + 5.5);
+  assert.equal(sv.toggleDoor(owner, s.x0 + 2, s.y0 + 4), 'doorOpened', 'left open: still only for the family');
   w.place(owner, town, s.x0 - 3, s.y0 + 8);
   const stranger = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5);
   w.playerProfile(stranger, 'guest');
@@ -224,4 +226,43 @@ test('pulling down: only your own building, or one whose owner is dead; an admin
   assert.equal(sv.huts[town]!.length, 0); assert.equal(sv.campOf(town), null); assert.equal(sv.homes.list.length, 0);
   assert.equal(w.profileOf(me)!.home, undefined);
   assert.equal(sv.countTiles(town, T.woodwall), 0);
+});
+
+test('doors open and close with the interact button: a closed door stops a player, a stranger cannot open it, people close it behind them', () => {
+  const w = mk('home-doors');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!, sv = w.survival, T = sv.T, tm = w.maps[town]!.tiles;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
+  w.step();
+  const s = openSpot(w, town, 60, 60);
+  const me = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5); w.playerProfile(me, 'imad');
+  const other = w.spawnPlayer(town, s.x0 + 5.5, s.y0 + 7.5); w.playerProfile(other, 'lina');
+  sv.add(me, 'wood', 14); sv.add(me, 'stone', 4);
+  assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
+  const dx = s.x0 + 2, dy = s.y0 + 4; // the south door
+  w.place(me, town, dx + 0.5, dy + 1.5);
+  assert.equal(tm.get(dx, dy), T.door, 'a new hut\'s door is shut');
+  assert.equal(w.trustMove(me, dx + 0.5, dy + 0.6), false, 'a closed door stops me');
+  w.place(other, town, dx + 1.5, dy + 1.5);
+  assert.equal(sv.toggleDoor(other, dx, dy), 'doorLocked', 'not their home');
+  assert.equal(sv.toggleDoor(me, dx + 9, dy), 'nothing');
+  assert.equal(sv.toggleDoor(me, dx, dy), 'doorOpened');
+  assert.equal(tm.get(dx, dy), T.doorOpen);
+  assert.equal(w.trustMove(me, dx + 0.5, dy + 0.6), true, 'open: I walk in');
+  assert.equal(sv.toggleDoor(me, dx, dy), 'doorSomeone', 'not on myself');
+  assert.equal(w.trustMove(me, dx + 0.5, dy - 0.4), true, 'into the room');
+  assert.equal(sv.toggleDoor(me, dx, dy), 'doorClosed');
+  assert.equal(tm.get(dx, dy), T.door);
+  // A gate with no owner opens for anyone; an AI person walking through an open door shuts it behind them.
+  sv.toggleDoor(me, dx, dy);
+  const ai = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent)!;
+  sv.homes.list[0]!.owner = -1; // free hut: open to all
+  w.place(ai, town, dx + 0.5, dy + 0.5);
+  e.vx[ai] = 0; e.vy[ai] = 2;
+  for (let n = 0; n < 40 && Math.floor(e.y[ai]!) === dy; n++) { w.brain.order(ai, 'goto', -1, -1, 60); w.place(ai, town, dx + 0.5, dy + 0.5 + n * 0.05); w.step(); }
+  w.place(ai, town, dx + 0.5, dy + 0.9);
+  // Step off the door tile by physics: move the body one tile down.
+  const b = (w as unknown as { bodies: { setLinearVelocity(v: { x: number; y: number }): void }[] }).bodies[ai];
+  for (let n = 0; n < 30 && Math.floor(e.y[ai]!) === dy; n++) { b?.setLinearVelocity({ x: 0, y: 3 }); w.step(); }
+  if (Math.floor(e.y[ai]!) !== dy) assert.equal(tm.get(dx, dy), T.door, 'they shut it behind them');
 });

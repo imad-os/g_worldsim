@@ -440,6 +440,19 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Never in the camp wall circle, homes, door aprons, roads, near portals. Rocks are hard: 15 damage a blow (6 blows), stone 60 %, ore 10 % a blow;
   agents' `mine` job 240 s, players 1.6 s between blows. New worlds: 18 rock clusters in the woods, 5 in town. Test homes.test.ts.
 
+## Doors, the interact hint, prop sizes (imad 2026-11-25)
+- **Doors open and close**: tile `door` = closed, `dooropen` (24) = open (both non-solid in the scenario so paths work). Closed: players can't step in
+  from outside (`World.trustMove` + physics read-back; TV `blocked()`), zombies / animals neither; open: everyone, threats too. Owned huts still
+  shut strangers out either way (`homes.shut`). AI people pass both and close an open door behind them (nobody else on it). Players: A (Do `take`
+  "door:tx,ty", or Do `door`) -> `Survival.toggleDoor` (2.2 m; codes doorOpened / doorClosed / doorLocked / doorSomeone; event `door`).
+- **Hut doors drawn wrong** = the client always drew the frame along X, so east / west doors stood across the doorway. `chunkmesh` now turns doors
+  by their wall neighbours (and draws the open plank swung).
+- **Interact hint** (`#iahint`, `updateInteract` in app.ts every 200 ms): "A Open the door / Close / Pick up / Drink / Eat / Chop / Mine / Search /
+  Get on your horse / Tame / Get off", same order as the server's take. Hidden while a menu / placing / aim / wheel is open. Strings in i18nBuild.ts.
+- **Sizes**: wrecked cars = one 3 m car per 3 barrier tiles (stray tiles beside a row = wreckage), beds 0.98 x 1.9 m towards the open side.
+- `mapTiles` names / colours / solid are indexed by tile id (they were by array position, ids start at 1: off by one). Admin `agentMove` of a
+  player's character sends its TV Notice `did` tp so the camera follows. Proof `ADMIN_TOKEN=... [OLD=old game.js] node tools/doors-proof.mjs <server> <sdk.js> <outdir>`.
+
 ## Local AI: instincts and memory (imad 2026-11-25)
 - **Instinct flag (imad 2026-11-25: "people don't defend themselves", "say they'll do it but stand", "objectives fail", memory
   100 / 10, places)**: `Brain.fightOrFlight` (hp / dps odds with friends within 14 m, courage, kin x1.6), alarm shouts (30 m,

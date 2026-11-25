@@ -1,6 +1,9 @@
 /** Texts of aimed building, pulling down, homes and hard rocks (imad 2026-11-25) in en, fr, es, ar. */
 export const TB = {
   en: {
+    iaOpen: 'Open the door', iaClose: 'Close the door', iaPick: 'Pick up', iaDrink: 'Drink', iaEat: 'Eat', iaChop: 'Chop the tree', iaMine: 'Break the rock',
+    iaSearch: 'Search the rubble', iaMount: 'Get on your horse', iaTame: 'Tame the horse', iaOff: 'Get off the horse',
+    doorLocked: 'Locked: only the family who lives here can open this door.', doorSomeone: 'Someone is standing in the doorway.',
     bDestroy: 'Pull down (your own buildings)', bDestroyV: 'aim', dsPad: 'Stick: move · {0}: pull down · {1}: cancel', dsRemote: 'Arrows: move · OK: pull down · Back: cancel',
     dsOk: 'yours: you can pull it down', dsNothing: 'nothing built here', dsNotYours: 'it belongs to {0}: only they can pull it down', dsUnknown: 'nobody knows whose it is: it stays',
     dsWait: 'looking…', dsDone: 'Pulled down. What it was made of is back in your bag.',
@@ -14,6 +17,9 @@ export const TB = {
     meHut2: 'Build a hut here ({0})', needHut2: 'A hut needs {0}.',
   },
   fr: {
+    iaOpen: 'Ouvrir la porte', iaClose: 'Fermer la porte', iaPick: 'Ramasser', iaDrink: 'Boire', iaEat: 'Manger', iaChop: 'Couper l\'arbre', iaMine: 'Casser la roche',
+    iaSearch: 'Fouiller les gravats', iaMount: 'Monter sur ton cheval', iaTame: 'Apprivoiser le cheval', iaOff: 'Descendre du cheval',
+    doorLocked: 'Fermée à clé : seule la famille qui vit ici peut ouvrir cette porte.', doorSomeone: 'Quelqu\'un se tient dans l\'embrasure.',
     bDestroy: 'Démolir (tes propres constructions)', bDestroyV: 'viser', dsPad: 'Stick : déplacer · {0} : démolir · {1} : annuler', dsRemote: 'Flèches : déplacer · OK : démolir · Retour : annuler',
     dsOk: 'à toi : tu peux le démolir', dsNothing: 'rien de construit ici', dsNotYours: 'c\'est à {0} : lui seul peut le démolir', dsUnknown: 'personne ne sait à qui c\'est : ça reste',
     dsWait: 'je regarde…', dsDone: 'Démoli. Ses matériaux sont revenus dans ton sac.',
@@ -27,6 +33,9 @@ export const TB = {
     meHut2: 'Construire une cabane ici ({0})', needHut2: 'Une cabane demande {0}.',
   },
   es: {
+    iaOpen: 'Abrir la puerta', iaClose: 'Cerrar la puerta', iaPick: 'Recoger', iaDrink: 'Beber', iaEat: 'Comer', iaChop: 'Talar el árbol', iaMine: 'Romper la roca',
+    iaSearch: 'Buscar entre los escombros', iaMount: 'Montar tu caballo', iaTame: 'Domar el caballo', iaOff: 'Bajar del caballo',
+    doorLocked: 'Cerrada: solo la familia que vive aquí puede abrir esta puerta.', doorSomeone: 'Hay alguien en la puerta.',
     bDestroy: 'Derribar (tus propias construcciones)', bDestroyV: 'apuntar', dsPad: 'Stick: mover · {0}: derribar · {1}: cancelar', dsRemote: 'Flechas: mover · OK: derribar · Atrás: cancelar',
     dsOk: 'es tuyo: puedes derribarlo', dsNothing: 'aquí no hay nada construido', dsNotYours: 'es de {0}: solo esa persona puede derribarlo', dsUnknown: 'nadie sabe de quién es: se queda',
     dsWait: 'mirando…', dsDone: 'Derribado. Sus materiales vuelven a tu bolsa.',
@@ -40,6 +49,9 @@ export const TB = {
     meHut2: 'Construir una cabaña aquí ({0})', needHut2: 'Una cabaña necesita {0}.',
   },
   ar: {
+    iaOpen: 'افتح الباب', iaClose: 'أغلق الباب', iaPick: 'التقط', iaDrink: 'اشرب', iaEat: 'كل', iaChop: 'اقطع الشجرة', iaMine: 'اكسر الصخرة',
+    iaSearch: 'فتش الأنقاض', iaMount: 'اركب حصانك', iaTame: 'روض الحصان', iaOff: 'انزل عن الحصان',
+    doorLocked: 'مقفل: فقط العائلة التي تسكن هنا تفتح هذا الباب.', doorSomeone: 'هناك شخص واقف في المدخل.',
     bDestroy: 'هدم (مبانيك أنت)', bDestroyV: 'صوب', dsPad: 'العصا: تحريك · {0}: اهدم · {1}: إلغاء', dsRemote: 'الأسهم: تحريك · OK: اهدم · رجوع: إلغاء',
     dsOk: 'ملكك: يمكنك هدمه', dsNothing: 'لا يوجد بناء هنا', dsNotYours: 'إنه ملك {0}: وحده يمكنه هدمه', dsUnknown: 'لا أحد يعرف لمن هو: يبقى',
     dsWait: 'أنظر…', dsDone: 'تم الهدم. عادت مواده إلى حقيبتك.',

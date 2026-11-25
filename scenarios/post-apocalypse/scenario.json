@@ -176,6 +176,15 @@
       "hp": 40,
       "breaksTo": 2,
       "color": 15913082
+    },
+    {
+      "id": 24,
+      "name": "dooropen",
+      "solid": false,
+      "cost": 1,
+      "hp": 160,
+      "breaksTo": 4,
+      "color": 10119740
     }
   ],
   "maps": [

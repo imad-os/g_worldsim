@@ -20,6 +20,9 @@
   #note { top: 6vw; left: 50%; right: auto; transform: translateX(-50%); font-size: 1.8vw; color: #ffe7a3; text-align: center; }
   #aimhud { position: fixed; left: 50%; bottom: 7vw; transform: translateX(-50%); display: flex; align-items: center; gap: 0.8vw; padding: 0.5vw 1.4vw 0.5vw 0.8vw; background: rgba(8, 10, 14, 0.7); border: 0.15vw solid rgba(255, 209, 102, 0.55); border-radius: 3vw; color: #ffe7a3; font-size: 1.4vw; z-index: 4; pointer-events: none; }
   #aimhud[hidden] { display: none; }
+  #iahint { position: fixed; left: 50%; bottom: 7vw; transform: translateX(-50%); display: flex; align-items: center; gap: 0.9vw; padding: 0.45vw 1.5vw 0.45vw 0.55vw; background: rgba(8, 10, 14, 0.72); border: 0.15vw solid rgba(255, 255, 255, 0.28); border-radius: 3vw; color: #f4f1ea; font-size: 1.5vw; z-index: 4; pointer-events: none; }
+  #iahint[hidden] { display: none; }
+  #iahint b { min-width: 2.4vw; height: 2.4vw; padding: 0 0.5vw; box-sizing: border-box; border-radius: 1.2vw; background: #4caf6a; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.3vw; }
   #aimhud i { width: 48px; height: 48px; display: block; }
   #aimhud b { font-size: 2.6vw; color: #ffd166; }
   #aimhud.none { border-color: rgba(255, 107, 107, 0.7); color: #ff9b9b; }
@@ -142,6 +145,7 @@
 <div id="hint" class="bar" hidden></div>
 <div id="note" class="bar" hidden></div>
 <div id="aimhud" hidden></div>
+<div id="iahint" hidden></div>
 <div id="card" hidden></div>
 <div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>

@@ -7,7 +7,7 @@ import type { TileTypeInfo } from '@worldsim/protocol';
 export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14 }
 
 /** `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides. */
-export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean }
+export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean; open?: boolean }
 
 const BY_NAME: Record<string, Look> = {
   grass: { shape: Shape.Ground, ground: 0x76a955, top: 0, side: 0, height: 0 },
@@ -30,6 +30,7 @@ const BY_NAME: Record<string, Look> = {
   spikes: { shape: Shape.Spikes, ground: 0x8a6a48, top: 0xa07a4a, side: 0x6e4b2c, height: 0 },
   stonewall: { shape: Shape.Wall, ground: 0x8d877e, top: 0xb5aea3, side: 0x9b8f80, height: 1.9, even: true },
   door: { shape: Shape.Door, ground: 0xb08a5f, top: 0x8b6239, side: 0x6b4a2f, height: 0 },
+  dooropen: { shape: Shape.Door, ground: 0xb08a5f, top: 0x8b6239, side: 0x6b4a2f, height: 0, open: true },
   window: { shape: Shape.Window, ground: 0x8a6a48, top: 0x8b6239, side: 0x7a5432, height: 1.7 },
   bed: { shape: Shape.Bed, ground: 0xb08a5f, top: 0xb0503c, side: 0x7a5432, height: 0 },
   lamp: { shape: Shape.Lamp, ground: 0x8d7a62, top: 0xffe08a, side: 0x4a4440, height: 0 },
