@@ -542,8 +542,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `me.ride` { name, walk, run, sta, q } (the TV predicts at that pace), Notice `horses` once a second for the view ([id, scale x100, q, coat, tamed, mine, name]),
   frame bits 24-31 of a horse = 5 | q << 3 | coat << 5. Me page: horses + taming level. Admin `horses { map? }`, `horseSpawn { map, x, y | near, n, q }`.
 - TV: `gfx/horses.ts` = Quaternius CC0 animated horse `docs/models/horse.glb` (280 KB; credits docs/models/CREDITS.md), 8 parts merged into one skinned
-  mesh with vertex colours per coat (+ golden mane for legendary), Idle / Eating / Walk / Gallop by speed, saddle when tamed, rare = blue ground glow,
-  legendary = gold ring + sparks; rider pose `People.add(..., seat)`. Strings `i18n7.ts`. Action `horse` (unbound; wheel + Actions; A's context hint mirrors on / tame / off).
+  mesh with vertex colours per coat (+ golden mane for legendary), Idle / Eating / Walk / Gallop by speed, saddle when tamed, rare = faint blue sheen,
+  legendary = warm glow + sparks (no ground circle: imad 2026-11-25); rider pose `People.add(..., seat)`. Strings `i18n7.ts`. Action `horse` (unbound; wheel + Actions; A's context hint mirrors on / tame / off).
   Tests `horses.test.ts`; proof `ADMIN_TOKEN=... node tools/horse-proof.mjs <server> <sdk.js> <outdir>`.
 
 ## Panel chat of my character (imad 2026-11-25)

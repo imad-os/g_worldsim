@@ -11,7 +11,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  * Horses (imad 2026-11-25): Quaternius' CC0 animated horse (docs/models/horse.glb, credits next to it), one skinned
  * mesh per horse (its 8 parts merged into one draw call, coloured per coat), animations Idle / Eating / Walk / Gallop
  * picked from the real speed and what the server says it does, cross-faded. Tamed horses wear a saddle. Rare horses
- * glow blue on the ground; legendary ones have a golden mane, a warm glow, a pulsing golden ring and sparks rising.
+ * have a faint blue sheen; legendary ones have a golden mane, a warm glow and sparks rising (imad 2026-11-25: no bright circle on the ground).
  * Until the model is loaded (or if it fails), the low-poly animal set draws them.
  */
 const PARTS = ['Main', 'Main_Dark', 'Main_Light', 'Hooves', 'Hair', 'Muzzle', 'Eye_White', 'Eye_Black'];
@@ -127,7 +127,7 @@ export class Horses3D {
       h.q = q;
       h.mat.emissive.setHex(q === 2 ? 0x3a2600 : q === 1 ? 0x0c1a33 : 0x000000);
       (h.ring.material as MeshBasicMaterial).color.setHex(q === 2 ? GOLD : 0x5aa8ff);
-      h.ring.visible = q > 0;
+      h.ring.visible = false; // imad 2026-11-25: "remove the bright circle under horse feet"
       if (q === 2 && !h.sparks) h.sparks = this.makeSparks(h.root);
       if (h.sparks) h.sparks.visible = q === 2;
     }
@@ -148,8 +148,7 @@ export class Horses3D {
     const a = h.acts[h.cur];
     if (a) a.timeScale = h.cur === 'Gallop' ? Math.max(0.6, speed / 7.5) : h.cur === 'Walk' ? Math.max(0.5, Math.min(2.4, speed / 1.5)) : 1;
     h.mixer.update(dt);
-    // Quality effects: the ring breathes, sparks rise and fade.
-    if (q > 0) { const p = 0.85 + Math.sin(t * (q === 2 ? 3 : 1.6) + id) * 0.15; h.ring.scale.setScalar(p); (h.ring.material as MeshBasicMaterial).opacity = q === 2 ? 0.7 : 0.45; }
+    // Quality effects: sparks rise and fade round a legendary horse.
     if (h.sparks && q === 2) {
       const pos = h.sparks.geometry.getAttribute('position') as BufferAttribute, n = pos.count;
       for (let k = 0; k < n; k++) {
