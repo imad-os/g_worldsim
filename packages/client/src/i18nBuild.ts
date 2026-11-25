@@ -1,0 +1,43 @@
+/** Texts of aimed building, homes and hard rocks (imad 2026-11-25) in en, fr, es, ar. */
+export const TB = {
+  en: {
+    plTitle: 'Building: {0}', plPad: 'Stick: move · {0}: build here · {1}: turn · {2}: cancel', plRemote: 'Arrows: move · OK: build here · {0}: turn · Back: cancel',
+    plBad: 'Not here: {0}', plOk: 'Good spot', plDoor: 'the door faces {0}', plSent: 'Building…',
+    dirS: 'south', dirE: 'east', dirN: 'north', dirW: 'west',
+    cTooFar: 'too far from you (8 m at most)', cSomeone: 'someone is standing there', cDoorBlocked: 'the door would open onto a wall', cNoRoom: 'the ground there is taken', cUnknown: 'not seen yet',
+    dTooFar: 'That is too far: aim closer to you.', dSomeone: 'Someone is standing there.', dDoorBlocked: 'The door would open onto a wall: turn it.',
+    dDoorShut: 'This is not your home: its door opens only for the owner\'s family.', dHard: 'The rock is hard: keep hitting it.',
+    bHut2: 'Hut ({0}, with its own door)', bHelp2: 'Pick what to build, then aim it: a see-through model shows where it goes (green = fine, red = not there). Move it with the stick or the arrows, turn a hut\'s door, and confirm. Things not in your bag are made from your materials first.',
+    meHut2: 'Build a hut here ({0})', needHut2: 'A hut needs {0}.',
+  },
+  fr: {
+    plTitle: 'Construction : {0}', plPad: 'Stick : déplacer · {0} : construire ici · {1} : tourner · {2} : annuler', plRemote: 'Flèches : déplacer · OK : construire ici · {0} : tourner · Retour : annuler',
+    plBad: 'Pas ici : {0}', plOk: 'Bon endroit', plDoor: 'la porte donne au {0}', plSent: 'Construction…',
+    dirS: 'sud', dirE: 'est', dirN: 'nord', dirW: 'ouest',
+    cTooFar: 'trop loin de toi (8 m au plus)', cSomeone: 'quelqu\'un se tient là', cDoorBlocked: 'la porte donnerait sur un mur', cNoRoom: 'le terrain est pris', cUnknown: 'pas encore vu',
+    dTooFar: 'C\'est trop loin : vise plus près de toi.', dSomeone: 'Quelqu\'un se tient là.', dDoorBlocked: 'La porte donnerait sur un mur : tourne-la.',
+    dDoorShut: 'Ce n\'est pas ta maison : sa porte ne s\'ouvre que pour la famille du propriétaire.', dHard: 'La roche est dure : continue de frapper.',
+    bHut2: 'Cabane ({0}, avec sa porte)', bHelp2: 'Choisis quoi construire, puis vise : un modèle transparent montre où il ira (vert = bon, rouge = impossible). Déplace-le avec le stick ou les flèches, tourne la porte d\'une cabane, puis confirme. Ce qui n\'est pas dans ton sac est d\'abord fabriqué avec tes matériaux.',
+    meHut2: 'Construire une cabane ici ({0})', needHut2: 'Une cabane demande {0}.',
+  },
+  es: {
+    plTitle: 'Construir: {0}', plPad: 'Stick: mover · {0}: construir aquí · {1}: girar · {2}: cancelar', plRemote: 'Flechas: mover · OK: construir aquí · {0}: girar · Atrás: cancelar',
+    plBad: 'Aquí no: {0}', plOk: 'Buen sitio', plDoor: 'la puerta da al {0}', plSent: 'Construyendo…',
+    dirS: 'sur', dirE: 'este', dirN: 'norte', dirW: 'oeste',
+    cTooFar: 'demasiado lejos (8 m como mucho)', cSomeone: 'hay alguien ahí', cDoorBlocked: 'la puerta daría a una pared', cNoRoom: 'el terreno está ocupado', cUnknown: 'aún no visto',
+    dTooFar: 'Está demasiado lejos: apunta más cerca.', dSomeone: 'Hay alguien ahí.', dDoorBlocked: 'La puerta daría a una pared: gírala.',
+    dDoorShut: 'No es tu casa: su puerta solo se abre para la familia del dueño.', dHard: 'La roca es dura: sigue golpeando.',
+    bHut2: 'Cabaña ({0}, con su puerta)', bHelp2: 'Elige qué construir y apunta: un modelo transparente muestra dónde irá (verde = bien, rojo = no). Muévelo con el stick o las flechas, gira la puerta de una cabaña y confirma. Lo que no está en tu bolsa se hace antes con tus materiales.',
+    meHut2: 'Construir una cabaña aquí ({0})', needHut2: 'Una cabaña necesita {0}.',
+  },
+  ar: {
+    plTitle: 'بناء: {0}', plPad: 'العصا: تحريك · {0}: ابن هنا · {1}: تدوير · {2}: إلغاء', plRemote: 'الأسهم: تحريك · OK: ابن هنا · {0}: تدوير · رجوع: إلغاء',
+    plBad: 'ليس هنا: {0}', plOk: 'مكان جيد', plDoor: 'الباب نحو {0}', plSent: 'جار البناء…',
+    dirS: 'الجنوب', dirE: 'الشرق', dirN: 'الشمال', dirW: 'الغرب',
+    cTooFar: 'بعيد جدا عنك (8 م على الأكثر)', cSomeone: 'هناك شخص واقف', cDoorBlocked: 'سيفتح الباب على جدار', cNoRoom: 'الأرض مشغولة', cUnknown: 'لم يظهر بعد',
+    dTooFar: 'هذا بعيد جدا: صوب أقرب إليك.', dSomeone: 'هناك شخص واقف.', dDoorBlocked: 'سيفتح الباب على جدار: أدره.',
+    dDoorShut: 'هذا ليس بيتك: بابه لا يفتح إلا لعائلة صاحبه.', dHard: 'الصخرة صلبة: واصل الضرب.',
+    bHut2: 'كوخ ({0}، مع بابه)', bHelp2: 'اختر ما تبنيه ثم صوب: نموذج شفاف يبين مكانه (أخضر = جيد، أحمر = لا). حركه بالعصا أو الأسهم، أدر باب الكوخ، ثم أكد. ما ليس في حقيبتك يصنع أولا من موادك.',
+    meHut2: 'ابن كوخا هنا ({0})', needHut2: 'الكوخ يحتاج {0}.',
+  },
+} as const;

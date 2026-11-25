@@ -4,7 +4,7 @@ import {
 } from '@worldsim/protocol';
 import { Color, type Group } from 'three';
 import { t, tf, setLang, type Key } from './i18n.js';
-import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { World3D, type Tier } from './gfx/world3d.js';
 import { buildChunk } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
@@ -24,6 +24,8 @@ const STEP_OF: Record<string, string> = { grass: 'step_grass', dirt: 'step_dirt'
   road: 'step_stone', rubble: 'step_stone', rock: 'step_stone', floor: 'step_wood', bed: 'step_wood', door: 'step_wood', water: 'step_water' };
 let stepName: string[] = [];
 let stepDist = 0, lastHp = -1, ambAt = 0, campfireTile = -1;
+/** Tile names by id (from the welcome): what may be built on. */
+let tileName: string[] = [];
 /** What each answer from the server sounds like. */
 const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', drank: 'drink',
   ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
@@ -281,7 +283,8 @@ function onMsg(m: ServerMsg): void {
       solid.fill(0);
       for (const x of m.tiles) if (x.solid) solid[x.id] = 1;
       stepName = []; campfireTile = -1;
-      for (const x of m.tiles) { stepName[x.id] = STEP_OF[x.name] ?? 'step_dirt'; if (x.name === 'campfire') campfireTile = x.id; }
+      tileName = [];
+      for (const x of m.tiles) { stepName[x.id] = STEP_OF[x.name] ?? 'step_dirt'; tileName[x.id] = x.name; if (x.name === 'campfire') campfireTile = x.id; }
       if (m.body) body = m.body;
       gameSec = m.clock.gameSec; tickAt = performance.now(); clockScale = m.clock.clockScale; simSpeed = m.clock.paused ? 0 : m.clock.speed;
       if (!g3) {
@@ -324,7 +327,7 @@ function onMsg(m: ServerMsg): void {
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
         lastHp = hp;
         meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight')) menu.refresh(); }
-      if (m.kind === 'blocked') note(t('dBlocked'), 5000);
+      if (m.kind === 'blocked') note(t((m.data as { why?: string } | null)?.why === 'door' ? 'dDoorShut' : 'dBlocked'), 5000);
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
@@ -560,12 +563,127 @@ function placeable(): string | null {
   for (const p of PLACEABLE) if ((inv[p] ?? 0) > 0) return p;
   return null;
 }
+// ------------------------------------------------------------ aimed building (imad 2026-11-25: "aim where to build very precisely")
+/** What is being placed: a see-through model the player moves tile by tile, turns (a hut's door) and confirms. */
+let placing: { what: string; tx: number; ty: number; dir: number; moveAt: number; sent: boolean } | null = null;
+const PLACE_REACH = 8;
+/** Door directions as the server numbers them: south, east, north, west (outwards). */
+const PDIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
+const BUILD_ON = new Set(['grass', 'dirt', 'sand', 'ashes', 'road']);
+const WALLISH = new Set(['woodwall', 'palisade', 'stonewall', 'floor']);
+/** How tall each thing's model is (0 = flat). */
+const GHOST_H: Record<string, number> = { palisade: 1.3, spikes: 0.5, stonewall: 1.3, door: 1.5, window: 1.2, bed: 0.35, lamp: 1.6, campfire: 0.3 };
+function startPlacing(what: string): void {
+  if (how !== 'play' || !playing()) return;
+  menu.close();
+  if (wheel.open) wheel.close();
+  if (aimOn) setAim(false);
+  const a = myAng(), x = focusX(), y = focusY();
+  held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
+  if (what === 'hut') {
+    const cx = x + Math.cos(a) * 4.5, cy = y + Math.sin(a) * 4.5;
+    // The door faces me.
+    const dx = x - cx, dy = y - cy, dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : dy > 0 ? 0 : 2;
+    placing = { what, tx: Math.floor(cx - 2), ty: Math.floor(cy - 2), dir, moveAt: 0, sent: false };
+  } else placing = { what, tx: Math.floor(x + Math.cos(a) * 1.6), ty: Math.floor(y + Math.sin(a) * 1.6), dir: 0, moveAt: 0, sent: false };
+  sound.play('ui_open');
+  placeNote();
+}
+function stopPlacing(): void { if (!placing) return; placing = null; g3?.ghost(null); noteEl.hidden = true; updateHints(); }
+/** '' = it can go there (as far as this screen knows: the server has the last word), else the code. */
+function placeCheck(p: NonNullable<typeof placing>): string {
+  const x = focusX(), y = focusY();
+  const person = (tx: number, ty: number) => {
+    for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && (kind[i] === Kind.Agent || kind[i] === Kind.Player) && Math.abs(nx[i]! - tx - 0.5) < 0.9 && Math.abs(ny[i]! - ty - 0.5) < 0.9) return true;
+    return false;
+  };
+  if (p.what === 'hut') {
+    const cx = Math.max(p.tx, Math.min(p.tx + 4, x - 0.5)), cy = Math.max(p.ty, Math.min(p.ty + 4, y - 0.5));
+    if (Math.hypot(cx + 0.5 - x, cy + 0.5 - y) > PLACE_REACH) return 'tooFar';
+    const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + 2 + dx * 2, dY = p.ty + 2 + dy * 2;
+    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+      const t0 = tileUnder(p.tx + xx + 0.5, p.ty + yy + 0.5);
+      if (t0 < 0) return 'unknown';
+      if (!BUILD_ON.has(tileName[t0] ?? '')) return 'noRoom';
+      const edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+      if (edge && !(p.tx + xx === dX && p.ty + yy === dY) && person(p.tx + xx, p.ty + yy)) return 'someone';
+    }
+    const o = tileUnder(p.tx + 2 + dx * 3 + 0.5, p.ty + 2 + dy * 3 + 0.5);
+    if (o < 0 || solid[o]) return 'doorBlocked';
+    return '';
+  }
+  if (Math.hypot(p.tx + 0.5 - x, p.ty + 0.5 - y) > PLACE_REACH) return 'tooFar';
+  const t0 = tileUnder(p.tx + 0.5, p.ty + 0.5);
+  if (t0 < 0) return 'unknown';
+  const n = tileName[t0] ?? '';
+  if (!BUILD_ON.has(n) && n !== 'floor' && !((p.what === 'door' || p.what === 'window') && WALLISH.has(n))) return 'noRoom';
+  if (p.what !== 'bed' && p.what !== 'campfire' && person(p.tx, p.ty)) return 'someone';
+  return '';
+}
+const PLACE_CODE: Record<string, Key> = { tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown' };
+function placeNote(): void {
+  if (!placing) return;
+  const c = placeCheck(placing), name = placing.what === 'hut' ? t('bHut2').replace(/ \(.*$/, '') : cap1(thing(placing.what));
+  const keys = pads ? tf('plPad', String(MyPC.gamepad?.label?.(0) ?? 'A'), placing.what === 'hut' ? `${String(MyPC.gamepad?.label?.(2) ?? 'X')} / ${keyName('build') || 'Y'}` : '—', String(MyPC.gamepad?.label?.(1) ?? 'B'))
+    : tf('plRemote', placing.what === 'hut' ? (keyName('build') || 'CH+') : '—');
+  const door = placing.what === 'hut' ? ' · ' + tf('plDoor', t((['dirS', 'dirE', 'dirN', 'dirW'] as const)[placing.dir]!)) : '';
+  note(`${tf('plTitle', name)} · ${c ? tf('plBad', t(PLACE_CODE[c] ?? 'cNoRoom')) : t('plOk')}${door} — ${keys}`, 0);
+}
+function placeMove(dx: number, dy: number): void {
+  if (!placing) return;
+  const p = placing, w = p.what === 'hut' ? 5 : 1;
+  const nxp = Math.max(0, Math.min(mapW - w, p.tx + dx)), nyp = Math.max(0, Math.min(mapH - w, p.ty + dy));
+  // Never further than the reach (plus the hut's size).
+  const cx = nxp + w / 2, cy = nyp + w / 2;
+  if (Math.hypot(cx - focusX(), cy - focusY()) > PLACE_REACH + w / 2 + 0.8) { sound.play('ui_error'); return; }
+  p.tx = nxp; p.ty = nyp;
+  sound.play('ui_move', undefined, undefined, 0.5);
+  placeNote();
+}
+function placeTurn(): void { if (!placing || placing.what !== 'hut') return; placing.dir = (placing.dir + 1) % 4; sound.play('ui_move'); placeNote(); }
+function placeConfirm(): void {
+  if (!placing || placing.sent) return;
+  const c = placeCheck(placing);
+  if (c && c !== 'unknown') { sound.play('ui_error'); note(tf('plBad', t(PLACE_CODE[c] ?? 'cNoRoom')), 2000); setTimeout(placeNote, 2000); return; }
+  placing.sent = true;
+  send({ t: Msg.Do, a: 'build', text: `${placing.what}#${placing.tx},${placing.ty},${placing.dir}` });
+  note(t('plSent'), 0);
+}
+/** Every frame while placing: the stick / arrows move the model one tile at a time (held = repeats), in the camera's frame. */
+function placeTick(now: number): void {
+  if (!placing) return;
+  let [ax, ay] = stick();
+  if (g3 && g3.view !== 'top') { // forward / side along where I look
+    const fwd = -ay, side = ax, fx = Math.sin(yaw), fy = -Math.cos(yaw);
+    ax = fx * fwd - fy * side; ay = fy * fwd + fx * side;
+  }
+  if (Math.hypot(ax, ay) < 0.5) { placing.moveAt = 0; return; }
+  if (now < placing.moveAt) return;
+  placing.moveAt = now + (placing.moveAt ? 140 : 300); // first step at once, then repeats
+  if (Math.abs(ax) > Math.abs(ay) * 1.2) placeMove(Math.sign(ax), 0);
+  else if (Math.abs(ay) > Math.abs(ax) * 1.2) placeMove(0, Math.sign(ay));
+  else placeMove(Math.sign(ax), Math.sign(ay));
+}
+/** The see-through model on the 3D view. */
+function drawGhost(): void {
+  if (!g3) return;
+  if (!placing || how !== 'play') { g3.ghost(null); return; }
+  const p = placing, ok = !placeCheck(p), cells: number[] = [];
+  if (p.what === 'hut') {
+    const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + 2 + dx * 2, dY = p.ty + 2 + dy * 2;
+    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+      const X = p.tx + xx, Y = p.ty + yy, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+      cells.push(X, Y, X === dX && Y === dY ? 1.5 : edge ? 1.2 : 0);
+    }
+    g3.ghost(cells, ok, [dX + 0.5 + dx * 1.1, dY + 0.5 + dy * 1.1, Math.atan2(dy, dx)]);
+  } else { cells.push(p.tx, p.ty, GHOST_H[p.what] ?? 0.8); g3.ghost(cells, ok); }
+}
 function placeLabel(): string { const p = placeable(); return p ? tf('cPut', thing(p)) : t('qPlace'); }
 function runQuick(id: string | null): void {
   if (!id) return;
   if (id === 'camera') { nextCamera(); return; }
   if (id === 'bag') { openMenu('bag'); return; }
-  if (id === 'place') { const p = placeable(); if (p) send({ t: Msg.Do, a: 'build', text: `${p}@${myAng().toFixed(3)}` }); else note(t('qNothing'), 2000); return; }
+  if (id === 'place') { const p = placeable(); if (p) startPlacing(p); else note(t('qNothing'), 2000); return; }
   doAction(id as ActionId, true);
 }
 
@@ -584,7 +702,8 @@ function nextCamera(to?: CamView): void {
 function camName(v: CamView): string { return t(v === 'top' ? 'camTop' : v === 'third' ? 'camThird' : 'camFirst'); }
 
 function updatePlay(dt: number, now: number): void {
-  let [mx, my] = g3 && g3.view !== 'top' ? viewStick(dt) : stick();
+  let [mx, my] = placing ? [0, 0] : g3 && g3.view !== 'top' ? viewStick(dt) : stick();
+  if (placing) placeTick(now); // the stick moves the model, my character stands
   if (aimOn) {
     // Aiming: the stick turns the aim, my character stands; the nearest target close to the line is locked (red ring).
     if (Math.hypot(mx, my) > 0.35) aimAng = Math.atan2(my, mx);
@@ -769,7 +888,7 @@ function doAction(a: ActionId, pressed: boolean): void {
     case 'person': openMenu('person'); return;
     case 'camera': if (how === 'play') nextCamera(); return;
     case 'wheel': wheelButton(true, false); return;
-    case 'build': if (how === 'play') openMenu('build'); return;
+    case 'build': if (placing) placeTurn(); else if (how === 'play') openMenu('build'); return;
   }
   if (how === 'watch') {
     if (a === 'use') followNext();
@@ -892,6 +1011,15 @@ function onSttText(e: { text: string }): void {
 }
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
+  if (d.a === 'build' && placing) { // the aimed build's answer: done = close the model, else say why and keep aiming
+    if (d.ok) stopPlacing();
+    else { placing.sent = false; setTimeout(placeNote, 3200); }
+  }
+  if (d.a === 'build') {
+    const why: Record<string, Key> = { tooFar: 'dTooFar', someone: 'dSomeone', doorBlocked: 'dDoorBlocked' };
+    if (why[d.code]) { sound.play('ui_error'); note(t(why[d.code]!), 3000); return; }
+    if (d.code === 'needHut') { sound.play('ui_error'); note(tf('needHut2', needText(HUT_NEED)), 3500); return; }
+  }
   if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 180); }
   else if (DID_SOUND[d.code]) sound.play(DID_SOUND[d.code]!, undefined, undefined, d.code === 'zKilled' ? 0.9 : 1);
   if (d.code === 'chopped' && (d as { got?: Record<string, number> }).got?.wood && Math.random() < 0.25) sound.play('tree_fall', undefined, undefined, 0.6);
@@ -934,6 +1062,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (dd.kept) { note(t('bKept'), 3500); return; }
   if (d.code === 'aHit') { note(tf('aHit', thing(d.item ?? '')) + arrows, 1500); return; }
   if (d.code === 'aKilled') { note(tf('aKilled', thing(d.item ?? ''), gotText(dd.got)), 3500); return; }
+  if (d.code === 'mined' && !Object.keys(dd.got ?? {}).length) { note(t('dHard'), 1200); return; }
   if (d.code === 'chopped' || d.code === 'mined') { note(tf('dGot', gotText(dd.got)), 1500); return; }
   if (d.code === 'crafted') { for (const k of Object.keys(pot)) delete pot[k]; note(tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
   if (d.code === 'placed') { note(tf('dPlaced', thing(d.item ?? '')), 2500); return; }
@@ -992,15 +1121,15 @@ function buildPage(id: string): Page {
     }
     case 'build': {
       const inv = meNeeds?.inv ?? {};
-      const hutOk = (inv.wood ?? 0) >= 12 && (inv.stone ?? 0) >= 4;
-      rows.push({ id: 'b:hut', label: t('bHut'), value: hutOk ? t('cHave') : t('bMissing'), dim: !hutOk });
+      const hutOk = Object.entries(HUT_NEED).every(([k, n]) => (inv[k] ?? 0) >= n);
+      rows.push({ id: 'b:hut', label: tf('bHut2', needText(HUT_NEED)), value: hutOk ? t('cHave') : t('bMissing'), dim: !hutOk });
       for (const p of PLACEABLE) {
         const r = RECIPES_ALL.find((q) => q.what === p);
         const have = inv[p] ?? 0, can = !!r && Object.entries(r.need).every(([k, n]) => (inv[k] ?? 0) >= n!);
         rows.push({ id: 'b:' + p, label: `${cap1(thing(p))}${r ? ' (' + needText(r.need) + ')' : ''}`, value: have ? tf('bInBag', String(have)) : can ? t('cHave') : t('bMissing'), dim: !have && !can });
       }
       const bag = RESOURCES.filter((k) => (inv[k] ?? 0) > 0).map((k) => `${inv[k]} ${thing(k)}`).join(', ');
-      return { id, title: t('bTitle'), rows, wide: true, html: `<p>${esc(t('bHelp'))}</p>${bag ? `<p class="dim">${esc(t('fHave'))}: ${esc(bag)}</p>` : ''}` };
+      return { id, title: t('bTitle'), rows, wide: true, html: `<p>${esc(t('bHelp2'))}</p>${bag ? `<p class="dim">${esc(t('fHave'))}: ${esc(bag)}</p>` : ''}` };
     }
     case 'fight': {
       const rec = (w: string) => { const r = RECIPES_ALL.find((q) => q.what === w); return r ? needText(r.need) : '—'; };
@@ -1075,7 +1204,7 @@ function buildPage(id: string): Page {
         + (c.goals.length ? `<div class="pm dim">${t('meGoals')}: ${c.goals.map((g) => `${g.ok ? '✓' : '✗'} ${esc(g.text)} (+${g.xp})`).join(' · ')}</div>` : '');
       rows.push({ id: 'family', label: t('famTitle'), value: c.asks?.length ? `${c.asks.length} !` : c.children.some((k) => k.stage === 'baby' || k.stage === 'toddler') ? '♥' : '', sub: true });
       rows.push({ id: 'look', label: t('lookTitle'), sub: true }, { id: 'auto', label: t('autoRow'), value: onOff(c.auto) },
-        { id: 'rules', label: t('myRules'), value: `${c.rules.length} / ${c.max}`, sub: true }, { id: 'hut', label: t('meHut') });
+        { id: 'rules', label: t('myRules'), value: `${c.rules.length} / ${c.max}`, sub: true }, { id: 'hut', label: tf('meHut2', needText(HUT_NEED)) });
       return { id, title: t('meTitle'), rows, html, wide: true };
     }
     case 'family': { // imad 2026-11-25: parents see their little ones' needs and look after them; family chosen between players
@@ -1163,7 +1292,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'map') { menu.close(); nextMap(); }
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
   } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
-  else if (page === 'build') { menu.close(); send({ t: Msg.Do, a: 'build', text: `${row.slice(2)}@${myAng().toFixed(3)}` }); }
+  else if (page === 'build') startPlacing(row.slice(2));
   else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('craft'); else if (row === 'pvp') { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); } }
   else if (page === 'past') {
     if (row === 'back') menu.back();
@@ -1203,7 +1332,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'auto') send({ t: Msg.Do, a: 'auto', text: meChar?.auto ? '0' : '1' });
     else if (row === 'rules') menu.push('rules');
     else if (row === 'family') { send({ t: Msg.Do, a: 'mine' }); menu.push('family'); }
-    else if (row === 'hut') { menu.close(); send({ t: Msg.Do, a: 'hut' }); }
+    else if (row === 'hut') startPlacing('hut');
   }
   else if (page === 'family') {
     if (row === 'back') { menu.back(); return; }
@@ -1265,7 +1394,7 @@ const bubbles = new Bubbles(8);
 
 function openMenu(page = 'root'): void {
   if (mode !== 'world') return;
-  wheel.close(); setAim(false);
+  wheel.close(); setAim(false); stopPlacing();
   held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
   if (page === 'person') {
     const id = personTarget();
@@ -1386,6 +1515,7 @@ function draw(now: number, dt: number): void {
     const ang = lk >= 0 ? Math.atan2(ny[lk]! - predY, nx[lk]! - predX) : aimAng;
     g3.aim(true, predX, predY, ang, lk >= 0 ? Math.max(1, Math.hypot(nx[lk]! - predX, ny[lk]! - predY) - 0.6) : 22, lk >= 0 ? nx[lk]! : NaN, lk >= 0 ? ny[lk]! : NaN);
   } else g3.aim(false);
+  drawGhost();
   g3.render();
   // Thoughts over heads: only for players the owner allows (the server sends them to nobody else).
   if (seer && thoughtsOn && !menu.open && now - mindsAt < 4000) bubbles.draw(bubblePos, bubbleProject, fx, fy, actName);
@@ -1481,6 +1611,13 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
     return;
   }
   const a = remoteAction(binds, name);
+  if (placing) {
+    if (!pressed || repeat) return;
+    if (name === 'ok') placeConfirm();
+    else if (a === 'build' || name === 'chUp' || name === 'chDown') placeTurn();
+    else if (a === 'menu' || name === 'back') stopPlacing();
+    return;
+  }
   if (wheel.open) {
     if (!pressed || repeat) return;
     if (name === 'ok') runQuick(wheel.close());
@@ -1503,6 +1640,14 @@ function onPad(i: number, pressed: boolean): void {
     if (i === 0) menu.input('ok');
     else if (i === 1) menu.input('back');
     else if (padAction(binds, i) === 'menu') menu.close();
+    return;
+  }
+  if (placing) { // A builds, B cancels, X / Y / the shoulders (or Build again) turn the door
+    if (!pressed) return;
+    if (i === 0) placeConfirm();
+    else if (i === 1) stopPlacing();
+    else if (i === 2 || i === 3 || i === 4 || i === 5 || padAction(binds, i) === 'build') placeTurn();
+    else if (padAction(binds, i) === 'menu') { stopPlacing(); openMenu(); }
     return;
   }
   const a = padAction(binds, i);
@@ -1564,7 +1709,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: () => ({ aimOn, aimAng, aimLock }), me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), act: (a: ActionId, on = true) => doAction(a, on), aim: () => ({ aimOn, aimAng, aimLock }), me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; } };
     MyPC.ready();
   },
   onStart() {
@@ -1592,6 +1737,7 @@ MyPC.init({
     if (action === 'cancel') {
       if (!pressed) return pad ? true : undefined;
       if (capture) { capture = null; note(t('mControls'), 800); return true; }
+      if (placing && !menu.open) { stopPlacing(); return true; }
       if (wheel.open) { wheel.close(); return true; }
       if (menu.open) { menu.input('back'); return true; }
       if (rp && !pad) { stopReplay(); return true; }
@@ -1608,6 +1754,7 @@ MyPC.init({
       if (!pressed) return;
       if (mode !== 'world') { screenOk(); return; }
       if (menu.open) { menu.input('ok'); return; }
+      if (placing) { placeConfirm(); return; }
       if (wheel.open) { runQuick(wheel.close()); return; }
       if (rp) { rp.toggle(); return; }
       doAction(dev === 'touch' ? 'use' : remoteAction(binds, 'ok') ?? 'use', true);
@@ -1616,6 +1763,7 @@ MyPC.init({
     if (mode !== 'world' || menu.open) return;
     if (action === 'run') { doAction('run', pressed); return; }
     if (!pressed) return;
+    if (placing && (action === 'pageUp' || action === 'pageDown')) { placeTurn(); return; }
     if (action === 'pageUp') doAction(remoteAction(binds, 'chUp') ?? 'zoomIn', true);
     else if (action === 'pageDown') doAction(remoteAction(binds, 'chDown') ?? 'zoomOut', true);
   },

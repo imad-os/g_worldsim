@@ -1,7 +1,7 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Color, Fog, Mesh, Group,
   PlaneGeometry, MeshLambertMaterial, MeshPhongMaterial, MeshBasicMaterial, TorusGeometry, CircleGeometry, SphereGeometry,
-  InstancedMesh, Matrix4, Vector3, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
+  InstancedMesh, Matrix4, Vector3, BoxGeometry, ConeGeometry, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
   type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
@@ -122,6 +122,38 @@ export class World3D {
     const hit = Number.isFinite(tx);
     this.aimRing!.visible = hit;
     if (hit) this.aimRing!.position.set(tx, 0.08, tz);
+  }
+
+  /**
+   * Aimed building (imad 2026-11-25): a see-through model of what will be built where the player aims, green when it can go
+   * there, red when not. cells = [x, y, height, ...] per tile (height 0 = a flat floor tile); door = [x, y, angle] of the
+   * arrow showing which way a hut's door opens, or null.
+   */
+  private ghostBox: InstancedMesh | null = null;
+  private ghostArrow: Mesh | null = null;
+  ghost(cells: number[] | null, ok = true, door: number[] | null = null): void {
+    if (!cells) { if (this.ghostBox) this.ghostBox.visible = false; if (this.ghostArrow) this.ghostArrow.visible = false; return; }
+    if (!this.ghostBox) {
+      this.ghostBox = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: 0x7cf09a, transparent: true, opacity: 0.42, depthWrite: false }), 40);
+      this.ghostBox.instanceMatrix.setUsage(DynamicDrawUsage); this.ghostBox.frustumCulled = false; this.ghostBox.renderOrder = 6;
+      this.ghostArrow = new Mesh(new ConeGeometry(0.42, 0.9, 3).rotateX(Math.PI / 2).rotateY(Math.PI / 2), new MeshBasicMaterial({ color: 0xffd35a, transparent: true, opacity: 0.9, depthWrite: false }));
+      this.ghostArrow.renderOrder = 7;
+      this.scene.add(this.ghostBox, this.ghostArrow);
+    }
+    const g = this.ghostBox, n = Math.min(40, (cells.length / 3) | 0);
+    (g.material as MeshBasicMaterial).color.setHex(ok ? 0x7cf09a : 0xff5a4a);
+    for (let k = 0; k < n; k++) {
+      const h = Math.max(0.06, cells[k * 3 + 2]!);
+      this.v3.set(cells[k * 3]! + 0.5, h / 2 + 0.01, cells[k * 3 + 1]! + 0.5);
+      this.s3.set(0.96, h, 0.96);
+      this.q.identity();
+      this.m.compose(this.v3, this.q, this.s3);
+      g.setMatrixAt(k, this.m);
+    }
+    g.count = n; g.instanceMatrix.needsUpdate = true; g.visible = true;
+    const a = this.ghostArrow!;
+    a.visible = !!door;
+    if (door) { a.position.set(door[0]!, 0.35, door[1]!); a.rotation.set(0, -door[2]!, 0); }
   }
 
   beginItems(): void { this.nCan = this.nBush = this.nCrate = 0; }

@@ -927,7 +927,7 @@ export class App {
       goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       player: p?.player ?? null, auto: !!p?.auto, manual: e.kind[i] === Kind.Player, online: p?.player ? this.net.online(p.player) : false,
-      carry: e.carry[i], inv: w.survival.inv(i), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
+      carry: e.carry[i], inv: w.survival.inv(i), home: w.survival.homes.describe(e.id(i)), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
 
@@ -1178,6 +1178,11 @@ export class App {
           if (k === 'hunger' || k === 'thirst' || k === 'tired' || k === 'lonely') { e[k][i] = fixed(v, 0, 100, k); continue; }
           if (k === 'hp') { e.hp[i] = num(v, 1, w.sc.agents.hp, 'health', [1, 1e6], 100 / w.sc.agents.hp); continue; }
           if (k === 'carry') { e.carry[i] = num(v, 0, 20, k, [0, 255]) | 0; continue; }
+          if (k === 'inv' && v && typeof v === 'object') { // the bag: { wood: 14, stone: 4 } (0 = none)
+            const bag = w.survival.inv(i);
+            for (const [r, n] of Object.entries(v as Record<string, unknown>)) { if (!/^[a-z]{2,16}$/.test(r)) throw new Error(`bad item ${r}`); const q = fixed(n, 0, 30, r) | 0; if (q) bag[r] = q; else delete bag[r]; }
+            continue;
+          }
           if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k, undefined, 100); continue; }
           if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
           if (k === 'age') { if (p.player) throw new Error("players' characters stay 25"); p.born = w.gameSec - num(v, 0, 100, k, [0, 1000]) * w.yearSec; const ag = Number(v); e.flags[i] = (e.flags[i]! & ~(EFlag.Child | EFlag.Small)) | (ag < 16 ? EFlag.Child : 0) | (ag < 3 ? EFlag.Small : 0); continue; } // years
