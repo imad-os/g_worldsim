@@ -13,8 +13,12 @@ Value = what it changes in measured behaviour; cost = engineering + CPU. Done it
   huts ended outside it; two builders could choose the same ground. **Fixed** (siting, reservations).
 - The camp was founded wherever the first fire was lit (often on a road crossing next to a ruin). **Fixed** (camp site).
 - A duel and a task fought over the same person. **Fixed** (tasks wait during a duel).
-- Still open: people are idle ~80 % of waking hours (sampled hourly); conversations are short and rare; animals are hard to
-  catch (half of hunts end "it got away"); the reactive layer scans every entity for the nearest item / person (O(N²)).
+- Owner's report (2026-11-25): people did not defend themselves against groups, said "I'll do it" and failed (no ore
+  nearby, an axe they already had), had no long memory. **Fixed** (instinct: odds, alarms, plans for what was asked,
+  memory; E6-E8).
+- Still open: people are idle ~80 % of waking hours (sampled hourly); conversations are short and rare; the reactive layer
+  scans every entity for the nearest item / person (O(N²)); fleeing still flips to fighting when friends arrive and back
+  (the odds move with distance).
 
 ## Next, by value
 
@@ -30,13 +34,15 @@ Value = what it changes in measured behaviour; cost = engineering + CPU. Done it
    skill: copy `know` entries between people who talk), so work and social life trade off by value, not by a threshold.
 5. **Smaller walls** (cost S). Welzl's minimum enclosing circle or a convex-hull wall around the footprint, gates where
    paths cross; measure pieces per protected hut.
-6. **Hunting tactics** (cost M). Approach from downwind / behind, two hunters, traps; today "it got away" is the main
-   remaining failure.
+6. **Hunting parties and traps** (cost M). Stalking and a wider search are in; two hunters closing from both sides and
+   traps would make big game (bear, boar) a plan rather than luck.
 7. **Long-term personal goals** (cost M). From memory and level: "become the best hunter", "build my own house", "start a
    family", scored like drives and kept across days (`Profile.goals` exists).
 8. **Flow fields for many agents** (cost M). One field per popular target (water, camp, store) per map instead of one A*
    per agent; needed for hordes and 100+ people.
-9. **Prompt the LLM with know-how** (cost S). Add `Colony.describe(i)` to `Planner.describe`, so chats can say "I'm good at
+9. **Memory-driven goals** (cost M). Use long-term memory in planning: avoid jobs at places of danger, go back to where
+   game was found, grief lowering work for a day, gratitude raising help to whoever gave or healed.
+10. **Prompt the LLM with know-how** (cost S). Add `Colony.describe(i)` to `Planner.describe`, so chats can say "I'm good at
    chopping, hunting never works for me".
-10. **Evolving temperaments** (cost L). Stronger selection on traits through survival and children, measured over
+11. **Evolving temperaments** (cost L). Stronger selection on traits through survival and children, measured over
     generations.

@@ -66,9 +66,41 @@ given seed, and costs no AI calls.
    - *Huts are read from their walls* (`sim/structures.ts`): door direction, room, enclosure and access are computed from
      tiles, so repairs, beds and doors work for any orientation (`hutRect`).
 
+5. **Instincts and fear** (flag `instinct`, 2026-11-25).
+   - *Fight or flight by the odds* (`Brain.fightOrFlight`): how long our side lasts against their bites against how long
+     they last against our blows (a Lanchester-style duel of damage rates: hp / dps for each side). Friends within 14 m
+     count fully when already fighting that threat, at 0.6 when they are awake, healthy and could join. Courage moves the
+     bar (0.55 + 0.9 x courage, +0.1 armed), a child, partner or parent next to the threat multiplies the will to fight by
+     1.6, and someone already fighting keeps at it unless the odds fall clearly (x1.4 hysteresis). One zombie or a wolf:
+     fight; three zombies alone: run; with three friends: fight; a bear bare-handed alone: run, unless their child is there.
+     Children and the badly hurt always run. Flags off = the old nerve rule.
+   - *Alarm calls*: whoever sees a threat first shouts (at most once per 2 game minutes): everyone within 30 m hears it,
+     sleepers within 12 m wake. Those who would fight come (up to 35 m away), the others take cover. A roof with the
+     threat under it is no shelter; a fleeing person who finds no spot tries wider ones before fighting back cornered
+     (before, people froze in "fleeing" next to a zombie in a hut without a door, and died).
+   - *Hunting*: a hunter stalks the animal (it notices them at half its sight until 3 m), game is searched for up to 220 m
+     and three escapes are allowed before "it got away".
+   - *Foresight*: drink and eat before the night (dusk bonus), go home to sleep when zombies walk at night, make a weapon on
+     quiet days (fear of what may come), look for a partner (single adults 18-45: the single adult they are closest to, by
+     talks and feelings; the courting rules decide; never past the population cap; players' characters are never targets).
+   - *Plans for what was asked*: a craft / build step from the LLM or the keyword net ("make a sword") is planned with GOAP
+     from what the person carries and what is anywhere on the map (people know their map: an hourly index of tiles), so a
+     sword becomes "dig ore at the rocks across town, then make it"; with no way the step fails at once with the reason
+     ("I need 1 ore, and there are no rocks anywhere I know of here"). A tool already owned is "done", not "I need stone".
+6. **Memory** (`sim/memory.ts`, flag `instinct`). Written by the engine from what happens, so everyone has it without AI
+   calls. Short-term: the last 10 things (a repeat is merged and counted); a memory of importance 4+ of 10 moves to long-term
+   when it leaves short-term memory, the rest is forgotten (Atkinson-Shiffrin stores). Long-term: at most 100; when full the
+   lowest retention goes (importance x 2 + log2 of times it happened - days since / (importance / 2): the Ebbinghaus curve,
+   slower for what mattered; importance 9+ is kept for life). Importance: a child born / kin dead 10, partner 9, a friend dead
+   8, saw a death 6, killed a zombie 6, bitten 5-7, a hut built 6, a hunt 4 (a bear 7), small talk 1. Recall (Park et al.
+   2023): recency (2-day half life) + importance + words in common with the question. Places: up to 4 each of water, wood,
+   stone, ore, food, game, sleep and danger (where they were hurt), merged within 8 m. Used in every LLM prompt ("Your
+   memories ... Places you know: water 20 m north; danger (I was hurt) 35 m east") and by the reactive layer (wandering keeps
+   away from where they were bitten in the last two days). Kept in `Profile.mind.mem`, saved in snapshots.
+
 ## Flags
 
-`new World(sc, { ..., ai: { goap, learn, siting } })`, all on by default (the server uses the defaults). Off = exactly the
+`new World(sc, { ..., ai: { goap, learn, siting, instinct } })`, all on by default (the server uses the defaults). Off = exactly the
 old code paths, for controlled experiments (`npm run experiment`). Learning without `goap` does nothing.
 
 ## Files
@@ -78,6 +110,11 @@ old code paths, for controlled experiments (`npm run experiment`). Learning with
 | `sim/goap.ts` | the planner (pure, no world access) |
 | `sim/colony.ts` | drives, goals, allocation, actions from the world, learning, re-planning |
 | `sim/structures.ts` | flood fills, hut shape from walls, hut audit |
+| `sim/memory.ts` | short / long-term memory, recall, places |
+| `sim/brain.ts` | `fightOrFlight`, alarm shouts, foresight bonuses (instinct) |
 | `sim/survival.ts` | camp site, hut site, wall circle, reservations, the old work list (flags off) |
 | `src/experiment.ts` | the experiment runner and its metrics |
+| `src/experiment-requests.ts` | E6: plain requests from the owner, done or why not |
+| `src/experiment-defence.ts` | E7: a zombie, three zombies, a wolf, a bear next to each person |
 | `test/ai.goap.test.ts` | planner, structures, colony and learning tests |
+| `test/ai.instinct.test.ts` | odds, alarms, memory, plans for what was asked |

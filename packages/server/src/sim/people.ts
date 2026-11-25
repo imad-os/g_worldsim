@@ -83,6 +83,8 @@ export interface Mind {
   said?: { at: number; text: string };
   /** What they are doing step by step (a command or their own decision): see sim/tasks.ts. */
   task?: import('./tasks.js').Task;
+  /** The engine's memory of their life: short-term 10, long-term 100, places (sim/memory.ts). */
+  mem?: import('./memory.js').Mem;
 }
 
 export const TRAIT_KEYS = ['strength', 'speed', 'intelligence', 'courage', 'empathy', 'metabolism'] as const;

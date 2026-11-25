@@ -14,6 +14,7 @@ import { Family } from './family.js';
 import { Survival } from './survival.js';
 import { Gear } from './gear.js';
 import { Colony } from './colony.js';
+import { Memory } from './memory.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
@@ -41,8 +42,11 @@ export interface WorldOptions {
   ai?: Partial<AiFlags>;
 }
 
-/** research/ARCHITECTURE.md: goap = goal-driven planning of work, learn = people learn what works, siting = buildings planned under constraints. */
-export interface AiFlags { goap: boolean; learn: boolean; siting: boolean }
+/**
+ * research/ARCHITECTURE.md: goap = goal-driven planning of work, learn = people learn what works, siting = buildings planned under
+ * constraints, instinct = survival instincts and fear (fight or flight by the odds, alarms, stalking game, foresight, memory of places).
+ */
+export interface AiFlags { goap: boolean; learn: boolean; siting: boolean; instinct: boolean }
 
 /** Think intervals (ticks) per LOD level: 0 = busy / in danger ... 3 = asleep. */
 
@@ -83,6 +87,8 @@ export class World {
   readonly gear: Gear;
   /** The camp's drives, goal planning (GOAP) and what people learn (sim/colony.ts). */
   readonly colony: Colony;
+  /** What each person remembers of their life and the places they know (sim/memory.ts, flag instinct). */
+  readonly memory: Memory;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
   /** Families: who is family, little ones and who looks after them (sim/family.ts). */
@@ -105,7 +111,7 @@ export class World {
   constructor(sc: Scenario, opt: WorldOptions) {
     this.sc = sc;
     this.opt = opt;
-    this.ai = { goap: true, learn: true, siting: true, ...opt.ai };
+    this.ai = { goap: true, learn: true, siting: true, instinct: true, ...opt.ai };
     this.seed = String(opt.seed ?? sc.seed);
     this.dt = 1 / opt.tickRate;
     this.rng = new Rng(this.seed + ':world');
@@ -129,6 +135,7 @@ export class World {
     this.survival = new Survival(this);
     this.gear = new Gear(this);
     this.colony = new Colony(this);
+    this.memory = new Memory(this);
     this.clans = new Clans(this);
     this.family = new Family(this);
     this.zombies = new Zombies(this);

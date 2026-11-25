@@ -1,0 +1,1217 @@
+[
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Build a hut for us",
+  "name": "Mira",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Make yourself a spear",
+  "name": "Sara",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Light a campfire",
+  "name": "Jonas",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Go and gather some wood",
+  "name": "Ravi",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Bring me stones",
+  "name": "Nora",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Make an axe",
+  "name": "Mira",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Collect food and store it",
+  "name": "Sara",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Put a door on the hut",
+  "name": "Jonas",
+  "did": "build door (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Make a sword",
+  "name": "Ravi",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Build a wall around the camp",
+  "name": "Nora",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Plant a field",
+  "name": "Mira",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Go hunting",
+  "name": "Sara",
+  "did": "go hunting (hunt)",
+  "ok": false,
+  "why": "I found no animals near here"
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Make clothes",
+  "name": "Jonas",
+  "did": "make clothes (craft)",
+  "ok": false,
+  "why": "I found no animals near here"
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Put a lamp at the camp",
+  "name": "Ravi",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-a",
+  "req": "Search the ruins",
+  "name": "Nora",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Build a hut for us",
+  "name": "Hugo",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Make yourself a spear",
+  "name": "Ivan",
+  "did": "make a spear (craft)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Light a campfire",
+  "name": "Rayan",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Go and gather some wood",
+  "name": "Amina",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Bring me stones",
+  "name": "Jonas",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Make an axe",
+  "name": "Hugo",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Collect food and store it",
+  "name": "Ivan",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Put a door on the hut",
+  "name": "Rayan",
+  "did": "build door (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Make a sword",
+  "name": "Amina",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Build a wall around the camp",
+  "name": "Jonas",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Plant a field",
+  "name": "Hugo",
+  "did": "plant a field (farm)",
+  "ok": false,
+  "why": "the ground there is taken"
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Go hunting",
+  "name": "Ivan",
+  "did": "go hunting (hunt)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Make clothes",
+  "name": "Rayan",
+  "did": "make clothes (craft)",
+  "ok": false,
+  "why": "I found no animals near here"
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Put a lamp at the camp",
+  "name": "Amina",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-b",
+  "req": "Search the ruins",
+  "name": "Jonas",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Build a hut for us",
+  "name": "Yusuf",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Make yourself a spear",
+  "name": "Nadia",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Light a campfire",
+  "name": "Noah",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Go and gather some wood",
+  "name": "Vera",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Bring me stones",
+  "name": "Theo",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Make an axe",
+  "name": "Yusuf",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Collect food and store it",
+  "name": "Nadia",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Put a door on the hut",
+  "name": "Noah",
+  "did": "build door (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Make a sword",
+  "name": "Vera",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Build a wall around the camp",
+  "name": "Theo",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Plant a field",
+  "name": "Yusuf",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Go hunting",
+  "name": "Nadia",
+  "did": "go hunting (hunt)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Make clothes",
+  "name": "Noah",
+  "did": "make clothes (craft)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Put a lamp at the camp",
+  "name": "Vera",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "old",
+  "seed": "req-c",
+  "req": "Search the ruins",
+  "name": "Theo",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Build a hut for us",
+  "name": "Mira",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Make yourself a spear",
+  "name": "Sara",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Light a campfire",
+  "name": "Jonas",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Go and gather some wood",
+  "name": "Ravi",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Bring me stones",
+  "name": "Nora",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Make an axe",
+  "name": "Mira",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Collect food and store it",
+  "name": "Sara",
+  "did": "collect food and store it (collect > store)",
+  "ok": false,
+  "why": "I could not find a way there"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Put a door on the hut",
+  "name": "Jonas",
+  "did": "build door (build)",
+  "ok": false,
+  "why": "there is no doorway or gate that needs a door"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Make a sword",
+  "name": "Ravi",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Build a wall around the camp",
+  "name": "Nora",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Plant a field",
+  "name": "Mira",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Go hunting",
+  "name": "Sara",
+  "did": "go hunting (hunt)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Make clothes",
+  "name": "Jonas",
+  "did": "make clothes (craft)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Put a lamp at the camp",
+  "name": "Ravi",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-a",
+  "req": "Search the ruins",
+  "name": "Nora",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Build a hut for us",
+  "name": "Hugo",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Make yourself a spear",
+  "name": "Ivan",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Light a campfire",
+  "name": "Rayan",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Go and gather some wood",
+  "name": "Amina",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Bring me stones",
+  "name": "Jonas",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Make an axe",
+  "name": "Hugo",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Collect food and store it",
+  "name": "Ivan",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Put a door on the hut",
+  "name": "Rayan",
+  "did": "build door (build)",
+  "ok": false,
+  "why": "there is no doorway or gate that needs a door"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Make a sword",
+  "name": "Amina",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Build a wall around the camp",
+  "name": "Jonas",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Plant a field",
+  "name": "Hugo",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Go hunting",
+  "name": "Ivan",
+  "did": "go hunting (hunt)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Make clothes",
+  "name": "Rayan",
+  "did": "make clothes (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Put a lamp at the camp",
+  "name": "Amina",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-b",
+  "req": "Search the ruins",
+  "name": "Jonas",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Build a hut for us",
+  "name": "Yusuf",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Make yourself a spear",
+  "name": "Nadia",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Light a campfire",
+  "name": "Noah",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Go and gather some wood",
+  "name": "Vera",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Bring me stones",
+  "name": "Theo",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Make an axe",
+  "name": "Yusuf",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Collect food and store it",
+  "name": "Nadia",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Put a door on the hut",
+  "name": "Noah",
+  "did": "build door (build)",
+  "ok": false,
+  "why": "there is no doorway or gate that needs a door"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Make a sword",
+  "name": "Vera",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Build a wall around the camp",
+  "name": "Theo",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Plant a field",
+  "name": "Yusuf",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Go hunting",
+  "name": "Nadia",
+  "did": "go hunting (hunt)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Make clothes",
+  "name": "Noah",
+  "did": "make clothes (craft)",
+  "ok": false,
+  "why": "it got away"
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Put a lamp at the camp",
+  "name": "Vera",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "goap+learn+siting",
+  "seed": "req-c",
+  "req": "Search the ruins",
+  "name": "Theo",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Build a hut for us",
+  "name": "Mira",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Make yourself a spear",
+  "name": "Sara",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Light a campfire",
+  "name": "Jonas",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Go and gather some wood",
+  "name": "Ravi",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Bring me stones",
+  "name": "Nora",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Make an axe",
+  "name": "Mira",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Collect food and store it",
+  "name": "Sara",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Put a door on the hut",
+  "name": "Jonas",
+  "did": "build door (build)",
+  "ok": false,
+  "why": "there is no doorway or gate that needs a door"
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Make a sword",
+  "name": "Ravi",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Build a wall around the camp",
+  "name": "Nora",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Plant a field",
+  "name": "Mira",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Go hunting",
+  "name": "Sara",
+  "did": "go hunting (hunt)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Make clothes",
+  "name": "Jonas",
+  "did": "make clothes (craft)",
+  "ok": false,
+  "why": "I found no animals near here"
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Put a lamp at the camp",
+  "name": "Ravi",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-a",
+  "req": "Search the ruins",
+  "name": "Nora",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Build a hut for us",
+  "name": "Hugo",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Make yourself a spear",
+  "name": "Ivan",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Light a campfire",
+  "name": "Rayan",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Go and gather some wood",
+  "name": "Amina",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Bring me stones",
+  "name": "Jonas",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Make an axe",
+  "name": "Hugo",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Collect food and store it",
+  "name": "Ivan",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Put a door on the hut",
+  "name": "Rayan",
+  "did": "build door (build)",
+  "ok": false,
+  "why": "there is no doorway or gate that needs a door"
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Make a sword",
+  "name": "Amina",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Build a wall around the camp",
+  "name": "Jonas",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Plant a field",
+  "name": "Hugo",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Go hunting",
+  "name": "Ivan",
+  "did": "go hunting (hunt)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Make clothes",
+  "name": "Rayan",
+  "did": "make clothes (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Put a lamp at the camp",
+  "name": "Amina",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-b",
+  "req": "Search the ruins",
+  "name": "Jonas",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Build a hut for us",
+  "name": "Yusuf",
+  "did": "build a hut (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Make yourself a spear",
+  "name": "Nadia",
+  "did": "make a spear (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Light a campfire",
+  "name": "Noah",
+  "did": "make a campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Go and gather some wood",
+  "name": "Vera",
+  "did": "gather wood (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Bring me stones",
+  "name": "Theo",
+  "did": "gather stone (gather)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Make an axe",
+  "name": "Yusuf",
+  "did": "make an axe (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Collect food and store it",
+  "name": "Nadia",
+  "did": "collect food and store it (collect > store)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Put a door on the hut",
+  "name": "Noah",
+  "did": "build door (build)",
+  "ok": false,
+  "why": "there is no doorway or gate that needs a door"
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Make a sword",
+  "name": "Vera",
+  "did": "make sword (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Build a wall around the camp",
+  "name": "Theo",
+  "did": "build campfire (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Plant a field",
+  "name": "Yusuf",
+  "did": "plant a field (farm)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Go hunting",
+  "name": "Nadia",
+  "did": "go hunting (hunt)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Make clothes",
+  "name": "Noah",
+  "did": "make clothes (craft)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Put a lamp at the camp",
+  "name": "Vera",
+  "did": "build lamp (build)",
+  "ok": true,
+  "why": ""
+ },
+ {
+  "arm": "new",
+  "seed": "req-c",
+  "req": "Search the ruins",
+  "name": "Theo",
+  "did": "search the ruins (loot)",
+  "ok": true,
+  "why": ""
+ }
+]

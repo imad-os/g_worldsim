@@ -418,3 +418,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   regrow on stumps + seed next to trees (~3 % of the gap / h); rocks capped (woods 60 / town 12), one surfaces ~every 7 h out of sight (25 m).
   Never in the camp wall circle, homes, door aprons, roads, near portals. Rocks are hard: 15 damage a blow (6 blows), stone 60 %, ore 10 % a blow;
   agents' `mine` job 240 s, players 1.6 s between blows. New worlds: 18 rock clusters in the woods, 5 in town. Test homes.test.ts.
+
+## Local AI: instincts and memory (imad 2026-11-25)
+- **Instinct flag (imad 2026-11-25: "people don't defend themselves", "say they'll do it but stand", "objectives fail", memory
+  100 / 10, places)**: `Brain.fightOrFlight` (hp / dps odds with friends within 14 m, courage, kin x1.6), alarm shouts (30 m,
+  wake within 12 m, `alarm` event), flee never stops in a hut with the threat inside; hunters stalk (half sight), game up to
+  220 m, 3 escapes; dusk drink / eat, home at night when zombies walk, weapon on quiet days, `family` goal (court the closest
+  single adult, never players). Craft / build steps from chats are GOAP-planned (`Colony.planTo`, map-wide tile index
+  `Survival.findTile`) or fail with the real reason. `sim/memory.ts` (`w.memory`, `Profile.mind.mem`: short 10, long 100,
+  places 4 per kind; `story(i)` in every prompt). Experiments: `experiment-requests.js` (E6), `experiment-defence.js` (E7);
+  the harnesses call `w.land.setup()` like the server. The long-term-plan strictness question: imad said skip for now.

@@ -1,0 +1,12 @@
+{"mode":"zombie","arm":"old","trials":15,"fought":12,"fled":4,"noReaction":0,"died":1,"hpLostAvg":32,"foesKilled":"11/15","helpersAvg":0.53,"alarms":0}
+{"mode":"zombie","arm":"goap+learn+siting","trials":15,"fought":15,"fled":0,"noReaction":0,"died":0,"hpLostAvg":24,"foesKilled":"15/15","helpersAvg":0.47,"alarms":0}
+{"mode":"zombie","arm":"new","trials":15,"fought":15,"fled":0,"noReaction":0,"died":0,"hpLostAvg":29,"foesKilled":"15/15","helpersAvg":0.27,"alarms":15}
+{"mode":"horde","arm":"old","trials":15,"fought":12,"fled":12,"noReaction":0,"died":2,"hpLostAvg":55,"foesKilled":"18/45","helpersAvg":0.93,"alarms":0}
+{"mode":"horde","arm":"goap+learn+siting","trials":15,"fought":15,"fled":9,"noReaction":0,"died":9,"hpLostAvg":73,"foesKilled":"23/45","helpersAvg":0.53,"alarms":0}
+{"mode":"horde","arm":"new","trials":15,"fought":11,"fled":13,"noReaction":0,"died":2,"hpLostAvg":32,"foesKilled":"18/45","helpersAvg":0.67,"alarms":30}
+{"mode":"wolf","arm":"old","trials":15,"fought":12,"fled":5,"noReaction":0,"died":2,"hpLostAvg":28,"foesKilled":"12/15","helpersAvg":0.07,"alarms":0}
+{"mode":"wolf","arm":"goap+learn+siting","trials":15,"fought":13,"fled":0,"noReaction":2,"died":0,"hpLostAvg":10,"foesKilled":"14/15","helpersAvg":0.07,"alarms":0}
+{"mode":"wolf","arm":"new","trials":15,"fought":15,"fled":0,"noReaction":0,"died":0,"hpLostAvg":10,"foesKilled":"15/15","helpersAvg":0.27,"alarms":15}
+{"mode":"bear","arm":"old","trials":15,"fought":12,"fled":13,"noReaction":0,"died":6,"hpLostAvg":80,"foesKilled":"4/15","helpersAvg":0,"alarms":0}
+{"mode":"bear","arm":"goap+learn+siting","trials":15,"fought":14,"fled":0,"noReaction":1,"died":0,"hpLostAvg":48,"foesKilled":"14/15","helpersAvg":0,"alarms":0}
+{"mode":"bear","arm":"new","trials":15,"fought":15,"fled":0,"noReaction":0,"died":0,"hpLostAvg":44,"foesKilled":"15/15","helpersAvg":0.27,"alarms":15}

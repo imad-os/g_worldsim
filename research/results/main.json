@@ -8,77 +8,91 @@
   "born": 0,
   "deaths": {},
   "needs": {
-   "hunger": 28.3,
-   "thirst": 26.3,
-   "tired": 25.7,
-   "lonely": 22.9,
+   "hunger": 28.1,
+   "thirst": 25.2,
+   "tired": 26.5,
+   "lonely": 24.6,
    "hp": 100
   },
   "tasks": {
-   "started": 41,
-   "ok": 28,
-   "failed": 13,
-   "okRate": 0.68,
+   "started": 42,
+   "ok": 31,
+   "failed": 11,
+   "okRate": 0.74,
    "byFrom": {
-    "myself": [
-     9,
-     7
-    ],
     "leader/other": [
-     19,
-     6
+     21,
+     8
+    ],
+    "myself": [
+     10,
+     3
     ]
    },
    "reasons": {
-    "there is no fire near here": 4,
-    "there are no rocks near here": 6,
-    "build took too long": 1,
-    "it got away": 2
+    "there is no fire near here": 8,
+    "I found no animals near here": 2,
+    "there are no rocks near here": 1
    },
    "texts": {
+    "search the ruins": 4,
+    "gather firewood": 2,
     "build a hut to sleep in": 3,
-    "make a campfire for the night": 4,
-    "keep the fire going": 6,
-    "plant a field": 4,
-    "make an axe": 2,
-    "build the wall round the camp": 8,
-    "collect food and store it": 3,
-    "go hunting": 2,
-    "put a door on a hut": 6,
+    "make a campfire for the night": 5,
+    "keep the fire going": 8,
+    "make an axe": 3,
+    "put a door on a hut": 3,
+    "collect food and store it": 2,
+    "plant a field": 3,
     "put a bed in a hut": 2,
-    "make clothes": 1
+    "build the wall round the camp": 4,
+    "go hunting": 1,
+    "put food in the store": 1,
+    "put a lamp at the camp": 1
    }
   },
-  "loops": 2,
+  "loops": 3,
   "built": {
    "hut": 3,
-   "campfire": 4,
-   "field": 4,
-   "palisade": 2,
+   "campfire": 5,
    "crate": 1,
-   "stonewall": 5
+   "door": 3,
+   "field": 3,
+   "palisade": 3,
+   "stonewall": 1
   },
-  "gathered": 127,
+  "gathered": 112,
   "crafted": 10,
   "huts": {
    "n": 3,
-   "functional": 2,
+   "functional": 1,
    "enclosed": 3,
-   "reachable": 3,
-   "protected": 2
+   "reachable": 2,
+   "protected": 1
   },
   "wall": {
-   "up": 7,
-   "left": 19
+   "up": 4,
+   "left": 21
   },
-  "fireHours": 35,
-  "stock": 9,
-  "idle": 0.8,
-  "talks": 6,
+  "fireHours": 30,
+  "stock": 11,
+  "idle": 0.83,
+  "talks": 7,
   "partners": 0,
-  "msPerTick": 0.0703,
-  "p95": 0.1078,
-  "searchesPerHour": 25
+  "msPerTick": 0.0836,
+  "p95": 0.1421,
+  "searchesPerHour": 25,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 0,
+   "long": 0,
+   "places": 0
+  },
+  "snapshotKB": 22
  },
  {
   "arm": "old",
@@ -89,58 +103,61 @@
   "born": 0,
   "deaths": {},
   "needs": {
-   "hunger": 29.5,
-   "thirst": 27.6,
-   "tired": 26,
-   "lonely": 20.3,
-   "hp": 100
+   "hunger": 27.2,
+   "thirst": 25.9,
+   "tired": 27.5,
+   "lonely": 18.7,
+   "hp": 99.8
   },
   "tasks": {
-   "started": 53,
-   "ok": 33,
-   "failed": 20,
-   "okRate": 0.62,
+   "started": 48,
+   "ok": 36,
+   "failed": 12,
+   "okRate": 0.75,
    "byFrom": {
     "leader/other": [
-     27,
-     15
+     33,
+     10
     ],
     "myself": [
-     6,
-     5
+     3,
+     2
     ]
    },
    "reasons": {
-    "it got away": 1,
-    "there is no fire near here": 10,
-    "there are no rocks near here": 8,
-    "I had to stop": 1
+    "there is no fire near here": 7,
+    "there are no rocks near here": 2,
+    "I found no animals near here": 2,
+    "it got away": 1
    },
    "texts": {
-    "gather firewood": 3,
     "build a hut to sleep in": 3,
-    "go hunting": 1,
+    "make an axe": 2,
+    "put a door on a hut": 5,
+    "build the wall round the camp": 5,
     "plant a field": 3,
-    "build the wall round the camp": 7,
-    "make a campfire for the night": 5,
-    "keep the fire going": 13,
-    "search the ruins": 3,
-    "put a door on a hut": 7,
     "collect food and store it": 4,
-    "make an axe": 3,
-    "put a lamp at the camp": 1
+    "make a campfire for the night": 4,
+    "keep the fire going": 11,
+    "search the ruins": 1,
+    "gather firewood": 4,
+    "put a bed in a hut": 2,
+    "go hunting": 2,
+    "put food in the store": 1,
+    "make a sword": 1
    }
   },
-  "loops": 4,
+  "loops": 3,
   "built": {
    "hut": 3,
+   "door": 3,
+   "palisade": 5,
+   "crate": 1,
    "field": 3,
-   "stonewall": 7,
-   "campfire": 5,
-   "crate": 1
+   "campfire": 4
   },
-  "gathered": 126,
-  "crafted": 10,
+  "gathered": 124,
+  "crafted": 11,
   "huts": {
    "n": 3,
    "functional": 2,
@@ -149,17 +166,28 @@
    "protected": 2
   },
   "wall": {
-   "up": 7,
-   "left": 28
+   "up": 5,
+   "left": 21
   },
-  "fireHours": 42,
-  "stock": 10,
-  "idle": 0.83,
-  "talks": 6,
+  "fireHours": 43,
+  "stock": 11,
+  "idle": 0.85,
+  "talks": 8,
   "partners": 0,
-  "msPerTick": 0.0752,
-  "p95": 0.1346,
-  "searchesPerHour": 30
+  "msPerTick": 0.073,
+  "p95": 0.1203,
+  "searchesPerHour": 28,
+  "fights": 0,
+  "flees": 0,
+  "bites": 5,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 0,
+   "long": 0,
+   "places": 0
+  },
+  "snapshotKB": 22
  },
  {
   "arm": "old",
@@ -170,228 +198,59 @@
   "born": 0,
   "deaths": {},
   "needs": {
-   "hunger": 29.4,
-   "thirst": 25.3,
-   "tired": 26.1,
-   "lonely": 17.5,
-   "hp": 99.8
-  },
-  "tasks": {
-   "started": 62,
-   "ok": 41,
-   "failed": 21,
-   "okRate": 0.66,
-   "byFrom": {
-    "myself": [
-     9,
-     9
-    ],
-    "leader/other": [
-     32,
-     12
-    ]
-   },
-   "reasons": {
-    "there are no rocks near here": 10,
-    "there is no fire near here": 7,
-    "it got away": 1,
-    "someone is in the way": 3
-   },
-   "texts": {
-    "build a hut to sleep in": 3,
-    "put a door on a hut": 9,
-    "collect food and store it": 4,
-    "plant a field": 3,
-    "make a campfire for the night": 2,
-    "go hunting": 3,
-    "keep the fire going": 15,
-    "gather firewood": 3,
-    "build the wall round the camp": 9,
-    "search the ruins": 3,
-    "make an axe": 2,
-    "put a bed in a hut": 1,
-    "put food in the store": 2,
-    "put a lamp at the camp": 1,
-    "make clothes": 2
-   }
-  },
-  "loops": 6,
-  "built": {
-   "hut": 3,
-   "crate": 1,
-   "field": 3,
-   "campfire": 2,
-   "palisade": 6
-  },
-  "gathered": 109,
-  "crafted": 10,
-  "huts": {
-   "n": 3,
-   "functional": 1,
-   "enclosed": 3,
-   "reachable": 3,
-   "protected": 1
-  },
-  "wall": {
-   "up": 6,
-   "left": 31
-  },
-  "fireHours": 49,
-  "stock": 14,
-  "idle": 0.91,
-  "talks": 8,
-  "partners": 0,
-  "msPerTick": 0.0628,
-  "p95": 0.1017,
-  "searchesPerHour": 31
- },
- {
-  "arm": "old",
-  "seed": "exp-d",
-  "days": 3,
-  "agents": 5,
-  "alive": 5,
-  "born": 0,
-  "deaths": {},
-  "needs": {
-   "hunger": 28.7,
-   "thirst": 27,
-   "tired": 26.8,
-   "lonely": 22,
+   "hunger": 27.2,
+   "thirst": 25.6,
+   "tired": 27.2,
+   "lonely": 20.3,
    "hp": 100
   },
   "tasks": {
-   "started": 49,
-   "ok": 28,
-   "failed": 21,
-   "okRate": 0.57,
+   "started": 52,
+   "ok": 30,
+   "failed": 22,
+   "okRate": 0.58,
    "byFrom": {
     "leader/other": [
-     20,
-     16
+     24,
+     17
     ],
     "myself": [
-     8,
+     6,
      5
     ]
    },
    "reasons": {
-    "there is no fire near here": 8,
-    "there are no rocks near here": 10,
-    "it got away": 2,
-    "the ground there is taken": 1
-   },
-   "texts": {
-    "build a hut to sleep in": 3,
-    "go hunting": 3,
-    "make a campfire for the night": 9,
-    "keep the fire going": 8,
-    "make an axe": 3,
-    "put a door on a hut": 6,
-    "put a lamp at the camp": 4,
-    "build the wall round the camp": 2,
-    "collect food and store it": 3,
-    "plant a field": 3,
-    "gather firewood": 2,
-    "search the ruins": 1,
-    "put a bed in a hut": 1,
-    "put food in the store": 1
-   }
-  },
-  "loops": 5,
-  "built": {
-   "hut": 3,
-   "campfire": 8,
-   "stonewall": 2,
-   "crate": 1,
-   "field": 3,
-   "bed": 1
-  },
-  "gathered": 129,
-  "crafted": 6,
-  "huts": {
-   "n": 3,
-   "functional": 2,
-   "enclosed": 3,
-   "reachable": 2,
-   "protected": 2
-  },
-  "wall": {
-   "up": 2,
-   "left": 28
-  },
-  "fireHours": 30,
-  "stock": 15,
-  "idle": 0.84,
-  "talks": 8,
-  "partners": 0,
-  "msPerTick": 0.0668,
-  "p95": 0.1197,
-  "searchesPerHour": 29
- },
- {
-  "arm": "old",
-  "seed": "exp-e",
-  "days": 3,
-  "agents": 5,
-  "alive": 5,
-  "born": 0,
-  "deaths": {},
-  "needs": {
-   "hunger": 28.7,
-   "thirst": 25.9,
-   "tired": 26.4,
-   "lonely": 20.5,
-   "hp": 100
-  },
-  "tasks": {
-   "started": 50,
-   "ok": 30,
-   "failed": 20,
-   "okRate": 0.6,
-   "byFrom": {
-    "leader/other": [
-     26,
-     13
-    ],
-    "myself": [
-     4,
-     7
-    ]
-   },
-   "reasons": {
-    "there is no fire near here": 10,
-    "there are no rocks near here": 8,
-    "I found no animals near here": 1,
-    "someone is in the way": 1
+    "it got away": 3,
+    "I found no animals near here": 2,
+    "there is no fire near here": 7,
+    "there are no rocks near here": 10
    },
    "texts": {
     "make an axe": 2,
+    "go hunting": 2,
     "build a hut to sleep in": 3,
-    "search the ruins": 4,
-    "collect food and store it": 4,
     "make a campfire for the night": 3,
-    "keep the fire going": 13,
-    "put a door on a hut": 7,
-    "build the wall round the camp": 5,
-    "go hunting": 1,
+    "put a bed in a hut": 4,
     "plant a field": 3,
-    "put food in the store": 2,
-    "put a bed in a hut": 1,
-    "gather firewood": 1,
-    "put a lamp at the camp": 1
+    "collect food and store it": 3,
+    "keep the fire going": 13,
+    "put a door on a hut": 8,
+    "build the wall round the camp": 5,
+    "gather firewood": 4,
+    "put a lamp at the camp": 2
    }
   },
-  "loops": 9,
+  "loops": 8,
   "built": {
    "hut": 3,
-   "crate": 1,
    "campfire": 3,
-   "palisade": 4,
-   "field": 3
+   "crate": 1,
+   "field": 3,
+   "palisade": 5,
+   "bed": 1
   },
-  "gathered": 85,
-  "crafted": 6,
+  "gathered": 116,
+  "crafted": 8,
   "huts": {
    "n": 3,
    "functional": 1,
@@ -400,20 +259,31 @@
    "protected": 1
   },
   "wall": {
-   "up": 4,
-   "left": 30
+   "up": 5,
+   "left": 33
   },
-  "fireHours": 42,
+  "fireHours": 51,
   "stock": 12,
-  "idle": 0.88,
+  "idle": 0.91,
   "talks": 8,
   "partners": 0,
-  "msPerTick": 0.059,
-  "p95": 0.0919,
-  "searchesPerHour": 28
+  "msPerTick": 0.0643,
+  "p95": 0.0949,
+  "searchesPerHour": 34,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 0,
+   "long": 0,
+   "places": 0
+  },
+  "snapshotKB": 23
  },
  {
-  "arm": "new",
+  "arm": "goap+learn+siting",
   "seed": "exp-a",
   "days": 3,
   "agents": 5,
@@ -421,51 +291,57 @@
   "born": 0,
   "deaths": {},
   "needs": {
-   "hunger": 26.8,
-   "thirst": 24.7,
-   "tired": 25.5,
-   "lonely": 16,
+   "hunger": 25.5,
+   "thirst": 24.9,
+   "tired": 25.4,
+   "lonely": 13,
    "hp": 100
   },
   "tasks": {
-   "started": 79,
-   "ok": 79,
-   "failed": 0,
-   "okRate": 1,
+   "started": 91,
+   "ok": 85,
+   "failed": 6,
+   "okRate": 0.93,
    "byFrom": {
     "myself": [
-     12,
+     6,
      0
     ],
     "leader/other": [
-     67,
-     0
+     79,
+     6
     ]
    },
-   "reasons": {},
+   "reasons": {
+    "I could not find a way there": 6
+   },
    "texts": {
-    "search the ruins": 14,
+    "search the ruins": 13,
     "make an axe": 5,
     "make a campfire for the night": 1,
+    "gather firewood": 20,
     "plant a field": 3,
-    "gather firewood": 15,
     "build a hut to sleep in": 3,
-    "build the wall round the camp": 18,
+    "put a door on a hut": 7,
+    "build the wall round the camp": 16,
+    "put a lamp at the camp": 1,
     "keep the fire going": 15,
-    "collect food and store it": 5
+    "collect food and store it": 7
    }
   },
-  "loops": 0,
+  "loops": 2,
   "built": {
    "campfire": 1,
    "field": 3,
    "hut": 3,
-   "stonewall": 5,
-   "palisade": 31,
+   "door": 4,
+   "stonewall": 2,
+   "palisade": 30,
+   "lamp": 1,
    "crate": 1
   },
-  "gathered": 104,
-  "crafted": 41,
+  "gathered": 127,
+  "crafted": 42,
   "huts": {
    "n": 3,
    "functional": 3,
@@ -474,20 +350,31 @@
    "protected": 3
   },
   "wall": {
-   "up": 36,
+   "up": 31,
    "left": 0
   },
   "fireHours": 64,
   "stock": 12,
-  "idle": 0.89,
+  "idle": 0.87,
   "talks": 7,
   "partners": 0,
-  "msPerTick": 0.0684,
-  "p95": 0.1096,
-  "searchesPerHour": 32
+  "msPerTick": 0.0705,
+  "p95": 0.1094,
+  "searchesPerHour": 30,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 0,
+   "long": 0,
+   "places": 0
+  },
+  "snapshotKB": 23
  },
  {
-  "arm": "new",
+  "arm": "goap+learn+siting",
   "seed": "exp-b",
   "days": 3,
   "agents": 5,
@@ -495,56 +382,59 @@
   "born": 0,
   "deaths": {},
   "needs": {
-   "hunger": 30,
-   "thirst": 27,
-   "tired": 26.7,
-   "lonely": 14.3,
+   "hunger": 25.7,
+   "thirst": 25.6,
+   "tired": 25.7,
+   "lonely": 15.3,
    "hp": 100
   },
   "tasks": {
-   "started": 112,
-   "ok": 108,
-   "failed": 4,
-   "okRate": 0.96,
+   "started": 88,
+   "ok": 87,
+   "failed": 1,
+   "okRate": 0.99,
    "byFrom": {
     "myself": [
-     23,
-     1
+     20,
+     0
     ],
     "leader/other": [
-     85,
-     3
+     67,
+     1
     ]
    },
    "reasons": {
-    "that is gone": 1,
-    "build took too long": 1,
-    "tend took too long": 1,
-    "the fire went out": 1
+    "store took too long": 1
    },
    "texts": {
     "search the ruins": 12,
     "make an axe": 5,
     "make a campfire for the night": 1,
+    "collect food and store it": 7,
+    "gather firewood": 16,
     "plant a field": 3,
-    "gather firewood": 28,
-    "keep the fire going": 30,
-    "build a hut to sleep in": 5,
-    "collect food and store it": 6,
-    "build the wall round the camp": 22
+    "build a hut to sleep in": 3,
+    "put a door on a hut": 4,
+    "build the wall round the camp": 20,
+    "put a lamp at the camp": 1,
+    "keep the fire going": 15,
+    "put a bed in a hut": 1
    }
   },
   "loops": 0,
   "built": {
-   "campfire": 21,
+   "crate": 1,
+   "campfire": 1,
    "field": 3,
    "hut": 3,
-   "crate": 1,
-   "stonewall": 22,
-   "palisade": 22
+   "door": 4,
+   "stonewall": 6,
+   "lamp": 1,
+   "palisade": 34,
+   "bed": 1
   },
-  "gathered": 219,
-  "crafted": 49,
+  "gathered": 124,
+  "crafted": 51,
   "huts": {
    "n": 3,
    "functional": 3,
@@ -553,20 +443,31 @@
    "protected": 3
   },
   "wall": {
-   "up": 41,
+   "up": 39,
    "left": 0
   },
   "fireHours": 64,
-  "stock": 15,
-  "idle": 0.73,
-  "talks": 4,
+  "stock": 13,
+  "idle": 0.85,
+  "talks": 9,
   "partners": 0,
-  "msPerTick": 0.0732,
-  "p95": 0.1189,
-  "searchesPerHour": 26
+  "msPerTick": 0.072,
+  "p95": 0.1191,
+  "searchesPerHour": 33,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 0,
+   "long": 0,
+   "places": 0
+  },
+  "snapshotKB": 25
  },
  {
-  "arm": "new",
+  "arm": "goap+learn+siting",
   "seed": "exp-c",
   "days": 3,
   "agents": 5,
@@ -574,50 +475,56 @@
   "born": 0,
   "deaths": {},
   "needs": {
-   "hunger": 26.1,
-   "thirst": 27,
-   "tired": 26.4,
-   "lonely": 18.4,
+   "hunger": 26.7,
+   "thirst": 25.9,
+   "tired": 24.8,
+   "lonely": 14.8,
    "hp": 100
   },
   "tasks": {
-   "started": 78,
-   "ok": 78,
-   "failed": 0,
-   "okRate": 1,
+   "started": 89,
+   "ok": 88,
+   "failed": 1,
+   "okRate": 0.99,
    "byFrom": {
     "myself": [
-     6,
+     23,
      0
     ],
     "leader/other": [
-     72,
-     0
+     65,
+     1
     ]
    },
-   "reasons": {},
+   "reasons": {
+    "I found no clear ground for a fire": 1
+   },
    "texts": {
-    "search the ruins": 16,
+    "search the ruins": 17,
     "make an axe": 5,
     "make a campfire for the night": 1,
     "gather firewood": 14,
-    "plant a field": 3,
     "build a hut to sleep in": 3,
-    "keep the fire going": 15,
-    "collect food and store it": 6,
-    "build the wall round the camp": 15
+    "plant a field": 3,
+    "put a door on a hut": 4,
+    "build the wall round the camp": 11,
+    "keep the fire going": 26,
+    "put a lamp at the camp": 1,
+    "collect food and store it": 4
    }
   },
   "loops": 0,
   "built": {
-   "campfire": 1,
-   "field": 3,
+   "campfire": 12,
    "hut": 3,
-   "crate": 1,
-   "palisade": 30
+   "field": 3,
+   "door": 4,
+   "palisade": 22,
+   "lamp": 1,
+   "crate": 1
   },
-  "gathered": 108,
-  "crafted": 35,
+  "gathered": 162,
+  "crafted": 32,
   "huts": {
    "n": 3,
    "functional": 3,
@@ -626,71 +533,91 @@
    "protected": 3
   },
   "wall": {
-   "up": 29,
+   "up": 20,
    "left": 0
   },
   "fireHours": 64,
   "stock": 11,
-  "idle": 0.83,
-  "talks": 7,
+  "idle": 0.78,
+  "talks": 5,
   "partners": 0,
-  "msPerTick": 0.0781,
-  "p95": 0.1446,
-  "searchesPerHour": 32
+  "msPerTick": 0.077,
+  "p95": 0.1211,
+  "searchesPerHour": 30,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 0,
+   "long": 0,
+   "places": 0
+  },
+  "snapshotKB": 23
  },
  {
   "arm": "new",
-  "seed": "exp-d",
+  "seed": "exp-a",
   "days": 3,
   "agents": 5,
-  "alive": 5,
-  "born": 0,
+  "alive": 6,
+  "born": 1,
   "deaths": {},
   "needs": {
-   "hunger": 26.5,
-   "thirst": 26.8,
-   "tired": 27.8,
-   "lonely": 15.1,
+   "hunger": 26,
+   "thirst": 24.5,
+   "tired": 27.4,
+   "lonely": 16.1,
    "hp": 100
   },
   "tasks": {
-   "started": 86,
-   "ok": 86,
-   "failed": 0,
-   "okRate": 1,
+   "started": 104,
+   "ok": 103,
+   "failed": 1,
+   "okRate": 0.99,
    "byFrom": {
     "myself": [
-     15,
+     10,
      0
     ],
     "leader/other": [
-     71,
-     0
+     93,
+     1
     ]
    },
-   "reasons": {},
+   "reasons": {
+    "someone is in the way": 1
+   },
    "texts": {
-    "search the ruins": 16,
+    "get closer to Theo": 1,
+    "search the ruins": 13,
     "make an axe": 5,
     "make a campfire for the night": 1,
-    "gather firewood": 17,
+    "gather firewood": 21,
     "plant a field": 3,
     "build a hut to sleep in": 3,
-    "keep the fire going": 16,
+    "put a door on a hut": 7,
+    "build the wall round the camp": 23,
+    "put a lamp at the camp": 1,
+    "keep the fire going": 18,
     "collect food and store it": 6,
-    "build the wall round the camp": 19
+    "feed Noah": 2
    }
   },
   "loops": 0,
   "built": {
-   "campfire": 2,
+   "campfire": 4,
    "field": 3,
    "hut": 3,
-   "crate": 1,
-   "palisade": 38
+   "door": 7,
+   "stonewall": 6,
+   "palisade": 39,
+   "lamp": 1,
+   "crate": 1
   },
-  "gathered": 110,
-  "crafted": 43,
+  "gathered": 146,
+  "crafted": 58,
   "huts": {
    "n": 3,
    "functional": 3,
@@ -699,92 +626,221 @@
    "protected": 3
   },
   "wall": {
-   "up": 37,
+   "up": 45,
    "left": 0
   },
   "fireHours": 64,
   "stock": 13,
-  "idle": 0.85,
-  "talks": 8,
-  "partners": 0,
-  "msPerTick": 0.0689,
-  "p95": 0.115,
-  "searchesPerHour": 29
+  "idle": 0.8,
+  "talks": 7,
+  "partners": 1,
+  "msPerTick": 0.0749,
+  "p95": 0.1142,
+  "searchesPerHour": 32,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 9.2,
+   "long": 8.7,
+   "places": 14.5
+  },
+  "snapshotKB": 33
  },
  {
   "arm": "new",
-  "seed": "exp-e",
+  "seed": "exp-b",
   "days": 3,
   "agents": 5,
-  "alive": 5,
-  "born": 0,
+  "alive": 7,
+  "born": 2,
   "deaths": {},
   "needs": {
-   "hunger": 29,
+   "hunger": 26,
+   "thirst": 25.9,
+   "tired": 27.3,
+   "lonely": 17.7,
+   "hp": 100
+  },
+  "tasks": {
+   "started": 89,
+   "ok": 86,
+   "failed": 3,
+   "okRate": 0.97,
+   "byFrom": {
+    "myself": [
+     23,
+     2
+    ],
+    "leader/other": [
+     63,
+     1
+    ]
+   },
+   "reasons": {
+    "Jonas said \"…\"": 2,
+    "Rosa said \"…\"": 1
+   },
+   "texts": {
+    "get closer to Jonas": 2,
+    "make an axe": 5,
+    "search the ruins": 12,
+    "get closer to Rosa": 2,
+    "make a campfire for the night": 1,
+    "collect food and store it": 7,
+    "gather firewood": 15,
+    "plant a field": 4,
+    "build a hut to sleep in": 4,
+    "put a door on a hut": 5,
+    "keep the fire going": 15,
+    "put a lamp at the camp": 1,
+    "build the wall round the camp": 14,
+    "feed Elias": 2
+   }
+  },
+  "loops": 0,
+  "built": {
+   "crate": 1,
+   "campfire": 1,
+   "field": 4,
+   "hut": 4,
+   "door": 5,
+   "lamp": 1,
+   "palisade": 28
+  },
+  "gathered": 123,
+  "crafted": 39,
+  "huts": {
+   "n": 4,
+   "functional": 4,
+   "enclosed": 4,
+   "reachable": 4,
+   "protected": 4
+  },
+  "wall": {
+   "up": 27,
+   "left": 0
+  },
+  "fireHours": 64,
+  "stock": 16,
+  "idle": 0.87,
+  "talks": 7,
+  "partners": 1,
+  "msPerTick": 0.0699,
+  "p95": 0.1031,
+  "searchesPerHour": 33,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 7.6,
+   "long": 5.6,
+   "places": 10.7
+  },
+  "snapshotKB": 31
+ },
+ {
+  "arm": "new",
+  "seed": "exp-c",
+  "days": 3,
+  "agents": 5,
+  "alive": 6,
+  "born": 1,
+  "deaths": {},
+  "needs": {
+   "hunger": 25.8,
    "thirst": 24.9,
-   "tired": 25.2,
-   "lonely": 17,
+   "tired": 26.4,
+   "lonely": 19.1,
    "hp": 100
   },
   "tasks": {
    "started": 109,
-   "ok": 107,
-   "failed": 2,
-   "okRate": 0.98,
+   "ok": 102,
+   "failed": 7,
+   "okRate": 0.94,
    "byFrom": {
     "myself": [
-     16,
-     0
+     34,
+     5
     ],
     "leader/other": [
-     91,
+     68,
      2
     ]
    },
    "reasons": {
-    "someone is in the way": 2
+    "I already have a partner": 1,
+    "Rayan said \"…\"": 2,
+    "Asma already has a partner": 1,
+    "someone is in the way": 3
    },
    "texts": {
-    "search the ruins": 13,
+    "get closer to Hamza": 1,
+    "get closer to Mira": 2,
+    "search the ruins": 16,
+    "get closer to Rayan": 2,
+    "get closer to Asma": 1,
+    "make a weapon": 1,
     "make an axe": 5,
     "plant a field": 3,
-    "make a campfire for the night": 1,
-    "gather firewood": 31,
     "build a hut to sleep in": 3,
-    "collect food and store it": 5,
-    "build the wall round the camp": 33,
-    "keep the fire going": 15
+    "put a door on a hut": 4,
+    "collect food and store it": 6,
+    "build the wall round the camp": 23,
+    "make a campfire for the night": 1,
+    "gather firewood": 17,
+    "put a lamp at the camp": 1,
+    "keep the fire going": 21,
+    "feed Zoe": 2
    }
   },
   "loops": 0,
   "built": {
    "field": 3,
-   "campfire": 1,
    "hut": 3,
+   "door": 4,
    "crate": 1,
-   "palisade": 60,
-   "stonewall": 2
+   "stonewall": 4,
+   "campfire": 7,
+   "lamp": 1,
+   "palisade": 39
   },
-  "gathered": 143,
-  "crafted": 67,
+  "gathered": 136,
+  "crafted": 54,
   "huts": {
    "n": 3,
-   "functional": 2,
+   "functional": 3,
    "enclosed": 3,
    "reachable": 3,
-   "protected": 2
+   "protected": 3
   },
   "wall": {
-   "up": 61,
+   "up": 42,
    "left": 0
   },
   "fireHours": 64,
-  "stock": 12,
-  "idle": 0.89,
-  "talks": 4,
-  "partners": 0,
-  "msPerTick": 0.0678,
-  "p95": 0.1142,
-  "searchesPerHour": 25
+  "stock": 16,
+  "idle": 0.85,
+  "talks": 3,
+  "partners": 2,
+  "msPerTick": 0.0699,
+  "p95": 0.0993,
+  "searchesPerHour": 34,
+  "fights": 0,
+  "flees": 0,
+  "bites": 0,
+  "zombiesKilled": 0,
+  "alarms": 0,
+  "memory": {
+   "short": 8.7,
+   "long": 6.5,
+   "places": 13.7
+  },
+  "snapshotKB": 32
  }
 ]

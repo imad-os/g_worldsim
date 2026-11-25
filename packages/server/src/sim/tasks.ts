@@ -57,7 +57,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   if (/weapon|arme|arma|سلاح/.test(q)) return 'spear';
   return kind === 'craft' ? 'axe' : 'campfire';
 }
-export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
+export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
@@ -314,7 +314,7 @@ export class Tasks {
           const k = w.animals.kills.get(id);
           s.got = false;
           if (k && k[0] >= (s.t0 ?? 0)) { if (--s.n0! <= 0) return true; }
-          else if ((s.fails = (s.fails ?? 0) + 1) >= 2) return 'it got away';
+          else if ((s.fails = (s.fails ?? 0) + 1) >= (w.ai.instinct ? 3 : 2)) return 'it got away';
         }
         const r = w.survival.hunt(i, s.what ?? '');
         if (r !== true) return r;
@@ -345,6 +345,15 @@ export class Tasks {
         if (first) {
           s.phase = 1;
           const miss = (sv.inv(i)[what] ?? 0) > 0 ? [] : sv.missing(i, what);
+          // With planning on, the way to get there is planned from what they carry and what is around (sim/colony.ts):
+          // ore from the rocks across town, leather from a hunt, a spear first for a dangerous animal. No way = an honest why.
+          if (miss.length && w.ai.goap && !s.planned && t.steps.length < 12) {
+            const p = w.colony.planTo(i, s.do === 'craft' ? 'craft' : 'build', what);
+            if (typeof p === 'string') return p;
+            s.planned = true;
+            const last = p[p.length - 1], before = (last && last.do === s.do && last.what === what ? p.slice(0, -1) : p).map((x) => ({ ...x }));
+            if (before.length) { t.steps.splice(t.k, 0, ...before); s.t0 = undefined; return false; }
+          }
           if (miss.length && t.steps.length < 12) { // get the materials first
             t.steps.splice(t.k, 0, ...miss.map(([res, n]) => ({ do: 'gather', what: res, times: n } as Step)));
             s.t0 = undefined; // its own time starts when it comes back to it

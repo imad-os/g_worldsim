@@ -27,7 +27,8 @@ export class Animals {
   private readonly cool = new Map<number, number>();
   private readonly wander = new Map<number, number>();
   /** Who last hurt an animal (its id -> the hunter's entity id): boars and bears go for them. */
-  private readonly angry = new Map<number, number>();
+  /** Animals that were hurt (or set on someone): entity id -> who they go for. */
+  readonly angry = new Map<number, number>();
   /** Kills: hunter id -> [game second, animal type]. */
   readonly kills = new Map<number, [number, number]>();
   private nextHour = 0;
@@ -181,7 +182,9 @@ export class Animals {
       for (let j = 0; j < e.hi; j++) {
         if ((e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.map[j] !== m) continue;
         if (e.kind[j] === Kind.Player && w.away.has(e.id(j))) continue;
-        const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
+        let d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
+        // A hunter stalking this animal (instinct): low and quiet, downwind, seen at half the distance until close.
+        if (w.ai.instinct && e.kind[j] === Kind.Agent && w.brain.huntOf(j) === id && d > 3) d *= 2;
         if (d < pd) { pd = d; p = j; }
       }
       const foe = this.angry.has(id) ? e.slot(this.angry.get(id)!) : -1;

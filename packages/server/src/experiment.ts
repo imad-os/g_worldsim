@@ -5,6 +5,7 @@ import { Act, Kind } from '@worldsim/protocol';
 import { loadScenario } from './sim/scenario.js';
 import { World, type AiFlags } from './sim/world.js';
 import { auditHut, flood, walkableNear } from './sim/structures.js';
+import { serialize } from './persist/snapshot.js';
 
 /**
  * Repeatable experiments (research/EXPERIMENTS.md): run the world headless for some game days with fixed seeds, with the
@@ -21,7 +22,7 @@ const DAYS = Number(arg('days', '3')), SEEDS = arg('seeds', 'exp-a,exp-b,exp-c')
 const ZOMBIES = Number(arg('zombies', '0')), ARMS = arg('arms', 'old,new').split(','), OUT = arg('out', '');
 const CLOCK = 30, RATE = 20;
 
-const ALL: (keyof AiFlags)[] = ['goap', 'learn', 'siting'];
+const ALL: (keyof AiFlags)[] = ['goap', 'learn', 'siting', 'instinct'];
 function flagsOf(arm: string): AiFlags {
   const on = arm === 'new' ? ALL : arm === 'old' ? [] : arm.split('+');
   const f = {} as AiFlags;
@@ -39,6 +40,8 @@ export interface RunResult {
   wall: { up: number; left: number }; fireHours: number; stock: number;
   idle: number; talks: number; partners: number;
   msPerTick: number; p95: number; searchesPerHour: number;
+  fights: number; flees: number; bites: number; zombiesKilled: number; alarms: number;
+  memory: { short: number; long: number; places: number }; snapshotKB: number;
 }
 
 export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS, zombies = ZOMBIES): RunResult {
@@ -46,10 +49,12 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
   sc.agents.count = agents;
   const w = new World(sc, { tickRate: RATE, clockScale: CLOCK, capacity: 2048, seed, ai: flagsOf(arm) });
   w.populate();
+  w.land.setup(); // as the server does at start: the ring of trees, roads, wrecks, rocks
   w.zombies.perNight = zombies;
   const deaths: Record<string, number> = {}, built: Record<string, number> = {}, reasons: Record<string, number> = {};
   const byFrom: Record<string, [number, number]> = {}, texts: Record<string, number> = {};
   let ok = 0, failed = 0, gathered = 0, crafted = 0, talks = 0, partners = 0, born = 0, loops = 0;
+  let fights = 0, flees = 0, bites = 0, zombiesKilled = 0, alarms = 0;
   const lastFail = new Map<string, number>();
   w.listeners.push((ev) => {
     const d = ev.data;
@@ -61,6 +66,11 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
       case 'talk': talks++; break;
       case 'partner': partners++; break;
       case 'birth': born++; break;
+      case 'fight': fights++; break;
+      case 'flee': flees++; break;
+      case 'bitten': bites++; break;
+      case 'alarm': alarms++; break;
+      case 'zombie': if (d.how === 'killed') zombiesKilled++; break;
       case 'task': {
         texts[String(d.text)] = (texts[String(d.text)] ?? 0) + 1;
         const from = String(w.profiles.get(Number(d.id))?.goals?.at(-1)?.from ?? '?') === 'myself' ? 'myself' : 'leader/other';
@@ -117,7 +127,14 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
     stock += w.survival.stash[m]?.food ?? 0;
   }
   let alive = 0;
-  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) alive++;
+  const mem = { short: 0, long: 0, places: 0 };
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) {
+    alive++;
+    const m = w.profileOf(i)?.mind?.mem;
+    if (m) { mem.short += m.s.length; mem.long += m.l.length; mem.places += Object.values(m.p).reduce((s, x) => s + (x?.length ?? 0), 0); }
+  }
+  for (const k of Object.keys(mem) as (keyof typeof mem)[]) mem[k] = Math.round((mem[k] / Math.max(1, alive)) * 10) / 10;
+  const snapshotKB = Math.round(serialize(w, false).length / 1024);
   times.sort();
   const total = times.reduce((s, x) => s + x, 0);
   const n = Math.max(1, samples);
@@ -129,6 +146,7 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
     loops, built, gathered, crafted, huts, wall, fireHours, stock,
     idle: Math.round((idle / Math.max(1, awake)) * 100) / 100, talks, partners,
     msPerTick: +(total / ticks).toFixed(4), p95: +times[Math.floor(ticks * 0.95)]!.toFixed(4), searchesPerHour: Math.round(searches / (days * 24)),
+    fights, flees, bites, zombiesKilled, alarms, memory: mem, snapshotKB,
   };
 }
 
@@ -145,6 +163,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     ['okRate', (r) => r.tasks.okRate], ['loops', (r) => r.loops], ['huts', (r) => r.huts.n], ['hutsFunctional', (r) => r.huts.functional],
     ['wallUp', (r) => r.wall.up], ['fireHours', (r) => r.fireHours], ['gathered', (r) => r.gathered], ['crafted', (r) => r.crafted], ['stock', (r) => r.stock],
     ['hunger', (r) => r.needs.hunger], ['thirst', (r) => r.needs.thirst], ['idle', (r) => r.idle], ['talks', (r) => r.talks], ['lonely', (r) => r.needs.lonely], ['msPerTick', (r) => r.msPerTick], ['searches/h', (r) => r.searchesPerHour],
+    ['partners', (r) => r.partners], ['born', (r) => r.born], ['bites', (r) => r.bites], ['zombiesKilled', (r) => r.zombiesKilled], ['alarms', (r) => r.alarms],
+    ['memShort', (r) => r.memory.short], ['memLong', (r) => r.memory.long], ['places', (r) => r.memory.places], ['snapshotKB', (r) => r.snapshotKB],
   ];
   const rows = ARMS.map((arm) => {
     const rs = all.filter((r) => r.arm === arm);

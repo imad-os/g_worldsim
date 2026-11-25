@@ -30,7 +30,8 @@ export type StashKey = 'food' | Res;
 export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number; [k: string]: number }
 const HOUR = 3600;
 /** A rock (90 hp) takes 6 blows; each gives stone 60 % of the time and ore 10 %. */
-const ROCK_HIT = 15, ORE_CHANCE = 0.1;
+const ROCK_HIT = 15;
+export const ORE_CHANCE = 0.1, ROCK_STONE = 0.6;
 /** Rocks a map keeps at most (regrowth stops there): rare. */
 const ROCKS_WILD = 60, ROCKS_TOWN = 12;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
@@ -302,10 +303,10 @@ export class Survival {
   private take1(i: number, m: number, tx: number, ty: number, t: number): Record<string, number> {
     const w = this.w, tm = w.maps[m]!.tiles, got: Record<string, number> = {};
     if (t === this.T.tree) { tm.damage(tx, ty, 20); got.wood = (this.inv(i).axe ?? 0) > 0 ? 2 : 1; }
-    else if (t === this.T.rock) { tm.damage(tx, ty, ROCK_HIT); if (w.rng.chance(0.6)) got.stone = 1; if (w.rng.chance(ORE_CHANCE)) got.ore = 1; } // hard and poor (imad 2026-11-25: rocks and ore are rare and hard)
+    else if (t === this.T.rock) { tm.damage(tx, ty, ROCK_HIT); if (w.rng.chance(ROCK_STONE)) got.stone = 1; if (w.rng.chance(ORE_CHANCE)) got.ore = 1; } // hard and poor (imad 2026-11-25: rocks and ore are rare and hard)
     else { tm.damage(tx, ty, 10); if (w.rng.chance(0.5)) got.brick = 1; else got.stone = 1; if (w.rng.chance(0.3)) got.scrap = 1; }
     for (const [k, n] of Object.entries(got)) this.add(i, k, n);
-    w.emit('gather', { id: w.e.id(i), what: Object.keys(got).join('+'), n: 1, map: w.maps[m]!.def.id });
+    w.emit('gather', { id: w.e.id(i), what: Object.keys(got).join('+'), n: 1, map: w.maps[m]!.def.id, tx, ty });
     return got;
   }
   has(i: number, need: Inv): boolean { const v = this.inv(i); return Object.entries(need).every(([k, n]) => (v[k as Res] ?? 0) >= n!); }
@@ -327,9 +328,9 @@ export class Survival {
     if (!list.length) return `I can't make ${what}`;
     const rule = this.w.rules.forbidden(i, 'craft');
     if (rule) return `I must not: "${rule}"`;
+    if (KEEP.has(what) && what !== 'arrows' && (this.inv(i)[what] ?? 0) >= 1) return true; // one is enough: already has it
     const r = list.find((x) => this.has(i, x.need));
     if (!r) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
-    if (KEEP.has(what) && what !== 'arrows' && (this.inv(i)[what] ?? 0) >= 1) return true;
     this.use(i, r.need);
     this.add(i, what, r.n ?? 1);
     this.w.emit('craft', { id: this.w.e.id(i), what });
@@ -348,10 +349,11 @@ export class Survival {
     const e = this.w.e, W = this.W(i);
     for (const tile of tiles) {
       if (tile < 0) continue;
-      const k = this.nearestTile(i, tile, 60);
+      const k = this.w.ai.goap ? this.findTile(i, tile) : this.nearestTile(i, tile, 60);
       if (k >= 0) { const d = Math.hypot((k % W) - e.x[i]!, ((k / W) | 0) - e.y[i]!); if (d < bd) { bd = d; t = k; } }
     }
     if (t < 0) return what === 'wood' ? 'there are no trees near here' : what === 'ore' ? 'there are no rocks near here' : 'there is no rubble near here';
+    // (with goap on the search covers the whole map: the words then mean "none anywhere here")
     return this.begin(i, { kind: what === 'wood' ? 'chop' : this.w.maps[this.w.e.map[i]!]!.tiles.tiles[t] === this.T.rock ? 'mine' : 'dig', m: this.w.e.map[i]!, tx: t % W, ty: (t / W) | 0, work: 0 });
   }
 
@@ -361,8 +363,11 @@ export class Survival {
     const rule = w.rules.forbidden(i, 'hunt') ?? w.rules.forbidden(i, 'fight');
     if (rule) return `I must not: "${rule}"`;
     const type = /rabbit|lapin|conejo|أرنب/.test(q) ? 0 : /deer|cerf|ciervo|غزال/.test(q) ? 1 : /boar|sanglier|jabal|خنزير/.test(q) ? 2 : /wolf|loup|lobo|ذئب/.test(q) ? 3 : /bear|ours|oso|دب/.test(q) ? 4 : -1;
+    const far = w.ai.instinct ? 220 : 90; // with instincts on, people go further for game (they know where animals roam)
     let a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90, type);
     if (a < 0 && type >= 0) a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90);
+    if (a < 0 && far > 90) a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, far, type);
+    if (a < 0 && far > 90 && type >= 0) a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, far);
     if (a < 0) return 'I found no animals near here';
     if (e.sub[a] === 4 && this.weapon(i)[1] < 30 && type !== 4) { const b = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90, w.rng.chance(0.5) ? 0 : 1); if (b >= 0) a = b; } // not a bear with bare hands
     return w.brain.hunt(i, e.id(a)) ? true : 'I cannot get to it';
@@ -919,7 +924,7 @@ export class Survival {
       const i = e.slot(id);
       if (i < 0 || e.map[i] !== j.m) { this.jobs.delete(id); continue; }
       const o = w.brain.orderOf(i);
-      if (o.kind !== 'job') { this.done(id, j.why ?? 'I had to stop'); continue; }
+      if (o.kind !== 'job') { this.done(id, j.why ?? (w.brain.noWay.delete(id) ? 'I could not find a way there' : 'I had to stop')); continue; }
       if (!w.brain.atJob(i)) continue;
       j.work += dg;
       if (j.work < WORK[j.kind]) continue;
@@ -1131,6 +1136,34 @@ export class Survival {
       if (fits(x0, y0)) return y0 * tm.w + x0;
     }
     return -1;
+  }
+
+  /** Per map and tile type: where those tiles are (rebuilt every game hour; checked again on use). People know their map. */
+  private tileIdx = new Map<string, { at: number; list: Int32Array }>();
+  /** The nearest tile of a type anywhere within r metres (default the whole map), from the hourly index: -1 = none. */
+  farTile(i: number, type: number, r = 400): number {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, key = m + ':' + type;
+    let ix = this.tileIdx.get(key);
+    if (!ix || w.gameSec - ix.at > 3600 || w.gameSec < ix.at) {
+      const out: number[] = [];
+      for (let k = 0; k < tm.tiles.length; k++) if (tm.tiles[k] === type && !(type === this.T.tree && w.land.inRing(m, k % tm.w, (k / tm.w) | 0))) out.push(k);
+      ix = { at: w.gameSec, list: Int32Array.from(out) };
+      this.tileIdx.set(key, ix);
+    }
+    const x = e.x[i]!, y = e.y[i]!;
+    let best = -1, bd = r * r;
+    for (const k of ix.list) {
+      if (tm.tiles[k] !== type) continue;
+      const d = ((k % tm.w) + 0.5 - x) ** 2 + (((k / tm.w) | 0) + 0.5 - y) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    return best;
+  }
+
+  /** Near first (60 m, the usual search), else the nearest one the person knows of on the map. */
+  findTile(i: number, type: number): number {
+    const k = this.nearestTile(i, type, 60);
+    return k >= 0 ? k : this.farTile(i, type);
   }
 
   nearestTile(i: number, type: number, r: number): number {

@@ -60,7 +60,7 @@ test('colony: people plan their own work, huts are usable rooms inside the wall 
   const e = w.e;
   let alive = 0;
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) alive++;
-  assert.equal(alive, 5);
+  assert.ok(alive >= 5, `alive ${alive}`); // nobody died (children may have been born: the offspring drive)
   assert.ok(ok >= 20 && bad <= ok / 5, `tasks ok ${ok} failed ${bad}`);
   assert.ok(w.colony.stats.plans > 10, JSON.stringify(w.colony.stats));
   const m = 0, tm = w.maps[m]!.tiles, camp = w.survival.campOf(m)!;

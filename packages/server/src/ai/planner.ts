@@ -369,6 +369,7 @@ export class Planner {
       ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),
       ...(w.rules.text(i) ? [w.rules.text(i)] : []),
       `Memory: ${mind.summary || 'nothing yet'}`,
+      ...(w.ai.instinct ? [w.memory.story(i)].filter(Boolean) : []),
       `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,
     ].join('\n');
   }

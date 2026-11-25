@@ -2,6 +2,9 @@ import { Kind, RECIPES_ALL, PLACEABLE, WEAPONS } from '@worldsim/protocol';
 import { compress, plan, type Facts, type GAction } from './goap.js';
 import type { Step } from './tasks.js';
 import type { World } from './world.js';
+import { ageOf } from './people.js';
+import { ADULT } from './life.js';
+import { ORE_CHANCE, ROCK_STONE } from './survival.js';
 
 /**
  * The camp's work mind (research/ARCHITECTURE.md): instead of a fixed list of "if this then that job", the camp has
@@ -17,7 +20,7 @@ import type { World } from './world.js';
  */
 
 /** Game seconds of work (kept in step with sim/survival.ts WORK). */
-const WORK = { chop: 120, dig: 100, place: 40, fire: 240, hut: 650, tend: 45, pick: 20, store: 40, plant: 180, repair: 60, hunt: 700, craft: 15 };
+const WORK = { chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 650, tend: 45, pick: 20, store: 40, plant: 180, repair: 60, hunt: 700, craft: 15 };
 const HOUR = 3600;
 /** Plans tried per allocation pass and map (counted, not timed, so runs stay deterministic): a big camp is served over a few passes. */
 const PLANS_PER_PASS = 24;
@@ -141,7 +144,7 @@ export class Colony {
   actions(i: number): Act[] {
     const w = this.w, e = w.e, sv = w.survival, T = sv.T, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!;
     const tr = (d: number) => (d / Math.max(0.3, w.sc.agents.walk)) * w.opt.clockScale; // game seconds to walk d metres
-    const dist = (t: number) => { if (t < 0) return Infinity; const k = sv.nearestTile(i, t, 60); const W = w.maps[m]!.tiles.w; return k < 0 ? Infinity : Math.hypot((k % W) + 0.5 - x, ((k / W) | 0) + 0.5 - y); };
+    const dist = (t: number) => { if (t < 0) return Infinity; const k = sv.findTile(i, t); const W = w.maps[m]!.tiles.w; return k < 0 ? Infinity : Math.hypot((k % W) + 0.5 - x, ((k / W) | 0) + 0.5 - y); };
     const dTree = dist(T.tree), dRubble = dist(T.rubble), dRock = dist(T.rock);
     const camp = sv.campOf(m), dCamp = camp ? Math.hypot(camp.x - x, camp.y - y) : 0;
     const out: Act[] = [];
@@ -155,11 +158,12 @@ export class Colony {
         return per * mult;
       } });
     };
-    const hop = (d: number) => tr(4 + Math.min(d, 60) / 4); // amortised walking per unit (the first trip is the long one)
+    // Amortised walking per unit (the first trip is the long one); sources far off (known, past 60 m) cost the trip again.
+    const hop = (d: number) => tr(4 + Math.min(d, 60) / 4 + Math.max(0, d - 60) / 2);
     if (Number.isFinite(dTree)) add('gather:wood', { add: (s) => ({ wood: (s.axe ?? 0) > 0 ? 2 : 1 }), step: { do: 'gather', what: 'wood', unit: 'wood' } }, () => WORK.chop + hop(dTree));
     const dStone = Math.min(dRubble, dRock);
-    if (Number.isFinite(dStone)) add('gather:stone', { add: { stone: 1 }, step: { do: 'gather', what: 'stone', unit: 'stone' } }, () => (WORK.dig + hop(dStone)) / (dRock <= dRubble ? 1 : 0.5));
-    if (Number.isFinite(dRock)) add('gather:ore', { add: { ore: 1 }, step: { do: 'gather', what: 'ore', unit: 'ore' } }, () => (WORK.dig + hop(dRock)) / 0.4);
+    if (Number.isFinite(dStone)) add('gather:stone', { add: { stone: 1 }, step: { do: 'gather', what: 'stone', unit: 'stone' } }, () => dRock <= dRubble ? (WORK.mine + hop(dRock)) / ROCK_STONE : (WORK.dig + hop(dRubble)) / 0.5);
+    if (Number.isFinite(dRock)) add('gather:ore', { add: { ore: 1 }, step: { do: 'gather', what: 'ore', unit: 'ore' } }, () => (WORK.mine + hop(dRock)) / ORE_CHANCE);
     if (Number.isFinite(dRubble)) {
       add('gather:brick', { add: { brick: 1 }, step: { do: 'gather', what: 'brick', unit: 'brick' } }, () => (WORK.dig + hop(dRubble)) / 0.5);
       add('gather:scrap', { add: { scrap: 1 }, step: { do: 'gather', what: 'scrap', unit: 'scrap' } }, () => (WORK.dig + hop(dRubble)) / 0.3);
@@ -170,8 +174,8 @@ export class Colony {
     if (dItem < 90) add('collect:food', { add: { food: 1 }, step: { do: 'collect', what: 'food', unit: 'food' } }, () => WORK.pick + tr(Math.min(dItem, 40) / 2 + 6));
     // Hunting: an easy animal, or a dangerous one (claws) when armed.
     for (const [types, needArmed] of [[HUNT_OK, false], [DANGER, true]] as const) {
-      let best = -1, bd = 90;
-      for (const t of types) { const a = w.animals.nearest(m, x, y, 90, t); if (a >= 0) { const d = Math.hypot(e.x[a]! - x, e.y[a]! - y); if (d < bd) { bd = d; best = a; } } }
+      let best = -1, bd = w.ai.instinct ? 220 : 90;
+      for (const t of types) { const a = w.animals.nearest(m, x, y, w.ai.instinct ? 220 : 90, t); if (a >= 0) { const d = Math.hypot(e.x[a]! - x, e.y[a]! - y); if (d < bd) { bd = d; best = a; } } }
       if (best < 0) continue;
       const drops = w.animals.dropsOf(e.sub[best]!);
       const name = w.animals.typeName(e.sub[best]!);
@@ -233,6 +237,26 @@ export class Colony {
     this.stats.ms += performance.now() - t0;
     if (best) this.stats.plans++; else this.stats.noPlan++;
     return best;
+  }
+
+  /**
+   * A way to make or build one thing someone asked for (an LLM's one-step plan, the keyword net, an order): the task steps
+   * up to and including it, or in plain words why there is no way from here (what is missing and that nothing around gives it).
+   */
+  planTo(i: number, kind: 'craft' | 'build', what: string): Step[] | string {
+    const sv = this.w.survival, have = sv.inv(i)[what] ?? 0;
+    const fact = what === 'hut' ? '+hut' : what === 'campfire' ? '+fire' : what === 'palisade' || what === 'stonewall' ? '+wall' : '+' + what;
+    const want: Facts[] = kind === 'craft' ? [{ [what]: have + 1 }] : [{ [fact]: 1 }];
+    const p = this.planFor(i, { name: 'asked', text: what, want, value: 1, trait: 'intelligence', crew: 1 });
+    if (p) return p.steps;
+    const miss = sv.missing(i, what);
+    if (!miss.length) return kind === 'build' && !sv.enabled ? 'this world has no buildings' : `I don't know how to ${kind} ${what} here`;
+    const acts = this.actions(i), made = new Set<string>();
+    for (const a of acts) for (const k of Object.keys(typeof a.add === 'function' ? a.add({}) : a.add)) made.add(k);
+    const SRC: Record<string, string> = { wood: 'trees', stone: 'rubble or rocks', ore: 'rocks', brick: 'rubble', scrap: 'rubble', leather: 'animals to hunt', claw: 'wolves or bears to hunt', food: 'food' };
+    const need = miss.map(([k, n]) => `${n} ${k}`).join(' and ');
+    const none = miss.filter(([k]) => !made.has(k)).map(([k]) => SRC[k] ?? k);
+    return none.length ? `I need ${need}, and there are no ${none.join(' or ')} anywhere I know of here` : `I need ${need} and could not work out a way to get it`;
   }
 
   /** Plan actions -> task steps: same actions grouped (gather all the wood in one go), counts in units. */
@@ -308,9 +332,36 @@ export class Colony {
     for (const i of people) {
       const v = sv.inv(i), armed = sv.weapon(i)[1] > 0;
       if (!(v.axe ?? 0)) gs.push({ name: 'axe', text: 'make an axe', want: [{ axe: 1 }], value: 0.28, trait: 'intelligence', crew: 1, only: i });
-      if (threat && !armed) gs.push({ name: 'weapon', text: 'make a weapon', want: [{ spear: 1 }, { sword: 1 }], value: 0.6, trait: 'courage', crew: 1, only: i });
+      // Fear of what may come (instinct): a weapon even on quiet days, more so under threat.
+      if ((threat || w.ai.instinct) && !armed) gs.push({ name: 'weapon', text: 'make a weapon', want: [{ spear: 1 }, { sword: 1 }], value: threat ? 0.6 : 0.26, trait: 'courage', crew: 1, only: i });
       if ((v.leather ?? 0) >= 1 && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: 0.3, trait: 'intelligence', crew: 1, only: i });
       if (fire >= 0 && (v.wood ?? 0) < 3) gs.push({ name: 'firewood', text: 'gather firewood', want: [{ wood: (v.wood ?? 0) + 4 }], value: 0.18, trait: 'strength', crew: 1, only: i });
+    }
+    // Offspring (instinct): a single adult looks for a partner among the single adults they know best (the rules of
+    // courting still decide, sim/life.ts); more so with age and no children yet, never past the world's population cap.
+    if (w.ai.instinct && day) {
+      let living = 0;
+      for (const q of w.profiles.values()) if (q.died === undefined) living++;
+      if (living < w.brain.life.maxPopulation) for (const i of people) {
+        const p = w.profileOf(i), id = w.e.id(i);
+        if (!p || p.partner >= 0 || p.player) continue;
+        const age = ageOf(p, w.gameSec, w.yearSec);
+        if (age < ADULT + 2 || age > 45) continue;
+        let best = -1, bv = -Infinity;
+        for (const j of people) {
+          const q = w.profileOf(j), jd = w.e.id(j);
+          if (!q || j === i || q.partner >= 0 || q.player || q.sex === p.sex) continue;
+          const qa = ageOf(q, w.gameSec, w.yearSec);
+          if (qa < ADULT + 2 || qa > 45 || p.parents.some((x) => q.parents.includes(x)) || p.parents.includes(jd) || q.parents.includes(id)) continue;
+          const v = (p.bonds?.['#' + jd] ?? 0) + (p.mind?.rel['#' + jd] ?? 0) * 2 - Math.abs(qa - age) * 0.1;
+          if (v > bv) { bv = v; best = jd; }
+        }
+        if (best < 0) continue;
+        let kids = 0;
+        for (const q of w.profiles.values()) if (q.parents.includes(id)) kids++;
+        gs.push({ name: 'family', text: `get closer to ${w.profiles.get(best)!.name}`, want: [], value: 0.1 + (age > 22 && !kids ? 0.08 : 0) + Math.min(0.08, Math.max(0, bv) * 0.02),
+          trait: 'empathy', crew: 1, only: i, steps: [{ do: 'court', who: best, key: 'court' }] });
+      }
     }
     // Exploring: the ruins may hold food, scrap, a spear (no plan: the outcome is unknown, that is the point).
     // Curiosity wears off: every search in the last 12 game hours halves the wish to search again (until something is found).
