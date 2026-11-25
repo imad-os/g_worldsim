@@ -22,12 +22,12 @@ export const world: Screen = {
     ${card('Time', `<div class="bigclock" id="wClock">-</div>
       <div class="row wrap"><button class="btn primary" id="wPause">${icon('pause')} Pause</button><button class="btn" id="wResume">${icon('play')} Resume</button></div>
       ${row('Speed', `<div class="seg" id="wSpeed">${[0.5, 1, 2, 5, 10, 25, 100].map((v) => `<button data-v="${v}">x${v}</button>`).join('')}</div>`, help('speed'))}
-      ${row('Custom speed', `<input type="number" id="wSpeedN" min="0.1" max="100" step="0.1" style="width:90px"> <button class="btn sm" id="wSpeedGo">Set</button>`)}`)}
-    ${card('Life', `${row('Difficulty <b id="wDiffV" class="tag"></b>', `<input type="range" id="wDiff" min="0.25" max="3" step="0.25">`, help('difficulty'))}
+      ${row('Custom speed', `<input type="number" id="wSpeedN" min="0.1" step="0.1" style="width:90px"> <button class="btn sm" id="wSpeedGo">Set</button>`)}`)}
+    ${card('Life', `${row('Difficulty <b id="wDiffV" class="tag"></b>', `<input type="range" id="wDiff" min="0.25" max="3" step="0.25"> <input type="number" id="wDiffN" step="0.05" style="width:80px" aria-label="Custom difficulty">`, help('difficulty'))}
       ${row('Ageing', `<select id="wYear"><option value="0.041666666666666664">1 game hour = 1 year</option><option value="0.25">6 game hours = 1 year</option><option value="1">1 game day = 1 year</option><option value="7">7 game days = 1 year</option><option value="365">365 days (real life)</option></select>`, help('ageing'))}
-      ${row('Population limit', `<input type="number" id="wMax" min="1" max="100" style="width:80px"> people`, help('maxPop'))}`)}
+      ${row('Population limit', `<input type="number" id="wMax" min="1" style="width:80px"> people`, help('maxPop'))}`)}
     ${card('Travel between maps', `<p id="wTravelS" class="dim">-</p><button class="btn" id="wTravel">-</button>`, { help: help('travel') })}
-    ${card('Supply drop', `${row('Map', `<select id="wSupMap">${mapOpts()}</select>`)}${row('Food portions', `<input type="number" id="wSupN" min="1" max="30" value="8" style="width:80px">`)}
+    ${card('Supply drop', `${row('Map', `<select id="wSupMap">${mapOpts()}</select>`)}${row('Food portions', `<input type="number" id="wSupN" min="1" value="8" style="width:80px">`)}
       <button class="btn primary" id="wSup">${icon('food')} Drop now</button>`, { help: help('supply') })}
     ${card('Save', `<p class="dim">Last save: <span id="wSnapAt">-</span></p><button class="btn" id="wSnap">Save the world now</button>`, { help: help('snapshot') })}
     ${card('Maps', `<div id="wMaps"></div>`, { help: help('mapsTable') })}
@@ -40,6 +40,7 @@ export const world: Screen = {
     on('#wSpeedGo', 'click', () => void cmd({ cmd: 'speed', speed: Number(val('wSpeedN')) }).then(() => toast('Speed set', 'ok'), err));
     on('#wDiff', 'input', (el) => { document.getElementById('wDiffV')!.textContent = (el as HTMLInputElement).value; });
     on('#wDiff', 'change', (el) => void cmd({ cmd: 'difficulty', value: Number((el as HTMLInputElement).value) }).then(() => toast('Difficulty changed', 'ok'), err));
+    on('#wDiffN', 'change', (el) => void cmd({ cmd: 'difficulty', value: Number((el as HTMLInputElement).value) }).then(() => toast('Difficulty changed', 'ok'), err));
     on('#wYear', 'change', (el) => void cmd({ cmd: 'life', yearDays: Number((el as HTMLSelectElement).value) }).then(() => toast('Ageing changed', 'ok'), err));
     on('#wMax', 'change', (el) => void cmd({ cmd: 'life', maxPopulation: Number((el as HTMLInputElement).value) }).then(() => toast('Population limit changed', 'ok'), err));
     on('#wTravel', 'click', async () => {
@@ -52,6 +53,7 @@ export const world: Screen = {
     const s = stats;
     if (s) {
       (document.getElementById('wDiff') as HTMLInputElement).value = String(s.difficulty ?? 1); document.getElementById('wDiffV')!.textContent = String(s.difficulty ?? 1);
+      { const n = document.getElementById('wDiffN') as HTMLInputElement | null; if (n && document.activeElement !== n) n.value = String(s.difficulty ?? 1); }
       (document.getElementById('wYear') as HTMLSelectElement).value = String(s.yearDays ?? 1);
       (document.getElementById('wMax') as HTMLInputElement).value = String(s.maxPopulation ?? 14);
       (document.getElementById('wSpeedN') as HTMLInputElement).value = String(s.speed);
@@ -83,19 +85,19 @@ export const zombies: Screen = {
   title: 'Zombies & animals', icon: 'zombie', help: 'zombies', every: 4,
   render() {
     return `<div class="grid2">
-    ${card('Zombies', `<div class="bignum" id="zNow">-</div>${row('Released each night at 21:00', `<input type="number" id="zNight" min="0" max="50" style="width:80px"> zombies`)}
+    ${card('Zombies', `<div class="bignum" id="zNow">-</div>${row('Released each night at 21:00', `<input type="number" id="zNight" min="0" style="width:80px"> zombies`)}
       <button class="btn danger ghost" id="zClear">Remove all zombies</button>`, { help: help('zombies') })}
-    ${card('Zombie strength', `${row('Health', `<input type="number" id="zcHp" min="10" max="5000" style="width:90px"> hp`)}${row('Speed', `<input type="number" id="zcSpeed" min="0.2" max="6" step="0.05" style="width:90px"> m/s <small class="dim">(a walk is about 1.4)</small>`)}
-      ${row('Attack (bite)', `<input type="number" id="zcBite" min="0" max="200" style="width:90px"> damage`)}${row('Sight (chase)', `<input type="number" id="zcSight" min="3" max="80" style="width:90px"> m`)}${row('Smell (drift to people)', `<input type="number" id="zcSmell" min="10" max="400" style="width:90px"> m`)}
+    ${card('Zombie strength', `${row('Health', `<input type="number" id="zcHp" min="10" style="width:90px"> hp`)}${row('Speed', `<input type="number" id="zcSpeed" min="0.2" step="0.05" style="width:90px"> m/s <small class="dim">(a walk is about 1.4)</small>`)}
+      ${row('Attack (bite)', `<input type="number" id="zcBite" min="0" style="width:90px"> damage`)}${row('Sight (chase)', `<input type="number" id="zcSight" min="3" style="width:90px"> m`)}${row('Smell (drift to people)', `<input type="number" id="zcSmell" min="10" style="width:90px"> m`)}
       <div class="row"><button class="btn primary" id="zcSave">Save</button><button class="btn ghost" id="zcNow">Save and apply to zombies out now</button></div>`, { help: help('zStrength') })}
     ${card('Spawn now', `<div class="seg" id="zHow"><button data-h="near" class="on">Next to someone</button><button data-h="at">At a place</button></div>
-      <div id="zNearF">${row('Next to', `<input id="zNear" list="zNames" placeholder="a name"><datalist id="zNames">${names()}</datalist>`)}${row('Distance', `<input type="number" id="zDist" min="2" max="60" value="8" style="width:80px"> m`)}</div>
+      <div id="zNearF">${row('Next to', `<input id="zNear" list="zNames" placeholder="a name"><datalist id="zNames">${names()}</datalist>`)}${row('Distance', `<input type="number" id="zDist" min="2" value="8" style="width:80px"> m`)}</div>
       <div id="zAtF" hidden>${row('Map', `<select id="zMap">${mapOpts()}</select>`)}${row('x / y (empty = anywhere)', `<input type="number" id="zX" style="width:80px"> <input type="number" id="zY" style="width:80px">`)}</div>
-      ${row('How many', `<input type="number" id="zN" min="1" max="20" value="1" style="width:80px">`)}
+      ${row('How many', `<input type="number" id="zN" min="1" value="1" style="width:80px">`)}
       <button class="btn primary" id="zGo">${icon('zombie')} Spawn</button>`, { help: help('zSpawn') })}
     ${card('Zombies out now', `<div id="zList"></div>`, { cls: 'span2' })}
     ${card('Plan a zombie attack', `${row('When', `<select id="paDay"><option value="0">Today</option><option value="1">Tomorrow</option><option value="2">In 2 days</option><option value="3">In 3 days</option><option value="7">In a week</option></select> at <input type="time" id="paTime" value="21:00" style="width:110px">`)}
-      ${row('Map', `<select id="paMap">${mapOpts()}</select>`)}${row('How many', `<input type="number" id="paN" min="1" max="40" value="8" style="width:80px"> zombies`)}
+      ${row('Map', `<select id="paMap">${mapOpts()}</select>`)}${row('How many', `<input type="number" id="paN" min="1" value="8" style="width:80px"> zombies`)}
       ${row('From', `<select id="paWhere"><option value="edge">The roads at the edge of the map</option><option value="camp">All around the camp</option><option value="near">Next to someone</option><option value="random">Anywhere</option></select>`)}
       <div id="paNearF" hidden>${row('Who', `<input id="paNear" list="zNames" placeholder="a name">`)}</div>
       ${row('', `<label><input type="checkbox" id="paDaily"> Every day</label> <label><input type="checkbox" id="paStays" checked> Stay until killed</label>`)}
@@ -162,7 +164,7 @@ function drawPlans(r: Plans): void {
 async function drawAnimals(): Promise<void> {
   const a = await cmd<AnimalsAns>({ cmd: 'animals' });
   setHtml('aMaps', `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th>${ANIMAL_NAMES.map((n) => `<th>${esc(n)}<br><small>now · wanted</small></th>`).join('')}<th></th></tr></thead><tbody>${a.maps.map((m) => `<tr><td><b>${esc(m.name)}</b><br><small class="dim">${m.want ? 'your numbers' : `built-in mix (up to ${m.cap})`}</small></td>${ANIMAL_NAMES.map((_, k) =>
-    `<td><span id="an-${m.id}-${k}">${m.now[k] ?? 0}</span> · <input type="number" min="0" max="40" style="width:60px" data-am="${m.id}" data-ak="${k}" value="${m.want ? m.want[k] ?? 0 : ''}" placeholder="${m.now[k] ?? 0}"></td>`).join('')}
+    `<td><span id="an-${m.id}-${k}">${m.now[k] ?? 0}</span> · <input type="number" min="0" style="width:60px" data-am="${m.id}" data-ak="${k}" value="${m.want ? m.want[k] ?? 0 : ''}" placeholder="${m.now[k] ?? 0}"></td>`).join('')}
     <td><button class="btn primary" data-asave="${m.id}">Save</button> <button class="btn" data-afill="${m.id}">Now</button> ${m.want ? `<button class="btn ghost" data-areset="${m.id}">Built-in mix</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`);
   const wantOf = (id: string) => ANIMAL_NAMES.map((_, k) => { const el = document.querySelector<HTMLInputElement>(`[data-am="${id}"][data-ak="${k}"]`); return Number(el?.value === '' ? el?.placeholder : el?.value) || 0; });
   on('[data-asave]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.asave, want: wantOf(b.dataset.asave!) }); toast('Saved: they come or go over the next game hours', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
@@ -240,9 +242,9 @@ export const ai: Screen = {
       <div class="row wrap"><button class="btn primary" id="aSave">Save</button><button class="btn" id="aUse">Save and use</button><button class="btn" id="aList">List models</button><button class="btn" id="aTest">Test</button></div><pre id="aOut" class="out"></pre>`, { help: help('ai') })}
     ${card('Planner', `<div id="plState" class="dim"></div>
       ${row('Plans on', `<label class="switch"><input type="checkbox" id="plOn"><i></i></label>`)}
-      ${row('A new plan every', `<input type="number" id="plEvery" min="0.5" max="48" step="0.5" style="width:80px"> game hours`)}
-      ${row('People per request', `<input type="number" id="plBatch" min="1" max="10" style="width:80px">`)}
-      ${row('Seconds between requests', `<input type="number" id="plGap" min="5" max="600" style="width:80px">`)}
+      ${row('A new plan every', `<input type="number" id="plEvery" min="0.5" step="0.5" style="width:80px"> game hours`)}
+      ${row('People per request', `<input type="number" id="plBatch" min="1" style="width:80px">`)}
+      ${row('Seconds between requests', `<input type="number" id="plGap" min="5" style="width:80px">`)}
       <button class="btn primary" id="plSave">Save planner</button>`, { help: help('planner') })}
     ${card('Requests and answers', `<div id="aLog"></div><button class="btn sm" id="aLogR">${icon('refresh')} Refresh</button>`, { help: help('aiLog'), cls: 'span2' })}
     </div>`;

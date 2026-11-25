@@ -80,7 +80,7 @@ type Mind = { notes: { at: number; text: string }[]; summary: string; mood: stri
 type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[] };
 const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
   : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
-type Detail = Person & { now: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
+type Detail = Person & { now: number; hpMax?: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
 type Say = { at: number; from: number; to: number; fromName: string; toName: string; text: string };
 let pid = -1, ptab = load('ptab', 'overview'), chat: [string, string][] = [];
 /** What is typed in the Talk box, kept while answers arrive and pages redraw (imad 2026-11-20: it emptied on every answer). */
@@ -110,7 +110,7 @@ function personHtml(d: Detail): string {
     <div class="tabs" id="xTabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${ptab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   let body = '';
   if (ptab === 'overview') body = !d.alive ? card('Died', `<p>${p.died !== undefined ? gameTime(p.died) : ''}: ${esc(p.cause ?? '')}</p>`) : `<div class="grid2">
-    ${card('Needs', `<div class="needs"><span>Food</span>${meter(d.hunger)}<b>${Math.round(100 - d.hunger)}%</b><span>Water</span>${meter(d.thirst)}<b>${Math.round(100 - d.thirst)}%</b><span>Rest</span>${meter(d.tired)}<b>${Math.round(100 - d.tired)}%</b><span>Company</span>${meter(d.lonely)}<b>${Math.round(100 - d.lonely)}%</b><span>Health</span>${meter(d.hp, false)}<b>${Math.round(d.hp)}</b></div>`)}
+    ${card('Needs', `<div class="needs"><span>Food</span>${meter(d.hunger)}<b>${Math.round(100 - d.hunger)}%</b><span>Water</span>${meter(d.thirst)}<b>${Math.round(100 - d.thirst)}%</b><span>Rest</span>${meter(d.tired)}<b>${Math.round(100 - d.tired)}%</b><span>Company</span>${meter(d.lonely)}<b>${Math.round(100 - d.lonely)}%</b><span>Health</span>${meter(d.hp, false)}<b>${Math.round((d.hp / (d.hpMax || 100)) * 100)}%</b></div>`)}
     ${card('Now', `<p><i class="dotc" style="background:${ACT_COLORS[d.act]}"></i> <b>${esc(ACTS[d.act] ?? '')}</b>${d.talkingTo ? ' with ' + esc(d.talkingTo) : ''}</p>
       ${d.goal ? goalHtml(d.goal, esc) : ''}${d.order ? `<p>Told to <b>${esc(d.order)}</b></p>` : ''}
       <p>${icon('map')} ${esc(mapName(d.map))} at (${Math.round(d.x)}, ${Math.round(d.y)})</p>
@@ -118,7 +118,7 @@ function personHtml(d: Detail): string {
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
     ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · led by ${esc(c.leader)}</p><p>Loyalty ${c.loyalty}%</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; rivals: string[] } }).clan)) : ''}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
-    ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div>`).join('')}</div>`)}
+    ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div><b>${Math.round(v * 100)}%</b>`).join('')}</div>`)}
     </div>`;
   else if (ptab === 'mind') body = card('Mind', !mind ? '<div class="empty">The AI has not thought for them yet (turn on an AI provider on the AI page).</div>' : `
     <p>Mood: <b>${esc(mind.mood)}</b></p>
@@ -132,8 +132,7 @@ function personHtml(d: Detail): string {
       <label class="fld" id="xWhoF">Who<input id="xWho" list="xNames" placeholder="a name"><datalist id="xNames">${[...new Set(S.people.map((x) => x.name))].filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('')}</datalist></label>
       <button class="btn primary" id="xOrdGo">Do it</button>`, { help: help('pOrder') })}</div>`;
   else if (ptab === 'convo') body = card('Conversations', `<div class="chat" id="xConvo">${convoHtml(d)}</div>`);
-  else if (ptab === 'edit') body = card('Edit', `<div class="form">${[['name', d.name], ['personality', p.personality.join(', ')], ['hunger', d.hunger], ['thirst', d.thirst], ['tired', d.tired], ['lonely', d.lonely], ['hp', d.hp], ['carry', d.carry],
-      ...Object.entries(p.traits).map(([k, v]) => [k, Math.round(v * 100) / 100])].map(([k, v]) => `<label class="fld">${esc(k)}<input data-k="${esc(k)}" value="${esc(v)}" ${typeof v === 'number' ? `type="number" step="${k === 'lifespan' ? 1 : ['hunger', 'thirst', 'tired', 'lonely', 'hp', 'carry'].includes(String(k)) ? 1 : 0.05}"` : ''}></label>`).join('')}</div>
+  else if (ptab === 'edit') body = card('Edit', `<div class="form">${editFields(d).map(([k, label, v, unit]) => `<label class="fld">${esc(label)}${unit ? ` (${esc(unit)})` : ''}<input data-k="${esc(k)}" value="${esc(v)}" ${typeof v === 'number' ? `type="number" step="1"` : ''}></label>`).join('')}</div>
       <button class="btn primary" id="xSave">Save changes</button>`, { help: help('pEdit') });
   else if (ptab === 'family') body = card('Family', `<div class="fam">
       <div><h4 class="sub">Parents</h4>${d.family.parents.map((n) => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">Unknown (first survivors)</span>'}</div>
@@ -185,6 +184,27 @@ function addChat(w: string, t: string): void {
 }
 export function personSaid(id: number, name: string, text: string): void { if (id === pid) addChat(name, text); }
 
+/**
+ * The Edit tab shows every level as 0-100 %: needs as how full they are (like the Needs card: Food 80 % = hunger 20),
+ * health as a share of full health, traits 0-1 as %. The bag (a count) and lifespan (years) keep their own units.
+ * Saving converts back to what the server keeps.
+ */
+const NEED_LABEL: Record<string, string> = { hunger: 'Food', thirst: 'Water', tired: 'Rest', lonely: 'Company' };
+const pct = (v: number) => Math.round(v * 10) / 10;
+function editFields(d: Detail): [key: string, label: string, value: string | number, unit: string][] {
+  const p = d.profile, max = d.hpMax || 100;
+  return [['name', 'Name', d.name, ''], ['personality', 'Personality', p.personality.join(', '), ''],
+    ...(['hunger', 'thirst', 'tired', 'lonely'] as const).map((k) => [k, NEED_LABEL[k]!, pct(100 - d[k]), '%'] as [string, string, number, string]),
+    ['hp', 'Health', pct((d.hp / max) * 100), '%'], ['carry', 'Food carried', d.carry, 'portions'],
+    ...Object.entries(p.traits).map(([k, v]) => (k === 'lifespan' ? [k, 'Lifespan', Math.round(v), 'years'] : [k, k, pct(v * 100), '%']) as [string, string, number, string])];
+}
+function fromPct(k: string, v: number, hpMax: number): number {
+  if (NEED_LABEL[k]) return 100 - v;
+  if (k === 'hp') return (v / 100) * hpMax;
+  if (k === 'carry' || k === 'lifespan') return v;
+  return v / 100; // a trait
+}
+
 function bindPerson(): void {
   on('#xTabs button', 'click', (b) => { ptab = b.dataset.t!; save('ptab', ptab); if (detail) { redraw(); window.scrollTo(0, 0); if (ptab === 'rules') void loadRules(); } });
   on('#xPlan', 'click', async (b) => { (b as HTMLButtonElement).disabled = true; b.textContent = 'Thinking…'; try { await cmd({ cmd: 'planNow', id: pid }, 120000); toast('New plan made', 'ok'); ptab = 'mind'; await loadPerson(); } catch (e) { toast(String(e), 'err'); (b as HTMLButtonElement).disabled = false; } });
@@ -205,7 +225,7 @@ function bindPerson(): void {
   on('#xOrdGo', 'click', async () => { try { const r = await cmd<{ did: string }>({ cmd: 'order', id: pid, kind: val('xOrd'), target: val('xWho') }); addChat('', `→ will ${r.did}`); toast(`Order given: ${r.did}`, 'ok'); window.setTimeout(() => void touchPerson(), 1500); } catch (e) { toast(String(e), 'err'); } });
   on('#xSave', 'click', async () => {
     const set: Record<string, number | string> = {};
-    for (const i of view().querySelectorAll<HTMLInputElement>('#xBody input[data-k]')) set[i.dataset.k!] = i.type === 'number' ? Number(i.value) : i.value;
+    for (const i of view().querySelectorAll<HTMLInputElement>('#xBody input[data-k]')) set[i.dataset.k!] = i.type === 'number' ? fromPct(i.dataset.k!, Number(i.value), detail?.hpMax ?? 100) : i.value;
     try { await cmd({ cmd: 'agentSet', id: pid, set }); toast('Saved', 'ok'); void loadPerson(); } catch (e) { toast(String(e), 'err'); }
   });
   on('#xRuleAdd', 'click', async () => { const t = val('xRule'); if (!t) return; try { await loadRules(await cmd<RulesAns>({ cmd: 'rules', id: pid, add: t }, 60000)); toast('Rule added', 'ok'); } catch (e) { toast(String(e), 'err'); } });

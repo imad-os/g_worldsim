@@ -343,3 +343,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   process removes both), `serverBuild` / `serverUpdate` (git checkout -- docs, git pull --rebase --autostash so agent commits ride on top, abort on conflict, npm install if package files changed, build; then restart),
   `backups` / `backupMake` / `backupRestore` (data/restore.json, applied at start before the db opens; the old db kept as before-restore) /
   `backupDelete`. Last 15 backups kept. Test `agent.test.ts`; proof `ADMIN_TOKEN=... node tools/agent-proof.mjs <server> <outdir>` (fake model).
+
+## Percent editor, no hard admin limits (imad 2026-11-25)
+- Panel person Edit tab shows every level as 0-100 %: Food / Water / Rest / Company = 100 - lack, Health = % of `hpMax` (sent in `agent`),
+  traits x100; Food carried (count) and Lifespan (years) keep their units (`editFields` / `fromPct` in people.ts).
+- Admin values outside the usual range are asked, never refused: `num(v, lo, hi, name, hard?, pct?)` in `adminCmd` throws `CONFIRM`
+  ('confirm: ...', protocol) unless `c.force`; panel `api.ts cmd()` shows confirm() and resends with `force: true`. `hard` = what the engine
+  can hold (default >= 0); ids / positions / hours / indexes / needs use `fixed()` (no override). Planner.set and loop.setSpeed take force too.

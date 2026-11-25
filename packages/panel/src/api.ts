@@ -1,4 +1,4 @@
-import { Msg, type ServerMsg, type AdminCmd, type ServerStats } from '@worldsim/protocol';
+import { Msg, CONFIRM, type ServerMsg, type AdminCmd, type ServerStats } from '@worldsim/protocol';
 import { Conn } from '../../client/src/conn.js';
 import { load, save } from './util.js';
 
@@ -65,7 +65,19 @@ export function connect(server: string, tok: string | (() => Promise<string>)): 
 }
 export function disconnect(): void { conn?.close(); conn = null; }
 
-export function cmd<T = unknown>(c: AdminCmd, timeoutMs = 30000): Promise<T> {
+/**
+ * Sends one admin command. A value outside its usual range is never refused outright: the server answers 'confirm: ...',
+ * the owner is asked, and on yes the same command goes again with force (no answer = the command is cancelled).
+ */
+export async function cmd<T = unknown>(c: AdminCmd, timeoutMs = 30000): Promise<T> {
+  try { return await send<T>(c, timeoutMs); } catch (e) {
+    const m = (e as Error).message;
+    if (!m.startsWith(CONFIRM)) throw e;
+    if (!confirm(`${m.slice(CONFIRM.length)}.\n\nYou are the admin: apply it anyway?`)) throw new Error('Cancelled: nothing was changed');
+    return send<T>({ ...c, force: true } as AdminCmd, timeoutMs);
+  }
+}
+function send<T>(c: AdminCmd, timeoutMs: number): Promise<T> {
   return new Promise((ok, fail) => {
     const id = nextId++;
     const t = setTimeout(() => { waiting.delete(id); fail(new Error('No answer from the server')); }, timeoutMs);

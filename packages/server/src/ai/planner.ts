@@ -13,7 +13,7 @@
  * Planner code only uses `Ai`, never a provider directly.
  */
 import { Convo, smallTalk } from './convo.js';
-import { Act, Kind, RECIPES_ALL } from '@worldsim/protocol';
+import { Act, Kind, RECIPES_ALL, CONFIRM } from '@worldsim/protocol';
 import type { Ai } from './llm.js';
 import { parseJsonReply } from './llm.js';
 import type { Logger } from '../log.js';
@@ -160,9 +160,11 @@ export class Planner {
     w.listeners.push((ev) => this.onEvent(ev));
   }
 
-  set(p: Partial<PlannerConfig>): PlannerConfig {
+  /** force = the owner said yes to a value outside the usual range (still > 0). */
+  set(p: Partial<PlannerConfig>, force = false): PlannerConfig {
     const n = (v: unknown, lo: number, hi: number, name: string) => {
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) throw new Error(`bad ${name}`);
+      if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > 1e7) throw new Error(`bad ${name}`);
+      if ((v < lo || v > hi) && !force) throw new Error(`${CONFIRM}${name} = ${v} is outside the usual ${lo} to ${hi}`);
       return v;
     };
     const c = { ...this.cfg };

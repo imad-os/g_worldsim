@@ -305,6 +305,17 @@ test('players: join puts my character in the world, input moves it, leaving keep
     assert.equal((pa.data as { player: string }).player, 'imad');
     assert.equal((await adc(71, { cmd: 'agentSet', id: you.id, set: { hunger: 40 } })).ok, true, 'edit a player');
     assert.equal(e.hunger[j], 40);
+    // Outside the usual range = a question, not a refusal (imad 2026-11-25): force applies it; what the engine can't hold stays refused.
+    const big = await adc(75, { cmd: 'agentSet', id: you.id, set: { strength: 1.5 } }) as unknown as { ok: boolean; err?: string };
+    assert.equal(big.ok, false); assert.match(String(big.err), /^confirm: strength = 150 % is outside the usual 0 % to 100 %/);
+    assert.equal((await adc(76, { cmd: 'agentSet', id: you.id, set: { strength: 1.5 }, force: true })).ok, true, 'confirmed');
+    assert.equal(app.world.profileOf(j)!.traits.strength, 1.5);
+    assert.equal((await adc(77, { cmd: 'agentSet', id: you.id, set: { strength: -1 }, force: true })).ok, false, 'never below 0');
+    assert.equal((await adc(78, { cmd: 'planner', batch: 30 })).ok, false, 'asks first');
+    assert.equal((await adc(79, { cmd: 'planner', batch: 30, force: true })).ok, true);
+    assert.equal((await adc(80, { cmd: 'speed', speed: 500, force: true })).ok, true, 'past maxSpeed on yes');
+    assert.equal(app.loop.speed, 500);
+    await adc(81, { cmd: 'speed', speed: 1 });
     const talk = await adc(72, { cmd: 'chat', id: you.id, text: 'hello' });
     assert.equal(talk.ok, true, talk.error);
     assert.equal((await adc(73, { cmd: 'order', id: you.id, kind: 'wander', target: '' })).ok, false, 'played by hand: no orders');

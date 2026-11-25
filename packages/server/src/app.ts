@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -809,40 +809,47 @@ export class App {
   /** Control panel commands. Every value is checked here, whatever the client sent. */
   async adminCmd(c: AdminCmd, who: string, owner = false): Promise<unknown> {
     const w = this.world;
-    const num = (v: unknown, lo: number, hi: number, name: string) => {
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) throw new Error(`bad ${name}`);
+    // lo..hi = the usual range. Outside it the panel asks "are you sure?" (error 'confirm: ...') and sends the command again
+    // with force: true; the admin may then set anything inside `hard` (what the engine can hold: default >= 0 when lo >= 0).
+    const force = (c as { force?: unknown } | undefined)?.force === true;
+    // pct = shown to the owner as a percentage (the panel edits people in %): the factor from the stored value to %.
+    const num = (v: unknown, lo: number, hi: number, name: string, hard: [number, number] = [lo >= 0 ? 0 : -1e12, 1e12], pct = 0) => {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < hard[0] || v > hard[1]) throw new Error(`bad ${name}`);
+      const show = (x: number) => (pct ? `${Math.round(x * pct * 10) / 10} %` : String(x));
+      if ((v < lo || v > hi) && !force) throw new Error(`${CONFIRM}${name} = ${show(v)} is outside the usual ${show(lo)} to ${show(hi)}`);
       return v;
     };
+    const fixed = (v: unknown, lo: number, hi: number, name: string) => num(v, lo, hi, name, [lo, hi]);
     const mapOf = (id: unknown) => { const m = w.mapIndex.get(String(id)); if (m === undefined) throw new Error('bad map'); return m; };
     const reads = READS.has(c?.cmd) || (READ_BARE.has(c?.cmd) && Object.keys(c).every((k) => k === 'cmd' || k === 'id'));
     if (!reads) w.emit('admin', { who, cmd: c.cmd }); // only changes are logged (the panel polls the reads)
     switch (c?.cmd) {
-      case 'speed': this.loop.setSpeed(num(c.speed, 0.01, this.cfg.maxSpeed, 'speed')); return this.clock();
+      case 'speed': this.loop.setSpeed(num(c.speed, 0.01, this.cfg.maxSpeed, 'speed', [0.001, 1e4]), force); return this.clock();
       case 'pause': this.loop.paused = !!c.paused; return this.clock();
       case 'snapshot': this.snapshot(); return { at: this.lastSnapshotAt };
       case 'stats': return this.stats();
       case 'spawn': {
         const m = mapOf(c.map), def = w.maps[m]!.def;
-        const s = w.freeSpot(m, num(c.x, 0, def.w, 'x'), num(c.y, 0, def.h, 'y'));
+        const s = w.freeSpot(m, fixed(c.x, 0, def.w, 'x'), fixed(c.y, 0, def.h, 'y'));
         if (!s) throw new Error('no room there');
         if (w.e.countKind(Kind.Agent) >= 100) throw new Error('population cap (100)');
         const i = w.spawnAgent(m, s.x, s.y);
         return { id: w.e.id(i) };
       }
       case 'remove': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (i < 0) throw new Error('no such entity');
         w.remove(i, 'admin');
         return { ok: true };
       }
       case 'shoot': {
         const m = mapOf(c.map), def = w.maps[m]!.def;
-        const i = w.shoot(m, num(c.x, 0, def.w, 'x'), num(c.y, 0, def.h, 'y'), num(c.dx, -1e3, 1e3, 'dx'), num(c.dy, -1e3, 1e3, 'dy'));
+        const i = w.shoot(m, fixed(c.x, 0, def.w, 'x'), fixed(c.y, 0, def.h, 'y'), fixed(c.dx, -1e3, 1e3, 'dx'), fixed(c.dy, -1e3, 1e3, 'dy'));
         return { id: i >= 0 ? w.e.id(i) : 0 };
       }
       case 'damageTile': {
         const m = mapOf(c.map), t = w.maps[m]!.tiles;
-        const broke = t.damage(num(c.tx, 0, t.w - 1, 'tx') | 0, num(c.ty, 0, t.h - 1, 'ty') | 0, num(c.amount, 0, 255, 'amount'));
+        const broke = t.damage(fixed(c.tx, 0, t.w - 1, 'tx') | 0, fixed(c.ty, 0, t.h - 1, 'ty') | 0, fixed(c.amount, 0, 255, 'amount'));
         return { broke };
       }
       case 'pairings': return this.players.pendingList();
@@ -988,7 +995,7 @@ export class App {
           members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100) })), rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
       }
       case 'agent': {
-        const id = num(c.id, 0, 2 ** 31, 'id'), i = w.e.slot(id);
+        const id = fixed(c.id, 0, 2 ** 31, 'id'), i = w.e.slot(id);
         const p = w.profiles.get(id);
         if (!p) throw new Error('no such person');
         const like = `%${id}%`;
@@ -998,19 +1005,19 @@ export class App {
         const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null };
         const clan = w.clans.clanOf(id); const clanInfo = clan ? { name: clan.name, leader: this.nameOf(clan.leader), loyalty: Math.round(w.clans.loyalty(id) * 100), rivals: w.clans.rivals(clan).map((r) => `${r.clan.name} (${Math.round(r.tension)}/10)`) } : null;
         const talk = this.planner.convo.of(id).map((l) => ({ at: l.at, from: l.from, to: l.to, fromName: l.from === -2 ? 'The owner' : l.from < 0 ? 'Someone' : this.nameOf(l.from), toName: l.to < 0 ? '' : this.nameOf(l.to), text: l.text }));
-        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, clan: clanInfo, now: w.gameSec };
+        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, clan: clanInfo, now: w.gameSec, hpMax: w.sc.agents.hp };
       }
       case 'agentSet': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const p = w.profileOf(i)!, e = w.e;
         for (const [k, v] of Object.entries(c.set ?? {})) {
           if (k === 'name') { const n = String(v).trim().slice(0, 30); if (!n) throw new Error('bad name'); p.name = n; continue; }
           if (k === 'personality') { p.personality = String(v).split(',').map((s) => s.trim()).filter(Boolean).slice(0, 5); continue; }
-          if (k === 'hunger' || k === 'thirst' || k === 'tired' || k === 'lonely') { e[k][i] = num(v, 0, 100, k); continue; }
-          if (k === 'hp') { e.hp[i] = num(v, 1, w.sc.agents.hp, k); continue; }
-          if (k === 'carry') { e.carry[i] = num(v, 0, 20, k); continue; }
-          if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k); continue; }
+          if (k === 'hunger' || k === 'thirst' || k === 'tired' || k === 'lonely') { e[k][i] = fixed(v, 0, 100, k); continue; }
+          if (k === 'hp') { e.hp[i] = num(v, 1, w.sc.agents.hp, 'health', [1, 1e6], 100 / w.sc.agents.hp); continue; }
+          if (k === 'carry') { e.carry[i] = num(v, 0, 20, k, [0, 255]) | 0; continue; }
+          if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k, undefined, 100); continue; }
           if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
           throw new Error(`can't change ${k}`);
         }
@@ -1018,14 +1025,14 @@ export class App {
         return this.agentInfo(i);
       }
       case 'agentMove': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const m = mapOf(c.map), def = w.maps[m]!.def;
-        w.place(i, m, c.x !== undefined ? num(c.x, 0, def.w, 'x') : def.w / 2, c.y !== undefined ? num(c.y, 0, def.h, 'y') : def.h / 2);
+        w.place(i, m, c.x !== undefined ? fixed(c.x, 0, def.w, 'x') : def.w / 2, c.y !== undefined ? fixed(c.y, 0, def.h, 'y') : def.h / 2);
         return this.agentInfo(i);
       }
       case 'kill': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (i < 0 || w.e.kind[i] !== Kind.Agent) throw new Error('no such person');
         w.emit('death', { id: w.e.id(i), cause: 'killed by the owner', map: w.e.map[i] === NO_MAP ? '' : w.maps[w.e.map[i]!]!.def.id, x: w.e.x[i], y: w.e.y[i] });
         w.remove(i, 'killed by the owner');
@@ -1033,14 +1040,14 @@ export class App {
       }
       case 'supply': {
         const m = mapOf(c.map), def = w.maps[m]!.def;
-        const x = c.x !== undefined ? num(c.x, 0, def.w, 'x') : w.rng.range(def.w * 0.3, def.w * 0.7);
-        const y = c.y !== undefined ? num(c.y, 0, def.h, 'y') : w.rng.range(def.h * 0.3, def.h * 0.7);
-        const n = w.brain.drop(m, x, y, c.n !== undefined ? num(c.n, 1, 30, 'n') : 8);
+        const x = c.x !== undefined ? fixed(c.x, 0, def.w, 'x') : w.rng.range(def.w * 0.3, def.w * 0.7);
+        const y = c.y !== undefined ? fixed(c.y, 0, def.h, 'y') : w.rng.range(def.h * 0.3, def.h * 0.7);
+        const n = w.brain.drop(m, x, y, c.n !== undefined ? num(c.n, 1, 30, 'n', [1, 2000]) : 8);
         w.emit('supply', { map: def.id, x, y, n });
         return { x, y, n };
       }
       case 'difficulty': {
-        w.brain.life.difficulty = num(c.value, 0.25, 3, 'difficulty');
+        w.brain.life.difficulty = num(c.value, 0.25, 3, 'difficulty', [0, 1000]);
         this.db.setMeta('difficulty', String(w.brain.life.difficulty));
         return { value: w.brain.life.difficulty };
       }
@@ -1048,21 +1055,21 @@ export class App {
       case 'coderAsk': this.ownerOnly(owner); this.agent.ask(String(c.text ?? ''), who); return this.agent.view();
       case 'coderRun': {
         this.ownerOnly(owner);
-        const p = await this.agent.execute(num(c.id, 1, 1e9, 'id'), who, typeof c.code === 'string' ? c.code : undefined);
+        const p = await this.agent.execute(fixed(c.id, 1, 1e9, 'id'), who, typeof c.code === 'string' ? c.code : undefined);
         return { proposal: p, ...this.agent.view() };
       }
-      case 'coderCancel': this.ownerOnly(owner); this.agent.cancel(num(c.id, 1, 1e9, 'id')); return this.agent.view();
+      case 'coderCancel': this.ownerOnly(owner); this.agent.cancel(fixed(c.id, 1, 1e9, 'id')); return this.agent.view();
       case 'coderUndo': {
         this.ownerOnly(owner);
-        const r = await this.agent.undo(num(c.id, 1, 1e9, 'id'));
+        const r = await this.agent.undo(fixed(c.id, 1, 1e9, 'id'));
         if (r.restart) this.restartSoon(who);
         return { ...r, ...this.agent.view() };
       }
       case 'coderReset': this.ownerOnly(owner); this.agent.reset(); return this.agent.view();
       case 'coderBrain': { this.ownerOnly(owner); if (!this.brains.get(String(c.id))) throw new Error('no such brain'); this.db.setMeta('agent_brain', String(c.id)); return this.agent.view(); }
-      case 'coderAudit': this.ownerOnly(owner); return this.agent.audit(c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 50);
+      case 'coderAudit': this.ownerOnly(owner); return this.agent.audit(c.limit !== undefined ? fixed(c.limit, 1, 500, 'limit') : 50);
       case 'serverInfo': return { ...(await this.control.info()), owner };
-      case 'serverLog': return this.control.logTail(c.lines !== undefined ? num(c.lines, 1, 2000, 'lines') : 300, String(c.level ?? 'info'), this.log.recent).map((l) => ({ ...l, msg: this.agent.redact(l.msg), data: this.agent.redact(l.data) }));
+      case 'serverLog': return this.control.logTail(c.lines !== undefined ? fixed(c.lines, 1, 2000, 'lines') : 300, String(c.level ?? 'info'), this.log.recent).map((l) => ({ ...l, msg: this.agent.redact(l.msg), data: this.agent.redact(l.data) }));
       case 'serverRestart': this.ownerOnly(owner); return this.restartSoon(who);
       case 'serverBuild': case 'serverUpdate': {
         this.ownerOnly(owner);
@@ -1107,7 +1114,7 @@ export class App {
         return out;
       }
       case 'timeline': {
-        const lim = c.limit !== undefined ? num(c.limit, 1, 500, 'limit') : 100;
+        const lim = c.limit !== undefined ? fixed(c.limit, 1, 500, 'limit') : 100;
         this.events.flush();
         return this.events.recent(lim, typeof c.kind === 'string' && c.kind ? c.kind : undefined).map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
       }
@@ -1115,21 +1122,21 @@ export class App {
         const L = w.brain.life;
         if (c.yearDays !== undefined) {
           const from = w.yearSec;
-          L.yearDays = num(c.yearDays, 1 / 24, 365, 'yearDays');
+          L.yearDays = num(c.yearDays, 1 / 24, 365, 'yearDays', [1 / 1440, 1e5]);
           w.life.rescale(from);
           this.db.setMeta('year_days', String(L.yearDays));
         }
-        if (c.maxPopulation !== undefined) { L.maxPopulation = Math.round(num(c.maxPopulation, 1, 100, 'maxPopulation')); this.db.setMeta('max_population', String(L.maxPopulation)); }
+        if (c.maxPopulation !== undefined) { L.maxPopulation = Math.round(num(c.maxPopulation, 1, 100, 'maxPopulation', [0, 1e5])); this.db.setMeta('max_population', String(L.maxPopulation)); }
         return { yearDays: L.yearDays, maxPopulation: L.maxPopulation };
       }
       case 'planner': {
-        const r = this.planner.set({ on: c.on, everyGameHours: c.everyGameHours, batch: c.batch, minGapSec: c.minGapSec });
+        const r = this.planner.set({ on: c.on, everyGameHours: c.everyGameHours, batch: c.batch, minGapSec: c.minGapSec }, force);
         this.db.setMeta('planner', JSON.stringify(r));
         return this.planner.status();
       }
       case 'aiLog': return { ai: this.ai.status(), planner: this.planner.status(), log: [...this.planner.log].reverse() };
       case 'planNow': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to plan for them');
         if (i < 0 || w.e.kind[i] !== Kind.Agent || w.e.map[i] === NO_MAP) throw new Error('no such person here');
         if (!this.ai.status().ready) throw new Error('AI is off: choose Gemini or Ollama in the AI brain card');
@@ -1139,14 +1146,14 @@ export class App {
         return { plan: w.profiles.get(w.e.id(i))?.mind?.plan, mind: w.profiles.get(w.e.id(i))?.mind };
       }
       case 'chat': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (i < 0 || (w.e.kind[i] !== Kind.Agent && !w.isChar(i))) throw new Error('no such person');
         const text = typeof c.text === 'string' ? c.text.trim().slice(0, 300) : '';
         if (!text) throw new Error('say something');
         return this.planner.chat(i, 'owner', text);
       }
       case 'rules': { // the owner's strict rules: for everyone (no id) or one person; add words, remove by index
-        const pid = c.id === undefined || c.id < 0 ? -1 : num(c.id, 0, 2 ** 31, 'id');
+        const pid = c.id === undefined || c.id < 0 ? -1 : fixed(c.id, 0, 2 ** 31, 'id');
         const prof = pid >= 0 ? w.profiles.get(pid) : undefined;
         if (pid >= 0 && (!prof || prof.died !== undefined || w.e.slot(pid) < 0)) throw new Error('no such person');
         const list = (): Rule[] => (pid >= 0 ? (prof!.rules ??= []) : w.rules.all);
@@ -1157,7 +1164,7 @@ export class App {
           list().push(r);
           w.emit('ruleSet', { id: pid, text: r.text, forbid: r.forbid.join(','), with: r.withName ?? '' });
         }
-        if (c.remove !== undefined) { const k = num(c.remove, 0, MAX_RULES - 1, 'remove'); list().splice(k, 1); }
+        if (c.remove !== undefined) { const k = fixed(c.remove, 0, MAX_RULES - 1, 'remove'); list().splice(k, 1); }
         if (pid >= 0 && prof && !prof.rules?.length) delete prof.rules;
         if (pid < 0) this.db.setMeta('rules_all', JSON.stringify(w.rules.all));
         const people: { id: number; name: string; rules: Rule[] }[] = [];
@@ -1165,10 +1172,10 @@ export class App {
         return { all: w.rules.all, people, max: MAX_RULES };
       }
       case 'zombies': { // the owner's zombie controls: how many each night; the ones out now
-        if (c.perNight !== undefined) { w.zombies.perNight = num(c.perNight, 0, 50, 'perNight'); this.db.setMeta('zombies_night', String(w.zombies.perNight)); }
+        if (c.perNight !== undefined) { w.zombies.perNight = num(c.perNight, 0, 50, 'perNight', [0, 5000]); this.db.setMeta('zombies_night', String(w.zombies.perNight)); }
         if (c.cfg && typeof c.cfg === 'object') {
           const k = c.cfg as Record<string, unknown>, z = w.zombies.cfg;
-          w.zombies.setCfg({ hp: k.hp !== undefined ? num(k.hp, 10, 5000, 'health') : z.hp, speed: k.speed !== undefined ? num(k.speed, 0.2, 6, 'speed') : z.speed,
+          w.zombies.setCfg({ hp: k.hp !== undefined ? num(k.hp, 10, 5000, 'health', [1, 1e7]) : z.hp, speed: k.speed !== undefined ? num(k.speed, 0.2, 6, 'speed', [0, 1000]) : z.speed,
             bite: k.bite !== undefined ? num(k.bite, 0, 200, 'attack') : z.bite, sight: k.sight !== undefined ? num(k.sight, 3, 80, 'sight') : z.sight, smell: k.smell !== undefined ? num(k.smell, 10, 400, 'smell') : z.smell }, c.applyNow === true);
           this.db.setMeta('zombie_cfg', JSON.stringify(w.zombies.cfg));
         }
@@ -1181,7 +1188,7 @@ export class App {
         if (c.map !== undefined && (c.want !== undefined || c.fill)) {
           const m = mapOf(c.map), id = w.maps[m]!.def.id;
           if (c.want === null) w.animals.want.delete(id);
-          else if (Array.isArray(c.want)) w.animals.want.set(id, ANIMAL_NAMES.map((_, k) => num(c.want![k] ?? 0, 0, 40, 'count') | 0));
+          else if (Array.isArray(c.want)) w.animals.want.set(id, ANIMAL_NAMES.map((_, k) => num(c.want![k] ?? 0, 0, 40, 'count', [0, 5000]) | 0));
           this.db.setMeta('animal_want', JSON.stringify([...w.animals.want]));
           if (c.fill) w.animals.fill(m);
         }
@@ -1193,15 +1200,15 @@ export class App {
           if (where === 'near' && !String(a.near ?? '').trim()) throw new Error('who should they attack?');
           // The game clock: day 1 starts at 08:00 (gameSec 0); the attack is in `days` days at hour:minute (today when still ahead).
           const dayStart = Math.floor((w.gameSec + 8 * 3600) / 86400) * 86400 - 8 * 3600;
-          let at = dayStart + num(a.days ?? 0, 0, 30, 'days') * 86400 + num(a.hour ?? 21, 0, 23, 'hour') * 3600 + num(a.minute ?? 0, 0, 59, 'minute') * 60;
+          let at = dayStart + num(a.days ?? 0, 0, 30, 'days') * 86400 + fixed(a.hour ?? 21, 0, 23, 'hour') * 3600 + fixed(a.minute ?? 0, 0, 59, 'minute') * 60;
           if (at <= w.gameSec) at += 86400;
-          w.zombies.plan({ at, map: w.maps[m]!.def.id, n: num(a.n ?? 6, 1, 40, 'n') | 0, where, near: where === 'near' ? String(a.near).trim().slice(0, 40) : undefined, daily: !!a.daily, stays: a.stays !== false });
+          w.zombies.plan({ at, map: w.maps[m]!.def.id, n: num(a.n ?? 6, 1, 40, 'n', [1, 5000]) | 0, where, near: where === 'near' ? String(a.near).trim().slice(0, 40) : undefined, daily: !!a.daily, stays: a.stays !== false });
         }
         if (c.remove !== undefined) w.zombies.unplan(Number(c.remove));
         let ran: { map: string; n: number; why?: string } | undefined;
         if (c.now) {
           const a = c.now, where = (['near', 'edge', 'camp', 'random'] as const).find((x) => x === a.where) ?? 'edge';
-          ran = w.zombies.attack({ map: a.map ? w.maps[mapOf(a.map)]!.def.id : w.maps[0]!.def.id, n: num(a.n ?? 6, 1, 40, 'n'), where, near: a.near, stays: a.stays !== false });
+          ran = w.zombies.attack({ map: a.map ? w.maps[mapOf(a.map)]!.def.id : w.maps[0]!.def.id, n: num(a.n ?? 6, 1, 40, 'n', [1, 5000]), where, near: a.near, stays: a.stays !== false });
           if (!ran.n) throw new Error(ran.why ?? 'no room for them');
         }
         return { plans: w.zombies.plans, gameSec: w.gameSec, ran };
@@ -1213,21 +1220,21 @@ export class App {
           const id = this.planner.whoIs(near);
           const j = id >= 0 ? w.e.slot(id) : -1;
           if (j < 0 || w.e.map[j] === NO_MAP) throw new Error(`nobody called ${near}`);
-          const a = w.rng.next() * Math.PI * 2, d = num(c.dist ?? 8, 2, 60, 'dist');
+          const a = w.rng.next() * Math.PI * 2, d = num(c.dist ?? 8, 2, 60, 'dist', [0, 1e5]);
           m = w.e.map[j]!; x = w.e.x[j]! + Math.cos(a) * d; y = w.e.y[j]! + Math.sin(a) * d;
         } else {
           m = mapOf(c.map); const def = w.maps[m]!.def;
-          x = c.x !== undefined && c.x !== '' ? num(c.x, 0, def.w, 'x') : w.rng.range(8, def.w - 8);
-          y = c.y !== undefined && c.y !== '' ? num(c.y, 0, def.h, 'y') : w.rng.range(8, def.h - 8);
+          x = c.x !== undefined && c.x !== '' ? fixed(c.x, 0, def.w, 'x') : w.rng.range(8, def.w - 8);
+          y = c.y !== undefined && c.y !== '' ? fixed(c.y, 0, def.h, 'y') : w.rng.range(8, def.h - 8);
         }
-        const n = Math.max(1, Math.min(20, Math.round(Number(c.n ?? 1)) || 1));
+        const n = Math.round(num(Number(c.n ?? 1), 1, 20, 'n', [1, 5000]));
         const out = [];
         for (let k = 0; k < n; k++) { const i = w.zombies.spawn(m, x + (k ? w.rng.range(-2, 2) : 0), y + (k ? w.rng.range(-2, 2) : 0), c.stays !== false); if (i >= 0) out.push({ id: w.e.id(i), map: w.maps[m]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!) }); }
         if (!out.length) throw new Error('no room there');
         return out;
       }
       case 'order': {
-        const i = w.e.slot(num(c.id, 0, 2 ** 31, 'id'));
+        const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
         if (c.kind === 'marry' || c.kind === 'divorce') return { did: await this.planner.orderWed(i, c.kind, String(c.target ?? '')) };
         if (i >= 0 && w.e.kind[i] === Kind.Player) throw new Error('played by hand: turn their autopilot on (or wait until they watch / leave) to give orders');
         return { did: this.planner.orderFromPanel(i, String(c.kind ?? ''), String(c.target ?? '')) };

@@ -23,7 +23,7 @@ export const HELP: Record<string, [string, string]> = {
   pMind: ['Mind', 'Filled by the AI brain: mood, what they want to do now and why, and what they remember. Empty while the AI is off.'],
   pTalk: ['Talk', 'You talk as the owner. They answer (with the AI, or built-in lines without it) and may do what you ask: "come to imad", "build a hut", "go and find a wife".'],
   pOrder: ['Orders', 'An order is obeyed, not just suggested. Only being very thirsty or starving interrupts it. Work orders become a plan of steps (gather, craft, build).'],
-  pEdit: ['Edit', 'Needs are a lack: 0 = fine, 100 = desperate. hp is health (0 = dead). Traits shape how they act: strength, speed, bravery, sociability...'],
+  pEdit: ['Edit', 'Every level is 0-100 %: Food, Water, Rest and Company are how full they are (100 % = fine, 0 % = desperate), Health is a share of full health, traits are 0-100 % (above 100 % is allowed after you confirm). Food carried is a count, lifespan is in years.'],
   pFamily: ['Family', 'Parents, partner and children. Two single adults who talk a lot may become partners.'],
   pRules: ['Their rules', 'Strict rules for this person only, in your own words. At most 5. The engine enforces them, and they are written in every AI prompt about this person.'],
   world: ['World', 'The clock, how hard life is, ageing, the population limit, travel between maps, supply drops and saving.'],

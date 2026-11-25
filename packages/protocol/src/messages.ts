@@ -31,6 +31,11 @@ export interface Who { t: typeof Msg.Who; map: string }
 export interface Ping { t: typeof Msg.Ping; c: number }
 
 /** Admin commands (control panel). Every field is validated server side. */
+/**
+ * An admin command's value outside the usual range fails with an error starting with this; the panel then asks
+ * "are you sure?" and, on yes, sends the same command again with `force: true` (still inside what the engine can hold).
+ */
+export const CONFIRM = 'confirm: ';
 export type AdminCmd =
   // a Firebase player may use only these (about themselves)
   | { cmd: 'me' }
@@ -131,7 +136,7 @@ export type AdminCmd =
   | { cmd: 'backupRestore'; file: string }
   | { cmd: 'backupDelete'; file: string };
 
-export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd }
+export interface Admin { t: typeof Msg.Admin; id: number; c: AdminCmd & { force?: boolean } }
 
 export interface MapInfo { id: string; name: string; w: number; h: number; tileSize: number; chunkTiles: number }
 export interface PortalInfo { id: string; map: string; x: number; y: number; to: string; toX: number; toY: number; travel: number }

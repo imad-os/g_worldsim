@@ -28,9 +28,10 @@ export class Loop {
     this.speed = speed;
   }
 
-  setSpeed(s: number): void {
+  /** force = the owner confirmed a speed above the configured maximum. */
+  setSpeed(s: number, force = false): void {
     if (!(s > 0)) throw new Error('speed must be > 0');
-    this.speed = Math.min(this.maxSpeed, s);
+    this.speed = force ? s : Math.min(this.maxSpeed, s);
   }
 
   start(): void {
