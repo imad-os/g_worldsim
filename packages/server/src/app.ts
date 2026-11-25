@@ -28,6 +28,7 @@ import { pvpDamage } from './sim/clans.js';
 import { compileRule, MAX_RULES, type Rule } from './sim/rules.js';
 import { Control } from './ops/control.js';
 import { Agent } from './ops/agent.js';
+import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 /** The Firebase project of the panel's sign-in: docs/panel/firebase.json (the public web config, the same file the panel reads). */
@@ -36,7 +37,7 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+const READS = new Set<string>(['analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
@@ -73,6 +74,7 @@ export class App {
   onRestartRequest: () => void = () => {};
   control!: Control;
   agent!: Agent;
+  analysis!: Analysis;
 
   constructor(readonly cfg: Config, readonly secrets: Secrets, log?: Logger) {
     this.log = log ?? new Logger(cfg.logLevel, join(resolve(cfg.dataDir), 'server.log'));
@@ -342,6 +344,12 @@ export class App {
       ai: () => this.agentAi(), brainName: () => this.agentBrain()?.name ?? 'none',
       scope: (print) => this.agentScope(print), data: () => this.agentData(), snapshot: () => this.snapshot(), secrets: () => this.secretList(),
     }, this.log);
+    this.analysis = new Analysis({
+      world: () => this.world, db: this.db, events: this.events, overview: () => this.overview(),
+      aiStatus: () => { const s = this.ai.status(); return { provider: s.provider, model: s.model, ready: s.ready, why: s.why, callsLastHour: s.callsLastHour, maxCallsPerHour: s.maxCallsPerHour, lastError: s.lastError, brain: this.brains.get(this.ai.tag)?.name ?? '' }; },
+      planner: () => this.planner, serverLog: (n) => this.control.logTail(n, 'warn', this.log.recent), ai: (id) => this.analysisAi(id),
+      redact: (s) => this.agent.redact(s), players: () => this.net.characters(),
+    });
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
     this.sampleHistory();
@@ -379,6 +387,18 @@ export class App {
     const ai = new Ai({ ...this.cfg.ai, provider: 'none', timeoutMs: Math.max(this.cfg.ai.timeoutMs, 240_000) }, this.aiKeys(), this.log);
     ai.apply(this.brains.settingsOf(b));
     return ai;
+  }
+  /** The Analysis page's brain: '' = the one in use (with its fallback, the live budget), else a saved brain of its own. */
+  private analysisAi(id: string): { ai: Ai; name: string } {
+    if (!id) return { ai: this.ai, name: this.brains.get(this.ai.tag)?.name ?? this.brains.active.name };
+    const b = this.brains.get(id);
+    if (!b) throw new Error('no such brain');
+    if (b.provider === 'none') throw new Error(`${b.name} has no AI: pick another brain`);
+    const ai = new Ai({ ...this.cfg.ai, provider: 'none', timeoutMs: Math.max(this.cfg.ai.timeoutMs, 240_000) }, this.aiKeys(), this.log);
+    ai.apply(this.brains.settingsOf(b));
+    ai.tag = b.id;
+    ai.onResult = (tag, ok, err) => this.brainStats.record(tag, ok, err);
+    return { ai, name: b.name };
   }
   private secretList(): string[] {
     const s = this.secrets, out = [s.adminToken, s.cloudflareToken ?? '', s.ollamaKey ?? '', s.openaiKey ?? '', s.firebase?.private_key ?? '', ...keyList(s.geminiKey), ...s.viewers.values()];
@@ -1068,6 +1088,13 @@ export class App {
       case 'coderReset': this.ownerOnly(owner); this.agent.reset(); return this.agent.view();
       case 'coderBrain': { this.ownerOnly(owner); if (!this.brains.get(String(c.id))) throw new Error('no such brain'); this.db.setMeta('agent_brain', String(c.id)); return this.agent.view(); }
       case 'coderAudit': this.ownerOnly(owner); return this.agent.audit(c.limit !== undefined ? fixed(c.limit, 1, 500, 'limit') : 50);
+      // The Analysis page (imad 2026-11-25): every stat, and questions to a brain with the log types ticked.
+      case 'analysis': return { stats: this.analysis.stats(), types: LOG_TYPES.map(({ id, name, about }) => ({ id, name, about })), defaults: DEFAULT_TYPES,
+        brains: this.brains.view().list.map((b) => ({ id: b.id, name: b.name, provider: b.provider, model: b.model })), inUse: this.brains.get(this.ai.tag)?.name ?? this.brains.active.name,
+        history: this.analysis.history(), busy: this.analysis.busy };
+      case 'analysisPreview': { const p = this.analysis.prompt(String(c.question ?? ''), Array.isArray(c.include) ? c.include.map(String) : []); return { ...p, chars: p.system.length + p.prompt.length }; }
+      case 'analysisAsk': return this.analysis.ask(String(c.question ?? ''), Array.isArray(c.include) ? c.include.map(String) : [], String(c.brain ?? ''), who);
+      case 'analysisForget': { this.db.setMeta('analysis_log', '[]'); return []; }
       case 'serverInfo': return { ...(await this.control.info()), owner };
       case 'serverLog': return this.control.logTail(c.lines !== undefined ? fixed(c.lines, 1, 2000, 'lines') : 300, String(c.level ?? 'info'), this.log.recent).map((l) => ({ ...l, msg: this.agent.redact(l.msg), data: this.agent.redact(l.data) }));
       case 'serverRestart': this.ownerOnly(owner); return this.restartSoon(who);

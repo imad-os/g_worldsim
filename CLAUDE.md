@@ -359,3 +359,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Flags off = the old `ownPlans` list. Siting: `Survival.campSite`, `hutSite` (constraints + flood-fill access), wall circle
   `perimeter()` sized to the village and fixed at the first piece (`walls`, old worlds with a 9-ring keep it), `hutDir`,
   `taken()` reservations. `sim/structures.ts` audits huts. Experiments: `npm run experiment -- --days 3 --arms old,new`.
+
+## Analysis page (imad 2026-11-25)
+- Panel page "Analysis" (`panel/src/analysis.ts`, staff): every stat (`ops/analysis.ts` `Analysis.stats()`: population, why each woman 18+ has no
+  baby now (same checks as `Life.hourly`), single men / women + possible pairs, objectives done / failed + top failure reasons (last 500 `task`
+  events), per map animals by kind / trees / rocks / rubble / farms / huts / doors / beds / leader, what people do, deaths, clans, rules, AI, event counts).
+- Ask the AI: admin `analysisAsk { question, include: LOG_TYPES ids, brain }` ('' = the live `Ai` in use with its fallback, else a temporary `Ai`
+  of that saved brain, counted in brain stats). Log types: people, life, work, danger, social, convo, travel, admin, ai, server (server = warn/error from
+  `control.logTail`; switch to the error-log store when it lands). Prompt = stats JSON + ticked logs within 60k chars (newest kept), redacted;
+  `analysisPreview` shows it. Answers in meta `analysis_log` (last 30), `analysisForget`. Test analysis.test.ts; proof `node tools/analysis-proof.mjs <outdir>`.

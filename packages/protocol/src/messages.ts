@@ -125,6 +125,11 @@ export type AdminCmd =
   | { cmd: 'coderReset' }
   | { cmd: 'coderBrain'; id: string }
   | { cmd: 'coderAudit'; limit?: number }
+  // The Analysis page (2026-11-25): every stat; a question to a brain ('' = the one in use) with the log types to send along.
+  | { cmd: 'analysis' }
+  | { cmd: 'analysisPreview'; question: string; include: string[] }
+  | { cmd: 'analysisAsk'; question: string; include: string[]; brain?: string }
+  | { cmd: 'analysisForget' }
   // Server controls (2026-11-25, owner only for the ones that change the PC).
   | { cmd: 'serverInfo' }
   | { cmd: 'serverLog'; lines?: number; level?: string }

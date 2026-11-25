@@ -10,6 +10,7 @@ import { $, esc, gameTime, hourOf, icon, load, save, toast } from './util.js';
 import * as fb from './fb.js';
 import { meScreen, usersScreen } from './account.js';
 import { coderScreen } from './coder.js';
+import { analysisScreen } from './analysis.js';
 import { account, isStaff } from './api.js';
 const val2 = (id: string) => ($(id) as HTMLInputElement).value.trim();
 
@@ -17,8 +18,8 @@ const val2 = (id: string) => ($(id) as HTMLInputElement).value.trim();
  * World control panel 2 (imad 2026-11-20: "advanced, informative, '?' guides, responsive, a dashboard, a screen for
  * each kind of thing, hosted on GitHub"). One page, hash routes, a side menu on wide screens and a bottom bar on phones.
  */
-const ROUTES: Record<string, Screen> = { me: meScreen, users: usersScreen, dashboard, people: peopleScreen, person: personScreen, world, zombies, crafting, rules, ai, agent: coderScreen, players, events, server, settings };
-const STAFF_NAV = ['dashboard', 'people', 'world', 'zombies', 'crafting', 'rules', 'ai', 'agent', 'players', 'events', 'server', 'me', 'users', 'settings'];
+const ROUTES: Record<string, Screen> = { me: meScreen, users: usersScreen, dashboard, people: peopleScreen, person: personScreen, world, zombies, crafting, rules, ai, analysis: analysisScreen, agent: coderScreen, players, events, server, settings };
+const STAFF_NAV = ['dashboard', 'people', 'world', 'zombies', 'crafting', 'rules', 'ai', 'analysis', 'agent', 'players', 'events', 'server', 'me', 'users', 'settings'];
 const PLAYER_NAV = ['me', 'settings'];
 let NAV = STAFF_NAV;
 const BOTTOM = ['dashboard', 'people', 'world', 'events'];
