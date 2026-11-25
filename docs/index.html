@@ -50,6 +50,52 @@
   .bag { display: flex; flex-wrap: wrap; gap: 0.5vw 0.8vw; margin: 0.4vw 0 0.8vw; }
   .bag .bi { background: rgba(255, 255, 255, 0.08); border-radius: 0.6vw; padding: 0.3vw 0.8vw; }
   .bag .bi b { color: #ffd166; }
+  /* bag & crafting, gear (invui.ts) */
+  #gmenu.big { width: 88vw; max-height: 94vh; background: rgba(17, 19, 24, 0.97); }
+  #gmenu.big .mx { max-height: none; overflow: visible; font-size: 1.15vw; margin-bottom: 0; }
+  #gmenu.big .ml { display: none; }
+  .inv .tabs { display: flex; gap: 0.6vw; margin-bottom: 0.7vw; }
+  .tb { display: flex; align-items: center; gap: 0.4vw; padding: 0.25vw 0.9vw; border-radius: 0.6vw; background: rgba(255, 255, 255, 0.06); font-size: 1.3vw; }
+  .tb i { width: 2.5vw; height: 2.5vw; display: inline-block; }
+  .tb.cur { background: rgba(255, 209, 102, 0.18); color: #ffd166; }
+  .tb.on, .sl.on, .gs.on, .go.on, .gb.on { outline: 0.25vw solid #ffd166; outline-offset: 0.1vw; }
+  .box { background: rgba(0, 0, 0, 0.28); border: 0.12vw solid rgba(255, 255, 255, 0.08); border-radius: 0.8vw; padding: 0.5vw 0.8vw 0.7vw; }
+  .bt { font-size: 1vw; color: #9aa3ad; margin-bottom: 0.4vw; text-transform: uppercase; letter-spacing: 0.08vw; }
+  .r1 { display: flex; gap: 1vw; margin-bottom: 0.7vw; }
+  .cr { display: flex; align-items: center; gap: 1vw; }
+  .cg, .bk { display: grid; grid-template-columns: repeat(3, 4.2vw); gap: 0.35vw; }
+  .bg { display: grid; grid-template-columns: repeat(9, 4.2vw); gap: 0.35vw; }
+  .arr { font-size: 2.4vw; color: #ffd166; }
+  .sl { width: 4.2vw; height: 4.2vw; position: relative; border-radius: 0.45vw; background: linear-gradient(#3d424a, #2a2d33); border: 0.15vw solid #565c66;
+    box-shadow: inset 0 0.2vw 0.4vw rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex: none; }
+  .sl i { width: 3.6vw; height: 3.6vw; display: block; }
+  .sl i.tx { font-style: normal; font-size: 1.2vw; width: auto; height: auto; color: #c9d1d9; }
+  .sl b { position: absolute; right: 0.25vw; bottom: 0; font-size: 1.1vw; color: #fff; text-shadow: 0 0.1vw 0.25vw #000; }
+  .sl.cant, .sl.ghost i, .sl.empty { opacity: 0.4; }
+  .sl.can { border-color: #6c8f5a; }
+  .sl.other { opacity: 0.75; }
+  .sl.txt { font-size: 1.8vw; color: #ffd166; }
+  .ds { margin-top: 0.6vw; display: flex; gap: 1.2vw; align-items: baseline; font-size: 1.3vw; } .ds b { color: #ffd166; }
+  .nv { margin-top: 0.4vw; font-size: 1vw; color: #7d8590; }
+  .gear { display: grid; grid-template-columns: 22vw 21vw 1fr; gap: 1.2vw; align-items: start; }
+  .gp { background: radial-gradient(ellipse at 50% 38%, #405066, #1b2028 72%); border-radius: 1vw; border: 0.12vw solid rgba(255, 255, 255, 0.1); overflow: hidden; }
+  #gprev { width: 22vw; height: 30vw; position: relative; } #gprev canvas.gpc { position: static; width: 100%; height: 100%; display: block; inset: auto; z-index: auto; }
+  .gt { display: flex; justify-content: space-around; font-size: 1.5vw; padding: 0.5vw; background: rgba(0, 0, 0, 0.35); }
+  .gsl { display: flex; flex-direction: column; gap: 0.6vw; }
+  .gs { display: flex; gap: 0.8vw; align-items: center; padding: 0.5vw; border-radius: 0.7vw; background: rgba(255, 255, 255, 0.05); }
+  .gs.cur { background: rgba(255, 209, 102, 0.12); }
+  .gl { font-size: 0.95vw; color: #9aa3ad; text-transform: uppercase; } .gv { font-size: 1.25vw; }
+  .gor { display: flex; flex-wrap: wrap; gap: 0.5vw; margin-bottom: 0.8vw; }
+  .go { display: flex; flex-direction: column; align-items: center; gap: 0.2vw; font-size: 0.95vw; padding: 0.3vw; border-radius: 0.5vw; width: 6vw; text-align: center; }
+  .go.cur { background: rgba(255, 209, 102, 0.15); }
+  .gbig { display: flex; gap: 1vw; align-items: center; margin-bottom: 0.8vw; font-size: 1.25vw; }
+  .sl.big { width: 6vw; height: 6vw; }
+  .qbar, .lbar { display: flex; gap: 0.25vw; margin-top: 0.4vw; }
+  .qbar i { width: 2.4vw; height: 0.5vw; border-radius: 0.25vw; display: block; }
+  .lbar i { width: 1vw; height: 1vw; border-radius: 0.2vw; background: rgba(255, 255, 255, 0.12); display: block; } .lbar i.f { background: #ffd166; }
+  .gb { padding: 0.6vw 0.8vw; border-radius: 0.7vw; background: rgba(255, 255, 255, 0.06); margin-bottom: 0.6vw; display: flex; flex-direction: column; gap: 0.25vw; font-size: 1.15vw; }
+  .gb b { font-size: 1.35vw; } .gb.off { opacity: 0.55; }
+  .cc { display: inline-flex; align-items: center; gap: 0.2vw; margin-right: 0.8vw; font-size: 1.1vw; } .cc i { width: 2.2vw; height: 2.2vw; display: inline-block; } .cc.no { color: #e5625b; }
   .rp-ev { margin-top: 0.4vw; min-height: 1.5vw; }
   .re-bite, .re-death { color: #ff8a80; }
   .re-killed { color: #8fe3a7; }
@@ -92,6 +138,6 @@
 <div id="card" hidden></div>
 <div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.10.1"></script>
+<script type="module" src="game.js?v=0.11.0"></script>
 </body>
 </html>

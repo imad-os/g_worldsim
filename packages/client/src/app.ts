@@ -16,6 +16,8 @@ import {
 } from './ui.js';
 import { Wheel, type WheelItem } from './wheel.js';
 import { Sound, SOUND_DEFAULTS, type SoundPrefs } from './audio.js';
+import { loadItems } from './gfx/items.js';
+import { InvScreen, GearScreen, type InvCtx } from './invui.js';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
 const sound = new Sound();
@@ -92,6 +94,8 @@ let body = { radius: 0.3, walk: 1.4, run: 3.5 };
 const CAP = 4096;
 const eid = new Int32Array(CAP).fill(-1);
 const kind = new Uint8Array(CAP), flags = new Uint8Array(CAP), sub = new Uint8Array(CAP), atype = new Uint8Array(CAP); // sub: item type / agent action
+/** People's gear + move (protocol gear.ts) and when the move began (a new swing restarts it). */
+const gearOf = new Int32Array(CAP), animKey = new Int32Array(CAP), animAt = new Float64Array(CAP);
 const px = new Float32Array(CAP), py = new Float32Array(CAP), nx = new Float32Array(CAP), ny = new Float32Array(CAP);
 const vx = new Float32Array(CAP), vy = new Float32Array(CAP), ang = new Float32Array(CAP);
 const nextCry = new Float64Array(256 * 64);
@@ -141,7 +145,7 @@ type CamView = 'top' | 'third' | 'first';
 const CAM_VIEWS: CamView[] = ['top', 'third', 'first'];
 let camView: CamView = 'top', yaw = 0;
 let seer = false, mindsAt = 0;
-let meNeeds: { pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string } | null = null;
+let meNeeds: { pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string; gear?: ReturnType<InvCtx['gear']> } | null = null;
 /** The craft screen: the category open and what is put in. */
 let craftCat = '';
 const pot: Record<string, number> = {};
@@ -289,6 +293,7 @@ function onMsg(m: ServerMsg): void {
       gameSec = m.clock.gameSec; tickAt = performance.now(); clockScale = m.clock.clockScale; simSpeed = m.clock.paused ? 0 : m.clock.speed;
       if (!g3) {
         try { g3 = new World3D(canvas, tier); } catch { show('nogl'); return; }
+        void loadItems();
         resize(); applyGfx();
       }
       if (!map || !m.maps.some((x) => x.id === map)) setMap(String(MyPC.load('map', m.maps[0]!.id)));
@@ -326,7 +331,7 @@ function onMsg(m: ServerMsg): void {
         const hp = (m.data as { hp?: number }).hp ?? 100;
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
         lastHp = hp;
-        meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight')) menu.refresh(); }
+        meNeeds = m.data as typeof meNeeds; drawCard(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight' || menu.page === 'inv' || menu.page === 'gear')) menu.refresh(); }
       if (m.kind === 'blocked') note(t((m.data as { why?: string } | null)?.why === 'door' ? 'dDoorShut' : 'dBlocked'), 5000);
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
@@ -357,11 +362,14 @@ function onMsg(m: ServerMsg): void {
       frameAt = now;
       gameSec = m.gameSec; tickAt = now;
       for (let i = 0; i < CAP; i++) if (eid[i] !== -1) { px[i] = nx[i]!; py[i] = ny[i]!; }
-      const r = unpackI32(m.upd);
+      const r = unpackI32(m.upd), gx = m.gx ? unpackI32(m.gx) : null;
       for (let o = 0; o < r.length; o += ENT_REC) {
         const s = slotFor(r[o]!);
         if (s < 0) continue;
         const fresh = kind[s] === 0;
+        const g = gx ? gx[o / ENT_REC] ?? 0 : 0, ak = (g >> 15) & 127;
+        if (ak !== animKey[s] || fresh) { animKey[s] = ak; animAt[s] = now; }
+        gearOf[s] = g;
         kind[s] = r[o + 1]! & 255; flags[s] = (r[o + 1]! >> 8) & 255; sub[s] = (r[o + 1]! >> 16) & 255; atype[s] = (r[o + 1]! >>> 24) & 63;
         nx[s] = r[o + 2]! / POS_Q; ny[s] = r[o + 3]! / POS_Q; ang[s] = r[o + 4]! / ANG_Q;
         vx[s] = r[o + 5]! / POS_Q; vy[s] = r[o + 6]! / POS_Q;
@@ -682,7 +690,7 @@ function placeLabel(): string { const p = placeable(); return p ? tf('cPut', thi
 function runQuick(id: string | null): void {
   if (!id) return;
   if (id === 'camera') { nextCamera(); return; }
-  if (id === 'bag') { openMenu('bag'); return; }
+  if (id === 'bag') { openMenu('inv'); return; }
   if (id === 'place') { const p = placeable(); if (p) startPlacing(p); else note(t('qNothing'), 2000); return; }
   doAction(id as ActionId, true);
 }
@@ -1048,7 +1056,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'noReplay') { note(t('pastNone'), 2500); return; }
   if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
   if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); note(tf('dTp', d.name ?? ''), 3000); return; }
-  const dd = d as typeof d & { got?: Record<string, number>; left?: number; need?: Record<string, number>; kept?: boolean };
+  const dd = d as typeof d & { got?: Record<string, number>; left?: number; need?: Record<string, number>; kept?: boolean; lv?: number; q?: number };
   const arrows = dd.left !== undefined ? ' ' + tf('arrowsLeft', String(dd.left)) : '';
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code) + arrows, 1800); return; }
   if (d.code === 'swing') { note(t('dSwing'), 1200); return; }
@@ -1064,7 +1072,12 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'aKilled') { note(tf('aKilled', thing(d.item ?? ''), gotText(dd.got)), 3500); return; }
   if (d.code === 'mined' && !Object.keys(dd.got ?? {}).length) { note(t('dHard'), 1200); return; }
   if (d.code === 'chopped' || d.code === 'mined') { note(tf('dGot', gotText(dd.got)), 1500); return; }
-  if (d.code === 'crafted') { for (const k of Object.keys(pot)) delete pot[k]; note(tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
+  if (d.code === 'equipped') { note(t('dEquipped'), 1500); return; }
+  if (d.code === 'upgraded') { note(tf('dUpgraded', cap1(thing(dd.item ?? '')), `+${dd.lv ?? 0} ${t(('qual' + (dd.q ?? 0)) as Key)}`), 3000); return; }
+  if (d.code === 'upNeed') { note(tf('dUpNeed', needText(dd.need ?? {})), 3500); return; }
+  if (d.code === 'needLevel') { note(tf('dNeedLevel', String(dd.need?.level ?? '')), 3000); return; }
+  if (d.code === 'maxLevel' || d.code === 'maxQuality' || d.code === 'notCarried') { note(t(d.code === 'maxLevel' ? 'dMaxLevel' : d.code === 'maxQuality' ? 'dMaxQuality' : 'dNotCarried'), 2500); return; }
+  if (d.code === 'crafted') { invScreen.clear(); for (const k of Object.keys(pot)) delete pot[k]; note(tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
   if (d.code === 'placed') { note(tf('dPlaced', thing(d.item ?? '')), 2500); return; }
   const more: Record<string, Key> = { noRecipe: 'dNoRecipe', noMat: 'dNoMat', noRoom: 'dNoRoom', noItem: 'dNoItem', tooThick: 'dTooThick' };
   if (more[d.code]) { note(t(more[d.code]!), 2800); return; }
@@ -1109,9 +1122,11 @@ function bindText(a: ActionId): string {
 function buildPage(id: string): Page {
   const rows: Row[] = [];
   switch (id) {
+    case 'inv': return { id, title: t('invTitle'), rows, big: true, html: invScreen.html(), grid: invScreen };
+    case 'gear': return { id, title: t('gearTitle'), rows, big: true, html: gearScreen.html(), grid: gearScreen };
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'bag', label: t('mBag'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
+      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true });
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push(...(meId >= 0 ? [{ id: 'mine', label: t('mFollowMe') }] : []), { id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
@@ -1283,7 +1298,7 @@ function pickRow(page: string, row: string): void {
     if (row === 'resume') menu.close();
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
     else if (row === 'past') { past = null; send({ t: Msg.Do, a: 'replays' }); menu.push('past'); }
-    else if (row === 'bag' || row === 'build' || row === 'fight') menu.push(row);
+    else if (row === 'bag' || row === 'build' || row === 'fight' || row === 'inv' || row === 'gear') menu.push(row);
     else if (row === 'me') { send({ t: Msg.Do, a: 'mine' }); menu.push('me'); }
     else if (row === 'goto') { roster = null; send({ t: Msg.Do, a: 'roster' }); menu.push('goto'); }
     else if (row === 'person') { askInfo(personTarget(), true); menu.push('person'); }
@@ -1293,7 +1308,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
   } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
   else if (page === 'build') startPlacing(row.slice(2));
-  else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('craft'); else if (row === 'pvp') { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); } }
+  else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('inv'); else if (row === 'pvp') { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); } }
   else if (page === 'past') {
     if (row === 'back') menu.back();
     else { menu.close(); note('…', 1500); send({ t: Msg.Do, a: 'replay', text: row.slice(1) }); }
@@ -1388,6 +1403,18 @@ function pickRow(page: string, row: string): void {
   }
 }
 
+/** Bag & crafting, gear (invui.ts). */
+const invCtx: InvCtx = {
+  inv: () => (meNeeds?.inv ?? {}) as Record<string, number>,
+  gear: () => meNeeds?.gear,
+  thing: (k) => cap1(thing(k)),
+  catName: (c) => catName(c),
+  send: (a, text) => send({ t: Msg.Do, a, text }),
+  note: (s, ms) => note(s, ms),
+  close: () => menu.close(),
+  look: () => { const s = meSlot(); return s >= 0 && atype[s]! > 0 ? playerLook(true, atype[s]!) : ME; },
+};
+const invScreen = new InvScreen(invCtx), gearScreen = new GearScreen(invCtx);
 const menu = new Menu(buildPage, pickRow, () => { capture = null; noteEl.hidden = true; drawCard(); MyPC.back?.(false); });
 menu.onSound = (id) => sound.play(id);
 const bubbles = new Bubbles(8);
@@ -1505,7 +1532,7 @@ function draw(now: number, dt: number): void {
     const zed = kind[i] === Kind.Threat;
     const mine = i === me || eid[i] === meId;
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed);
+    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : gearOf[i]!, (now - animAt[i]!) / 1000);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
@@ -1538,6 +1565,7 @@ function frame(ts: number): void {
   acc += Math.min(250, ts - last); last = ts;
   while (acc >= STEP) { update(ts); acc -= STEP; }
   // Under the game menu the world is only drawn 10 times a second: the menu answers at once on small TVs.
+  if (menu.open && menu.page === 'gear') gearScreen.draw(ts); else gearScreen.stop();
   if (!menu.open || ts - drawAt > 100) { draw(ts, ts - drawAt > 200 ? dt : Math.min(0.1, (ts - drawAt) / 1000)); drawAt = ts; fpsN++; }
   if (gfx.fps && ts - fpsAt > 500) { fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms`; fpsN = 0; fpsAt = ts; }
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
@@ -1583,7 +1611,7 @@ const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
 /** Arrows / D-pad / stick as directions: the menu when it is open, else moving. */
 function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean, fromPad = false): void {
   if (rp && !menu.open) { if (pressed) { if (d === 'left' || d === 'right') rp.seek(d === 'left' ? -5 : 5); else if (!repeat) rp.faster(d === 'up'); } return; }
-  if (menu.open) { if (pressed && (d === 'up' || d === 'down')) menu.input(d); return; }
+  if (menu.open) { if (pressed) menu.input(d); return; }
   if (wheel.open) { if (pressed && !repeat) wheel.step(d); return; }
   if (repeat) return;
   // A controller's stick / D-pad only moves (its right stick turns the camera); the remote's ◀ ▶ turn in third / first person.

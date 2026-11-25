@@ -428,3 +428,23 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `Survival.findTile`) or fail with the real reason. `sim/memory.ts` (`w.memory`, `Profile.mind.mem`: short 10, long 100,
   places 4 per kind; `story(i)` in every prompt). Experiments: `experiment-requests.js` (E6), `experiment-defence.js` (E7);
   the harnesses call `w.land.setup()` like the server. The long-term-plan strictness question: imad said skip for now.
+
+## Items, gear, moves (imad 2026-11-25, app 0.11.0)
+- **Assets**: CC0 models only (Quaternius, KayKit, Kenney; `docs/models/CREDITS.md`). `tools/assets/fetch.sh` (KayKit packs at pinned commits into
+  .cache/) + `node tools/assets/build-items.mjs` (headless Chromium: FBX / glTF -> flat-shaded face-colour triangles; `tools/assets/items.mjs` = which
+  model, turn, size, icon angle) -> `docs/models/items.json` (models used in game: sword axe spear bow hammer sledge helmet pads) + `docs/icons/items.png/json`
+  (27 icons, one atlas). Client `gfx/items.ts` loads both in the background (`iconStyle(id, px)`, `itemGeo`). Kenney FBX files fail in FBXLoader: use their glb.
+- **Gear** (`protocol/gear.ts`, server `sim/gear.ts`, `World.gear`, `Profile.gear` { weapon / ranged / head / body = chosen ('' best, '-' none), up { item: [lv, q] } }):
+  Survival.weapon / defence delegate to it (equipped, x `gearMul(lv, q)` = quality mul [1, 1.12, 1.25, 1.42, 1.65] x (1 + 0.05 lv)); bow shots x `bowMul`.
+  Levels +0..+10 (`levelCost`), quality normal / fine / superior / epic / elite (`qualityCost`: claws, ore / leather, scrap, bricks; needs +2 / +4 / +6 / +8).
+  Do `equip` "slot:item", Do `upgrade` "item:lv" | "item:q" (codes upgraded / upNeed / needLevel / maxLevel / maxQuality / notCarried); Notice `me` carries
+  `gear` (+ `use` = what each slot really uses) and is sent at once after equip / upgrade / craft. Agents level what they use up to +3 hourly with spare materials.
+  Admin `agentSet` set `{ 'bag.ore': 5 }` edits a bag.
+- **Frames** carry `gx` (one Int32 per record, `packGear`: held, helmet, body, qualities, anim, anim count, bow on back). Anim from `Gear.play(i, anim)` (players:
+  hit / shoot / build / place / talk / gather in app.ts onDo) or from the act (Fight attack, Build build, Talk talk, Gather chop near a tree else mine).
+  Client `People.add(..., gear, at)`: procedural moves (attack, chop with an axe, mine with a heavy hammer, build with a hammer, talk + nod, shoot, use),
+  weapon in the right hand / bow in the left, bow on the back, helmet, shoulder pads + steel tunic for armour, leather tunic for clothes, quality tints +
+  additive glow from superior up. Proof without a server: `node tools/people-proof/run.mjs <outdir>`.
+- **Screens** (`invui.ts`, Menu pages with a `grid` = own cursor, `big`): "Bag & crafting" (category tabs, 3x3 grid -> result, recipe book fills the grid,
+  9x4 bag; A on a material = into the grid, on gear = equip, on a placeable = put down) and "Gear" (3D preview = a second small WebGLRenderer only while open,
+  4 slots, choices Best / Nothing / items, Level up / Raise quality with costs). Strings `i18ng.ts` (TG). Proof: `ADMIN_TOKEN=... node tools/gear-proof.mjs <server> <sdk.js> <outdir>`.

@@ -1186,6 +1186,7 @@ export class App {
           if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k, undefined, 100); continue; }
           if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
           if (k === 'age') { if (p.player) throw new Error("players' characters stay 25"); p.born = w.gameSec - num(v, 0, 100, k, [0, 1000]) * w.yearSec; const ag = Number(v); e.flags[i] = (e.flags[i]! & ~(EFlag.Child | EFlag.Small)) | (ag < 16 ? EFlag.Child : 0) | (ag < 3 ? EFlag.Small : 0); continue; } // years
+          if (k.startsWith('bag.')) { const inv = w.survival.inv(i), it = k.slice(4); inv[it] = fixed(v, 0, it === 'arrows' ? 30 : 20, k) | 0; if (!inv[it]) delete inv[it]; continue; } // bag: { 'bag.ore': 5 }
           throw new Error(`can't change ${k}`);
         }
         e.nextThink[i] = w.tick; // decide again with the new values

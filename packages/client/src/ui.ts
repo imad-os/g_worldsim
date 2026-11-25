@@ -43,7 +43,9 @@ export const remoteName = (n: string) => REMOTE_NAMES[n] ?? (/^\d$/.test(n) ? n 
 
 // ------------------------------------------------------------ menu
 export interface Row { id: string; label: string; value?: string; sub?: boolean; dim?: boolean }
-export interface Page { id: string; title: string; rows: Row[]; text?: string; html?: string; wide?: boolean }
+/** `grid`: a screen with its own cursor (bag & crafting, gear): the arrows and OK go to it, Back still goes back. `big` = nearly full screen. */
+export interface Grid { move(d: 'up' | 'down' | 'left' | 'right'): void; ok(): void }
+export interface Page { id: string; title: string; rows: Row[]; text?: string; html?: string; wide?: boolean; big?: boolean; grid?: Grid }
 
 export class Menu {
   readonly el: HTMLDivElement;
@@ -52,6 +54,7 @@ export class Menu {
   private listEl: HTMLDivElement;
   private stack: { id: string; sel: number }[] = [];
   private rows: Row[] = [];
+  private cur: Page | null = null;
   open = false;
   sel = 0;
 
@@ -83,9 +86,11 @@ export class Menu {
 
   private render(sel = 0): void {
     const p = this.build(this.page);
+    this.cur = p;
     this.rows = p.rows;
     this.titleEl.textContent = p.title;
     this.el.classList.toggle('wide', !!p.wide);
+    this.el.classList.toggle('big', !!p.big);
     if (p.html) this.textEl.innerHTML = p.html; else this.textEl.textContent = p.text ?? '';
     this.textEl.hidden = !p.text && !p.html;
     this.listEl.textContent = '';
@@ -115,8 +120,11 @@ export class Menu {
   }
 
   /** Remote / D-pad / A / B. True = handled. */
-  input(a: 'up' | 'down' | 'ok' | 'back'): void {
+  input(a: 'up' | 'down' | 'left' | 'right' | 'ok' | 'back'): void {
     if (!this.open) return;
+    const g = this.cur?.grid;
+    if (g && a !== 'back') { this.onSound(a === 'ok' ? 'ui_ok' : 'ui_move'); if (a === 'ok') g.ok(); else g.move(a); this.refresh(); return; }
+    if (a === 'left' || a === 'right') return;
     const n = this.rows.length;
     this.onSound(a === 'up' || a === 'down' ? 'ui_move' : a === 'ok' ? 'ui_ok' : this.stack.length > 1 ? 'ui_back' : 'ui_close');
     if (a === 'up' && n) this.select((this.sel + n - 1) % n);
