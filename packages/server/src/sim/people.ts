@@ -49,6 +49,8 @@ export interface Profile {
   auto?: boolean;
   /** Where their home is (sim/homes.ts): the middle of the hut they or their family own. */
   home?: { map: string; x: number; y: number };
+  /** Gear chosen per slot and upgrades per item (sim/gear.ts). */
+  gear?: import('@worldsim/protocol').GearState;
 }
 
 /** Players' characters stay this age (they never grow old or die of age). */

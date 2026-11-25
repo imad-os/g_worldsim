@@ -205,8 +205,9 @@ export interface ChunkDrop { t: typeof Msg.ChunkDrop; map: string; keys: number[
  *   [id, kind | flags << 8 | sub << 16, x (cm), y (cm), angle (1e-4 rad), vx (cm/s), vy (cm/s)]
  * sub = item type for items, the current action (Act) for agents.
  * `del` = ids that left the view or died. A client interpolates between frames using `tick`.
+ * `gx` = one packed Int32 per record, same order: people's gear and animation (`packGear` in gear.ts; 0 for the rest).
  */
-export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[] }
+export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[]; gx?: Uint8Array }
 export const ENT_REC = 7;
 
 export interface Stats { t: typeof Msg.Stats; s: ServerStats }

@@ -11,6 +11,7 @@ import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Clans } from './clans.js';
 import { Survival } from './survival.js';
+import { Gear } from './gear.js';
 import { Colony } from './colony.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
@@ -76,6 +77,8 @@ export class World {
   readonly life: Life;
   readonly tasks: Tasks;
   readonly survival: Survival;
+  /** What people wear and hold, upgrades, and the move viewers see (sim/gear.ts). */
+  readonly gear: Gear;
   /** The camp's drives, goal planning (GOAP) and what people learn (sim/colony.ts). */
   readonly colony: Colony;
   /** Clans and fights between people (sim/clans.ts). */
@@ -118,6 +121,7 @@ export class World {
     this.life = new Life(this);
     this.tasks = new Tasks(this);
     this.survival = new Survival(this);
+    this.gear = new Gear(this);
     this.colony = new Colony(this);
     this.clans = new Clans(this);
     this.zombies = new Zombies(this);
@@ -390,7 +394,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
-    if (this.tick % 20 === 0) { this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); }
+    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); }
     this.zombies.update();
     this.animals.update();
     if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });

@@ -8,3 +8,4 @@ out/
 packages/client/www/*.js
 packages/client/www/*.js.map
 worldsim.config.json
+.cache/

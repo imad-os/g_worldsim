@@ -49,6 +49,7 @@ interface Session {
   talkAt?: number;
   known: Int32Array; // slot -> id + 1 (0 = not known)
   q: Int32Array;     // slot -> last sent x, y, angle (quantized)
+  g: Int32Array;     // slot -> last sent gear code
   list: Int32Array;  // slots known after the last frame
   listN: number;
   /** Frames since the last one sent (a quiet view still gets one a second: the clock moves on). */
@@ -92,6 +93,7 @@ export class NetServer {
   private statsTimer: NodeJS.Timeout | null = null;
   private readonly scratch: Int32Array;
   private readonly rec: Int32Array;
+  private readonly gx: Int32Array;
   private readonly chunkBuf = new Uint8Array(CHUNK_TILES * CHUNK_TILES);
   private readonly ipConn = new Map<string, { n: number; at: number }>();
   private readonly ipFail = new Map<string, { n: number; at: number }>();
@@ -125,6 +127,7 @@ export class NetServer {
     const cap = world.e.cap;
     this.scratch = new Int32Array(cap);
     this.rec = new Int32Array(cap * ENT_REC);
+    this.gx = new Int32Array(cap);
     this.http = createServer((req, res) => this.onHttp(req, res));
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
     this.http.on('upgrade', (req, socket, head) => {
@@ -314,7 +317,7 @@ export class NetServer {
       const cap = this.world.e.cap;
       s = {
         id: randomBytes(12).toString('base64url'), ws, role, name, ip, acct, view: null,
-        chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 4), list: new Int32Array(cap), listN: 0, idle: 0,
+        chunks: new Map(), chunkMap: -1, known: new Int32Array(cap), q: new Int32Array(cap * 4), g: new Int32Array(cap), list: new Int32Array(cap), listN: 0, idle: 0,
         tokens: 60, tokensAt: Date.now(), goneAt: 0, avatar: -1, avatarId: 0, lastMap: -2,
       };
       this.sessions.set(s.id, s);
@@ -686,10 +689,12 @@ export class NetServer {
       const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal || ((e.kind[i] === Kind.Player || e.kind[i] === Kind.Agent) && e.sub[i]) ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+; players' characters: look (1 + skin, +8 woman)
       const was = s.known[i]!;
       if (was > 0 && was !== id + 1) (delEarly ??= []).push(was - 1); // slot reused by a new entity
-      const changed = was !== id + 1 || s.q[i * 4] !== qx || s.q[i * 4 + 1] !== qy || s.q[i * 4 + 2] !== qa || s.q[i * 4 + 3] !== kf;
+      const gc = w.gear.code(i);
+      const changed = was !== id + 1 || s.q[i * 4] !== qx || s.q[i * 4 + 1] !== qy || s.q[i * 4 + 2] !== qa || s.q[i * 4 + 3] !== kf || s.g[i] !== gc;
       s.known[i] = -(id + 1);
       if (!changed) continue;
-      s.q[i * 4] = qx; s.q[i * 4 + 1] = qy; s.q[i * 4 + 2] = qa; s.q[i * 4 + 3] = kf;
+      s.q[i * 4] = qx; s.q[i * 4 + 1] = qy; s.q[i * 4 + 2] = qa; s.q[i * 4 + 3] = kf; s.g[i] = gc;
+      this.gx[rn] = gc;
       const o = rn * ENT_REC;
       rec[o] = id; rec[o + 1] = kf; rec[o + 2] = qx; rec[o + 3] = qy; rec[o + 4] = qa;
       rec[o + 5] = Math.round(e.vx[i]! * POS_Q); rec[o + 6] = Math.round(e.vy[i]! * POS_Q);
@@ -704,7 +709,7 @@ export class NetServer {
     s.listN = n;
     if (rn === 0 && !del && ++s.idle < this.o.netHz) return;
     s.idle = 0;
-    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [] });
+    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn) });
   }
 
   private broadcastStats(): void {

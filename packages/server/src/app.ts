@@ -239,6 +239,12 @@ export class App {
       { const r = this.charDo(name, player, a, text); if (r) return r; } // my character: look, autopilot, rules, partner, child, hut
       if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
       const sv = w.survival;
+      if (a === 'equip') return w.gear.equip(player, String(text ?? '')); // gear screen: "slot:item"
+      if (a === 'upgrade') return w.gear.upgrade(player, String(text ?? '')); // "item:lv" | "item:q"
+      { // what viewers see me do (a swing, a chop, a shot...)
+        const an = a === 'hit' || a === 'hitperson' ? 'attack' : a === 'shoot' ? 'shoot' : a === 'build' || a === 'place' ? 'build' : a === 'talk' || a === 'hold' ? 'talk' : '';
+        if (an) w.gear.play(player, an, an === 'talk' ? 4 : undefined);
+      }
       if (a === 'craft') { // "weapon:wood=1,ore=1"
         const [cat, list] = String(text ?? '').split(':');
         const put: Record<string, number> = {};
@@ -301,7 +307,7 @@ export class App {
         const dx = Math.cos(aim), dy = Math.sin(aim);
         w.shoot(m, x + dx * 0.6, y + dy * 0.6, dx * 30, dy * 30, player);
         if (t < 0) return { ok: false, code: 'missed', left: inv.arrows ?? 0 };
-        const d = Math.hypot(e.x[t]! - x, e.y[t]! - y), dmg = d < 10 ? 30 : d < 16 ? 24 : 18;
+        const d = Math.hypot(e.x[t]! - x, e.y[t]! - y), dmg = (d < 10 ? 30 : d < 16 ? 24 : 18) * w.gear.bowMul(player);
         if (e.kind[t] === Kind.Threat) return { ok: true, code: w.zombies.hit(t, dmg, player) ? 'zKilled' : 'zHit', left: inv.arrows ?? 0 };
         return { ...this.hitAnimal(player, t, dmg), left: inv.arrows ?? 0 };
       }
@@ -340,7 +346,7 @@ export class App {
         const now = Date.now();
         if ((this.workAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
         const wk = sv.playerWork(player);
-        if (wk) { this.workAt.set(name, now + (wk.hard ? 1600 : 900)); return { ok: !!wk.got, code: wk.code, got: wk.got }; }
+        if (wk) { this.workAt.set(name, now + (wk.hard ? 1600 : 900)); w.gear.play(player, wk.code === 'chopped' ? 'chop' : wk.code === 'mined' ? 'mine' : 'use'); return { ok: !!wk.got, code: wk.code, got: wk.got }; }
         return r0;
       }
       return w.brain.playerDo(player, a);
@@ -349,7 +355,7 @@ export class App {
     this.net.info = (id, seer) => this.personInfo(id, seer);
     this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
     this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0,
-      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()) });
+      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], gear: { ...w.gear.state(i), use: { weapon: w.gear.equipped(i, 'weapon'), ranged: w.gear.equipped(i, 'ranged'), head: w.gear.equipped(i, 'head'), body: w.gear.equipped(i, 'body') } }, pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()) });
     w.survival.playerName = (i) => this.net.characters().find(([, k]) => k === i)?.[0] ?? '';
     // Walking into the wrecks across a road out while travel is closed: that player is told why.
     // Married or divorced by words: the player's TV is told (and shows it on the Me page).

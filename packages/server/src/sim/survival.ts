@@ -1,4 +1,4 @@
-import { Act, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, WEAPONS, DEFENCE, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
@@ -226,18 +226,9 @@ export class Survival {
     }
   }
   /** What worn clothes take off a bite (0..0.5). */
-  defence(i: number): number {
-    const v = this.inv(i);
-    const body = Math.max((v.armor ?? 0) > 0 ? DEFENCE.armor! : 0, (v.clothes ?? 0) > 0 ? DEFENCE.clothes! : 0);
-    return Math.min(0.5, body + ((v.helmet ?? 0) > 0 ? DEFENCE.helmet! : 0));
-  }
-  /** The best weapon carried and how hard it hits (0 = none). */
-  weapon(i: number): [string, number] {
-    const v = this.inv(i);
-    let best: [string, number] = ['', 0];
-    for (const [k, d] of Object.entries(WEAPONS)) if ((v[k] ?? 0) > 0 && d > best[1]) best = [k, d];
-    return best;
-  }
+  defence(i: number): number { return this.w.gear.defence(i); }
+  /** The weapon in hand (chosen on the gear screen, else the best carried) and how hard it hits with its level / quality (0 = none). */
+  weapon(i: number): [string, number] { return this.w.gear.weapon(i); }
   /** A lamp burns within r metres of (x, y): zombies and wolves keep away. */
   lampNear(m: number, x: number, y: number, r: number): boolean {
     if (this.T.lamp < 0) return false;
