@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -40,11 +40,12 @@ function firebaseProject(): string {
   try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
 }
 /** Panel commands that only read: never written to the timeline. */
-const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog', 'clans', 'quests']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
-  'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
+  'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give',
+  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel']);
 
 /** Warnings that only say what happened (the server log keeps them): not problems for the error log. */
 const NOT_PROBLEMS = new Set(['restart asked', 'restarting', 'agent action', 'restore scheduled for the next start', 'database restored from a backup']);
@@ -167,6 +168,7 @@ export class App {
     this.world.zombies.onPlans = () => this.db.setMeta('zombie_plans', JSON.stringify(this.world.zombies.plans));
     { const a = this.db.getMeta('animal_want'); if (a) { try { for (const [k, v] of JSON.parse(a) as [string, number[]][]) this.world.animals.want.set(k, v); } catch { /* broken: built-in mix */ } } }
     this.world.land.setup(); // the town's ring of trees, its 4 roads out (wrecks while travel is closed), rocks
+    this.world.quests.setup(); // the town's teachers (NPCs), made again at every start
     const want = sc.agents.count;
     if (this.db.getMeta('agents_count') !== String(want) || !this.world.travelOpen) {
       const r = this.world.fitPopulation(this.db.getMeta('agents_count') !== String(want) ? want : 1e9);
@@ -236,6 +238,21 @@ export class App {
       if (a === 'replays') return { ok: true, code: 'replays', list: this.replayList() };
       if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
+      if (a === 'quests') return { ok: true, code: 'quests', list: w.quests.rows(e.id(player)) };
+      if (a === 'npc') { // talk to the town teacher next to me: take / hand in a quest (the registrar also founds clans)
+        const k = w.quests.nearNpc(player, 4);
+        if (!k) return { ok: false, code: 'noNpc' };
+        const r = w.quests.talk(player, k);
+        return { ok: true, code: 'npc', talk: r, quests: w.quests.rows(e.id(player)), ...(k === 'registrar' ? { clan: w.clans.info(player) } : {}) };
+      }
+      if (a === 'clan') { // info / join:<id> / quit / found:<name> / vote:<id> / call / order:<words>
+        const r = w.clans.playerDo(player, String(text ?? 'info'));
+        if (r.ok && r.code === 'clanOrdered') { // a leader's words to the clan: each member hears them and the loyal ones obey
+          const c = w.clans.clanOf(e.id(player))!;
+          for (const j of w.clans.hearers(c)) void this.planner.chat(j, name, String(text).slice(6), player).catch(() => {});
+        }
+        return r;
+      }
       if (a === 'tp') return this.isStaff(name) ? this.teleport(player, Number(text)) : { ok: false, code: 'staffOnly' }; // admin tool
       { const r = this.charDo(name, player, a, text); if (r) return r; } // my character: look, autopilot, rules, partner, child, hut
       if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
@@ -369,6 +386,11 @@ export class App {
     });
     w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', ev.data.why ? { why: ev.data.why } : {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
+    // Quests (sim/quests.ts): the NPCs speak to the viewers of their map, lessons go into memory, players see their progress.
+    w.quests.onNpcSay = (j, nm, text) => this.net.say(w.e.map[j]!, { id: w.e.id(j), name: nm, text });
+    w.quests.onLearn = (id, text) => this.planner.note(id, text, true);
+    w.quests.onProgress = (i, d) => this.net.noticeTo(i, 'quest', d);
+    w.clans.onVote = (c, open) => { for (const id of c.members) { const i = w.e.slot(id); if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'clanVote', { open, clan: c.name }); } };
     this.net.avatarStore = {
       get: (name) => { const v = this.db.getMeta('pos:' + name); return v ? JSON.parse(v) : null; },
       set: (name, p) => this.db.setMeta('pos:' + name, JSON.stringify(p)),
@@ -1109,7 +1131,25 @@ export class App {
       case 'clans': {
         const nm = (id: number) => this.nameOf(id);
         return { clans: w.clans.clans.map((c) => ({ id: c.id, name: c.name, map: w.maps[c.map]?.def.id ?? '', leader: nm(c.leader), leaderId: c.leader, home: [Math.round(c.hx), Math.round(c.hy)], since: c.at,
-          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100) })), rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
+          founder: c.founder !== undefined ? nm(c.founder) : '', approval: w.clans.approval(c), order: c.order ?? '', lastVote: c.lastVote ?? c.at,
+          vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => nm(k)), votes: c.vote.ballots.length } : null,
+          result: c.result ? { at: c.result.at, winner: nm(c.result.winner), old: nm(c.result.old), tally: c.result.tally.map(([k, n]) => [nm(k), n]) } : null,
+          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10 })), rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
+      }
+      case 'clanVote': { // the owner calls an election in a clan
+        const cl = w.clans.byId(fixed(c.id, 0, 1e6, 'id'));
+        if (!cl) throw new Error('no such clan');
+        if (!w.clans.callVote(cl, 'the voice from the sky asked for a vote')) throw new Error('a vote is already on (or too few members)');
+        return { ok: true, end: cl.vote!.end };
+      }
+      case 'quests': { // the town's teachers and everyone's quests
+        const people: { id: number; name: string; player: boolean; done: number; cur: string; n: number; need: number; ready: boolean }[] = [];
+        for (let i = 0; i < w.e.hi; i++) {
+          if (w.e.kind[i] !== Kind.Agent && w.e.kind[i] !== Kind.Player) continue;
+          const p = w.profileOf(i); if (!p) continue;
+          people.push({ id: w.e.id(i), name: p.name, player: !!p.player, ...w.quests.summary(w.e.id(i)) });
+        }
+        return { npcs: w.quests.list(), quests: QUESTS.map((q) => ({ id: q.id, title: q.title.en, npc: q.npc, ask: q.ask.en, lesson: q.lesson, xp: q.reward.xp })), people };
       }
       case 'agent': {
         const id = fixed(c.id, 0, 2 ** 31, 'id'), i = w.e.slot(id);
@@ -1124,9 +1164,9 @@ export class App {
           siblings: F.siblingsOf(id).map((x) => this.nameOf(x)), stage, chosen: Object.entries(p.kin ?? {}).map(([k, role]) => ({ id: Number(k.slice(1)), name: this.nameOf(Number(k.slice(1))), role })),
           carer: i >= 0 && F.carer[i]! >= 0 ? this.nameOf(w.e.id(F.carer[i]!)) : null, held: i >= 0 && F.carried[i]! >= 0,
           kids: i >= 0 ? F.kidsInfo(i) : [] };
-        const clan = w.clans.clanOf(id); const clanInfo = clan ? { name: clan.name, leader: this.nameOf(clan.leader), loyalty: Math.round(w.clans.loyalty(id) * 100), rivals: w.clans.rivals(clan).map((r) => `${r.clan.name} (${Math.round(r.tension)}/10)`) } : null;
+        const clan = w.clans.clanOf(id); const clanInfo = clan ? { name: clan.name, leader: this.nameOf(clan.leader), approval: w.clans.approval(clan), respect: Math.round(w.clans.respect(id, clan) * 10) / 10, loyalty: Math.round(w.clans.loyalty(id) * 100), rivals: w.clans.rivals(clan).map((r) => `${r.clan.name} (${Math.round(r.tension)}/10)`) } : null;
         const talk = this.planner.convo.of(id).map((l) => ({ at: l.at, from: l.from, to: l.to, fromName: l.from === -2 ? 'The owner' : l.from < 0 ? 'Someone' : this.nameOf(l.from), toName: l.to < 0 ? '' : this.nameOf(l.to), text: l.text }));
-        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, clan: clanInfo, now: w.gameSec, hpMax: w.sc.agents.hp };
+        return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, clan: clanInfo, quests: w.quests.summary(id), now: w.gameSec, hpMax: w.sc.agents.hp };
       }
       case 'agentSet': {
         const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));

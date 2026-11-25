@@ -27,6 +27,8 @@ import type { World } from './world.js';
  *  heal who            dress someone's wounds                                     give who what  hand over food or a material
  *  trade who what get  give one thing for another (they must have it)
  *  hunt what times     hunt an animal (rabbit, deer, boar, wolf, bear): meat, leather, claws
+ *  npc what            walk to a town teacher (guide, smith, hunter, warden, registrar) and talk: take / hand in a quest (sim/quests.ts)
+ *  clan what who       join (who = the clan's leader or the clan's name) / quit / found (at the registrar) / vote (who) / call (a vote)
  */
 /** Food, wood, stone, scrap from free words (4 languages). */
 export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'): 'food' | 'wood' | 'stone' | 'scrap' | 'ore' | 'brick' | 'leather' | 'claw' {
@@ -59,7 +61,7 @@ export interface Step { key?: string; units?: number; do: string; who?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -187,6 +189,20 @@ export class Tasks {
       }
       case 'goto':
         return reach(s.who ?? -1);
+      case 'npc': { // a town teacher: walk there, talk (take / hand in a quest)
+        const key = String(s.what ?? 'guide').toLowerCase().replace(/[^a-z]/g, '');
+        const k = (['guide', 'smith', 'hunter', 'warden', 'registrar'] as const).find((x) => key.includes(x)) ?? (/elder|mara/.test(key) ? 'guide' : /joren|forge/.test(key) ? 'smith' : /sela|hunt/.test(key) ? 'hunter' : /bram|guard/.test(key) ? 'warden' : /odile|clan|regist/.test(key) ? 'registrar' : 'guide');
+        const j = w.quests.npcSlot(k);
+        if (j < 0 || e.map[j] !== e.map[i]) return `the ${k} is not in this place`;
+        if (Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) > 3) { if (b.orderOf(i).kind !== 'goto') b.order(i, 'goto', e.id(j), -1, 180); return false; }
+        b.order(i, 'stop', -1, -1, 0);
+        const r = w.quests.talk(i, k);
+        if (r.state === 'handed') this.onSay(i, 'Thank you, I will remember that.');
+        else if (r.state === 'taken') this.onSay(i, 'I will do it.');
+        return true;
+      }
+      case 'clan':
+        return w.clans.step(i, s, first);
       case 'follow': {
         if (!alive(s.who)) return 'they are not here any more';
         if (first) { b.order(i, 'follow', s.who!, -1, s.minutes ?? 60); s.phase = 1; return false; }

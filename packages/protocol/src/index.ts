@@ -4,3 +4,4 @@ export * from './codec.js';
 export * from './keys.js';
 export * from './craft.js';
 export * from './gear.js';
+export * from './quests.js';

@@ -19,6 +19,7 @@ import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
 import { Animals } from './animals.js';
 import { Land } from './land.js';
+import { Quests } from './quests.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -97,6 +98,8 @@ export class World {
   readonly animals: Animals;
   /** The town's ring of trees, its 4 roads out, wrecks while travel is closed, rocks (sim/land.ts). */
   readonly land: Land;
+  /** The town's teachers (NPCs) and their quests (sim/quests.ts). */
+  readonly quests: Quests;
   private doorTile = -1;
 
   constructor(sc: Scenario, opt: WorldOptions) {
@@ -133,6 +136,7 @@ export class World {
     this.replays = new Replays(this);
     this.animals = new Animals(this);
     this.land = new Land(this);
+    this.quests = new Quests(this);
     this.doorTile = sc.tiles.find((t) => t.name === 'door')?.id ?? -1;
   }
   /** Game seconds per year of age. */
@@ -229,6 +233,16 @@ export class World {
     e.nextThink[i] = this.tick + this.rng.int(THINK_EVERY[1]!);
     this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, x, y, this.agentR);
     this.emit('spawn', { id: e.id(i), map: this.maps[map]!.def.id, x, y });
+    return i;
+  }
+
+  /** One of the town's teachers (sim/quests.ts): a body that stands at its spot (it walks back there when pushed). */
+  spawnNpc(map: number, x: number, y: number, look: number): number {
+    const e = this.e;
+    const i = e.create(Kind.Npc, map, x, y, this.agentR);
+    if (i < 0) return -1;
+    e.hp[i] = 100; e.sub[i] = look; e.tx[i] = x; e.ty[i] = y; e.speed[i] = 1;
+    this.bodies[i] = this.maps[map]!.phys.createAgentBody(i, x, y, this.agentR);
     return i;
   }
 
@@ -408,7 +422,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
-    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); }
+    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); }
     this.zombies.update();
     this.animals.update();
     if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });
@@ -421,7 +435,7 @@ export class World {
         if (e.life[i]! <= 0) this.remove(i, 'expired');
         continue;
       }
-      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Threat && k !== Kind.Animal) || e.map[i] === NO_MAP) continue;
+      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Threat && k !== Kind.Animal && k !== Kind.Npc) || e.map[i] === NO_MAP) continue;
       const b = this.bodies[i]!;
       const dx = e.tx[i]! - e.x[i]!, dy = e.ty[i]! - e.y[i]!;
       const d = Math.hypot(dx, dy);
@@ -568,7 +582,7 @@ export class World {
     for (let i = 0; i < e.hi; i++) {
       if (!e.alive(i) || e.map[i] === NO_MAP) continue;
       const ph = this.maps[e.map[i]!]!.phys;
-      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player || e.kind[i] === Kind.Threat || e.kind[i] === Kind.Animal) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
+      if (e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player || e.kind[i] === Kind.Threat || e.kind[i] === Kind.Animal || e.kind[i] === Kind.Npc) this.bodies[i] = ph.createAgentBody(i, e.x[i]!, e.y[i]!, e.radius[i]!);
       else if (e.kind[i] === Kind.Projectile) this.bodies[i] = ph.createProjectileBody(i, e.owner[i]!, e.x[i]!, e.y[i]!, e.radius[i]!);
       const b = this.bodies[i];
       if (b) { this.vel.x = e.vx[i]!; this.vel.y = e.vy[i]!; b.setLinearVelocity(this.vel); }

@@ -584,7 +584,7 @@ export class NetServer {
           this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
           return;
         }
-        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, m.a === 'ruleAdd' ? 200 : 40) : undefined) } });
+        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, m.a === 'ruleAdd' || m.a === 'clan' ? 210 : 40) : undefined) } });
         this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
         return;
       }
@@ -686,7 +686,7 @@ export class NetServer {
       const id = e.id(i);
       const qx = Math.round(e.x[i]! * POS_Q), qy = Math.round(e.y[i]! * POS_Q), qa = Math.round(e.angle[i]! * ANG_Q);
       // kind | flags << 8 | sub << 16 (items: item type; agents: current action).
-      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal || ((e.kind[i] === Kind.Player || e.kind[i] === Kind.Agent) && e.sub[i]) ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+; players' characters: look (1 + skin, +8 woman)
+      const kf = e.kind[i]! | (e.flags[i]! << 8) | ((e.kind[i] === Kind.Item ? e.sub[i]! : e.act[i]!) << 16) | (e.kind[i] === Kind.Animal || e.kind[i] === Kind.Npc || ((e.kind[i] === Kind.Player || e.kind[i] === Kind.Agent) && e.sub[i]) ? (e.sub[i]! & 0x3f) << 24 : 0); // animals: type in bits 24+; players' characters: look (1 + skin, +8 woman)
       const was = s.known[i]!;
       if (was > 0 && was !== id + 1) (delEarly ??= []).push(was - 1); // slot reused by a new entity
       const gc = w.gear.code(i);

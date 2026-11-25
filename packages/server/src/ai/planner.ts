@@ -361,7 +361,8 @@ export class Planner {
       this.selfText(i),
       this.familyText(i),
       ...(kidVoice(w.family.ageOf(i)) ? [kidVoice(w.family.ageOf(i))] : []),
-      ...((() => { const c = w.clans.clanOf(id); if (!c) return []; const r = w.clans.rivals(c).map((x) => `${x.clan.name} (tension ${Math.round(x.tension)}/10)`); return [`Clan: ${c.name}, led by ${c.leader === id ? 'you' : this.name(c.leader)}, ${c.members.length} members; loyalty ${Math.round(w.clans.loyalty(id) * 100)}%.${r.length ? ' Rivals: ' + r.join(', ') + '.' : ''}`]; })()),
+      w.clans.promptText(i),
+      ...(w.quests.promptText(i) ? [w.quests.promptText(i)] : []),
       `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
@@ -483,7 +484,10 @@ export class Planner {
     }
     if (text) this.convo.add(w.gameSec, player >= 0 ? e.id(player) : owner ? -2 : -1, id, text);
     if (player >= 0 && !byHand) w.brain.listen(i, player, 30);
-    const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
+    // My clan's elected leader speaking (a player leading the clan): loyal members do what they ask (imad 2026-11-25).
+    const myClan = w.clans.clanOf(id), boss = !owner && player >= 0 && !!myClan && myClan.leader === e.id(player) && myClan.leader !== id;
+    const loyalBoss = boss && w.rng.chance(0.25 + w.clans.loyalty(id) * 0.75);
+    const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : boss ? `${from}, the elected leader of your clan ${myClan!.name} (your loyalty ${Math.round(w.clans.loyalty(id) * 100)}%: you usually do what your leader asks)` : `${from}, a player (a survivor like you)`;
     const key = '@' + from;
     let reply = '', usedAi = false, doRaw = '', target = '', planRaw: unknown[] | null = null, taskText = '';
     // Marriage and divorce by words (imad 2026-11-20): only between a player's character and the person spoken to.
@@ -516,7 +520,8 @@ export class Planner {
         + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
         + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), '
-        + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}. If a request needs something you have no skill for, combine these skills into a plan. '
+        + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}, npc {"what": "guide" | "smith" | "hunter" | "warden" | "registrar"} (walk to a town teacher and talk: take or hand in a quest), '
+        + 'clan {"what": "join <clan name>" | "quit" | "found" | "vote", "who"} (join walks to its leader and asks; found = at Odile the registrar; vote for "who" in an election). If a request needs something you have no skill for, combine these skills into a plan. '
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
         + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'
         + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}. '
@@ -568,7 +573,7 @@ export class Planner {
     const agreed = reply ? agrees(reply) : false;
     if (!doRaw || doRaw === 'nothing' || doRaw === 'none') {
       // The owner is obeyed; a player when the answer agrees (or there is no AI to ask).
-      if (asked && (owner || agreed || !usedAi)) doRaw = asked;
+      if (asked && (owner || loyalBoss || agreed || !usedAi)) doRaw = asked;
       else doRaw = '';
     }
     if (!reply) {
@@ -578,7 +583,7 @@ export class Planner {
     // A plan of steps wins over a single "do": that is how any request becomes something they really do.
     let steps = planRaw ? this.toSteps(i, planRaw, player) : [];
     const work = text && !steps.length && (!doRaw || doRaw === 'nothing') ? askedWork(text) : null;
-    if (work && (owner || agreed || !usedAi)) { steps = work.steps; if (!taskText) taskText = work.task; }
+    if (work && (owner || loyalBoss || agreed || !usedAi)) { steps = work.steps; if (!taskText) taskText = work.task; }
     // "Go ask Sara to marry you" / "divorce her": the words are enough when a small model gave no plan.
     if (!steps.length && !byHand && text && !proposal && !wantsDivorce && (owner || agreed || !usedAi)) {
       const wed = askedToWedSomeone(text);
@@ -631,6 +636,7 @@ export class Planner {
       if (d === 'divorce' && !whoRawOf(o)) { const pt = this.w.profileOf(i)?.partner ?? -1; if (pt >= 0) { st.who = pt; out.push(st); continue; } }
       if (d === 'give' || d === 'trade' || d === 'collect' || d === 'store' || d === 'take') st.what = String(o.what ?? o.item ?? (d === 'collect' || d === 'store' || d === 'take' ? 'food' : '')).slice(0, 40);
       if (d === 'trade') st.text = String(o.get ?? o.for ?? 'food').slice(0, 40);
+      if (d === 'npc' || d === 'clan') { st.what = String(o.what ?? o.who ?? o.target ?? '').slice(0, 40); if (d === 'clan' && o.who) { const x = this.whoIs(String(o.who), id); if (x >= 0) st.who = x; } out.push(st); continue; }
       if (d === 'find' || d === 'gather' || d === 'craft' || d === 'build' || d === 'hunt') st.what = String(o.what ?? o.item ?? o.target ?? o.who ?? (o.do === 'fire' || o.do === 'light' ? 'campfire' : '')).slice(0, 40);
       else if (whoRaw) {
         const w = whoRaw.toLowerCase();

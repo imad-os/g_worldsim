@@ -21,6 +21,7 @@ export const Kind = {
   Threat: 5,
   Player: 6, // a person's avatar, driven by their controller
   Animal: 7, // wild animals (type in frame bits 24-31): hunted for meat, leather, claws
+  Npc: 8, // the town's teachers (quest givers, the clan registrar): never eat, age or die; look in frame bits 24+
 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
