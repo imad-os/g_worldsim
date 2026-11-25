@@ -1,3 +1,4 @@
+import { animalKills } from './sim/kills.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
@@ -62,6 +63,9 @@ function sourceOf(msg: string): string {
 }
 
 /** The whole server: world + loop + persistence + network. Used by main.ts and by the tests. */
+/** Kill counts for the panel: animals (all kinds), zombies, people, duels won. */
+const killsOf = (p: Profile | undefined) => ({ animals: animalKills(p?.kills), zombies: p?.kills?.zombies ?? 0, people: p?.kills?.people ?? 0, beaten: p?.kills?.beaten ?? 0 });
+
 export class App {
   readonly log: Logger;
   db!: Db;
@@ -965,7 +969,7 @@ export class App {
       id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec, w.yearSec)) : 0,
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
-      task: w.tasks.describe(id) || null,
+      task: w.tasks.describe(id) || null, kills: killsOf(p),
       goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       player: p?.player ?? null, auto: !!p?.auto, manual: e.kind[i] === Kind.Player, online: p?.player ? this.net.online(p.player) : false,
@@ -1014,8 +1018,10 @@ export class App {
         const s = w.freeSpot(m, fixed(c.x, 0, def.w, 'x'), fixed(c.y, 0, def.h, 'y'));
         if (!s) throw new Error('no room there');
         if (w.e.countKind(Kind.Agent) >= 100) throw new Error('population cap (100)');
+        w.makeRoom(1);
         const i = w.spawnAgent(m, s.x, s.y);
-        return { id: w.e.id(i) };
+        if (i < 0) throw new Error(w.fullText());
+        return { id: w.e.id(i), name: w.profiles.get(w.e.id(i))?.name ?? '' };
       }
       case 'remove': {
         const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));
@@ -1044,7 +1050,12 @@ export class App {
         return this.players.approve(c.code, typeof c.name === 'string' ? c.name : undefined);
       }
       case 'deny': this.players.deny(String(c.code)); return { ok: true };
-      case 'players': { const s = this.seers(); return this.players.list().map((p) => ({ ...p, seer: s.has(p.name.toLowerCase()) })); }
+      case 'players': {
+        const s = this.seers(), list = this.players.list(), have = new Set(list.map((p) => p.name.toLowerCase()));
+        // Characters whose TV link is gone ("name (2)" left behind, a TV that paired again): listed too, so they can be deleted.
+        const orphans = [...this.net.residents.keys()].filter((n) => !have.has(n.toLowerCase())).map((name) => ({ name, dev: 'no TV linked', created: 0, lastSeen: 0, fromEnv: false, noTv: true }));
+        return [...list, ...orphans].map((p) => ({ ...p, seer: s.has(p.name.toLowerCase()) }));
+      }
       case 'seer': {
         const name = String(c.name ?? '').trim().toLowerCase();
         if (!name) throw new Error('bad name');
@@ -1086,6 +1097,29 @@ export class App {
         const again = this.net.reconnect(from) + this.net.reconnect(into);
         w.emit('merged', { from, into });
         return { renamed, characters: keepInto ? 'kept into' : ia >= 0 ? 'from kept, now called into' : 'none to move', reconnected: again };
+      }
+      case 'playerDelete': { // imad 2026-11-25: "an option to delete players too": TV link, character, bag, place, account link; a backup first
+        const name = String(c.name ?? '').trim();
+        if (!name) throw new Error('bad name');
+        const known = [...this.net.residents.keys()].find((k) => k.toLowerCase() === name.toLowerCase()) ?? (this.players.has(name) ? name : '');
+        if (!known) throw new Error(`no player called ${name}`);
+        if (this.players.list().some((p) => p.fromEnv && p.name === known)) throw new Error('that player comes from VIEWER_TOKENS in .env: remove it there');
+        this.snapshot();
+        const backup = this.control.backup('before-delete');
+        const kicked = this.net.kick(known);
+        this.players.revoke(known);
+        const id = this.net.residents.get(known), i = id !== undefined ? w.e.slot(id) : -1;
+        if (i >= 0 && (w.e.kind[i] === Kind.Player || w.e.kind[i] === Kind.Agent)) { w.remove(i, 'deleted'); w.profiles.delete(id!); }
+        if (id !== undefined) w.away.delete(id);
+        this.net.residents.delete(known);
+        w.survival.pinv.delete(known);
+        this.db.delMeta('pos:' + known);
+        const s = this.seers(); if (s.delete(known.toLowerCase())) this.db.setMeta('seers', JSON.stringify([...s]));
+        const acct = this.accounts.byName(known); if (acct) this.accounts.link(acct.uid, '');
+        w.emit('playerDeleted', { name: known, who });
+        this.log.info('player deleted', { name: known, who, backup });
+        this.snapshot();
+        return { name: known, backup, kicked, character: i >= 0 };
       }
       case 'revoke': {
         const ok = this.players.revoke(String(c.name));
@@ -1334,7 +1368,7 @@ export class App {
           const i = w.e.slot(id), alive = i >= 0 && p.died === undefined && (w.e.kind[i] === Kind.Agent || w.e.kind[i] === Kind.Player);
           out.push({ id, name: p.name, sex: p.sex, age: Math.floor(ageOf(p, p.died ?? w.gameSec, w.yearSec)), alive, died: p.died ?? null, cause: p.cause ?? null, generation: p.generation,
             parents: p.parents.map((x) => this.nameOf(x)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null, children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).length,
-            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0, player: p.player ?? null });
+            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0, player: p.player ?? null, kills: killsOf(p) });
         }
         return out;
       }
@@ -1425,14 +1459,25 @@ export class App {
         return { ok: true, n: got.length, ids: got.map((i) => w.e.id(i)) };
       }
       case 'animals': {
+        let filled: { added: number; removed: number; short?: string } | undefined;
         if (c.map !== undefined && (c.want !== undefined || c.fill)) {
           const m = mapOf(c.map), id = w.maps[m]!.def.id;
           if (c.want === null) w.animals.want.delete(id);
           else if (Array.isArray(c.want)) w.animals.want.set(id, ANIMAL_NAMES.map((_, k) => num(c.want![k] ?? 0, 0, 40, 'count', [0, 5000]) | 0));
           this.db.setMeta('animal_want', JSON.stringify([...w.animals.want]));
-          if (c.fill) w.animals.fill(m);
+          if (c.fill) {
+            const want = w.animals.want.get(id) ?? [];
+            w.makeRoom(want.reduce((a, v, k) => a + Math.max(0, v - w.animals.count(m, k)), 0) + 1);
+            const before = ANIMAL_NAMES.map((_, k) => w.animals.count(m, k));
+            w.animals.fill(m);
+            const after = ANIMAL_NAMES.map((_, k) => w.animals.count(m, k));
+            const short = ANIMAL_NAMES.filter((_, k) => after[k]! < (want[k] ?? 0));
+            filled = { added: after.reduce((a, v, k) => a + Math.max(0, v - before[k]!), 0), removed: before.reduce((a, v, k) => a + Math.max(0, v - after[k]!), 0),
+              short: short.length ? (w.e.room === 0 ? w.fullText() : `no free ground far enough (25 m) from people for: ${short.join(', ')}`) : undefined };
+            if (short.length) w.emit('warn', { what: 'animals', why: filled.short });
+          }
         }
-        return { maps: w.maps.map((mp, m) => ({ id: mp.def.id, name: mp.def.name, now: ANIMAL_NAMES.map((_, k) => w.animals.count(m, k)), want: w.animals.want.get(mp.def.id) ?? null, cap: w.animals.capOf(m) })) };
+        return { maps: w.maps.map((mp, m) => ({ id: mp.def.id, name: mp.def.name, now: ANIMAL_NAMES.map((_, k) => w.animals.count(m, k)), want: w.animals.want.get(mp.def.id) ?? null, cap: w.animals.capOf(m) })), filled };
       }
       case 'zombieAttack': {
         if (c.add) {
@@ -1448,8 +1493,9 @@ export class App {
         let ran: { map: string; n: number; why?: string } | undefined;
         if (c.now) {
           const a = c.now, where = (['near', 'edge', 'camp', 'random'] as const).find((x) => x === a.where) ?? 'edge';
+          w.makeRoom(Number(a.n ?? 6) || 6);
           ran = w.zombies.attack({ map: a.map ? w.maps[mapOf(a.map)]!.def.id : w.maps[0]!.def.id, n: num(a.n ?? 6, 1, 40, 'n', [1, 5000]), where, near: a.near, stays: a.stays !== false });
-          if (!ran.n) throw new Error(ran.why ?? 'no room for them');
+          if (!ran.n) throw new Error(w.e.room === 0 ? w.fullText() : ran.why ?? 'no free ground for them');
         }
         return { plans: w.zombies.plans, gameSec: w.gameSec, ran };
       }
@@ -1469,8 +1515,9 @@ export class App {
         }
         const n = Math.round(num(Number(c.n ?? 1), 1, 20, 'n', [1, 5000]));
         const out = [];
+        w.makeRoom(n);
         for (let k = 0; k < n; k++) { const i = w.zombies.spawn(m, x + (k ? w.rng.range(-2, 2) : 0), y + (k ? w.rng.range(-2, 2) : 0), c.stays !== false); if (i >= 0) out.push({ id: w.e.id(i), map: w.maps[m]!.def.id, x: Math.round(w.e.x[i]!), y: Math.round(w.e.y[i]!) }); }
-        if (!out.length) throw new Error('no room there');
+        if (!out.length) throw new Error(w.e.room === 0 ? w.fullText() : `no free ground there (${Math.round(x)}, ${Math.round(y)} on ${w.maps[m]!.def.id}): every spot within 14 m is a wall, a tree or water`);
         return out;
       }
       case 'order': {

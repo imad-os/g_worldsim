@@ -68,6 +68,7 @@ export type AdminCmd =
   | { cmd: 'deny'; code: string }
   | { cmd: 'players' }
   | { cmd: 'revoke'; name: string }
+  | { cmd: 'playerDelete'; name: string }
   | { cmd: 'mergePlayer'; from: string; into: string; keep?: 'from' | 'into' }
   | { cmd: 'tunnel' }
   | { cmd: 'tunnelSwitch'; provider: 'ngrok' | 'tailscale' | 'cloudflare' | 'cloudflare-quick' | 'none' }

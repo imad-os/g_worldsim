@@ -154,7 +154,7 @@ export const zombies: Screen = {
 };
 
 type Plans = { plans: { id: number; at: number; map: string; n: number; where: string; near?: string; daily?: boolean; stays?: boolean }[]; gameSec: number; ran?: { map: string; n: number } };
-type AnimalsAns = { maps: { id: string; name: string; now: number[]; want: number[] | null; cap: number }[] };
+type AnimalsAns = { maps: { id: string; name: string; now: number[]; want: number[] | null; cap: number }[]; filled?: { added: number; removed: number; short?: string } };
 const WHERE_NAME: Record<string, string> = { edge: 'from the roads', camp: 'around the camp', near: 'next to', random: 'anywhere' };
 function drawPlans(r: Plans): void {
   setHtml('paList', r.plans.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Map</th><th>How many</th><th>From</th><th></th></tr></thead><tbody>${r.plans.map((p) =>
@@ -168,7 +168,14 @@ async function drawAnimals(): Promise<void> {
     <td><button class="btn primary" data-asave="${m.id}">Save</button> <button class="btn" data-afill="${m.id}">Now</button> ${m.want ? `<button class="btn ghost" data-areset="${m.id}">Built-in mix</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`);
   const wantOf = (id: string) => ANIMAL_NAMES.map((_, k) => { const el = document.querySelector<HTMLInputElement>(`[data-am="${id}"][data-ak="${k}"]`); return Number(el?.value === '' ? el?.placeholder : el?.value) || 0; });
   on('[data-asave]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.asave, want: wantOf(b.dataset.asave!) }); toast('Saved: they come or go over the next game hours', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
-  on('[data-afill]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.afill, want: wantOf(b.dataset.afill!), fill: true }); toast('Done', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
+  on('[data-afill]', 'click', async (b) => {
+    try {
+      const r = await cmd<AnimalsAns>({ cmd: 'animals', map: b.dataset.afill, want: wantOf(b.dataset.afill!), fill: true });
+      const f = r.filled;
+      toast(!f ? 'Saved' : `${f.added} added${f.removed ? `, ${f.removed} removed` : ''}${f.short ? `. Not all: ${f.short}` : ''}`, f?.short ? 'err' : 'ok');
+      await drawAnimals();
+    } catch (e) { err(e); }
+  });
   on('[data-areset]', 'click', async (b) => { try { await cmd({ cmd: 'animals', map: b.dataset.areset, want: null }); toast('Back to the built-in mix', 'ok'); await drawAnimals(); } catch (e) { err(e); } });
 }
 
@@ -369,7 +376,7 @@ function planner(p: PlannerStatus, fill: boolean): void {
 
 // ------------------------------------------------------------ players & TVs
 type Pairing = { code: string; name: string; dev: string; at: number };
-type Player = { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean; seer?: boolean };
+type Player = { name: string; dev: string; created: number; lastSeen: number; fromEnv: boolean; seer?: boolean; noTv?: boolean };
 export const players: Screen = {
   title: 'Players & TVs', icon: 'tv', help: 'players', every: 5,
   render() {
@@ -388,10 +395,15 @@ export const players: Screen = {
     if (!focus?.startsWith('pn_')) setHtml('plPairs', pairs.length ? pairs.map((p) => `<div class="pair"><div><div class="code">${esc(p.code)}</div><small class="dim">${esc(p.dev || 'device')} · ${ago(p.at)}</small></div>
       <div class="row"><input id="pn_${esc(p.code)}" value="${esc(p.name)}" placeholder="Player name"><button class="btn primary" data-ok="${esc(p.code)}">Approve</button><button class="btn ghost" data-no="${esc(p.code)}">Deny</button></div></div>`).join('') : '<div class="empty">No TV is waiting.</div>');
     setHtml('plList', list.length ? list.map((p) => { const ch = all.find((x) => x.player && x.name.toLowerCase() === p.name.toLowerCase()); return `<div class="li"><div><b>${esc(p.name)}</b> ${ch?.online ? '<span class="tag ok">online</span>' : '<span class="tag">away</span>'}<br><small class="dim">${esc(p.dev)} · last seen ${ago(p.lastSeen)}${ch ? ` · ${esc(ch.map ?? 'on the road')} (${Math.round(ch.x)}, ${Math.round(ch.y)})` : ''}</small></div>
-      <div class="row"><label class="switch sm" title="Sees what people think, over their heads"><input type="checkbox" data-seer="${esc(p.name)}"${p.seer ? ' checked' : ''}><i></i><span>Sees thoughts</span></label>${p.fromEnv ? '<span class="tag">.env</span>' : `<button class="btn sm ghost danger" data-rm="${esc(p.name)}">Remove</button>`}</div></div>`; }).join('') : '<div class="empty">No players yet.</div>');
+      <div class="row"><label class="switch sm" title="Sees what people think, over their heads"><input type="checkbox" data-seer="${esc(p.name)}"${p.seer ? ' checked' : ''}><i></i><span>Sees thoughts</span></label>${p.fromEnv ? '<span class="tag">.env</span>' : `${p.noTv ? '' : `<button class="btn sm ghost" data-rm="${esc(p.name)}" title="Unlink the TV only: the character stays">Unlink TV</button>`}<button class="btn sm danger" data-del="${esc(p.name)}" title="TV link, character, bag and place: gone (a backup is made first)">Delete</button>`}</div></div>`; }).join('') : '<div class="empty">No players yet.</div>');
     on('[data-ok]', 'click', async (b) => { const code = b.dataset.ok!; try { const r = await cmd<{ name: string }>({ cmd: 'approve', code, name: val('pn_' + code) }); toast(`TV approved as ${r.name}`, 'ok'); void this.refresh!(); } catch (e) { err(e); } });
     on('[data-no]', 'click', async (b) => { try { await cmd({ cmd: 'deny', code: b.dataset.no! }); void this.refresh!(); } catch (e) { err(e); } });
     on('[data-rm]', 'click', async (b) => { if (!confirm(`Remove ${b.dataset.rm}? That TV will have to pair again.`)) return; try { await cmd({ cmd: 'revoke', name: b.dataset.rm! }); toast('Removed', 'ok'); void this.refresh!(); } catch (e) { err(e); } });
+    on('[data-del]', 'click', async (b) => {
+      const name = b.dataset.del!;
+      if (!confirm(`Delete the player ${name}? Their TV link, character, bag and place go. A backup of the world is made first (Server page > Backups).`)) return;
+      try { const r = await cmd<{ name: string; backup: { file: string } }>({ cmd: 'playerDelete', name }); toast(`${r.name} deleted (backup ${r.backup.file})`, 'ok'); void this.refresh!(); } catch (e) { err(e); }
+    });
     on('[data-seer]', 'change', async (el) => { const c = el as HTMLInputElement; try { await cmd({ cmd: 'seer', name: c.dataset.seer!, on: c.checked }); toast(`${c.dataset.seer} ${c.checked ? 'sees' : 'no longer sees'} thoughts`, 'ok'); } catch (e) { err(e); } });
   },
 };

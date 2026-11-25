@@ -37,6 +37,8 @@ export interface Profile {
   rules?: import('./rules.js').Rule[];
   /** Objectives (imad 2026-11-20): points earned by finishing goals (orders count more), and the last ones finished. */
   xp?: number;
+  /** Animals (by kind), zombies and people killed, duels won (sim/kills.ts). */
+  kills?: import('./kills.js').Kills;
   /** Old enough (14) to leave their parents' side. */
   grown?: boolean;
   /** Family roles chosen between players (imad 2026-11-25): '#<entity id>' -> what that person is to me (sim/family.ts). */

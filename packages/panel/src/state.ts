@@ -4,11 +4,14 @@ import { cmd } from './api.js';
 export type Person = { id: number; alive: boolean; player?: boolean; online?: boolean; asleep?: boolean; child?: boolean; pregnant?: boolean; partner?: string | null; name: string; sex?: string; age: number;
   map: string | null; x: number; y: number; act: number; hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; inv?: Record<string, number>;
   talkingTo: string | null; task?: string | null; order?: string | null;
-  goal?: Goal | null; xp?: number; level?: number; goals?: { text: string; from: string; ok: boolean; at: number; xp: number }[] };
+  goal?: Goal | null; xp?: number; level?: number; goals?: { text: string; from: string; ok: boolean; at: number; xp: number }[]; kills?: Kills };
+/** Animals, zombies and people killed, duels won. */
+export type Kills = { animals: number; zombies: number; people: number; beaten: number };
+export const killsText = (k: Kills | undefined) => !k ? '' : [k.animals ? `${k.animals} animal${k.animals > 1 ? 's' : ''}` : '', k.zombies ? `${k.zombies} zombie${k.zombies > 1 ? 's' : ''}` : '', k.people ? `${k.people} ${k.people > 1 ? 'people' : 'person'}` : '', k.beaten ? `${k.beaten} duel${k.beaten > 1 ? 's' : ''} won` : ''].filter(Boolean).join(' · ');
 export type Goal = { text: string; from: string; k: number; n: number; step: string; pct: number };
 /** An objective with its progress bar; who asked it (the owner = you). */
 export const goalHtml = (g: Goal, esc: (s: unknown) => string) => `<div class="goal${g.from !== 'myself' ? ' ordered' : ''}"><div class="goal-t"><b>${esc(g.text)}</b><small>${g.from === 'myself' ? 'their own goal' : g.from === 'owner' ? 'your order' : 'asked by ' + esc(g.from)} · step ${Math.min(g.k + 1, g.n)}/${g.n}: ${esc(g.step)}</small></div><div class="meter good goal-m" role="progressbar" aria-valuenow="${g.pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.max(4, g.pct)}%"></i></div></div>`;
-export type Profile = { id: number; name: string; sex: string; age: number; alive: boolean; died: number | null; cause: string | null; generation: number; parents: string[]; partner: string | null; children: number; personality: string[]; mood: string | null; rules: number };
+export type Profile = { id: number; name: string; sex: string; age: number; alive: boolean; died: number | null; cause: string | null; generation: number; parents: string[]; partner: string | null; children: number; personality: string[]; mood: string | null; rules: number; kills?: Kills };
 export type MapOv = { id: string; name: string; w: number; h: number; type: string; people: number; players: number; online: number; zombies: number; animals: number[]; items: number;
   camp: [number, number] | null; huts: number; fires: number; store: Record<string, number> | null; leader?: string; defence?: [number, number]; doors?: number };
 export type Overview = { gameSec: number; clockScale: number; yearDays: number; speed: number; paused: boolean; alive: number; children: number; adults: number; pregnant: number; couples: number;

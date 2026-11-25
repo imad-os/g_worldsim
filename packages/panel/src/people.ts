@@ -1,7 +1,7 @@
 import { cmd } from './api.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, view, type Screen } from './screen.js';
-import { S, people, profiles, describe, who, mapName, overview, goalHtml, type Person } from './state.js';
+import { S, people, profiles, describe, who, mapName, overview, goalHtml, killsText, type Person } from './state.js';
 import { esc, gameTime, icon, meter, ACTS, ACT_COLORS, load, save, toast, ruleRow, type Rule, type RulesAns } from './util.js';
 
 const avatar = (name: string, sex?: string, size = '') => `<span class="av ${sex === 'f' ? 'f' : 'm'} ${size}">${esc(name.charAt(0).toUpperCase())}</span>`;
@@ -17,11 +17,11 @@ function listHtml(): string {
   if (tab === 'dead' || tab === 'all') {
     const rows = S.profiles.filter((p) => (tab === 'all' || !p.alive) && (!q || p.name.toLowerCase().includes(q))).sort((a, b) => (b.died ?? 1e12) - (a.died ?? 1e12));
     if (!rows.length) return '<div class="empty">Nobody here.</div>';
-    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Age</th><th>Gen.</th><th>Parents</th><th>Partner</th><th>Children</th><th>Died</th></tr></thead><tbody>${rows.map((p) =>
-      `<tr class="link" data-id="${p.id}"><td>${avatar(p.name, p.sex, 'sm')} <b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</td><td>${p.age}</td><td>${p.generation}</td><td>${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td>${p.children}</td><td>${p.died !== null ? `${gameTime(p.died)}<br><small>${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Age</th><th>Gen.</th><th>Parents</th><th>Partner</th><th>Children</th><th>Kills</th><th>Died</th></tr></thead><tbody>${rows.map((p) =>
+      `<tr class="link" data-id="${p.id}"><td>${avatar(p.name, p.sex, 'sm')} <b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</td><td>${p.age}</td><td>${p.generation}</td><td>${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td>${p.children}</td><td><small>${esc(killsText(p.kills) || '-')}</small></td><td>${p.died !== null ? `${gameTime(p.died)}<br><small>${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`;
   }
   let list = S.people.filter((p) => !p.player && (mapF === 'all' || p.map === mapF) && (!q || p.name.toLowerCase().includes(q)));
-  const key: Record<string, (p: Person) => number | string> = { name: (p) => p.name, age: (p) => -p.age, hp: (p) => p.hp, hunger: (p) => -p.hunger, thirst: (p) => -p.thirst, act: (p) => p.act };
+  const key: Record<string, (p: Person) => number | string> = { name: (p) => p.name, age: (p) => -p.age, hp: (p) => p.hp, hunger: (p) => -p.hunger, thirst: (p) => -p.thirst, act: (p) => p.act, kills: (p) => -((p.kills?.animals ?? 0) + (p.kills?.zombies ?? 0) * 3 + (p.kills?.people ?? 0) * 10) };
   const k = key[sort] ?? key.name!;
   list = list.sort((a, b) => { const x = k(a), y = k(b); return x < y ? -1 : x > y ? 1 : 0; });
   const players = S.people.filter((p) => p.player && (!q || p.name.toLowerCase().includes(q)));
@@ -29,7 +29,7 @@ function listHtml(): string {
       <div class="pc-h">${avatar(p.name, p.sex)}<div><b>${esc(p.name)}</b><small>${p.sex === 'f' ? 'Woman' : 'Man'}, ${p.age}${p.child ? ' · child' : ''}${p.pregnant ? ' · expecting' : ''}</small></div></div>
       <div class="pc-a"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}${!p.goal && p.order ? `<br><small>Told to ${esc(p.order)}</small>` : ''}</div>${p.goal ? goalHtml(p.goal, esc) : ''}
       <div class="pc-m"><span>Food</span>${meter(p.hunger)}<span>Water</span>${meter(p.thirst)}<span>Rest</span>${meter(p.tired)}<span>Health</span>${meter(p.hp, false)}</div>
-      <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
+      <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}${killsText(p.kills) ? `<br><small>Killed ${esc(killsText(p.kills))}</small>` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
     + (players.length ? `<h4 class="sub">Players' characters</h4><div class="pgrid">${players.map((p) => `<a class="pcard player" href="#/person/${p.id}"><div class="pc-h">${avatar(p.name)}<div><b>${esc(p.name)}</b><small>player · ${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away (asleep)'}</small></div></div><div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})</div></a>`).join('')}</div>` : '');
 }
 
@@ -40,7 +40,7 @@ export const peopleScreen: Screen = {
         <div class="seg" id="pTabs">${[['alive', 'Alive'], ['dead', 'Dead'], ['all', 'Everyone ever']].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
         <label class="search">${icon('search')}<input id="pQ" placeholder="Search a name" value="${esc(q)}"></label>
         <select id="pMapF" aria-label="Map"><option value="all">Every map</option></select>
-        <select id="pSort" aria-label="Sort"><option value="name">Sort: name</option><option value="age">Sort: oldest</option><option value="hp">Sort: weakest</option><option value="hunger">Sort: hungriest</option><option value="thirst">Sort: thirstiest</option><option value="act">Sort: activity</option></select>
+        <select id="pSort" aria-label="Sort"><option value="name">Sort: name</option><option value="age">Sort: oldest</option><option value="hp">Sort: weakest</option><option value="hunger">Sort: hungriest</option><option value="thirst">Sort: thirstiest</option><option value="act">Sort: activity</option><option value="kills">Sort: most kills</option></select>
         <button class="btn" id="pAdd">${icon('plus')} Add a person</button>
       </div><div id="pClans"></div><div id="pList"><div class="skel tall"></div></div>`;
   },
@@ -51,7 +51,7 @@ export const peopleScreen: Screen = {
     on('#pMapF', 'change', (el) => { mapF = (el as HTMLSelectElement).value; setHtml('pList', listHtml()); bindList(); });
     on('#pAdd', 'click', async () => {
       if (!confirm('Add a new person in Old Town? (The world normally grows only by births.)')) return;
-      try { await cmd({ cmd: 'spawn', map: 'town', x: 128, y: 128 }); toast('A new person arrived in Old Town', 'ok'); void this.refresh!(); } catch (e) { toast(String(e), 'err'); }
+      try { const r = await cmd<{ name?: string }>({ cmd: 'spawn', map: 'town', x: 128, y: 128 }); toast(`${r.name || 'A new person'} arrived in Old Town`, 'ok'); void this.refresh!(); } catch (e) { toast(String(e), 'err'); }
     });
     (document.getElementById('pSort') as HTMLSelectElement).value = sort;
     const ov = await overview();
@@ -91,7 +91,7 @@ function bindList(): void { on('tr.link', 'click', (el) => { location.hash = `#/
 
 // ------------------------------------------------------------ one person
 type Mind = { notes: { at: number; text: string }[]; summary: string; mood: string; plan?: { act: string; with?: number; why: string; until: number }; said?: { text: string } };
-type Detail = Person & { now: number; hpMax?: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null; siblings?: string[]; stage?: string; carer?: string | null; held?: boolean;
+type Detail = Person & { now: number; hpMax?: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[]; kills?: { animals: Record<string, number>; zombies: number; people: number; beaten: number } }; family: { parents: string[]; children: string[]; partner: string | null; siblings?: string[]; stage?: string; carer?: string | null; held?: boolean;
   chosen?: { id: number; name: string; role: string }[]; kids?: { id: number; name: string; age: number; stage: string; hunger: number; thirst: number; tired: number; hp: number; carer: string }[] }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
 type Say = { at: number; from: number; to: number; fromName: string; toName: string; text: string };
 let pid = -1, ptab = load('ptab', 'overview'), chat: [string, string][] = [];
@@ -130,8 +130,9 @@ function personHtml(d: Detail): string {
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
     ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
     ${((q) => q ? card('Quests', `<p>${q.done} of ${q.all} done${q.cur ? ` · now <b>${esc(q.cur)}</b> ${q.ready ? '(done: hand it in)' : `${q.n}/${q.need}`}` : ''}</p>`) : '')((d as { quests?: { done: number; all: number; cur: string; n: number; need: number; ready: boolean } }).quests)}
+    ${card('Kills and fights', killsHtml(p.kills), { help: help('kills') })}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
-    ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div><b>${Math.round(v * 100)}%</b>`).join('')}</div>`)}
+    ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><span></span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div><b>${Math.round(v * 100)}%</b>`).join('')}</div>`)}
     </div>`;
   else if (ptab === 'mind') body = card('Mind', !mind ? '<div class="empty">The AI has not thought for them yet (turn on an AI provider on the AI page).</div>' : `
     <p>Mood: <b>${esc(mind.mood)}</b></p>
@@ -273,3 +274,11 @@ export const personScreen: Screen = {
     try { await loadPerson(); } catch { /* next time */ }
   },
 };
+
+/** The person page's kill counts: animals by kind, zombies, people killed, duels won. */
+function killsHtml(k: { animals: Record<string, number>; zombies: number; people: number; beaten: number } | undefined): string {
+  const animals = Object.entries(k?.animals ?? {}).sort((a, b) => b[1] - a[1]);
+  const total = animals.reduce((s, [, n]) => s + n, 0);
+  return `<div class="traits"><span>Animals</span><span></span><b>${total}</b><span>Zombies</span><span></span><b>${k?.zombies ?? 0}</b><span>People</span><span></span><b>${k?.people ?? 0}</b><span>Duels won</span><span></span><b>${k?.beaten ?? 0}</b></div>
+    ${animals.length ? `<div class="chips">${animals.map(([a, n]) => `<span class="chip">${esc(a)} ${n}</span>`).join('')}</div>` : ''}`;
+}

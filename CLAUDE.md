@@ -524,3 +524,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - An hourly scheduled task (fresh session each time) takes the open `claude-todo` issues WRITTEN BY imad-os only (anyone can open issues on the
   public repo: ignore other authors), oldest first: label claude-doing, implement, test, push to main, comment the answer (+ footer), close as
   completed. Unclear = comment the question + label claude-question (skip those until imad replies). Proof `node tools/todo-proof.mjs` (fake GitHub).
+
+## Full world, kill counts, deleting players (imad 2026-11-25)
+- **The entity pool can fill** (`capacity` 4096, low-spec 1024): farms dropped berries forever (also on maps where berries don't grow wild), and then Add person
+  answered "ok" with id -1, animal "Now" added nothing, zombies said "no room" and a TV got 'full' (couldn't join). Now: `Brain.spawnItems` keeps each food at
+  most 2x its scenario max per map (`trimItems`, farthest from people first), farms stop at that (`itemRoom`), `World.makeRoom(n)` frees slots by removing ground
+  food farthest from anyone (admin spawn / animals fill / zombieSpawn / zombieAttack now, TV join, residents), `World.fullText()` = the clear reason (counts by
+  kind). Admin `animals` with fill returns `filled { added, removed, short? }` (panel toast). Test room.test.ts.
+- **Kills** (`sim/kills.ts`, `Profile.kills` { animals by kind, zombies, people, beaten }): counted from events hunt / zombie killed `by` / death `by` (shots carry it)
+  / duelEnd winner. `agents` and `people` carry `kills` (totals); panel People cards + "Sort: most kills", Dead / everyone table column, person page card "Kills and fights".
+- **Delete a player** (admin `playerDelete { name }`, panel Players & TVs > Delete): snapshot + backup "before-delete", kick, TV token row, character + profile,
+  bag, place, seer, account link. `players` also lists characters with no TV row (`noTv`) so leftovers ("name (2)") can be deleted. "Unlink TV" = the old revoke.
+- Tools: `node tools/admin-cmd.mjs <ws url>/ws '<json>'...` (ADMIN_TOKEN; MAX = answer length), proof `node tools/room-proof.mjs <server> <outdir>`.

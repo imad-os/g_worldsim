@@ -61,6 +61,8 @@ export class Entities {
 
   private readonly free: Int32Array;
   private freeTop = 0;
+  /** Free slots left. */
+  get room(): number { return this.freeTop; }
   /** Highest slot ever used + 1 (loops stop there). */
   hi = 0;
 

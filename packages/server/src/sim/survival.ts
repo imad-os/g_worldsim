@@ -948,7 +948,7 @@ export class Survival {
       if (tm.tiles[t] !== this.T.farm) { this.farms.delete(key); continue; }
       this.farms.set(key, w.gameSec + 12 * HOUR);
       const berry = w.brain.life.items.find((x) => /berr/.test(x.name))?.id ?? w.brain.life.items[0]?.id ?? 1;
-      for (let n = 0; n < 2; n++) {
+      for (let n = 0, room = w.brain.itemRoom(m, berry); n < Math.min(2, room); n++) {
         const x = (t % tm.w) + 0.5 + w.rng.range(-1.2, 1.2), y = ((t / tm.w) | 0) + 0.5 + w.rng.range(-1.2, 1.2);
         if (tm.isSolidAt(x, y)) continue;
         const it = e.create(Kind.Item, m, x, y, 0.2);

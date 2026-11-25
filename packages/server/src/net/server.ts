@@ -374,8 +374,9 @@ export class NetServer {
       const p = this.avatarStore.get(s.name);
       const mi = p ? w.mapIndex.get(p.map) ?? 0 : 0;
       const def = w.maps[mi]!.def;
+      w.makeRoom(1);
       const slot = w.spawnPlayer(mi, p?.x ?? def.w / 2, p?.y ?? def.h / 2);
-      if (slot < 0) { this.send(s, { t: Msg.Error, code: 'full' }); return; }
+      if (slot < 0) { this.log.error('a player could not join', { name: s.name, why: w.e.room === 0 ? w.fullText() : 'no free ground' }); this.send(s, { t: Msg.Error, code: 'full' }); return; }
       s.avatar = slot; s.avatarId = w.e.id(slot);
       this.residents.set(s.name, s.avatarId);
       this.log.info('player joined the world', { name: s.name, map: w.maps[mi]!.def.id });
@@ -410,8 +411,9 @@ export class NetServer {
       const p = this.avatarStore.get(name);
       const mi = p ? w.mapIndex.get(p.map) ?? 0 : 0;
       const def = w.maps[mi]!.def;
+      w.makeRoom(1);
       const i = w.spawnPlayer(mi, p?.x ?? def.w / 2, p?.y ?? def.h / 2);
-      if (i < 0) continue;
+      if (i < 0) { this.log.error('a player\'s character could not be made', { name, why: w.e.room === 0 ? w.fullText() : 'no free ground' }); continue; }
       this.residents.set(name, w.e.id(i));
       this.onCharacter(i, name);
       this.sleepAway(i);

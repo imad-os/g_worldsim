@@ -998,6 +998,9 @@ export class Brain {
   /** Food appears over time where the scenario says (fill = a new world starts half stocked). */
   spawnItems(fill: boolean): void {
     const w = this.w, e = w.e, rng = w.rng;
+    // Never more than twice the scenario's max of one food on the ground of a map (farms dropped berries forever, also on maps
+    // where berries do not grow wild, and filled the entity pool: imad 2026-11-25, nothing could be added any more).
+    if (!fill) for (const it of this.life.items) for (let m = 0; m < w.maps.length; m++) { const over = -this.itemRoom(m, it.id); if (over > 0) this.trimItems(m, it.id, over); }
     for (const it of this.life.items) {
       const onIds = new Set(w.sc.tiles.filter((t) => it.spawn.on?.includes(t.name)).map((t) => t.id));
       const nearId = it.spawn.near ? w.sc.tiles.find((t) => t.name === it.spawn.near)?.id ?? -1 : -1;
@@ -1027,6 +1030,29 @@ export class Brain {
         }
       }
     }
+  }
+
+  /** Remove n pieces of item type `sub` on map m, those farthest from anyone first. Returns how many went. */
+  trimItems(m: number, sub: number, n: number): number {
+    const w = this.w, e = w.e, far: [number, number][] = [];
+    for (let i = 0; i < e.hi; i++) {
+      if (e.kind[i] !== Kind.Item || e.map[i] !== m || e.sub[i] !== sub) continue;
+      let near = Infinity;
+      for (let j = 0; j < e.hi; j++) if ((e.kind[j] === Kind.Agent || e.kind[j] === Kind.Player) && e.map[j] === m) near = Math.min(near, Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!));
+      far.push([near, i]);
+    }
+    far.sort((a, b) => b[0] - a[0]);
+    let k = 0;
+    for (const [, i] of far) { if (k >= n) break; w.remove(i, 'rot'); k++; }
+    return k;
+  }
+
+  /** How many of item type `sub` may still lie on map m (twice the scenario's max). */
+  itemRoom(m: number, sub: number): number {
+    const e = this.w.e, it = this.life.items.find((x) => x.id === sub);
+    let have = 0;
+    for (let j = 0; j < e.hi; j++) if (e.kind[j] === Kind.Item && e.map[j] === m && e.sub[j] === sub) have++;
+    return (it ? it.spawn.max * 2 : 60) - have;
   }
 
   /** A supply drop: n portions of the first food item scattered around (x, y). Returns how many landed. */

@@ -1,3 +1,4 @@
+import { trackKills } from './kills.js';
 import { Act, EFlag, Kind } from '@worldsim/protocol';
 import { Entities, NO_MAP } from './entities.js';
 import { generateMap } from './mapgen.js';
@@ -146,6 +147,7 @@ export class World {
     this.replays = new Replays(this);
     this.animals = new Animals(this);
     this.horses = new Horses(this);
+    trackKills(this);
     this.land = new Land(this);
     this.quests = new Quests(this);
     this.doorTile = sc.tiles.find((t) => t.name === 'door')?.id ?? -1;
@@ -233,6 +235,34 @@ export class World {
       }
     }
     return null;
+  }
+
+  /**
+   * Make sure `need` entity slots are free (imad 2026-11-25: "can't add people, animals say ok but nothing comes, zombies
+   * 'no room'", a TV could not join: the pool was full). Food lying on the ground goes first, the pieces farthest from
+   * anyone, then nothing else is touched. Returns the free slots after.
+   */
+  makeRoom(need = 1): number {
+    const e = this.e;
+    if (e.room >= need) return e.room;
+    const far: [number, number][] = [];
+    for (let i = 0; i < e.hi; i++) {
+      if (e.kind[i] !== Kind.Item || e.map[i] === NO_MAP) continue;
+      let near = Infinity;
+      for (let j = 0; j < e.hi; j++) if ((e.kind[j] === Kind.Agent || e.kind[j] === Kind.Player) && e.map[j] === e.map[i]) near = Math.min(near, Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!));
+      far.push([near, i]);
+    }
+    far.sort((a, b) => b[0] - a[0]);
+    for (const [, i] of far) { if (e.room >= need) break; this.remove(i, 'room'); }
+    return e.room;
+  }
+
+  /** Why nothing could be added: a clear text for the panel and the error log. */
+  fullText(): string {
+    const e = this.e, by: Record<string, number> = {};
+    const NAMES = ['none', 'people', 'shots', 'items', 'props', 'zombies', 'players', 'animals', 'teachers'];
+    for (let i = 0; i < e.hi; i++) if (e.kind[i]) { const k = NAMES[e.kind[i]!] ?? String(e.kind[i]); by[k] = (by[k] ?? 0) + 1; }
+    return `the world is full: ${e.cap - e.room} of ${e.cap} slots used (${Object.entries(by).map(([k, v]) => `${v} ${k}`).join(', ')}); raise "capacity" in worldsim.config.json`;
   }
 
   spawnAgent(map: number, x: number, y: number, profile?: Profile): number {
@@ -526,7 +556,7 @@ export class World {
         e.hp[other]! -= dmg;
         this.emit('hit', { id: e.id(other), by: e.owner[p]! >= 0 ? e.id(e.owner[p]!) : 0, dmg });
         if (e.hp[other]! <= 0) {
-          this.emit('death', { id: e.id(other), cause: 'shot', map: m.def.id, x: e.x[other], y: e.y[other] });
+          this.emit('death', { id: e.id(other), cause: 'shot', by: e.owner[p]! >= 0 ? e.id(e.owner[p]!) : undefined, map: m.def.id, x: e.x[other], y: e.y[other] });
           this.remove(other, 'shot');
         }
       } else if (other !== BOUNDS && other < 0) {
