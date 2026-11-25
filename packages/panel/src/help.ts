@@ -24,7 +24,7 @@ export const HELP: Record<string, [string, string]> = {
   pTalk: ['Talk', 'You talk as the owner. They answer (with the AI, or built-in lines without it) and may do what you ask: "come to imad", "build a hut", "go and find a wife".'],
   pOrder: ['Orders', 'An order is obeyed, not just suggested. Only being very thirsty or starving interrupts it. Work orders become a plan of steps (gather, craft, build).'],
   pEdit: ['Edit', 'Every level is 0-100 %: Food, Water, Rest and Company are how full they are (100 % = fine, 0 % = desperate), Health is a share of full health, traits are 0-100 % (above 100 % is allowed after you confirm). Food carried is a count, lifespan is in years.'],
-  pFamily: ['Family', 'Parents, partner and children. Two single adults who talk a lot may become partners.'],
+  pFamily: ['Family', 'Parents, partner, children, brothers and sisters. Two single adults who talk a lot may become partners; close family never marry. Children under 3 cannot look after themselves: a parent (else family, else the kindest grown-up near) carries, feeds and waters them. Chosen family: roles between players (a player can ask another from the TV; here the owner sets them directly). They count like blood for marriage, clans and the AI.'],
   pRules: ['Their rules', 'Strict rules for this person only, in your own words. At most 5. The engine enforces them, and they are written in every AI prompt about this person.'],
   world: ['World', 'The clock, how hard life is, ageing, the population limit, travel between maps, supply drops and saving.'],
   speed: ['Speed', 'How fast the world runs. x1 = normal (1 real minute = 10 game minutes). High speeds need a fast PC: watch the Server tiles.'],

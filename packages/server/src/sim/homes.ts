@@ -66,6 +66,7 @@ export class Homes {
     if (pa.partner === b || pb.partner === a) return true;
     if (pa.parents.includes(b) || pb.parents.includes(a)) return true;
     if (pa.parents.some((x) => pb.parents.includes(x))) return true;
+    if (Object.keys(pa.kin ?? {}).length && this.w.family.related(a, b)) return true; // family chosen between players (sim/family.ts)
     // A partner's children (step-children) live with them too.
     if (pa.partner >= 0 && pb.parents.includes(pa.partner)) return true;
     if (pb.partner >= 0 && pa.parents.includes(pb.partner)) return true;

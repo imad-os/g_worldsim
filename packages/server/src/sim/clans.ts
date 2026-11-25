@@ -67,8 +67,7 @@ export class Clans {
     p.mind.rel['#' + b] = Math.max(-5, Math.min(5, (p.mind.rel['#' + b] ?? 0) + d));
   }
   private kin(a: number, b: number): boolean {
-    const p = this.w.profiles.get(a), q = this.w.profiles.get(b);
-    return !!p && !!q && (p.partner === b || q.partner === a || p.parents.includes(b) || q.parents.includes(a) || p.parents.some((x) => q.parents.includes(x)));
+    return this.w.family.related(a, b); // blood, marriage and family roles chosen by players (sim/family.ts)
   }
   private lead(id: number): number {
     const p = this.w.profiles.get(id); if (!p) return -9;

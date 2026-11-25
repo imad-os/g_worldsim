@@ -13,6 +13,7 @@
  * Planner code only uses `Ai`, never a provider directly.
  */
 import { Convo, smallTalk } from './convo.js';
+import { kidTalk, kidVoice } from '../sim/family.js';
 import { Act, Kind, RECIPES_ALL, CONFIRM } from '@worldsim/protocol';
 import type { Ai } from './llm.js';
 import { parseJsonReply } from './llm.js';
@@ -251,7 +252,7 @@ export class Planner {
     // Who is due, by map: urgent first, then the longest waiting.
     const cand: { i: number; m: number; urgent: boolean; last: number }[] = [];
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP) continue;
+      if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP || w.family.dependent(i)) continue; // babies make no plans
       const mind = this.mind(e.id(i));
       if (!mind) continue;
       if (mind.urgent || mind.lastPlan <= due) cand.push({ i, m: e.map[i]!, urgent: !!mind.urgent, last: mind.lastPlan });
@@ -348,7 +349,8 @@ export class Planner {
       if (j === i || e.map[j] !== e.map[i] || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
       const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
       if (d > 80) continue;
-      const nm = e.kind[j] === Kind.Player ? `${this.nameOfId(e.id(j))} (a player)` : this.name(e.id(j));
+      const rl = w.family.relation(id, e.id(j));
+      const nm = (e.kind[j] === Kind.Player ? `${this.nameOfId(e.id(j))} (a player)` : this.name(e.id(j))) + (rl ? `, your ${rl}` : '');
       near.push(`${nm} (${Math.round(d)} m, ${ACT_TEXT[e.act[j]!] ?? 'standing'})`);
     }
     const rel = Object.entries(mind.rel).filter(([, v]) => Math.abs(v) >= 1).map(([k, v]) => `${k[0] === '#' ? this.name(Number(k.slice(1))) : k.slice(1)} ${v > 0 ? '+' : ''}${Math.round(v)}`);
@@ -358,6 +360,7 @@ export class Planner {
       `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${e.carry[i]} food. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
       this.selfText(i),
       this.familyText(i),
+      ...(kidVoice(w.family.ageOf(i)) ? [kidVoice(w.family.ageOf(i))] : []),
       ...((() => { const c = w.clans.clanOf(id); if (!c) return []; const r = w.clans.rivals(c).map((x) => `${x.clan.name} (tension ${Math.round(x.tension)}/10)`); return [`Clan: ${c.name}, led by ${c.leader === id ? 'you' : this.name(c.leader)}, ${c.members.length} members; loyalty ${Math.round(w.clans.loyalty(id) * 100)}%.${r.length ? ' Rivals: ' + r.join(', ') + '.' : ''}`]; })()),
       `Has: ${this.invText(i)}.${this.campText(i)}`,
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
@@ -382,13 +385,14 @@ export class Planner {
     const w = this.w, e = w.e, id = e.id(i), p = w.profileOf(i)!, now = w.gameSec, y = w.yearSec;
     const live = (pid: number) => { const q = w.profiles.get(pid); return !!q && q.died === undefined; };
     const nameAge = (pid: number) => { const q = w.profiles.get(pid); return q ? `${q.name} (${Math.floor(ageOf(q, q.died ?? now, y))}${q.died !== undefined ? ', died' : ''})` : 'someone'; };
-    const kids = [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => cid);
-    const sibs = [...w.profiles].filter(([sid, q]) => sid !== id && q.parents.length && q.parents.some((x) => p.parents.includes(x))).map(([sid]) => sid);
+    const kids = w.family.childrenOf(id), sibs = w.family.siblingsOf(id), parents = w.family.parentsOf(id);
     const partner = p.partner >= 0 ? w.profiles.get(p.partner) : undefined;
     const parts = [
       partner ? `Married to ${partner.name}${live(p.partner) ? '' : ' (dead)'}.` : 'Single: no partner.',
       kids.length ? `Children: ${kids.map(nameAge).join(', ')}.` : 'No children.',
-      p.parents.length ? `Parents: ${p.parents.map(nameAge).join(' and ')}.` : 'Parents: unknown (born before the town).',
+      parents.length ? `Parents: ${parents.map(nameAge).join(' and ')}.` : 'Parents: unknown (born before the town).',
+      ...(Object.keys(p.kin ?? {}).length ? ['(Some of this family was chosen, not born: it is just as real. Never court or marry your family.)'] : []),
+      ...((() => { const little = kids.filter((c) => { const s = e.slot(c); return s >= 0 && w.family.dependent(s); }); return little.length ? [`You look after your little one${little.length > 1 ? 's' : ''} (${little.map(nameAge).join(', ')}): they cannot feed themselves; keep them fed, watered and safe.`] : []; })()),
       ...(sibs.length ? [`Brothers and sisters: ${sibs.map(nameAge).join(', ')}.`] : []),
       ...(p.pregnant ? ['You are expecting a baby.'] : []),
       ...(partner?.pregnant && p.sex === 'm' ? [`${partner.name} is expecting your baby.`] : []),
@@ -417,9 +421,10 @@ export class Planner {
     return `day ${day} ${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor((hh % 1) * 60)).padStart(2, '0')} (${part})`;
   }
 
-  private say(i: number, text: string): void {
+  private say(i: number, text: string, asIs = false): void {
     const w = this.w, e = w.e, id = e.id(i);
     const mind = this.mind(id)!;
+    if (!asIs) text = this.childish(i, text);
     mind.said = { at: w.gameSec, text };
     // Others close by hear it.
     for (let j = 0; j < e.hi; j++) {
@@ -430,6 +435,14 @@ export class Planner {
     this.convo.add(w.gameSec, id, to, text);
     w.emit('say', { id, text, map: w.maps[e.map[i]!]?.def.id ?? '' });
     this.onSay(i, text);
+  }
+
+  /** What a child really says (sim/family.ts kidTalk): babies cry and babble, toddlers say a word or two. */
+  private childish(i: number, text: string): string {
+    const w = this.w, e = w.e, age = w.family.ageOf(i);
+    if (age >= 7) return text;
+    const c = w.family.carer[i]!, near = c >= 0 ? c : -1;
+    return kidTalk(age, text, { hunger: e.hunger[i]!, thirst: e.thirst[i]!, tired: e.tired[i]! }, (n) => w.rng.int(n), near >= 0 ? (w.profileOf(near)?.sex ?? '') : '');
   }
 
   // ------------------------------------------------------------------ chat
@@ -462,6 +475,12 @@ export class Planner {
     // The owner's strict rule (sim/rules.ts): they do not talk with that player at all, and no AI request is spent.
     const rule = player >= 0 ? w.rules.between(i, player, 'talk') : null;
     if (rule) { w.emit('rule', { id, rule, with: e.id(player) }); return { reply: '', ai: false, did: `rule: ${rule}` }; }
+    if (w.family.ageOf(i) < 2) { // a baby: no words yet, and no AI call for it
+      if (text) this.convo.add(w.gameSec, player >= 0 ? e.id(player) : owner ? -2 : -1, id, text);
+      const reply = this.childish(i, '');
+      this.say(i, reply, true);
+      return { reply, ai: false, did: '' };
+    }
     if (text) this.convo.add(w.gameSec, player >= 0 ? e.id(player) : owner ? -2 : -1, id, text);
     if (player >= 0 && !byHand) w.brain.listen(i, player, 30);
     const who = owner ? 'a voice from the sky (the owner of this world; you always do what it asks)' : `${from}, a player (a survivor like you)`;
@@ -486,7 +505,7 @@ export class Planner {
           ? `${from} is asking you to marry them. Decide as yourself, from your feelings about them and how well you know them: add "marry": true if you accept, "marry": false if you refuse, and say it.`
           : `${from} is asking you to marry them, but you cannot: ${canWed}. Say no kindly and add "marry": false.`] : []),
         ...(wantsDivorce ? [`${from}, your partner, is telling you they want a divorce. You are divorced now: react as yourself.`] : [])].join('\n');
-      const system = `You are ${p.name}, a survivor in a post-apocalyptic world. Speak naturally and briefly (one or two short sentences), in the `
+      const system = `You are ${p.name}, a survivor in a post-apocalyptic world. ${kidVoice(w.family.ageOf(i))} Speak naturally and briefly (one or two short sentences), in the `
         + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","marry":true or false (only when asked to marry),"do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty",'
         + '"task":"short name of what you will do, or empty","plan":[steps, or empty]}. When you agree to something that takes several steps, write "plan": '
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
@@ -585,10 +604,11 @@ export class Planner {
     if (!did && marriage) did = marriage === 'married' ? `marry ${sp!.name}` : `divorce ${sp!.name}`;
     if (!did && !byHand) did = this.applyChatOrder(i, doRaw, target, player, owner);
     this.counts.chats++;
+    reply = this.childish(i, reply);
     this.note(id, (text ? `${owner ? 'The voice from the sky' : from} said "${text.slice(0, 80)}"; I answered "${reply.slice(0, 80)}".` : `${from} came to talk; I said "${reply.slice(0, 80)}".`)
       + (did ? ` I will ${did}.` : ''), !!text);
     this.feel(id, key, 0.5);
-    if (e.slot(id) === i) this.say(i, reply);
+    if (e.slot(id) === i) this.say(i, reply, true);
     return { reply, ai: usedAi, did };
   }
 

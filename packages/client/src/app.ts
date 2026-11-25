@@ -11,7 +11,7 @@ import { looksFor, hash2, type Look } from './gfx/look.js';
 import type { PersonLook } from './gfx/people.js';
 import { ReplayPlayer, gameTime, type ReplayRec, type ReplaySummary } from './replay.js';
 import {
-  ACTIONS, DEFAULT_BINDS, BINDS_V, cloneBinds, padAction, remoteAction, remoteName, actionLabel, Menu, Bubbles, bar, personHtml,
+  ACTIONS, DEFAULT_BINDS, BINDS_V, cloneBinds, padAction, remoteAction, remoteName, actionLabel, Menu, Bubbles, bar, personHtml, STAGE_KEY,
   type ActionId, type Binds, type Page, type Row, type PersonInfo,
 } from './ui.js';
 import { Wheel, type WheelItem } from './wheel.js';
@@ -150,7 +150,10 @@ let past: ReplaySummary[] | null = null;
 /** My character as a person (the "Me" page): look, family, autopilot, rules, level. */
 interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number;
   goal: { text: string; from: string; k: number; n: number; pct: number } | null; goals: { text: string; ok: boolean; xp: number }[];
-  partner: { id: number; name: string } | null; children: { id: number; name: string; age: number }[]; expecting: number; traits: Record<string, number>; hp: number }
+  partner: { id: number; name: string } | null; children: Kid[]; expecting: number; traits: Record<string, number>; hp: number;
+  family?: { id: number; name: string; role: string; rel: string }[]; asks?: { from: number; name: string; role: string }[] }
+/** One of my children, with their needs (0 fine .. 100 desperate): a parent looks after the little ones by hand. */
+interface Kid { id: number; name: string; age: number; stage: string; hunger: number; thirst: number; tired: number; hp: number; held: boolean; near: boolean; carer: string }
 let meChar: MeChar | null = null, askedMine = false;
 const lookDraft = { sex: 'm' as 'f' | 'm', skin: 1 };
 let rp: ReplayPlayer | null = null;
@@ -895,16 +898,20 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   const dm = d as typeof d & { me?: MeChar; days?: number; why?: string; what?: string; on?: boolean; dmg?: number };
   if (dm.me) {
     meChar = dm.me;
-    if (menu.open && (menu.page === 'me' || menu.page === 'rules' || menu.page === 'look')) menu.refresh();
+    if (menu.open && (menu.page === 'me' || menu.page === 'rules' || menu.page === 'look' || menu.page === 'family')) menu.refresh();
     // First time in the world: choose woman / man and a skin tone.
     if (!meChar.chose && how === 'play' && mode === 'world' && !menu.open) { lookDraft.sex = meChar.sex; lookDraft.skin = meChar.skin; openMenu('look'); }
   }
   if (d.code === 'mine') return;
   const charCodes: Record<string, Key> = { looked: 'looked', sexPregnant: 'sexPregnant', autoOn: 'autoOn', autoOff: 'autoOff', ruleAdded: 'ruleAdded', ruleRemoved: 'ruleRemoved',
-    rulesFull: 'rulesFull', built: 'built', needHut: 'needHut', expecting: 'expecting', tooFar: 'tooFar' };
+    rulesFull: 'rulesFull', built: 'built', needHut: 'needHut', expecting: 'expecting', tooFar: 'tooFar',
+    kinSet: 'kinSet', kinRefused: 'kinRefused', kinDropped: 'kinDropped', kinAlready: 'kinAlready', kinOnlyPlayers: 'kinOnlyPlayers',
+    kidFed: 'kidFed', kidWater: 'kidWater', kidUp: 'kidUp', kidDown: 'kidDown', kidBed: 'kidBed', kidNone: 'kidNone', kidNotMine: 'kidNotMine', kidFar: 'kidFar' };
   if (charCodes[d.code]) { note(t(charCodes[d.code]!), 3000); if (d.code === 'looked' && menu.page === 'look') menu.back(); return; }
   if (d.code === 'sexWeek') { note(tf('sexWeek', String(dm.days ?? 7)), 3500); return; }
   if (d.code === 'partners') { note(tf('partners', d.name ?? ''), 4000); return; }
+  if (d.code === 'kinAsked' || d.code === 'kinYes' || d.code === 'kinNo') { note(tf(d.code, d.name ?? ''), 4000); return; }
+  if (d.code === 'kinAskedYou') { note(tf('kinAskedYou', d.name ?? '', t(('role' + String((d as { role?: string }).role ?? 'child')) as Key)), 7000); send({ t: Msg.Do, a: 'mine' }); return; }
   if (d.code === 'married' || d.code === 'divorced') { note(tf(d.code, d.name ?? ''), 6000); if (menu.open && menu.page === 'me') send({ t: Msg.Do, a: 'mine' }); return; }
   if (d.code === 'asking') { note(tf(dm.what === 'divorce' ? 'askingDivorce' : 'askingMarry', d.name ?? ''), 4000); return; }
   if (d.code === 'why') { note(dm.why ?? '', 4000); return; }
@@ -1066,9 +1073,32 @@ function buildPage(id: string): Page {
         + (c.expecting >= 0 ? `<div class="pm">${esc(tf('meExpecting', String(c.expecting)))}</div>` : '')
         + `<div class="pm dim">${esc(tf('meTraits', String(tr.strength ?? 0), String(tr.speed ?? 0), String(tr.intelligence ?? 0), String(tr.courage ?? 0), String(tr.empathy ?? 0)))}</div>`
         + (c.goals.length ? `<div class="pm dim">${t('meGoals')}: ${c.goals.map((g) => `${g.ok ? '✓' : '✗'} ${esc(g.text)} (+${g.xp})`).join(' · ')}</div>` : '');
+      rows.push({ id: 'family', label: t('famTitle'), value: c.asks?.length ? `${c.asks.length} !` : c.children.some((k) => k.stage === 'baby' || k.stage === 'toddler') ? '♥' : '', sub: true });
       rows.push({ id: 'look', label: t('lookTitle'), sub: true }, { id: 'auto', label: t('autoRow'), value: onOff(c.auto) },
         { id: 'rules', label: t('myRules'), value: `${c.rules.length} / ${c.max}`, sub: true }, { id: 'hut', label: t('meHut') });
       return { id, title: t('meTitle'), rows, html, wide: true };
+    }
+    case 'family': { // imad 2026-11-25: parents see their little ones' needs and look after them; family chosen between players
+      const c = meChar;
+      if (!c) return { id, title: t('famTitle'), rows: [{ id: 'back', label: t('mBack') }], text: '…' };
+      const pc = (v: number) => String(Math.max(0, 100 - Math.round(v)));
+      let html = '';
+      for (const a of c.asks ?? []) rows.push({ id: `ay:${a.from}`, label: tf('famAskFrom', a.name, t(('role' + a.role) as Key)), value: t('famYes') }, { id: `an:${a.from}`, label: '   ' + t('famNo'), value: '✕' });
+      for (const k of c.children) {
+        const little = k.stage === 'baby' || k.stage === 'toddler';
+        html += `<div class="pm"><b>${esc(k.name)}</b> · ${esc(t(STAGE_KEY[k.stage] ?? 'stChild'))} (${Math.floor(k.age)})${k.carer ? ' · ' + esc(tf('famLooked', k.carer)) : ''}</div>`
+          + `<div class="pm dim">${esc(tf('famNeeds', pc(k.hunger), pc(k.thirst), pc(k.tired)))}${little && !k.near ? ' · ' + esc(t('famFar')) : ''}</div>`
+          + `<div class="bp"><i style="width:${Math.max(4, 100 - Math.max(k.hunger, k.thirst))}%"></i></div>`;
+        if (little) rows.push({ id: `kf:${k.id}`, label: tf('famFeed', k.name), dim: !k.near }, { id: `kw:${k.id}`, label: tf('famWater', k.name), dim: !k.near },
+          { id: `kc:${k.id}`, label: tf(k.held ? 'famDown' : 'famCarry', k.name), dim: !k.near && !k.held }, { id: `kb:${k.id}`, label: tf('famBed', k.name), dim: !k.near });
+      }
+      if (!c.children.length) html += `<p>${esc(t('famNone'))}</p>`;
+      if (c.family?.length) {
+        html += `<div class="pm">${esc(t('famChosen'))}: ${c.family.map((f) => `<b>${esc(f.name)}</b> (${esc(f.rel || t(('role' + f.role) as Key))})`).join(', ')}</div>`;
+        for (const f of c.family) rows.push({ id: `kd:${f.id}`, label: tf('famDrop', f.rel || t(('role' + f.role) as Key)) + ` · ${f.name}`, value: '✕' });
+      }
+      if (!rows.length) rows.push({ id: 'back', label: t('mBack') });
+      return { id, title: t('famTitle'), rows, html, wide: true, text: t('famHelp') };
     }
     case 'look': {
       rows.push({ id: 'f', label: t('lookWoman'), value: lookDraft.sex === 'f' ? '●' : '' }, { id: 'm', label: t('lookMan'), value: lookDraft.sex === 'm' ? '●' : '' });
@@ -1087,6 +1117,7 @@ function buildPage(id: string): Page {
       if (how === 'play' && info && info.id === infoFor) {
         if (meChar?.partner?.id === info.id) rows.push({ id: 'child', label: t('tryChild') }, { id: 'divorce', label: t('askDivorce') });
         else if (!meChar?.partner) rows.push({ id: 'court', label: t('askPartner') }, { id: 'marry', label: t('askMarry') });
+        if (info.isPlayer && meChar?.partner?.id !== info.id && !meChar?.family?.some((f) => f.id === info!.id)) rows.push({ id: 'kin:child', label: t('askChild') }, { id: 'kin:sibling', label: t('askSibling') }, { id: 'kin:parent', label: t('askParent') });
       }
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') });
       return { id, title: info?.name ?? t('mPerson'), rows, wide: true, html: info && info.id === infoFor ? personHtml(info, actName, true) : '…' };
@@ -1171,7 +1202,15 @@ function pickRow(page: string, row: string): void {
     else if (row === 'look') { lookDraft.sex = meChar?.sex ?? 'm'; lookDraft.skin = meChar?.skin ?? 1; menu.push('look'); }
     else if (row === 'auto') send({ t: Msg.Do, a: 'auto', text: meChar?.auto ? '0' : '1' });
     else if (row === 'rules') menu.push('rules');
+    else if (row === 'family') { send({ t: Msg.Do, a: 'mine' }); menu.push('family'); }
     else if (row === 'hut') { menu.close(); send({ t: Msg.Do, a: 'hut' }); }
+  }
+  else if (page === 'family') {
+    if (row === 'back') { menu.back(); return; }
+    const [k, id] = row.split(':');
+    if (k === 'ay' || k === 'an') send({ t: Msg.Do, a: 'kinAnswer', text: `${id}:${k === 'ay' ? 1 : 0}` });
+    else if (k === 'kd') send({ t: Msg.Do, a: 'kinDrop', text: id });
+    else { const what = ({ kf: 'feed', kw: 'water', kc: 'carry', kb: 'bed' } as Record<string, string>)[k!]; if (what) send({ t: Msg.Do, a: 'care', text: `${what}:${id}` }); }
   }
   else if (page === 'look') {
     if (row === 'f' || row === 'm') { lookDraft.sex = row; menu.refresh(); }
@@ -1190,6 +1229,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'court') send({ t: Msg.Do, a: 'court', text: String(info?.id ?? -1) });
     else if (row === 'marry' || row === 'divorce') { send({ t: Msg.Do, a: row, text: String(info?.id ?? -1) }); menu.close(); }
     else if (row === 'child') send({ t: Msg.Do, a: 'child' });
+    else if (row.startsWith('kin:')) send({ t: Msg.Do, a: 'kinAsk', text: `${info?.id ?? -1}:${row.slice(4)}` });
     else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
@@ -1336,7 +1376,7 @@ function draw(now: number, dt: number): void {
     const zed = kind[i] === Kind.Threat;
     const mine = i === me || eid[i] === meId;
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Child ? 0.62 : 1, zed);
+    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
   }
@@ -1359,8 +1399,10 @@ function bubblePos(id: number, out: { x: number; y: number }): boolean {
 }
 const bubbleProject = (x: number, z: number, out: { x: number; y: number }) => !!g3 && g3.project(x, 2.2, z, out);
 
+let famAt = 0;
 function frame(ts: number): void {
   raf = requestAnimationFrame(frame);
+  if (menu.open && menu.page === 'family' && ts - famAt > 2000) { famAt = ts; send({ t: Msg.Do, a: 'mine' }); } // my little ones' needs, live
   if (!last) last = ts;
   const dt = Math.min(0.1, (ts - last) / 1000);
   acc += Math.min(250, ts - last); last = ts;

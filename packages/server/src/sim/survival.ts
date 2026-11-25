@@ -792,6 +792,15 @@ export class Survival {
     const W = this.W(i);
     return Math.hypot((st.t % W) + 0.5 - e.x[i]!, ((st.t / W) | 0) + 0.5 - e.y[i]!) <= r ? st.t : -1;
   }
+  /** Take one food from the crate into the hands (for a little one), standing next to it. */
+  grabFromStash(i: number): boolean {
+    const e = this.w.e, st = this.stash[e.map[i]!];
+    if (!st || st.food <= 0 || e.carry[i]! >= 5) return false;
+    const W = this.W(i);
+    if (Math.hypot((st.t % W) + 0.5 - e.x[i]!, ((st.t / W) | 0) + 0.5 - e.y[i]!) > 2.2) return false;
+    st.food--; e.carry[i]!++;
+    return true;
+  }
   /** Eat from the crate (standing next to it). */
   eatFromStash(i: number): boolean {
     const e = this.w.e, st = this.stash[e.map[i]!];

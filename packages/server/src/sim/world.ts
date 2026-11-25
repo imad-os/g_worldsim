@@ -10,6 +10,7 @@ import { randomProfile, PLAYER_AGE, type Profile } from './people.js';
 import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Clans } from './clans.js';
+import { Family } from './family.js';
 import { Survival } from './survival.js';
 import { Gear } from './gear.js';
 import { Colony } from './colony.js';
@@ -83,6 +84,8 @@ export class World {
   readonly colony: Colony;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
+  /** Families: who is family, little ones and who looks after them (sim/family.ts). */
+  readonly family: Family;
   /** A person says a line aloud (the planner sets it: viewers, memory of those near). */
   speak: (i: number, text: string) => void = () => {};
   readonly zombies: Zombies;
@@ -124,6 +127,7 @@ export class World {
     this.gear = new Gear(this);
     this.colony = new Colony(this);
     this.clans = new Clans(this);
+    this.family = new Family(this);
     this.zombies = new Zombies(this);
     this.rules = new Rules(this);
     this.replays = new Replays(this);
@@ -185,6 +189,15 @@ export class World {
     }
     return { removed, moved };
   }
+
+  /** Move an entity to (x, y) on its map at once (its body too). */
+  setPos(i: number, x: number, y: number): void {
+    const b = this.bodies[i];
+    if (b) { this.pos.x = x; this.pos.y = y; b.setPosition(this.pos); }
+    this.e.x[i] = x; this.e.y[i] = y; this.e.tx[i] = x; this.e.ty[i] = y;
+  }
+  /** Turn an entity's collisions off (a baby in arms) or on again. */
+  bodyOn(i: number, on: boolean): void { const b = this.bodies[i]; if (b && b.isActive() !== on) b.setActive(on); }
 
   /** Put an agent or player at a free spot near (x, y) on a map, now (no travel). */
   place(i: number, map: number, x: number, y: number): void {
@@ -342,6 +355,7 @@ export class World {
     const p = e.kind[i] === Kind.Agent ? this.profiles.get(e.id(i)) : undefined;
     if (p) { p.died = this.gameSec; p.cause = cause; if (cause === 'population' || cause === 'admin-remove') this.profiles.delete(e.id(i)); }
     if (e.kind[i] === Kind.Agent) this.emit('remove', { id: e.id(i), cause });
+    if (this.family) { this.family.carried[i] = -1; this.family.carer[i] = -1; for (let k = 0; k < e.hi; k++) if (this.family.carried[k] === i) this.family.putDown(k); }
     this.dropBody(i);
     e.destroy(i);
   }
@@ -394,7 +408,7 @@ export class World {
     const e = this.e, dt = this.dt;
     this.brain.think();
     this.life.tick();
-    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); }
+    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); }
     this.zombies.update();
     this.animals.update();
     if (this.tick % 10 === 0) for (const i of this.land.pushing()) this.emit('blocked', { id: this.e.id(i) });
@@ -457,6 +471,7 @@ export class World {
       if (v.x * v.x + v.y * v.y > 0.01) { fl |= EFlag.Moving; e.angle[i] = Math.atan2(v.y, v.x); }
       e.flags[i] = fl;
     }
+    this.family.carry(); // little ones in arms go with their carer
     this.portalsAndTransit();
     for (const m of this.maps) m.grid.rebuild(e, m.index);
     this.tick++;

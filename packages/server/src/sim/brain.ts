@@ -4,6 +4,7 @@ import { Pathfinder } from './pathfind.js';
 import { ACT_RULE } from './rules.js';
 import { ageOf } from './people.js';
 import { INDEPENDENT } from './life.js';
+import { BABY, kidTalk } from './family.js';
 import type { World } from './world.js';
 
 /**
@@ -164,7 +165,7 @@ export class Brain {
    */
   order(i: number, kind: 'come' | 'goto' | 'follow' | 'stay' | 'stop' | 'act' | 'bring', who: number, act: number, gameMinutes: number): boolean {
     const w = this.w, e = w.e;
-    if (e.kind[i] !== Kind.Agent) return false;
+    if (e.kind[i] !== Kind.Agent || w.family.dependent(i)) return false; // a baby cannot be sent anywhere
     if (kind === 'stop') { this.ordKind[i] = 0; this.wishUntil[i] = 0; if (e.act[i] === Act.Go) { this.stop(i); this.setAct(i, Act.Idle); } e.nextThink[i] = w.tick + 1; return true; }
     if ((kind === 'come' || kind === 'goto' || kind === 'follow' || kind === 'bring') && (who < 0 || e.slot(who) < 0 || e.slot(who) === i)) return false;
     if (kind === 'act' && act < 0) return false;
@@ -188,7 +189,7 @@ export class Brain {
   /** Survival work (sim/survival.ts): walk to (sx, sy), then stay there doing `act` facing (fx, fy) until the job is stopped. */
   job(i: number, sx: number, sy: number, fx: number, fy: number, act: number): boolean {
     const w = this.w, e = w.e;
-    if (e.kind[i] !== Kind.Agent) return false;
+    if (e.kind[i] !== Kind.Agent || w.family.dependent(i)) return false;
     this.ordKind[i] = 6; this.ordWho[i] = -1; this.ordAct[i] = act; this.ordUntil[i] = w.gameSec + 6 * HOUR;
     this.jobX[i] = sx; this.jobY[i] = sy; this.faceX[i] = fx; this.faceY[i] = fy;
     if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
@@ -218,7 +219,7 @@ export class Brain {
   /** Hunt an animal (entity id): chase it and hit it until it dies, runs off (60 m) or an hour passes. */
   hunt(i: number, id: number): boolean {
     const e = this.w.e;
-    if (e.kind[i] !== Kind.Agent || this.w.e.slot(id) < 0) return false;
+    if (e.kind[i] !== Kind.Agent || this.w.e.slot(id) < 0 || this.w.family.dependent(i)) return false;
     this.huntId[i] = id; this.huntUntil[i] = this.w.gameSec + HOUR;
     if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
     e.nextThink[i] = this.w.tick + 1;
@@ -316,6 +317,9 @@ export class Brain {
     const fighting = e.act[i] === Act.Fight, fleeing = e.act[i] === Act.Flee;
     let z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? 6 : 10);
     if (z < 0) z = w.animals.attacker(i); // a wolf or a bear going for them
+    // A parent sees a zombie or a beast near their child (under 14): they go for it, even timid ones (imad 2026-11-25: "parents protect their kids").
+    let protect = false;
+    if (z < 0 && !fleeing) { z = w.family.threatToMine(i); protect = z >= 0; }
     if (z < 0) {
       if ((fighting && this.huntId[i]! < 0) || fleeing) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; }
       return false;
@@ -327,8 +331,10 @@ export class Brain {
     // person with some nerve, joins in. Only the very timid, the hurt and children run.
     let allies = 0;
     for (let j = 0; j < e.hi && allies < 2; j++) if (j !== i && e.kind[j] === Kind.Agent && e.act[j] === Act.Fight && e.target[j] === e.id(z) && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 14) allies++;
-    const nerve = (p?.traits.courage ?? 0.5) + (p?.traits.strength ?? 0.5) * 0.4 + (armed ? 0.25 : 0) + allies * 0.15;
-    const brave = (nerve > 0.62 || fighting) && e.hp[i]! > (fighting ? 30 : 45) && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight');
+    const holding = w.family.kidsOf(i).some((k) => w.family.carried[k] === i); // a baby in arms: run with it, never fight
+    const nerve = (p?.traits.courage ?? 0.5) + (p?.traits.strength ?? 0.5) * 0.4 + (armed ? 0.25 : 0) + allies * 0.15 + (protect ? 0.45 : 0);
+    const brave = (nerve > 0.62 || fighting) && e.hp[i]! > (fighting ? 30 : protect ? 25 : 45) && !(e.flags[i]! & EFlag.Child) && !holding && !w.rules.forbidden(i, 'fight');
+    if (protect && !brave) return false; // too weak to help: the danger is not at their own side
     const zx = e.x[z]!, zy = e.y[z]!, d = Math.hypot(zx - e.x[i]!, zy - e.y[i]!);
     if (brave) {
       if (!fighting) w.emit('fight', { id: e.id(i), zombie: e.id(z) });
@@ -518,7 +524,9 @@ export class Brain {
       return;
     }
     if (!this.walking(i)) e.actT[i] = Math.max(0, e.actT[i]! - since * HOUR / w.opt.clockScale); // timers run once there
+    if (w.family.dependent(i)) { this.little(i); return; } // under 3: looked after, never on their own
     if (this.danger(i)) return;
+    if (this.tendKids(i)) return;
     if (this.hunting(i)) return;
     if (this.obey(i)) return;
     if (e.act[i] === Act.Go || ((e.act[i] === Act.Gather || e.act[i] === Act.Build) && this.ordKind[i] !== 6)) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
@@ -610,7 +618,7 @@ export class Brain {
         this.stop(i); this.setAct(i, Act.Eat, 12); this.schedule(i, 2, this.ticksLeft(i)); return true;
       case Act.Forage: {
         // Food in the camp's store is the first place to look when it is near (people stock it for this).
-        const st = e.carry[i]! <= 0 && e.hunger[i]! > 40 ? w.survival.stashFood(i, 150) : -1;
+        const st = e.carry[i]! <= 0 && (e.hunger[i]! > 40 || w.family.wantsFood(i)) ? w.survival.stashFood(i, 150) : -1;
         if (st >= 0) {
           const W = w.maps[m]!.tiles.w, sp = w.freeSpot(m, (st % W) + 0.5, ((st / W) | 0) + 1.5, 6);
           if (sp && this.goTo(i, sp.x, sp.y, e.hunger[i]! > 85)) { this.setAct(i, Act.Forage); e.goal[i] = -3; this.schedule(i, 1); return true; }
@@ -691,6 +699,7 @@ export class Brain {
         if (e.target[i]! < 0) return false;
         if (e.actT[i]! > 0) { this.stop(i); this.schedule(i, 2, this.ticksLeft(i)); return true; }
         e.thirst[i] = 0; e.target[i] = -1; w.emit('drink', { id: e.id(i) });
+        w.family.drank(i); // the little ones with them drink too
         return false;
       }
       case Act.Eat:
@@ -701,6 +710,7 @@ export class Brain {
         if (e.actT[i]! > 0) { this.schedule(i, 2, this.ticksLeft(i)); return true; } // eating what was found
         if (e.goal[i] === -3) { // at the camp's store
           e.goal[i] = -1;
+          if (e.carry[i]! <= 0 && w.family.wantsFood(i) && w.survival.grabFromStash(i)) return false; // for a hungry little one
           if (w.survival.eatFromStash(i)) { this.stop(i); e.actT[i] = 10; this.schedule(i, 2, this.ticksLeft(i)); return true; }
           return false;
         }
@@ -711,7 +721,7 @@ export class Brain {
         const def = this.itemDef.get(e.sub[t]!);
         w.emit('pickup', { id: e.id(i), item: def?.name ?? 'item' });
         w.remove(t, 'taken');
-        if (e.hunger[i]! > 30) { e.hunger[i] = Math.max(0, e.hunger[i]! - (def?.food ?? 30)); this.stop(i); e.actT[i] = 10; this.schedule(i, 2, this.ticksLeft(i)); return true; }
+        if (e.hunger[i]! > 30 && !(e.carry[i]! <= 0 && w.family.wantsFood(i))) { e.hunger[i] = Math.max(0, e.hunger[i]! - (def?.food ?? 30)); this.stop(i); e.actT[i] = 10; this.schedule(i, 2, this.ticksLeft(i)); return true; }
         if (e.carry[i]! < 5) e.carry[i]!++;
         return false;
       }
@@ -766,6 +776,62 @@ export class Brain {
         return e.goal[i]! >= 0 && this.walking(i);
     }
     return false;
+  }
+
+  // ------------------------------------------------------------------ little ones and their carers (sim/family.ts)
+  /**
+   * A baby or toddler (under 3) thinks: no water, food or trips of its own. In arms: sleeps or looks around. On the ground:
+   * sleeps where it is when tired (or when the carer sleeps), else toddles after the carer. Cries now and then when in need.
+   */
+  private little(i: number): void {
+    const w = this.w, e = w.e, fam = w.family, c = fam.carer[i]!, held = fam.carried[i]! >= 0, age = fam.ageOf(i);
+    const night = this.hour() >= 21 || this.hour() < 7;
+    const asleep = e.act[i] === Act.Sleep;
+    const sleepy = e.tired[i]! > 50 || (night && e.tired[i]! > 15) || (c >= 0 && e.act[c] === Act.Sleep) || (asleep && e.tired[i]! > 2);
+    const need = Math.max(e.hunger[i]!, e.thirst[i]!);
+    if (need > 60 && w.rng.chance(asleep ? 0.3 : 0.12)) { // a hungry or thirsty baby wakes and cries
+      if (asleep) { this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i), why: 'need' }); }
+      w.speak(i, kidTalk(age, '', { hunger: e.hunger[i]!, thirst: e.thirst[i]!, tired: e.tired[i]! }, (n) => w.rng.int(n), c >= 0 ? (w.profileOf(c)?.sex ?? '') : ''));
+    } else if (sleepy && !(need > 80)) {
+      if (!asleep) { this.stop(i); this.setAct(i, Act.Sleep); w.emit('sleep', { id: e.id(i) }); }
+      this.schedule(i, 2); return;
+    } else if (asleep) { this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) }); }
+    if (held) { this.stop(i); this.setAct(i, Act.Idle); this.schedule(i, 2); return; }
+    if (c >= 0 && age >= BABY) {
+      const d = Math.hypot(e.x[c]! - e.x[i]!, e.y[c]! - e.y[i]!);
+      if (d > 2.2) {
+        const s = w.freeSpot(e.map[i]!, e.x[c]! + w.rng.range(-1, 1), e.y[c]! + w.rng.range(-1, 1), 4);
+        if (s && this.goTo(i, s.x, s.y)) { e.speed[i] = 0.55; this.setAct(i, Act.Wander); this.schedule(i, 1); return; }
+      } else if (!this.walking(i) && w.rng.chance(0.25)) { // little steps around their carer
+        const s = w.freeSpot(e.map[i]!, e.x[c]! + w.rng.range(-1.6, 1.6), e.y[c]! + w.rng.range(-1.6, 1.6), 3);
+        if (s && this.goTo(i, s.x, s.y)) { e.speed[i] = 0.4; this.setAct(i, Act.Wander); this.schedule(i, 1); return; }
+      }
+    }
+    if (!this.walking(i)) { this.stop(i); this.setAct(i, Act.Idle); }
+    this.schedule(i, this.walking(i) ? 1 : 2);
+  }
+
+  /** A carer sees to their little ones first: fetch them, feed them, take them to water. True = busy with that. */
+  private tendKids(i: number): boolean {
+    const w = this.w, e = w.e, fam = w.family;
+    if (e.thirst[i]! > 92 || e.hunger[i]! > 95) return false; // about to die themselves
+    const d = fam.duty(i);
+    if (!d.what) return false;
+    const k = d.kid;
+    if (d.what === 'fetch') {
+      if (this.walking(i) && e.act[i] === Act.Go && e.target[i] === e.id(k) && Math.hypot(this.gx[i]! - e.x[k]!, this.gy[i]! - e.y[k]!) < 2) { this.schedule(i, 1); return true; }
+      const s = w.freeSpot(e.map[i]!, e.x[k]! + w.rng.range(-0.6, 0.6), e.y[k]! + w.rng.range(-0.6, 0.6), 6);
+      if (!s || !this.goTo(i, s.x, s.y, Math.hypot(e.x[k]! - e.x[i]!, e.y[k]! - e.y[i]!) > 15)) return false;
+      if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
+      this.setAct(i, Act.Go); e.target[i] = e.id(k); this.schedule(i, 1); return true;
+    }
+    if (d.what === 'food') {
+      if (fam.feed(i)) { this.stop(i); this.setAct(i, Act.Rest, 6); this.schedule(i, 2, this.ticksLeft(i)); return true; }
+      if (e.act[i] === Act.Forage) return false; // already looking for some
+      return this.start(i, Act.Forage);
+    }
+    if (e.act[i] === Act.Drink) return false; // on the way to water
+    return this.start(i, Act.Drink);
   }
 
   // ------------------------------------------------------------------ helpers

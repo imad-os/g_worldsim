@@ -7,6 +7,7 @@
 import { EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, inherit, PLAYER_AGE } from './people.js';
+import { TODDLER } from './family.js';
 import type { World, WorldEvent } from './world.js';
 
 const HOUR = 3600;
@@ -49,7 +50,7 @@ export class Life {
     const w = this.w, a = w.profiles.get(ida)!, b = w.profiles.get(idb)!, now = w.gameSec, y = this.yearSec;
     if (a.partner >= 0 || b.partner >= 0 || a.sex === b.sex) return;
     if (ageOf(a, now, y) < ADULT + 2 || ageOf(b, now, y) < ADULT + 2) return;
-    if (a.parents.some((x) => b.parents.includes(x)) || a.parents.includes(idb) || b.parents.includes(ida)) return; // family
+    if (w.family.close(ida, idb)) return; // family
     if ((a.bonds?.['#' + idb] ?? 0) < BOND_TALKS) return;
     if (w.rules.forbiddenId(ida, 'court', idb) ?? w.rules.forbiddenId(idb, 'court', ida)) return; // the owner's rule
     if (!w.rng.chance(0.35)) return;
@@ -72,7 +73,7 @@ export class Life {
     if (b.partner >= 0) return `${b.name} already has a partner`;
     if (a.sex === b.sex) return `${b.name} is not interested`;
     if (ageOf(a, now, y) < ADULT + 2 || ageOf(b, now, y) < ADULT + 2) return 'too young';
-    if (a.parents.some((x) => b.parents.includes(x)) || a.parents.includes(idb) || b.parents.includes(ida)) return `${b.name} is family`;
+    if (w.family.close(ida, idb)) return `${b.name} is family`;
     a.bonds ??= {}; b.bonds ??= {};
     a.bonds['#' + idb] = (a.bonds['#' + idb] ?? 0) + 1; b.bonds['#' + ida] = (b.bonds['#' + ida] ?? 0) + 1;
     const talks = a.bonds['#' + idb]!;
@@ -97,7 +98,7 @@ export class Life {
     if (a.partner >= 0) return `${a.name} already has a partner (${w.profiles.get(a.partner)?.name ?? 'someone'})`;
     if (a.sex === b.sex) return 'I am not interested in that way';
     if (ageOf(a, now, y) < ADULT + 2 || ageOf(b, now, y) < ADULT + 2) return 'one of us is too young';
-    if (a.parents.some((x) => b.parents.includes(x)) || a.parents.includes(idb) || b.parents.includes(ida)) return 'we are family';
+    if (w.family.close(ida, idb)) return 'we are family';
     return true;
   }
   /** They say yes: married (partners) now. */
@@ -131,6 +132,7 @@ export class Life {
     const mother = p.sex === 'f' ? p : q, mid = p.sex === 'f' ? id : p.partner;
     if (mother.sex !== 'f') return 'we cannot have a child together';
     { const rule = w.rules.forbiddenId(id, 'child', p.partner) ?? w.rules.forbiddenId(p.partner, 'child', id); if (rule) return `I must not: "${rule}"`; }
+    if (w.family.close(id, p.partner)) return 'we are family: we cannot have a child together';
     if (mother.pregnant) return `${mother.name} is already expecting`;
     const age = ageOf(mother, now, y);
     if (age < ADULT + 2) return `${mother.name} is too young to have a child`;
@@ -175,6 +177,7 @@ export class Life {
       const age = ageOf(p, now, y);
       // Children are small and slower; the flag tells the viewers.
       e.flags[i] = age < ADULT ? e.flags[i]! | EFlag.Child : e.flags[i]! & ~EFlag.Child;
+      e.flags[i] = age < TODDLER ? e.flags[i]! | EFlag.Small : e.flags[i]! & ~EFlag.Small; // a baby or toddler: smaller still, looked after
       if (age >= INDEPENDENT && p.parents.length && !p.grown) { p.grown = true; w.emit('grown', { id, age: INDEPENDENT }); }
       // Old age: past their lifespan the chance to die grows every year.
       const over = age - p.traits.lifespan;
@@ -195,7 +198,7 @@ export class Life {
         const c = w.spawnAgent(e.map[i]!, s.x, s.y, child);
         if (c < 0) continue;
         e.hunger[c] = 10; e.thirst[c] = 10; e.tired[c] = 20; e.lonely[c] = 0;
-        e.flags[c] = e.flags[c]! | EFlag.Child;
+        e.flags[c] = e.flags[c]! | EFlag.Child | EFlag.Small;
         living++;
         w.emit('birth', { id: e.id(c), mother: id, father: fid, map: w.maps[e.map[i]!]!.def.id });
         continue;

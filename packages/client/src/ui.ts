@@ -231,13 +231,15 @@ export interface PersonInfo {
   act?: number; hunger?: number; thirst?: number; tired?: number; lonely?: number; hp?: number; carry?: number; inv?: Record<string, number>;
   mind?: { mood: string; plan: { act: string; with: string | null; why: string } | null; memory: string; said: string | null; recent: string[] };
   goal?: { text: string; from: string; k: number; n: number; step: string; pct: number } | null; level?: number; xp?: number;
+  isPlayer?: boolean; stage?: string; siblings?: string[]; chosen?: { name: string; role: string }[]; carer?: string | null; held?: boolean;
 }
+export const STAGE_KEY: Record<string, Key> = { baby: 'stBaby', toddler: 'stToddler', child: 'stChild', teen: 'stTeen', adult: 'stAdult' };
 const TRAIT_KEY: Record<string, Key> = { strength: 'tStrength', speed: 'tSpeed', intelligence: 'tIntelligence', courage: 'tCourage', empathy: 'tEmpathy', metabolism: 'tMetabolism', lifespan: 'tLifespan' };
 
 /** HTML for the side card (short) or the menu page (full). Escapes everything. */
 export function personHtml(p: PersonInfo, actName: (a: number) => string, full: boolean): string {
   const e = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-  const head = `<div class="pn">${e(p.name)}</div><div class="ps">${p.sex === 'f' ? t('pWoman') : t('pMan')} · ${tf('pAge', String(p.age))}${p.age < 16 ? ' · ' + t('pChild') : ''}${p.pregnant ? ' · ' + t('pExpecting') : ''}</div>`;
+  const head = `<div class="pn">${e(p.name)}</div><div class="ps">${p.sex === 'f' ? t('pWoman') : t('pMan')} · ${tf('pAge', String(p.age))}${p.stage && p.stage !== 'adult' ? ' · ' + t(STAGE_KEY[p.stage] ?? 'stChild') : p.age < 16 ? ' · ' + t('pChild') : ''}${p.carer ? ' · ' + e(tf('famLooked', p.carer)) : ''}${p.pregnant ? ' · ' + t('pExpecting') : ''}</div>`;
   if (!p.alive) return head + `<div class="ps">${t('pDead')}${p.cause ? ' (' + e(p.cause) + ')' : ''}</div>`;
   const lines = [head, `<div class="pa">${e(actName(p.act ?? 0))}${p.carry ? ' · ' + tf('carry', String(p.carry)) : ''}${invWords(p.inv) ? ' · ' + e(tf('has', invWords(p.inv))) : ''}</div>`,
     `<div class="pbars">${bar(t('nFood'), p.hunger ?? 0)}${bar(t('nWater'), p.thirst ?? 0)}${bar(t('nRest'), p.tired ?? 0)}${bar(t('nFun'), p.lonely ?? 0)}${bar(t('nHp'), 100 - (p.hp ?? 100))}</div>`];
@@ -250,7 +252,7 @@ export function personHtml(p: PersonInfo, actName: (a: number) => string, full: 
   }
   if (!full) return lines.join('');
   lines.push(`<div class="pm">${e(p.personality.join(', '))} · ${tf('pGen', String(p.generation))}</div>`,
-    `<div class="pm">${t('pPartner')}: ${e(p.partner ?? t('pNone'))} · ${t('pParents')}: ${e(p.parents.join(', ') || t('pFirst'))} · ${t('pChildren')}: ${e(p.children.join(', ') || t('pNone'))}</div>`,
+    `<div class="pm">${t('pPartner')}: ${e(p.partner ?? t('pNone'))} · ${t('pParents')}: ${e(p.parents.join(', ') || t('pFirst'))} · ${t('pChildren')}: ${e(p.children.join(', ') || t('pNone'))}${p.siblings?.length ? ' · ' + e(p.siblings.join(', ')) : ''}</div>`,
     `<div class="pm">${t('pTraits')}: ${Object.entries(p.traits).map(([k, v]) => `${t(TRAIT_KEY[k] ?? 'tStrength')} ${k === 'lifespan' ? v : Math.round(v * 100) + '%'}`).join(' · ')}</div>`);
   if (p.mind?.memory) lines.push(`<div class="pm">${t('pMemory')}: ${e(p.mind.memory)}</div>`);
   if (p.mind?.recent.length) lines.push(`<div class="pm">${t('pRecent')}: ${e(p.mind.recent.join(' · '))}</div>`);

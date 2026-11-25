@@ -80,7 +80,8 @@ type Mind = { notes: { at: number; text: string }[]; summary: string; mood: stri
 type Rule = { text: string; forbid: string[]; with: number; withName?: string; ai?: boolean; kind?: string; goal?: string; say?: string; plan?: { do: string }[] };
 const ruleWhat = (x: Rule) => x.kind === 'when' ? `trigger: says “${esc(x.say ?? '')}” when ${esc(x.withName ?? '?')} is near` : x.kind === 'goal' ? (x.goal === 'marry' ? 'goal: finds a partner and marries' : x.goal === 'child' ? 'goal: marries, then has a child' : x.goal === 'plan' ? `goal: ${esc((x.plan ?? []).map((s) => s.do).join(' > '))}, once a game day` : 'goal: told to the AI as a main goal')
   : x.forbid.length ? 'blocks ' + esc(x.forbid.join(', ')) + (x.withName ? ' with ' + esc(x.withName) : '') : 'told to the AI only';
-type Detail = Person & { now: number; hpMax?: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
+type Detail = Person & { now: number; hpMax?: number; profile: { traits: Record<string, number>; personality: string[]; generation: number; mind?: Mind; died?: number; cause?: string; rules?: Rule[] }; family: { parents: string[]; children: string[]; partner: string | null; siblings?: string[]; stage?: string; carer?: string | null; held?: boolean;
+  chosen?: { id: number; name: string; role: string }[]; kids?: { id: number; name: string; age: number; stage: string; hunger: number; thirst: number; tired: number; hp: number; carer: string }[] }; events: { at: number; kind: string; data: Record<string, unknown> }[] };
 type Say = { at: number; from: number; to: number; fromName: string; toName: string; text: string };
 let pid = -1, ptab = load('ptab', 'overview'), chat: [string, string][] = [];
 /** What is typed in the Talk box, kept while answers arrive and pages redraw (imad 2026-11-20: it emptied on every answer). */
@@ -132,12 +133,20 @@ function personHtml(d: Detail): string {
       <label class="fld" id="xWhoF">Who<input id="xWho" list="xNames" placeholder="a name"><datalist id="xNames">${[...new Set(S.people.map((x) => x.name))].filter((n) => n !== d.name).map((n) => `<option value="${esc(n)}">`).join('')}</datalist></label>
       <button class="btn primary" id="xOrdGo">Do it</button>`, { help: help('pOrder') })}</div>`;
   else if (ptab === 'convo') body = card('Conversations', `<div class="chat" id="xConvo">${convoHtml(d)}</div>`);
-  else if (ptab === 'edit') body = card('Edit', `<div class="form">${editFields(d).map(([k, label, v, unit]) => `<label class="fld">${esc(label)}${unit ? ` (${esc(unit)})` : ''}<input data-k="${esc(k)}" value="${esc(v)}" ${typeof v === 'number' ? `type="number" step="1"` : ''}></label>`).join('')}</div>
+  else if (ptab === 'edit') body = card('Edit', `<div class="form">${editFields(d).map(([k, label, v, unit]) => `<label class="fld">${esc(label)}${unit ? ` (${esc(unit)})` : ''}<input data-k="${esc(k)}" value="${esc(v)}" ${typeof v === 'number' ? `type="number" step="${k === 'age' ? '0.1' : '1'}"` : ''}></label>`).join('')}</div>
       <button class="btn primary" id="xSave">Save changes</button>`, { help: help('pEdit') });
   else if (ptab === 'family') body = card('Family', `<div class="fam">
       <div><h4 class="sub">Parents</h4>${d.family.parents.map((n) => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">Unknown (first survivors)</span>'}</div>
       <div><h4 class="sub">Partner</h4>${d.family.partner ? `<span class="chip">${icon('heart')} ${esc(d.family.partner)}</span>` : '<span class="dim">none</span>'}</div>
-      <div><h4 class="sub">Children</h4>${d.family.children.map((n) => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">none</span>'}</div></div>`, { help: help('pFamily') });
+      <div><h4 class="sub">Children</h4>${d.family.children.map((n) => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">none</span>'}</div>
+      <div><h4 class="sub">Brothers and sisters</h4>${(d.family.siblings ?? []).map((n) => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">none</span>'}</div>
+      ${d.family.stage && d.family.stage !== 'adult' ? `<div><h4 class="sub">Stage</h4><span class="chip">${esc(d.family.stage)}</span>${d.family.carer ? ` <span class="dim">looked after by ${esc(d.family.carer)}${d.family.held ? ', in their arms' : ''}</span>` : d.family.stage === 'baby' || d.family.stage === 'toddler' ? ' <span class="dim">nobody is looking after them!</span>' : ''}</div>` : ''}
+      </div>
+      ${(d.family.kids ?? []).length ? `<h4 class="sub">Their children now</h4><table class="tbl"><tr><th>Name</th><th>Age</th><th>Food</th><th>Water</th><th>Rest</th><th>Health</th><th>Looked after by</th></tr>${(d.family.kids ?? []).map((k) => `<tr><td>${esc(k.name)}</td><td>${k.age} (${esc(k.stage)})</td><td>${100 - k.hunger} %</td><td>${100 - k.thirst} %</td><td>${100 - k.tired} %</td><td>${k.hp}</td><td>${esc(k.carer || d.name)}</td></tr>`).join('')}</table>` : ''}
+      <h4 class="sub">Chosen family</h4>${(d.family.chosen ?? []).map((c) => `<span class="chip">${esc(c.name)}: their ${esc(c.role)} <a href="#" data-kdel="${c.id}">✕</a></span>`).join('') || '<span class="dim">none</span>'}
+      <div class="row"><select id="xKinRole"><option value="child">is their child</option><option value="sibling">is their brother / sister</option><option value="parent">is their parent</option></select>
+      <input id="xKinWho" list="xKinNames" placeholder="a name"><datalist id="xKinNames">${S.people.filter((x) => x.id !== d.id).map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist>
+      <button class="btn primary" id="xKinGo">Set</button></div>`, { help: help('pFamily') });
   else if (ptab === 'rules') body = card('Their rules', `<div id="xRules"><div class="skel"></div></div><div class="row"><input id="xRule" maxlength="160" placeholder="never talk to Jade"><button class="btn primary" id="xRuleAdd">Add rule</button></div>`, { help: help('pRules') });
   else if (ptab === 'events') body = card('What happened to them', d.events.map((e) => `<div class="ev"><span class="ev-t">${gameTime(e.at)}</span><span>${esc(describe(e))}</span></div>`).join('') || '<div class="empty">Nothing yet.</div>');
   return head + `<div id="xBody">${body}</div>`;
@@ -196,12 +205,13 @@ function editFields(d: Detail): [key: string, label: string, value: string | num
   return [['name', 'Name', d.name, ''], ['personality', 'Personality', p.personality.join(', '), ''],
     ...(['hunger', 'thirst', 'tired', 'lonely'] as const).map((k) => [k, NEED_LABEL[k]!, pct(100 - d[k]), '%'] as [string, string, number, string]),
     ['hp', 'Health', pct((d.hp / max) * 100), '%'], ['carry', 'Food carried', d.carry, 'portions'],
+    ...(d.player ? [] : [['age', 'Age', Math.round(d.age * 10) / 10, 'years'] as [string, string, number, string]]),
     ...Object.entries(p.traits).map(([k, v]) => (k === 'lifespan' ? [k, 'Lifespan', Math.round(v), 'years'] : [k, k, pct(v * 100), '%']) as [string, string, number, string])];
 }
 function fromPct(k: string, v: number, hpMax: number): number {
   if (NEED_LABEL[k]) return 100 - v;
   if (k === 'hp') return (v / 100) * hpMax;
-  if (k === 'carry' || k === 'lifespan') return v;
+  if (k === 'carry' || k === 'lifespan' || k === 'age') return v;
   return v / 100; // a trait
 }
 
@@ -225,9 +235,18 @@ function bindPerson(): void {
   on('#xOrdGo', 'click', async () => { try { const r = await cmd<{ did: string }>({ cmd: 'order', id: pid, kind: val('xOrd'), target: val('xWho') }); addChat('', `→ will ${r.did}`); toast(`Order given: ${r.did}`, 'ok'); window.setTimeout(() => void touchPerson(), 1500); } catch (e) { toast(String(e), 'err'); } });
   on('#xSave', 'click', async () => {
     const set: Record<string, number | string> = {};
-    for (const i of view().querySelectorAll<HTMLInputElement>('#xBody input[data-k]')) set[i.dataset.k!] = i.type === 'number' ? fromPct(i.dataset.k!, Number(i.value), detail?.hpMax ?? 100) : i.value;
+    for (const i of view().querySelectorAll<HTMLInputElement>('#xBody input[data-k]')) if (i.dataset.k !== 'age' || i.value !== i.defaultValue) set[i.dataset.k!] = i.type === 'number' ? fromPct(i.dataset.k!, Number(i.value), detail?.hpMax ?? 100) : i.value;
     try { await cmd({ cmd: 'agentSet', id: pid, set }); toast('Saved', 'ok'); void loadPerson(); } catch (e) { toast(String(e), 'err'); }
   });
+  on('#xKinGo', 'click', async () => {
+    const n = val('xKinWho').toLowerCase(), b = S.people.find((x) => x.name.toLowerCase() === n);
+    if (!b) { toast('No one by that name', 'err'); return; }
+    try { const r = await cmd<{ relation: string }>({ cmd: 'kin', a: pid, b: b.id, role: val('xKinRole') as 'child' }); toast(`${b.name} is now their ${r.relation}`, 'ok'); void touchPerson(); } catch (e) { toast(String(e), 'err'); }
+  });
+  document.querySelectorAll<HTMLElement>('[data-kdel]').forEach((el) => el.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    try { await cmd({ cmd: 'kin', a: pid, b: Number(el.dataset.kdel), role: '' }); toast('Removed', 'ok'); void touchPerson(); } catch (e) { toast(String(e), 'err'); }
+  }));
   on('#xRuleAdd', 'click', async () => { const t = val('xRule'); if (!t) return; try { await loadRules(await cmd<RulesAns>({ cmd: 'rules', id: pid, add: t }, 60000)); toast('Rule added', 'ok'); } catch (e) { toast(String(e), 'err'); } });
 }
 

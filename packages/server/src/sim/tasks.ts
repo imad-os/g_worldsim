@@ -384,7 +384,7 @@ export class Tasks {
       if (!p) continue;
       if (wantF && p.sex !== 'f') continue;
       if (wantM && p.sex !== 'm') continue;
-      if (single && (p.partner >= 0 || ageOf(p, now, y) < ADULT + 2 || (me && (me.parents.some((x) => p.parents.includes(x)) || p.parents.includes(e.id(i)) || me.parents.includes(e.id(j)))))) continue;
+      if (single && (p.partner >= 0 || ageOf(p, now, y) < ADULT + 2 || (me && w.family.close(e.id(i), e.id(j))))) continue;
       const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
       if (d < bd) { bd = d; best = e.id(j); }
     }

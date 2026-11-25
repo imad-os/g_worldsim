@@ -83,6 +83,8 @@ export type AdminCmd =
   | { cmd: 'agent'; id: number }
   | { cmd: 'agentSet'; id: number; set: Record<string, number | string> }
   | { cmd: 'agentMove'; id: number; map: string; x?: number; y?: number }
+  /** Family roles (imad 2026-11-25): b is <role> to a ('' = no longer). */
+  | { cmd: 'kin'; a: number; b: number; role: 'child' | 'sibling' | 'parent' | '' }
   | { cmd: 'kill'; id: number }
   /** World: drop food, difficulty (0.25 easy .. 3 hard), recent events. */
   | { cmd: 'supply'; map: string; x?: number; y?: number; n?: number }

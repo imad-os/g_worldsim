@@ -22,6 +22,7 @@ import { Brains } from './ai/brains.js';
 import { BrainStats, Failover } from './ai/brainstats.js';
 import { Planner, type PlannerConfig } from './ai/planner.js';
 import { ageOf, levelOf, TRAIT_KEYS, SEX_WEEK_MS, type Profile } from './sim/people.js';
+import { stageOf } from './sim/family.js';
 import { NO_MAP } from './sim/entities.js';
 import { KEEP, summary, type ReplaySummary } from './sim/replays.js';
 import { pvpDamage } from './sim/clans.js';
@@ -42,7 +43,7 @@ function firebaseProject(): string {
 const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'timeline', 'aiLog']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
-const LOGGED = new Set(['clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give']);
 
 /** Warnings that only say what happened (the server log keeps them): not problems for the error log. */
@@ -760,6 +761,32 @@ export class App {
         return { ...mine(), code: 'looked' };
       }
       case 'auto': p.auto = text === '1'; return { ...mine(), code: p.auto ? 'autoOn' : 'autoOff' };
+      // Families (imad 2026-11-25, sim/family.ts): look after my little ones by hand; choose other players as my family.
+      case 'care': { // "feed:<kid id>" | water | carry | bed
+        const [what, kid] = String(text ?? '').split(':');
+        const r = w.family.care(player, what ?? '', Number(kid));
+        return r.ok ? { ...mine(), code: r.code } : { ok: false, code: r.code, me: this.charInfo(player) };
+      }
+      case 'kinAsk': { // "<their character id>:<role>" = what they would be to me (child | sibling | parent)
+        const [tid, role] = String(text ?? '').split(':');
+        const t = e.slot(Number(tid));
+        if (t < 0 || t === player || !w.charName(t)) return { ok: false, code: 'kinOnlyPlayers' };
+        if (role !== 'child' && role !== 'sibling' && role !== 'parent') return { ok: false, code: 'nothing' };
+        if (p.partner === e.id(t)) return { ok: false, code: 'why', why: `you are married to ${w.profileOf(t)?.name ?? 'them'}` };
+        const r = w.family.ask(e.id(player), e.id(t), role);
+        if (r !== true) return r === 'already' ? { ...mine(), code: 'kinAlready' } : { ok: false, code: 'why', why: r };
+        this.net.noticeTo(t, 'did', { a: 'kin', ok: true, code: 'kinAskedYou', name: p.name, role });
+        return { ...mine(), code: 'kinAsked', name: w.profileOf(t)?.name ?? '' };
+      }
+      case 'kinAnswer': { // "<asker id>:1" yes / ":0" no
+        const [fid, yes] = String(text ?? '').split(':');
+        const r = w.family.answer(e.id(player), Number(fid), yes === '1');
+        if (r !== true) return { ok: false, code: 'why', why: r, me: this.charInfo(player) };
+        const f = e.slot(Number(fid));
+        if (f >= 0) this.net.noticeTo(f, 'did', { a: 'kin', ok: yes === '1', code: yes === '1' ? 'kinYes' : 'kinNo', name: p.name });
+        return { ...mine(), code: yes === '1' ? 'kinSet' : 'kinRefused' };
+      }
+      case 'kinDrop': { const r = w.family.setRole(e.id(player), Number(text), null); return r === true ? { ...mine(), code: 'kinDropped' } : { ok: false, code: 'why', why: r }; }
       case 'ruleAdd': {
         const t = String(text ?? '').trim();
         if (!t) return mine();
@@ -811,13 +838,14 @@ export class App {
   charInfo(i: number): Record<string, unknown> {
     const w = this.world, e = w.e, p = w.profileOf(i)!, now = w.gameSec, y = w.yearSec, id = e.id(i);
     const partner = p.partner >= 0 ? { id: p.partner, name: w.profiles.get(p.partner)?.name ?? '?' } : null;
-    const children: { id: number; name: string; age: number }[] = [];
-    for (const [cid, c] of w.profiles) if (c.died === undefined && c.parents.includes(id) && e.slot(cid) >= 0) children.push({ id: cid, name: c.name, age: Math.floor(ageOf(c, now, y)) });
+    const children = w.family.kidsInfo(i); // with their needs: a parent sees and fixes them (imad 2026-11-25)
+    const family = Object.entries(p.kin ?? {}).map(([k, role]) => ({ id: Number(k.slice(1)), name: w.profiles.get(Number(k.slice(1)))?.name ?? '?', role, rel: w.family.relation(id, Number(k.slice(1))) }));
+    const asks = w.family.asks.filter((x) => x.to === id).map((x) => ({ from: x.from, name: w.profiles.get(x.from)?.name ?? '?', role: x.role }));
     const left = p.chose ? Math.max(0, (p.sexAt ?? 0) + SEX_WEEK_MS - Date.now()) : 0;
     return {
       name: p.name, sex: p.sex, skin: p.skin ?? 1, chose: !!p.chose, sexDays: Math.ceil(left / 86400_000), auto: !!p.auto,
       rules: (p.rules ?? []).map((r) => r.text), max: MAX_RULES, xp: p.xp ?? 0, level: levelOf(p.xp), goal: w.tasks.progress(id),
-      goals: (p.goals ?? []).slice(-5).reverse(), partner, children, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1,
+      goals: (p.goals ?? []).slice(-5).reverse(), partner, children, family, asks, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1,
       traits: Object.fromEntries(TRAIT_KEYS.filter((k) => k !== 'metabolism').map((k) => [k, Math.round(p.traits[k] * 100)])),
       hp: Math.round(e.hp[i]!),
     };
@@ -833,7 +861,10 @@ export class App {
       partner: p.partner >= 0 ? this.nameOf(p.partner) : null, parents: p.parents.map((x) => this.nameOf(x)),
       children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([, q]) => q.name),
       traits: Object.fromEntries(Object.entries(p.traits).map(([k, v]) => [k, k === 'lifespan' ? Math.round(v) : r2(v)])),
-      goal: w.tasks.progress(id), level: levelOf(p.xp), xp: p.xp ?? 0,
+      goal: w.tasks.progress(id), level: levelOf(p.xp), xp: p.xp ?? 0, isPlayer: !!p.player,
+      stage: stageOf(ageOf(p, w.gameSec, w.yearSec)), siblings: w.family.siblingsOf(id).map((x) => this.nameOf(x)),
+      chosen: Object.entries(p.kin ?? {}).map(([k, role]) => ({ name: this.nameOf(Number(k.slice(1))), role })),
+      carer: i >= 0 && w.family.carer[i]! >= 0 ? this.nameOf(e.id(w.family.carer[i]!)) : null, held: i >= 0 && w.family.carried[i]! >= 0,
     };
     if (i >= 0) Object.assign(base, { act: e.act[i], hunger: Math.round(e.hunger[i]!), thirst: Math.round(e.thirst[i]!), tired: Math.round(e.tired[i]!), lonely: Math.round(e.lonely[i]!), hp: Math.round(e.hp[i]!), carry: e.carry[i], inv: w.survival.inv(i) });
     if (seer && p.mind) {
@@ -1088,7 +1119,11 @@ export class App {
         const events = (this.db.sql.prepare('SELECT tick, game_sec, kind, data FROM events WHERE data LIKE ? ORDER BY id DESC LIMIT 40').all(like) as { game_sec: number; kind: string; data: string }[])
           .filter((r) => { try { const d = JSON.parse(r.data) as Record<string, unknown>; return d.id === id || d.a === id || d.b === id; } catch { return false; } })
           .map((r) => ({ at: r.game_sec, kind: r.kind, data: JSON.parse(r.data) as unknown }));
-        const family = { parents: p.parents.map((x) => this.nameOf(x)), children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([cid]) => this.nameOf(cid)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null };
+        const F = w.family, stage = stageOf(ageOf(p, w.gameSec, w.yearSec));
+        const family = { parents: F.parentsOf(id).map((x) => this.nameOf(x)), children: F.childrenOf(id).map((cid) => this.nameOf(cid)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null,
+          siblings: F.siblingsOf(id).map((x) => this.nameOf(x)), stage, chosen: Object.entries(p.kin ?? {}).map(([k, role]) => ({ id: Number(k.slice(1)), name: this.nameOf(Number(k.slice(1))), role })),
+          carer: i >= 0 && F.carer[i]! >= 0 ? this.nameOf(w.e.id(F.carer[i]!)) : null, held: i >= 0 && F.carried[i]! >= 0,
+          kids: i >= 0 ? F.kidsInfo(i) : [] };
         const clan = w.clans.clanOf(id); const clanInfo = clan ? { name: clan.name, leader: this.nameOf(clan.leader), loyalty: Math.round(w.clans.loyalty(id) * 100), rivals: w.clans.rivals(clan).map((r) => `${r.clan.name} (${Math.round(r.tension)}/10)`) } : null;
         const talk = this.planner.convo.of(id).map((l) => ({ at: l.at, from: l.from, to: l.to, fromName: l.from === -2 ? 'The owner' : l.from < 0 ? 'Someone' : this.nameOf(l.from), toName: l.to < 0 ? '' : this.nameOf(l.to), text: l.text }));
         return { ...(i >= 0 ? this.agentInfo(i) : { id, alive: false, name: p.name }), profile: p, age: ageOf(p, w.gameSec, w.yearSec), family, events, talk, clan: clanInfo, now: w.gameSec, hpMax: w.sc.agents.hp };
@@ -1105,10 +1140,19 @@ export class App {
           if (k === 'carry') { e.carry[i] = num(v, 0, 20, k, [0, 255]) | 0; continue; }
           if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k, undefined, 100); continue; }
           if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
+          if (k === 'age') { if (p.player) throw new Error("players' characters stay 25"); p.born = w.gameSec - num(v, 0, 100, k, [0, 1000]) * w.yearSec; const ag = Number(v); e.flags[i] = (e.flags[i]! & ~(EFlag.Child | EFlag.Small)) | (ag < 16 ? EFlag.Child : 0) | (ag < 3 ? EFlag.Small : 0); continue; } // years
           throw new Error(`can't change ${k}`);
         }
         e.nextThink[i] = w.tick; // decide again with the new values
         return this.agentInfo(i);
+      }
+      case 'kin': { // the owner sets a family role between two people: b is <role> to a (child | sibling | parent | '' = none)
+        const a = fixed(c.a, 0, 2 ** 31, 'a'), b = fixed(c.b, 0, 2 ** 31, 'b');
+        const role = c.role === '' || c.role === null ? null : String(c.role);
+        if (role !== null && role !== 'child' && role !== 'sibling' && role !== 'parent') throw new Error('role: child, sibling or parent');
+        const r = w.family.setRole(a, b, role as 'child' | 'sibling' | 'parent' | null);
+        if (r !== true) throw new Error(r);
+        return { ok: true, relation: w.family.relation(a, b) };
       }
       case 'agentMove': {
         const i = w.e.slot(fixed(c.id, 0, 2 ** 31, 'id'));

@@ -383,3 +383,20 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   then imports `run.ts` (the old main). `npm run build` writes dist/.built. `WORLDSIM_NO_AUTOBUILD=1` skips it.
 - `tools/restart.ps1 [-Pull]` (imad): pause the watchdog, clean stop if running, start hidden (PowerShell can close), wait for /health.
   Node = `D:\node\node.exe` (imad's path; watchdog.ps1 prefers it too), else .node\, else PATH.
+## Little ones and family roles (imad 2026-11-25, app 0.10.1, `sim/family.ts` = `World.family`)
+- Under 3 (`TODDLER`) = dependent (`Family.dependent`, flag `EFlag.Small` 64, drawn x0.42): `Brain.little` replaces the brain (sleep, cry, toddle
+  after the carer; never drink / forage / talk / travel; orders, jobs, hunts and planner plans refuse them). Carer (`Family.carer`, every 20 ticks):
+  mother, father (AI first; a player-parent online does it by hand), grown family, else the kindest adult within 60 m; a player who lets a need pass
+  75 gets an AI helper. Babies (< 1) are carried (`carried`, `EFlag.Carried` 128, body off, glued in `Family.carry()` after physics); toddlers are
+  picked up when the carer walks off or zombies are near. `Brain.tendKids` (after danger): fetch the child, feed it (carried food / store via
+  `grabFromStash`, found food is kept for it), take it to water (`Family.drank`). Parents fight for a child under 14 a zombie / beast goes for
+  (+0.45 nerve, `threatToMine`); one holding a baby runs instead.
+- Speech: `kidTalk` (cries / babble < 1, one word < 2, two-three words < 4, cut short < 7) in `Planner.say` / chat (no AI call under 2); `kidVoice` in prompts.
+- Family = blood + roles chosen between players (`Profile.kin` '#id' -> what they are to me, both sides). `relation` / `close` (parents, children,
+  siblings incl. half, grandparents, aunts / uncles: never court, marry or have a child; replaces the old checks in life / tasks) / `related` (clans' kin).
+  Babies know parents (rel +4) and siblings (+2) at birth; under 16 near family grow closer hourly. Player characters stay 25 (imad skipped the
+  "make a player-kid young" question 2026-11-25: do not change ages).
+- TV: Me > My family (needs of my children, Feed / Give water / Pick up / Put to bed = Do `care` "what:id" within 3 m, requests to accept, ✕ to drop);
+  person page of a player = Ask to be my child / sibling / parent (Do `kinAsk` "id:role" -> their TV note, Do `kinAnswer` "id:1|0", `kinDrop`). Strings `i18n6.ts`.
+  Panel person Family tab: siblings, stage, carer, their children's needs, chosen family + set (admin `kin { a, b, role }`); Edit tab has Age (not players).
+  Test family.test.ts; proof `ADMIN_TOKEN=... node tools/family-proof.mjs <server> <sdk.js> <outdir>`.
