@@ -155,3 +155,14 @@ With 3 zombies a night:
 
 Memory costs ~10 KB of snapshot for 5 people after 3 days (at most 100 + 10 + 32 small records per person, so it stays far
 under Firestore's 1 MiB document limit). The tick cost does not change.
+
+## E9. E6 / E7 again after merging the day's other work (homes with locked doors, rarer and harder rocks)
+
+| | old | new |
+|---|---|---|
+| plain requests done | 32 / 45 (0.71; "no rocks near here" x5) | **39 / 45 (0.87)** |
+| 3 zombies: died / attackers killed / friends who helped | 13 of 14 / 6 of 42 / 0.14 | **1 of 14 / 30 of 42 / 2.4** |
+| bear: died / killed / helped | 14 of 15 / 0 of 15 / 0 | **0 of 15 / 15 of 15 / 2.5** |
+
+With doors that open only for family, the old flee rule (run to the nearest roof) leaves people outside a locked door with
+the zombies behind them; the odds, the shout and friends coming make the difference.

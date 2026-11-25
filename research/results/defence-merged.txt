@@ -1,0 +1,4 @@
+{"mode":"horde","arm":"old","trials":14,"fought":8,"fled":14,"noReaction":0,"died":13,"hpLostAvg":98,"foesKilled":"6/42","helpersAvg":0.14,"alarms":0}
+{"mode":"horde","arm":"new","trials":14,"fought":11,"fled":7,"noReaction":0,"died":1,"hpLostAvg":30,"foesKilled":"30/42","helpersAvg":2.36,"alarms":21}
+{"mode":"bear","arm":"old","trials":15,"fought":8,"fled":15,"noReaction":0,"died":14,"hpLostAvg":98,"foesKilled":"0/15","helpersAvg":0,"alarms":0}
+{"mode":"bear","arm":"new","trials":15,"fought":15,"fled":0,"noReaction":0,"died":0,"hpLostAvg":14,"foesKilled":"15/15","helpersAvg":2.47,"alarms":15}
