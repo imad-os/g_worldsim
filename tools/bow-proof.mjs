@@ -37,8 +37,13 @@ const mt = (await adm({ cmd: 'mapTiles', map }))?.data, tree = mt.names.indexOf(
 const open = (x, y) => { for (let dy = -5; dy <= 3; dy++) for (let dx = -8; dx <= 3; dx++) { const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy; if (tx >= 0 && ty >= 0 && tx < mt.w && ty < mt.h && (mt.tiles[ty * mt.w + tx] === tree || mt.solid[mt.tiles[ty * mt.w + tx]])) return false; } return true; };
 const deer = live.animals.find((a) => a[0] !== 5 && open(a[1], a[2])) ?? live.animals.find((a) => a[0] === 1) ?? live.animals[0]; // on open ground, so nothing hides its fall
 console.log('animal', JSON.stringify(deer));
-await adm({ cmd: 'agentMove', id: me, map, x: deer[1] - 6, y: deer[2] });
-await page.waitForTimeout(2500);
+const moveTo = async (x, y) => { // the TV's own prediction may win a moment: ask again until it is there
+  for (let k = 0; k < 6; k++) { await adm({ cmd: 'agentMove', id: me, map, x, y }); await page.waitForTimeout(900); const [mx, my] = await page.evaluate(() => window.__dev.me()); if (Math.hypot(mx - x, my - y) < 2) return true; }
+  return false;
+};
+console.log('move:', await moveTo(deer[1] - 6, deer[2]));
+await page.waitForTimeout(1200);
+console.log('me after the move:', JSON.stringify(await page.evaluate(() => window.__dev.me())));
 await page.evaluate(() => window.__dev.cam('third')); await page.waitForTimeout(800);
 await page.screenshot({ path: `${out}/0-sword-in-hand.png` });
 const aimAt = async () => {
@@ -57,7 +62,7 @@ for (; shots < 14 && !killed; shots++) {
   if (shots > 0) { // it ran: walk up to it again (6 m)
     const l = (await adm({ cmd: 'live', map }))?.data, [x, y] = await page.evaluate(() => window.__dev.me());
     const a = l.animals.filter((v) => v[0] !== 5 && open(v[1], v[2])).sort((p, q) => Math.hypot(p[1] - x, p[2] - y) - Math.hypot(q[1] - x, q[2] - y))[0];
-    if (a && Math.hypot(a[1] - x, a[2] - y) > 8) { await adm({ cmd: 'agentMove', id: me, map, x: a[1] - 6, y: a[2] }); await page.waitForTimeout(1200); }
+    if (a && Math.hypot(a[1] - x, a[2] - y) > 8) await moveTo(a[1] - 6, a[2]);
   }
   await page.evaluate((a) => window.__dev.aim(a), await aimAt());
   await page.evaluate(() => window.__dev.act('aim', false)); // let go = shoot
