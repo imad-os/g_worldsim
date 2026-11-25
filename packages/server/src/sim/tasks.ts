@@ -55,8 +55,8 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   if (/weapon|arme|arma|سلاح/.test(q)) return 'spear';
   return kind === 'craft' ? 'axe' : 'campfire';
 }
-export interface Step { do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
-export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string }
+export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number }
+export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
   'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt'] as const;
@@ -99,7 +99,7 @@ export class Tasks {
     for (let i = 0; i < e.hi; i++) {
       if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP) continue;
       const t = this.taskOf(e.id(i));
-      if (!t) continue;
+      if (!t || w.clans.duelling(i)) continue; // a fight with a person comes first: the task waits
       const s = t.steps[t.k];
       if (!s) { this.end(i, t, true, ''); continue; }
       if (s.who === -2) { // "found": the person the last find step found
@@ -107,10 +107,10 @@ export class Tasks {
         if (s.who === -2) { this.end(i, t, false, 'I did not find anyone'); continue; }
       }
       if (s.t0 === undefined) { s.t0 = w.gameSec; s.phase = 0; }
-      else if (w.gameSec - s.t0 > MAX_STEP_SEC) { this.end(i, t, false, `${s.do} took too long`); continue; }
+      else if (w.gameSec - s.t0 > MAX_STEP_SEC) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
       const r = this.run(i, s, t);
-      if (r === true) { t.k++; if (t.k >= t.steps.length) this.end(i, t, true, ''); }
-      else if (typeof r === 'string') this.end(i, t, false, r);
+      if (r === true) { if (s.key) w.colony.record(i, s.key, true, w.gameSec - (s.t0 ?? w.gameSec), s.units ?? s.times ?? 1); t.k++; if (t.k >= t.steps.length) this.end(i, t, true, ''); }
+      else if (typeof r === 'string') { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, r); }
     }
   }
 
@@ -142,6 +142,11 @@ export class Tasks {
     this.w.brain.order(i, 'stop', -1, -1, 0);
     this.w.emit('task', { id: this.w.e.id(i), text: t.text, ok, why });
     this.onEnd(this.w.e.id(i), t, ok, why);
+    // A planned task that failed: plan again from here (sim/colony.ts), the failed way now dearer.
+    if (t.goal) {
+      const again = !ok && this.w.e.slot(this.w.e.id(i)) === i && this.w.colony.replan(i, t.goal, t.text, t.from, t.tries ?? 0);
+      if (!again) this.w.colony.outcome(i, t.goal, ok);
+    }
   }
 
   /** One step: true = done, a string = failed (why), false = still on it. */

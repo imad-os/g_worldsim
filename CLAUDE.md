@@ -350,3 +350,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Admin values outside the usual range are asked, never refused: `num(v, lo, hi, name, hard?, pct?)` in `adminCmd` throws `CONFIRM`
   ('confirm: ...', protocol) unless `c.force`; panel `api.ts cmd()` shows confirm() and resends with `force: true`. `hard` = what the engine
   can hold (default >= 0); ids / positions / hours / indexes / needs use `fixed()` (no override). Planner.set and loop.setSpeed take force too.
+## Local AI research (imad 2026-11-25: "evolve agents into autonomous artificial life", push every update to main)
+- Docs in `research/` (ARCHITECTURE, EXPERIMENTS, BACKLOG, REFERENCES; NOT in docs/, which is the Pages site).
+- `World.ai` flags { goap, learn, siting } (default all on; `opt.ai` to switch): `sim/colony.ts` = camp drives -> goals ->
+  allocation (value x trait fit x success chance - hours x 0.04, max 24 plans per pass) -> GOAP plan (`sim/goap.ts`, actions
+  built from the recipe table) -> task steps tagged `key`; `Tasks` reports step outcomes -> `Colony.record` (Profile.mind.know +
+  per-map culture, saved in survival snapshot `colony`); failed planned task re-planned once, then goal back-off 2^n h.
+  Flags off = the old `ownPlans` list. Siting: `Survival.campSite`, `hutSite` (constraints + flood-fill access), wall circle
+  `perimeter()` sized to the village and fixed at the first piece (`walls`, old worlds with a 9-ring keep it), `hutDir`,
+  `taken()` reservations. `sim/structures.ts` audits huts. Experiments: `npm run experiment -- --days 3 --arms old,new`.

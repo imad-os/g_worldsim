@@ -416,6 +416,11 @@ export class Brain {
     }
   }
 
+  /** Metres from (x, y) to the nearest place to drink on map m (Infinity = none). */
+  waterDist(m: number, x: number, y: number): number {
+    const W = this.w.maps[m]!.tiles.w, t = this.nearestSpot(this.drinkSpots[m]!, W, x, y);
+    return t < 0 ? Infinity : Math.hypot((t % W) + 0.5 - x, ((t / W) | 0) + 0.5 - y);
+  }
   /** Next to water (the tile under or beside x, y). */
   nearWater(m: number, x: number, y: number): boolean {
     const t = this.w.maps[m]!.tiles, W = t.w;

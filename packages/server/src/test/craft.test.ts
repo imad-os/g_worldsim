@@ -237,7 +237,11 @@ test('clans form around the leader; a quarrel is a duel with small damage and no
   assert.ok(c.members.length >= 3 && c.members.includes(c.leader));
   // Two people from different spots: force a fight.
   const a = people[0]!, b = people[1]!;
-  e.x[b] = e.x[a]! + 1; e.y[b] = e.y[a]!;
+  // On open ground (the camp may have walls and huts by now): both feet clear.
+  const tm = w.maps[town]!.tiles;
+  let spot = w.freeSpot(town, e.x[a]!, e.y[a]!, 60)!;
+  for (let k = 0; k < 200 && (tm.isSolidAt(spot.x + 1, spot.y) || tm.isSolidAt(spot.x - 0.5, spot.y) || tm.isSolidAt(spot.x + 1.5, spot.y)); k++) spot = w.freeSpot(town, spot.x + w.rng.range(-20, 20), spot.y + w.rng.range(-20, 20), 60)!;
+  for (const [i, dx] of [[a, 0], [b, 1]] as const) { w.place(i, town, spot.x + dx, spot.y); w.brain.stop(i); }
   e.hp[a] = 100; e.hp[b] = 100;
   w.survival.inv(a).sword = 1;
   w.clans.start(a, b, 'a misunderstanding');

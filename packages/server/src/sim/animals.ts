@@ -21,6 +21,9 @@ const EVERY = 5, CAP_WOODS = 16, CAP_TOWN = 4, HOUR = 3600;
 export type Drops = { meat: number; leather: number; claw: number };
 
 export class Animals {
+  /** What an animal of that type leaves (meat, leather, claws), and its name (for planning, sim/colony.ts). */
+  dropsOf(type: number): { meat: number; leather: number; claw: number } { return ANIMALS[type]?.drops ?? { meat: 0, leather: 0, claw: 0 }; }
+  typeName(type: number): string { return ANIMAL_NAMES[type] ?? ''; }
   private readonly cool = new Map<number, number>();
   private readonly wander = new Map<number, number>();
   /** Who last hurt an animal (its id -> the hunter's entity id): boars and bears go for them. */

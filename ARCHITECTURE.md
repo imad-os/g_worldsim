@@ -48,3 +48,7 @@
 - Interest management: a viewer sends `view` (map, centre, radius). It gets that area's chunks (nearest first,
   6 per frame, versioned, dropped when far) and, 10 times a second, only entities in view that changed, as
   packed int32 records (cm positions). Slow sockets skip frames. Reconnect with `resume` keeps the view.
+
+## Local AI (agents deciding without the LLM)
+
+See `research/ARCHITECTURE.md` (needs, goal planning, learning, construction under constraints) and `research/EXPERIMENTS.md`.

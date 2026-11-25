@@ -2,6 +2,7 @@ import { Act, Kind, RECIPES_ALL, RESOURCES, PLACEABLE, WEAPONS, DEFENCE, matchRe
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
+import { flood, hutAt, walkableNear } from './structures.js';
 
 /**
  * Milestone 8, part 2: living off the land. People carry materials (wood, stone, scrap) and tools (axe, spear) in
@@ -30,8 +31,10 @@ const HOUR = 3600;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
 
 type JobKind = keyof typeof WORK;
-interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number }
+interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; dir?: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number }
 const LAMP_R = 3.5, BED_R = 1.3;
+/** Door directions (outwards): south, east, north, west. */
+const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
 
 /** Job kinds under the names the owner's rules use (sim/rules.ts). */
 const JOB_RULE: Record<string, string> = { chop: 'gather', dig: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
@@ -42,6 +45,11 @@ export class Survival {
   readonly fires = new Map<string, number>();
   /** Huts (door tile index) per map, for the "enough roofs?" rule. */
   readonly huts: number[][];
+  /** Which way each hut's door faces (0 south, 1 east, 2 north, 3 west; old huts: south). */
+  readonly hutDir: number[][];
+  /** The camp wall's circle once its first piece went up (it no longer moves): centre and radius in tiles. */
+  private readonly walls: ({ x: number; y: number; r: number } | null)[];
+  private readonly legacy = new Set<number>();
   /** Each map's camp: where the first fire or hut went up; later fires and huts go near it, people sleep there. */
   readonly camp: ({ x: number; y: number } | null)[];
   /** Each map's leader (entity id, -1 = none): chosen every hour by courage, mind, kindness, strength and level (imad 2026-11-20: "social life and leaders"). */
@@ -63,6 +71,7 @@ export class Survival {
   private readonly buildable = new Set<number>();
   private lastTick = -1;
   private nextHour = 0;
+  private nextQuarter = 0;
   /** A job ended: ok, or why not (for tasks). */
   readonly ended = new Map<number, true | string>();
 
@@ -72,13 +81,15 @@ export class Survival {
     for (const n of PLACEABLE) if (id(n) >= 0) this.placeTile.set(n, id(n));
     for (const n of ['grass', 'dirt', 'sand', 'ashes']) if (id(n) >= 0) this.buildable.add(id(n));
     this.huts = w.maps.map(() => []);
+    this.hutDir = w.maps.map(() => []);
+    this.walls = w.maps.map(() => null);
     this.camp = w.maps.map(() => null);
     this.stash = w.maps.map(() => null);
   }
 
   /** What snapshots keep (fires, camps, crates, fields, huts). */
   save(): unknown {
-    return { fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, pinv: [...this.pinv] };
+    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv] };
   }
   load(d: unknown): void {
     const v = d as { pinv?: [string, Inv][]; fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
@@ -90,9 +101,70 @@ export class Survival {
     v.camp?.forEach((c, m) => { if (m < this.camp.length && c) this.camp[m] = c; });
     v.stash?.forEach((c, m) => { if (m < this.stash.length) this.stash[m] = c; });
     v.huts?.forEach((h, m) => { if (m < this.huts.length) this.huts[m] = h; });
+    const vv = v as { hutDir?: number[][]; walls?: ({ x: number; y: number; r: number } | null)[] };
+    this.huts.forEach((h, m) => { this.hutDir[m] = h.map((_, k) => vv.hutDir?.[m]?.[k] ?? 0); });
+    vv.walls?.forEach((c, m) => { if (m < this.walls.length) this.walls[m] = c; });
     this.pinv.clear(); for (const [k, x] of v.pinv ?? []) this.pinv.set(k, x);
+    this.w.colony.load((v as { colony?: unknown }).colony);
   }
   campOf(m: number): { x: number; y: number } | null { return this.camp[m] ?? null; }
+  /** The circle the camp's wall follows (centre, radius in tiles), or null with no camp. */
+  perimeter(m: number): { x: number; y: number; r: number } | null {
+    const c = this.camp[m];
+    if (!c) return null;
+    if (!this.w.ai.siting) return { x: Math.floor(c.x), y: Math.floor(c.y), r: 9 };
+    if (!this.walls[m] && !this.legacy.has(m)) { // a world from before: a wall already started on the old 9-tile ring keeps it
+      this.legacy.add(m);
+      const tm = this.w.maps[m]!.tiles, pal = this.placeTile.get('palisade'), sw = this.placeTile.get('stonewall'), cx = Math.floor(c.x), cy = Math.floor(c.y);
+      let up = 0;
+      for (let a = 0; a < 360; a += 3) { const r = (a * Math.PI) / 180, x = Math.round(cx + Math.cos(r) * 9), y = Math.round(cy + Math.sin(r) * 9); if (tm.inside(x, y) && (tm.get(x, y) === pal || tm.get(x, y) === sw)) up++; }
+      if (up >= 3) this.walls[m] = { x: cx, y: cy, r: 9 };
+    }
+    return this.walls[m] ?? { x: Math.floor(c.x), y: Math.floor(c.y), r: this.plannedRadius(m) };
+  }
+  /**
+   * How big the wall must be to hold the village it protects (siting): room for a hut (with the space in front of its door)
+   * per two people, two to grow, the fire and the store; never smaller than the old 9 tiles, and wider when something
+   * already stands further out. Capped at 16 so the wall stays a job a small camp can finish.
+   */
+  private plannedRadius(m: number): number {
+    const w = this.w, e = w.e, c = this.camp[m]!, tm = w.maps[m]!.tiles;
+    let n = 0;
+    for (let i = 0; i < e.hi; i++) if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && e.map[i] === m) n++;
+    const roofs = Math.max(this.huts[m]!.length, Math.ceil((n + 2) / 2));
+    let r = Math.sqrt((roofs * 56 + 60) / Math.PI) + 2.5;
+    for (const out of this.huts[m]!) {
+      const h = this.hutRect(m, out, this.hutDir[m]![this.huts[m]!.indexOf(out)] ?? 0);
+      if (!h) continue;
+      for (const [x, y] of [[h.x0, h.y0], [h.x0 + 5, h.y0], [h.x0, h.y0 + 5], [h.x0 + 5, h.y0 + 5]] as const) {
+        const d = Math.hypot(x - c.x, y - c.y);
+        if (d < 22) r = Math.max(r, d + 2);
+      }
+    }
+    void tm;
+    return Math.min(20, Math.max(9, Math.ceil(r)));
+  }
+  /** Fix the wall's circle (the first piece is going up). */
+  private freezeWall(m: number): void { if (this.w.ai.siting && !this.walls[m]) { const p = this.perimeter(m); if (p) this.walls[m] = p; } }
+  /** The tiles of the wall ring at radius R (the 4 ways in left out), in building order. */
+  private ring(m: number, R: number): number[] {
+    const p = this.perimeter(m)!, tm = this.w.maps[m]!.tiles, out: number[] = [], seen = new Set<number>();
+    const step = Math.min(3, (0.6 / R) * (180 / Math.PI));
+    for (let a = 0; a < 360; a += step) {
+      const rr = (a * Math.PI) / 180, x = Math.round(p.x + Math.cos(rr) * R), y = Math.round(p.y + Math.sin(rr) * R);
+      if (Math.abs(x - p.x) <= 1 || Math.abs(y - p.y) <= 1 || !tm.inside(x, y)) continue;
+      const k = y * tm.w + x;
+      if (!seen.has(k)) { seen.add(k); out.push(k); }
+    }
+    return out;
+  }
+  /** A hut's 5 x 5 square from the tile in front of its door and the way the door faces. */
+  hutRect(m: number, out: number, dir: number): { x0: number; y0: number; door: number; inside: number; dx: number; dy: number } | null {
+    if (out < 0) return null;
+    const W = this.w.maps[m]!.tiles.w, [dx, dy] = DIRS[dir] ?? DIRS[0]!;
+    const ox = out % W, oy = (out / W) | 0, cx = ox - dx * 3, cy = oy - dy * 3;
+    return { x0: cx - 2, y0: cy - 2, door: (oy - dy) * W + ox - dx, inside: (oy - dy * 2) * W + ox - dx * 2, dx, dy };
+  }
   private setCamp(m: number, x: number, y: number): void { if (!this.camp[m]) { this.camp[m] = { x, y }; this.w.emit('camp', { map: this.w.maps[m]!.def.id, x, y }); } }
 
   get enabled(): boolean { return this.T.campfire >= 0 && this.T.woodwall >= 0; }
@@ -112,6 +184,7 @@ export class Survival {
         if (t.tiles[k] === this.T.campfire && !this.camp[mi]) this.camp[mi] = { x: (k % t.w) + 0.5, y: ((k / t.w) | 0) + 0.5 };
       }
       this.huts[mi] = Array.from({ length: Math.round(walls / 15) }, () => -1);
+      this.hutDir[mi] = this.huts[mi]!.map(() => 0);
     });
     this.lastTick = w.tick;
   }
@@ -299,9 +372,11 @@ export class Survival {
     if (!this.enabled) return 'this world has no buildings';
     if (what !== 'campfire' && what !== 'hut') return this.buildThing(i, what);
     if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
-    const e = this.w.e, m = e.map[i]!, camp = this.camp[m];
+    const e = this.w.e, m = e.map[i]!;
+    if (this.w.ai.siting && !this.camp[m] && x === undefined) { const cs = this.campSite(m, e.x[i]!, e.y[i]!); if (cs) this.setCamp(m, cs.x, cs.y); }
+    const camp = this.camp[m];
     // Near the camp when there is one (a village grows), else where they stand.
-    const nearCamp = camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 150;
+    const nearCamp = camp && (this.w.ai.goap || Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 150); // planned work is for the camp
     const cx = x ?? (nearCamp ? camp.x : e.x[i]!), cy = y ?? (nearCamp ? camp.y : e.y[i]!);
     if (what === 'campfire') {
       const s = this.site(m, cx, cy, 1, 1, 12);
@@ -309,19 +384,125 @@ export class Survival {
       const W = this.w.maps[m]!.tiles.w;
       return this.begin(i, { kind: 'fire', m, tx: s % W, ty: (s / W) | 0, work: 0 });
     }
-    const s = this.site(m, cx, cy, 5, 5, 30);
-    if (s < 0) return 'I found no clear ground for a hut';
-    const W = this.w.maps[m]!.tiles.w, x0 = s % W, y0 = (s / W) | 0;
-    // Floor first (inside), then the walls from the back to the front; the door (front middle) stays open.
+    const W = this.w.maps[m]!.tiles.w;
+    let x0: number, y0: number, dir = 0;
+    if (this.w.ai.siting && camp) {
+      const hs = this.hutSite(m);
+      if (hs) { x0 = hs.x0; y0 = hs.y0; dir = hs.dir; }
+      else { // no room inside the wall: outside, as before (it will not be protected)
+        const s0 = this.site(m, cx, cy, 5, 5, 30);
+        if (s0 < 0) return 'I found no clear ground for a hut';
+        x0 = s0 % W; y0 = (s0 / W) | 0;
+      }
+    } else {
+      const s = this.site(m, cx, cy, 5, 5, 30);
+      if (s < 0) return 'I found no clear ground for a hut';
+      x0 = s % W; y0 = (s / W) | 0;
+    }
+    const [ddx, ddy] = DIRS[dir]!, door = (y0 + 2 + ddy * 2) * W + x0 + 2 + ddx * 2;
+    // Floor first (inside), then the walls from the back to the front; the doorway stays open.
     const floor: number[] = [], walls: number[] = [];
     for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
       const k = (y0 + yy) * W + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
-      if (!edge) floor.push(k, this.T.floor);
-      else if (!(yy === 4 && xx === 2)) walls.push(k, this.T.woodwall);
-      else floor.push(k, this.T.floor);
+      if (!edge || k === door) floor.push(k, this.T.floor);
+      else walls.push(k, this.T.woodwall);
     }
-    // Stand just outside the door, at (x0 + 2, y0 + 5).
-    return this.begin(i, { kind: 'hut', m, tx: x0 + 2, ty: y0 + 5, work: 0, tiles: [...floor, ...walls] });
+    // Stand just outside the door.
+    return this.begin(i, { kind: 'hut', m, tx: x0 + 2 + ddx * 3, ty: y0 + 2 + ddy * 3, work: 0, tiles: [...floor, ...walls], dir });
+  }
+
+  /**
+   * Where to found the camp (siting): a settlement needs room to grow, water and wood near, and should not be far from the
+   * people. Candidate centres on a 4-tile grid within 50 m are scored on the share of open buildable ground within 11 tiles
+   * (huts, fire, fields and a wall need it), walking distance to water, trees within 30 m (firewood, building) and the
+   * distance from here. Done once per map, so the full scan is affordable.
+   */
+  campSite(m: number, x: number, y: number): { x: number; y: number } | null {
+    const w = this.w, tm = w.maps[m]!.tiles;
+    let best: { x: number; y: number } | null = null, bs = -Infinity;
+    for (let cy = Math.floor(y - 50); cy <= y + 50; cy += 4) for (let cx = Math.floor(x - 50); cx <= x + 50; cx += 4) {
+      if (!tm.inside(cx, cy) || !this.buildable.has(tm.get(cx, cy)) || w.land.inRing(m, cx, cy)) continue;
+      const d = Math.hypot(cx - x, cy - y);
+      if (d > 50) continue;
+      let open = 0, all = 0, trees = 0;
+      for (let yy = cy - 11; yy <= cy + 11; yy++) for (let xx = cx - 11; xx <= cx + 11; xx++) {
+        if ((xx - cx) ** 2 + (yy - cy) ** 2 > 121) continue;
+        all++;
+        if (tm.inside(xx, yy) && this.buildable.has(tm.get(xx, yy))) open++;
+      }
+      for (let yy = cy - 30; yy <= cy + 30; yy += 3) for (let xx = cx - 30; xx <= cx + 30; xx += 3) if (tm.inside(xx, yy) && tm.get(xx, yy) === this.T.tree && !w.land.inRing(m, xx, yy)) trees++;
+      let portal = false;
+      for (const p of w.portals) if (p.from === m && Math.hypot(p.x - cx, p.y - cy) < 16) portal = true;
+      if (portal) continue;
+      const water = Math.min(120, w.brain.waterDist(m, cx + 0.5, cy + 0.5));
+      const score = (open / all) * 3 - water / 60 - d / 100 + Math.min(trees, 40) / 40;
+      if (score > bs) { bs = score; best = { x: cx + 0.5, y: cy + 0.5 }; }
+    }
+    return best;
+  }
+
+  /**
+   * Where the next hut goes (siting, research/ARCHITECTURE.md "construction"): a constraint search, not a random clear patch.
+   * Hard rules: the 5 x 5 square and a free ring round it on open ground; inside the wall's circle with a gap to the wall's line;
+   * not on the fire's square; the doorway and two tiles in front of it free (and never in front of another hut's door); after
+   * it stands, the camp's centre still reaches every door, the store and the way out. Scored: the door faces the camp's centre,
+   * close to it (a compact village is a short wall). null = no such place (the caller may then build outside, as before).
+   */
+  hutSite(m: number): { x0: number; y0: number; dir: number } | null {
+    const p = this.perimeter(m);
+    if (!p) return null;
+    // Before the wall is fixed, a crowded spot may take a wider circle (the wall will follow the huts), up to 16 tiles.
+    for (let r = p.r; r <= (this.walls[m] ? p.r : 20); r += 2) { const h = this.hutSiteIn(m, { ...p, r }); if (h) return h; }
+    return null;
+  }
+  private hutSiteIn(m: number, p: { x: number; y: number; r: number }): { x0: number; y0: number; dir: number } | null {
+    const w = this.w, tm = w.maps[m]!.tiles, camp = this.camp[m];
+    if (!camp) return null;
+    const keep = this.taken(m), cands: [number, number, number, number][] = [];
+    const ok = (x: number, y: number, inner: boolean) => {
+      if (!tm.inside(x, y)) return false;
+      const t = tm.get(x, y), k = y * tm.w + x;
+      if (keep.has(k) || t === this.T.campfire) return false;
+      return inner ? this.buildable.has(t) : tm.cost[t]! > 0;
+    };
+    const R = p.r;
+    for (let cy = Math.floor(p.y - R); cy <= p.y + R; cy++) for (let cx = Math.floor(p.x - R); cx <= p.x + R; cx++) {
+      const d = Math.hypot(cx + 0.5 - (p.x + 0.5), cy + 0.5 - (p.y + 0.5));
+      if (d + 3.6 > R - 1.2 || d < 4.5) continue;
+      const x0 = cx - 2, y0 = cy - 2;
+      let fits = true;
+      for (let yy = y0 - 1; yy <= y0 + 5 && fits; yy++) for (let xx = x0 - 1; xx <= x0 + 5 && fits; xx++) {
+        const inner = xx >= x0 && yy >= y0 && xx < x0 + 5 && yy < y0 + 5;
+        if (!ok(xx, yy, inner) || (inner && this.occupied(m, xx, yy))) fits = false;
+      }
+      if (!fits) continue;
+      for (const p0 of w.portals) if (p0.from === m && Math.hypot(p0.x - cx, p0.y - cy) < 8) fits = false;
+      if (!fits) continue;
+      const ux = (p.x - cx) / (d || 1), uy = (p.y - cy) / (d || 1);
+      for (let dir = 0; dir < 4; dir++) {
+        const [dx, dy] = DIRS[dir]!;
+        // Two tiles of open ground in front of the door.
+        const fx = cx + dx * 3, fy = cy + dy * 3;
+        if (!ok(fx, fy, false) || !ok(fx + dx, fy + dy, false)) continue;
+        const face = dx * ux + dy * uy; // 1 = the door looks at the camp
+        cands.push([face * 2 - d * 0.3, x0, y0, dir]);
+      }
+    }
+    cands.sort((a2, b2) => b2[0] - a2[0]);
+    // Access: test the best few with a flood from the camp's centre, the new walls counted as standing.
+    const c0 = walkableNear(tm, camp.x, camp.y, 4);
+    if (c0 < 0) return null;
+    const targets = this.huts[m]!.filter((o) => o >= 0);
+    const st = this.stash[m];
+    for (const [, x0, y0, dir] of cands.slice(0, 8)) {
+      const [dx, dy] = DIRS[dir]!, door = (y0 + 2 + dy * 2) * tm.w + x0 + 2 + dx * 2, out = door + dy * tm.w + dx;
+      const wall = (k: number) => { const x = k % tm.w, y = (k / tm.w) | 0; return x >= x0 && y >= y0 && x < x0 + 5 && y < y0 + 5 && (x === x0 || y === y0 || x === x0 + 4 || y === y0 + 4) && k !== door; };
+      const reach = flood(tm, c0 % tm.w, (c0 / tm.w) | 0, 8000, wall);
+      if (!reach.has(out) || targets.some((o) => !reach.has(o))) continue;
+      if (st && ![1, -1, tm.w, -tm.w].some((dd) => reach.has(st.t + dd))) continue;
+      return { x0, y0, dir };
+    }
+    return null;
   }
 
   /** A player builds a hut (imad 2026-11-20: players can make everything the people make): right away, just ahead of them. */
@@ -341,6 +522,7 @@ export class Survival {
       if (!edge || door) w.brain.addShelter(m, k);
     }
     this.huts[m]!.push((y0 + 5) * tm.w + x0 + 2);
+    this.hutDir[m]!.push(0);
     this.setCamp(m, x0 + 2.5, y0 + 6.5);
     w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + 2, ty: y0 + 2, player: true });
     return 'built';
@@ -353,14 +535,14 @@ export class Survival {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, camp = this.camp[m];
     let s = -1;
     if (what === 'bed') { // a hut's floor with nothing on it
-      for (const door of this.huts[m]!) {
-        if (door < 0) continue;
-        const x0 = (door % tm.w) - 1, y0 = ((door / tm.w) | 0) - 4;
-        for (let yy = 0; yy < 3 && s < 0; yy++) for (let xx = 0; xx < 3 && s < 0; xx++) {
-          const k = (y0 + yy) * tm.w + x0 + xx;
-          if (tm.tiles[k] === this.T.floor && !(xx === 1 && yy === 2)) s = k;
+      for (let n = 0; n < this.huts[m]!.length && s < 0; n++) {
+        const h = this.hutRect(m, this.huts[m]![n]!, this.hutDir[m]![n] ?? 0);
+        if (!h) continue;
+        // The far side of the room first, never the tile just inside the door (people must get in).
+        for (let yy = 1; yy <= 3 && s < 0; yy++) for (let xx = 1; xx <= 3 && s < 0; xx++) {
+          const k = (h.y0 + (h.dy < 0 ? 4 - yy : yy)) * tm.w + h.x0 + (h.dx < 0 ? 4 - xx : xx);
+          if (tm.tiles[k] === this.T.floor && k !== h.inside) s = k;
         }
-        if (s >= 0) break;
       }
     }
     if (what === 'door') s = this.doorSite(m); // the open doorway of a hut
@@ -384,8 +566,8 @@ export class Survival {
     if (!camp) return -1;
     const [up] = this.campDefence(m);
     if (up < 12) return -1;
-    const tm = this.w.maps[m]!.tiles, cx = Math.floor(camp.x), cy = Math.floor(camp.y), door = this.placeTile.get('door');
-    for (const [dx, dy] of [[0, -9], [9, 0], [0, 9], [-9, 0]] as const) {
+    const tm = this.w.maps[m]!.tiles, p = this.perimeter(m)!, cx = p.x, cy = p.y, R = p.r, door = this.placeTile.get('door');
+    for (const [dx, dy] of [[0, -R], [R, 0], [0, R], [-R, 0]] as const) {
       const x = cx + dx, y = cy + dy;
       if (!tm.inside(x, y)) continue;
       const k = y * tm.w + x;
@@ -408,9 +590,10 @@ export class Survival {
   /** A hut's doorway with no door yet (tile index), or -1. */
   doorSite(m: number): number {
     const tm = this.w.maps[m]!.tiles;
-    for (const out of this.huts[m]!) {
-      if (out < 0) continue;
-      const k = out - tm.w; // the gap is just inside the spot in front of the hut
+    for (let n = 0; n < this.huts[m]!.length; n++) {
+      const h = this.hutRect(m, this.huts[m]![n]!, this.hutDir[m]![n] ?? 0);
+      if (!h) continue;
+      const k = h.door; // the gap is just inside the spot in front of the hut
       if (tm.tiles[k] === this.T.floor && !this.reserved(m, k)) return k;
     }
     return -1;
@@ -422,16 +605,13 @@ export class Survival {
   defenceSite(m: number, what: string): number {
     const camp = this.camp[m];
     if (!camp) return -1;
-    const tm = this.w.maps[m]!.tiles, R = what === 'spikes' ? 10 : 9, cx = Math.floor(camp.x), cy = Math.floor(camp.y);
-    const seen = new Set<number>();
-    for (let a = 0; a < 360; a += 3) {
-      const r = (a * Math.PI) / 180, x = Math.round(cx + Math.cos(r) * R), y = Math.round(cy + Math.sin(r) * R);
-      if (Math.abs(x - cx) <= 1 || Math.abs(y - cy) <= 1) continue; // the ways in
-      if (!tm.inside(x, y)) continue;
-      const k = y * tm.w + x;
-      if (seen.has(k)) continue;
-      seen.add(k);
+    if (what !== 'spikes') this.freezeWall(m);
+    const tm = this.w.maps[m]!.tiles, p = this.perimeter(m)!, R = what === 'spikes' ? p.r + 1 : p.r;
+    const keep = this.w.ai.siting ? this.aprons(m) : null;
+    for (const k of this.ring(m, R)) {
+      const x = k % tm.w, y = (k / tm.w) | 0;
       if (!this.buildable.has(tm.tiles[k]!) || this.occupied(m, x, y) || this.reserved(m, k) || this.w.land.inRing(m, x, y)) continue;
+      if (keep?.has(k)) continue; // never in front of a door
       return k;
     }
     return -1;
@@ -440,25 +620,49 @@ export class Survival {
   campDefence(m: number): [number, number] {
     const camp = this.camp[m];
     if (!camp) return [0, 0];
-    const tm = this.w.maps[m]!.tiles, cx = Math.floor(camp.x), cy = Math.floor(camp.y), pal = this.placeTile.get('palisade'), sw = this.placeTile.get('stonewall');
+    const tm = this.w.maps[m]!.tiles, pal = this.placeTile.get('palisade'), sw = this.placeTile.get('stonewall');
+    const keep = this.w.ai.siting ? this.aprons(m) : null;
     let up = 0, left = 0;
-    const seen = new Set<number>();
-    for (let a = 0; a < 360; a += 3) {
-      const r = (a * Math.PI) / 180, x = Math.round(cx + Math.cos(r) * 9), y = Math.round(cy + Math.sin(r) * 9);
-      if (Math.abs(x - cx) <= 1 || Math.abs(y - cy) <= 1 || !tm.inside(x, y)) continue;
-      const k = y * tm.w + x;
-      if (seen.has(k)) continue;
-      seen.add(k);
+    for (const k of this.ring(m, this.perimeter(m)!.r)) {
       const t = tm.tiles[k]!;
-      if (t === pal || t === sw) up++; else if (this.buildable.has(t)) left++;
+      if (t === pal || t === sw) up++; else if (this.buildable.has(t) && !keep?.has(k)) left++;
     }
     return [up, left];
+  }
+  /** Tiles nobody may build on (siting): the aprons, plus what others are already building (a hut's square with the ring
+   * round it and the ground in front of its door; a piece being put down). Shared by every site search, so two builders
+   * never pick the same ground. */
+  taken(m: number): Set<number> {
+    const tm = this.w.maps[m]!.tiles, keep = this.aprons(m);
+    for (const j of this.jobs.values()) {
+      if (j.m !== m) continue;
+      if (j.kind === 'place' || j.kind === 'fire' || j.kind === 'plant') { keep.add(j.ty * tm.w + j.tx); continue; }
+      if (j.kind !== 'hut' || !j.tiles) continue;
+      for (let n = 0; n < j.tiles.length; n += 2) { const k = j.tiles[n]!; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) keep.add(k + dy * tm.w + dx); }
+      const [ddx, ddy] = DIRS[j.dir ?? 0]!;
+      for (let d = 0; d <= 2; d++) keep.add((j.ty + ddy * d) * tm.w + j.tx + ddx * d);
+    }
+    return keep;
+  }
+  /** Tiles to keep clear (siting): the doorway and two tiles in front of every hut. */
+  aprons(m: number): Set<number> {
+    const W = this.w.maps[m]!.tiles.w, out = new Set<number>();
+    this.huts[m]!.forEach((o, k) => {
+      const h = this.hutRect(m, o, this.hutDir[m]![k] ?? 0);
+      if (!h) return;
+      for (let d = 0; d <= 2; d++) out.add(o + (h.dy * d) * W + h.dx * d);
+      out.add(h.door);
+    });
+    return out;
   }
 
   /** Put wood on the nearest fire (within 40 m). */
   tend(i: number): true | string {
     if ((this.inv(i).wood ?? 0) < 1) return 'I have no wood';
-    const t = this.nearestFire(i, 40);
+    // The camp's fire first (a planned "keep the fire going" means that one, wherever the wood was cut).
+    const m0 = this.w.e.map[i]!, c0 = this.camp[m0];
+    let t = this.w.ai.goap && c0 ? this.fireNear(m0, c0.x, c0.y, 15) : -1;
+    if (t < 0) t = this.nearestFire(i, 40);
     if (t < 0) return 'there is no fire near here';
     const W = this.W(i);
     return this.begin(i, { kind: 'tend', m: this.w.e.map[i]!, tx: t % W, ty: (t / W) | 0, work: 0 });
@@ -564,12 +768,13 @@ export class Survival {
   /** A broken or damaged hut wall near the camp (tile index, -1 none). */
   damaged(m: number): number {
     const tm = this.w.maps[m]!.tiles;
-    for (const door of this.huts[m]!) {
-      if (door < 0) continue;
-      const x0 = (door % tm.w) - 2, y0 = ((door / tm.w) | 0) - 5;
+    for (let n = 0; n < this.huts[m]!.length; n++) {
+      const h = this.hutRect(m, this.huts[m]![n]!, this.hutDir[m]![n] ?? 0);
+      if (!h) continue;
+      const { x0, y0 } = h;
       for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
-        if (!(xx === 0 || yy === 0 || xx === 4 || yy === 4) || (yy === 4 && xx === 2)) continue;
         const t = (y0 + yy) * tm.w + x0 + xx;
+        if (!(xx === 0 || yy === 0 || xx === 4 || yy === 4) || t === h.door) continue;
         if (tm.tiles[t] !== this.T.woodwall ? this.buildable.has(tm.tiles[t]!) : tm.hp[t]! < tm.maxHp[this.T.woodwall]!) return t;
       }
     }
@@ -673,7 +878,8 @@ export class Survival {
       const first = this.nextHour === 0;
       this.nextHour = w.gameSec + HOUR;
       if (!first) { this.regrow(); this.ownPlans(); }
-    }
+      this.nextQuarter = w.gameSec + HOUR / 3;
+    } else if (w.ai.goap && w.gameSec >= this.nextQuarter) { this.nextQuarter = w.gameSec + HOUR / 3; this.quarter(); }
   }
 
   /** One unit of work done. false = more to do, true = finished, a string = failed. */
@@ -690,6 +896,7 @@ export class Survival {
         if (!this.buildable.has(tm.tiles[k]!) && tm.tiles[k] !== this.T.floor) return 'the ground there is taken';
         if (this.occupied(j.m, j.tx, j.ty) && j.what !== 'bed' && j.what !== 'door') return 'someone is in the way'; // people walk through doors
         if ((this.inv(i)[j.what!] ?? 0) < 1) { const r = this.craft(i, j.what!); if (r !== true) return r; }
+        if (j.what === 'palisade' || j.what === 'stonewall') this.freezeWall(j.m);
         this.putDown(i, j.m, j.tx, j.ty, j.what!);
         return true;
       }
@@ -801,6 +1008,7 @@ export class Survival {
         }
         if (j.tiles!.length) return false;
         this.huts[j.m]!.push(j.ty * tm.w + j.tx);
+        this.hutDir[j.m]!.push(j.dir ?? 0);
         this.setCamp(j.m, j.tx + 0.5, j.ty + 1.5);
         w.emit('build', { id, what: 'hut', map: mapId, tx: j.tx, ty: j.ty - 3 });
         return true;
@@ -825,6 +1033,7 @@ export class Survival {
   /** A clear area w x h (top-left tile index) near (x, y) within r metres: buildable ground, a free ring around it, no water or portal near. -1 = none. */
   site(m: number, x: number, y: number, sw: number, sh: number, r: number): number {
     const w = this.w, tm = w.maps[m]!.tiles, rng = w.rng;
+    const band = w.ai.siting ? this.perimeter(m) : null, keep = w.ai.siting ? this.taken(m) : null;
     const fits = (x0: number, y0: number): boolean => {
       for (let yy = y0 - 1; yy <= y0 + sh + (sw > 1 ? 1 : 0); yy++) for (let xx = x0 - 1; xx <= x0 + sw; xx++) {
         if (!tm.inside(xx, yy)) return false;
@@ -832,6 +1041,8 @@ export class Survival {
         if (inside ? !this.buildable.has(t) : tm.cost[t]! <= 0 || t === this.T.campfire) return false;
       }
       for (const p of w.portals) if (p.from === m && Math.hypot(p.x - x0, p.y - y0) < 8) return false;
+      if (band) for (let yy = y0; yy < y0 + sh; yy++) for (let xx = x0; xx < x0 + sw; xx++) { const d = Math.hypot(xx + 0.5 - band.x - 0.5, yy + 0.5 - band.y - 0.5); if (Math.abs(d - band.r) < 1.6) return false; } // the wall's line stays free
+      if (keep) for (let yy = y0; yy < y0 + sh; yy++) for (let xx = x0; xx < x0 + sw; xx++) if (keep.has(yy * tm.w + xx)) return false;
       if (sw === 1) for (const k of this.fires.keys()) { const [fm, ft] = k.split(':').map(Number) as [number, number]; if (fm === m && Math.hypot((ft % tm.w) - x0, ((ft / tm.w) | 0) - y0) < 6) return false; }
       for (let yy = y0; yy < y0 + sh; yy++) for (let xx = x0; xx < x0 + sw; xx++) if (this.occupied(m, xx, yy)) return false;
       return true;
@@ -844,7 +1055,7 @@ export class Survival {
     return -1;
   }
 
-  private nearestTile(i: number, type: number, r: number): number {
+  nearestTile(i: number, type: number, r: number): number {
     const e = this.w.e, tm = this.w.maps[e.map[i]!]!.tiles;
     const cx = Math.floor(e.x[i]!), cy = Math.floor(e.y[i]!);
     let best = -1, bd = r * r;
@@ -959,7 +1170,42 @@ export class Survival {
   /** A post on the camp's ring: one of the four ways in (k = 0..3), 7 tiles from the fire. */
   private post(m: number, k: number): { x: number; y: number } | null {
     const camp = this.camp[m]!, a = ((k % 4) * 90 * Math.PI) / 180;
-    return this.w.freeSpot(m, camp.x + Math.cos(a) * 7, camp.y + Math.sin(a) * 7, 6);
+    const R = this.perimeter(m)!.r - 2;
+    return this.w.freeSpot(m, camp.x + Math.cos(a) * R, camp.y + Math.sin(a) * R, 6);
+  }
+  /** People of map m who could take some work now (awake, not hungry / thirsty / worn out, no task or job, not a child). */
+  private freeOf(m: number): { free: number[]; all: number[] } {
+    const w = this.w, e = w.e, free: number[] = [], all: number[] = [];
+    for (let i = 0; i < e.hi; i++) {
+      if (e.kind[i] !== Kind.Agent || e.map[i] !== m) continue;
+      all.push(i);
+      if (w.profileOf(i)?.mind?.task || this.jobs.has(e.id(i)) || w.brain.orderOf(i).kind || e.flags[i]! & 32) continue;
+      if (e.hunger[i]! > 60 || e.thirst[i]! > 60 || e.tired[i]! > 75 || e.act[i] === Act.Sleep || e.lonely[i]! > 40) continue; // lonely people go and talk first (the brain)
+      free.push(i);
+    }
+    return { free, all };
+  }
+  /** Hand out the camp's goals (sim/colony.ts); the leader says what the work is now and then. */
+  private goapPass(m: number, free: number[], hour: number, by: (i: number) => string, lid: number): void {
+    const w = this.w, e = w.e;
+    const { all, free: ready } = this.freeOf(m);
+    const n = w.colony.allocate(m, free.filter((i) => ready.includes(i)), all, hour, by);
+    const ls = lid >= 0 ? e.slot(lid) : -1;
+    if (n >= 2 && ls >= 0 && e.map[ls] === m && (this.toldAt[m] ?? -1e9) < w.gameSec - 6 * HOUR) {
+      this.toldAt[m] = w.gameSec;
+      const threat = w.zombies.perNight > 0 || w.zombies.count(m) > 0;
+      w.speak(ls, threat ? 'Zombies are coming. Everyone: doors, walls and weapons!' : 'Everyone has work today: let us make this camp a home.');
+    }
+  }
+  /** Between the hours: whoever became free gets work at once (planning only, no new leader, no care round). */
+  private quarter(): void {
+    const w = this.w, hour = w.brain.hour();
+    for (let m = 0; m < w.maps.length; m++) {
+      const { free } = this.freeOf(m);
+      if (!free.length) continue;
+      const lid = this.leader[m] ?? -1, lname = lid >= 0 ? w.profiles.get(lid)?.name ?? '' : '';
+      w.colony.allocate(m, free, this.freeOf(m).all, hour, (i) => (lid >= 0 && w.e.id(i) !== lid ? lname : 'myself'));
+    }
   }
   /** The leader of map m by name ('' = none). */
   leaderName(m: number): string { const id = this.leader[m] ?? -1; return id >= 0 ? this.w.profiles.get(id)?.name ?? '' : ''; }
@@ -1013,6 +1259,10 @@ export class Survival {
         if (e.kind[h] !== Kind.Agent || e.map[h] !== mi || e.hp[h]! >= 60) continue;
         const i = (() => { const k = free.filter((x) => x !== h).sort((a, b) => tr(b).empathy - tr(a).empathy)[0]; if (k === undefined) return -1; free.splice(free.indexOf(k), 1); return k; })();
         if (i >= 0) start(i, `treat ${w.profileOf(h)?.name ?? 'the wounded'}`, [{ do: 'heal', who: e.id(h) }]);
+      }
+      if (w.ai.goap) { // the camp's drives and each person's own plan (sim/colony.ts) instead of the fixed list below
+        this.goapPass(mi, free, hour, by, lid);
+        continue;
       }
       if (!free.length || building) continue;
       const camp = this.camp[mi], cx = camp?.x ?? sx / n, cy = camp?.y ?? sy / n;
