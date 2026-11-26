@@ -164,7 +164,11 @@ export class Weather {
    * take a game hour standing still (0 when it is not cold).
    */
   warmthAt(i: number, m: number, x: number, y: number): Warmth {
-    const w = this.w, sv = w.survival, tm = w.maps[m]!.tiles;
+    const w = this.w, sv = w.survival;
+    // On the road between maps (map = NO_MAP while in transit) there is no ground to read: no fire, no roof.
+    // imad 2026-11-26: the TV's 'me' notice asked this mid-journey and the server crashed on every trip to the woods.
+    if (!(m >= 0 && m < w.maps.length)) { const cl = this.clothes(i); return { fire: false, hut: false, bed: false, clothes: cl, exposure: 0, drain: 0 }; }
+    const tm = w.maps[m]!.tiles;
     const fire = sv.warm(m, x, y);
     const k = Math.floor(y) * tm.w + Math.floor(x);
     const hut = !!sv.homes.at(m, k);
