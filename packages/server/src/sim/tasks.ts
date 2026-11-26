@@ -529,6 +529,7 @@ export class Tasks {
         const what = s.do === 'craft' ? thingOf(s.what ?? '', 'craft') : thingOf(s.what ?? '', 'build');
         if (first) {
           s.phase = 1;
+          if (s.do === 'build') { const no = sv.noNeed(i, what); if (no) return no; } // know what you have: no fifth bed
           const miss = (sv.inv(i)[what] ?? 0) > 0 ? [] : sv.missing(i, what);
           // With planning on, the way to get there is planned from what they carry and what is around (sim/colony.ts):
           // ore from the rocks across town, leather from a hunt, a spear first for a dangerous animal. No way = an honest why.

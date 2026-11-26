@@ -769,15 +769,36 @@ export class Survival {
     return out;
   }
 
+  /** Why building `what` is pointless for person i ('' = go ahead): a bed for a home that has one per sleeper already. */
+  noNeed(i: number, what: string): string {
+    if (what !== 'bed') return '';
+    const h = this.homes.homeOf(this.w.e.id(i));
+    if (!h || h.m !== this.w.e.map[i] || this.homes.bedsMissing(h) > 0) return '';
+    const b = this.homes.bedsIn(h), n = this.homes.sleepers(h).length;
+    return `my home already has ${b} bed${b === 1 ? '' : 's'} for ${n} of us: no need for another`;
+  }
+  /** Should person i make a bed: their home lacks one and they are the one of the couple who does it (not both). */
+  bedWanted(i: number): boolean {
+    const h = this.homes.homeOf(this.w.e.id(i));
+    return !!h && h.m === this.w.e.map[i] && this.homes.bedsMissing(h) > 0 && this.homes.doer(h) === this.w.e.id(i);
+  }
   /** Put down a palisade / spikes / wall / door / window / bed / lamp near the camp (a bed: inside a hut). Made first if needed. */
   private buildThing(i: number, what: string): true | string {
     if (!this.placeTile.has(what)) return `I can't build ${what}`;
     if ((this.inv(i)[what] ?? 0) < 1 && !this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, camp = this.camp[m];
     let s = -1;
-    if (what === 'bed') { // a hut's floor with nothing on it
-      for (let n = 0; n < this.huts[m]!.length && s < 0; n++) {
-        const h = this.hutRect(m, this.huts[m]![n]!, this.hutDir[m]![n] ?? 0);
+    if (what === 'bed') { // a hut's floor with nothing on it: my own home (one bed per sleeper), else a free hut with no bed yet
+      const home = this.homes.homeOf(e.id(i));
+      if (home && home.m === m && this.homes.bedsMissing(home) <= 0) {
+        const b = this.homes.bedsIn(home);
+        return `my home already has ${b} bed${b === 1 ? '' : 's'}, enough for everyone who sleeps there`;
+      }
+      if (!home) this.homes.sync();
+      const outs = home && home.m === m ? [home] : this.homes.free(m).filter((h) => this.homes.bedsIn(h) < 1);
+      if (!outs.length) return home ? 'my home is on another map' : 'I have no home to put a bed in';
+      for (let n = 0; n < outs.length && s < 0; n++) {
+        const h = this.hutRect(m, outs[n]!.out, outs[n]!.dir);
         if (!h) continue;
         // The far side of the room first, never the tile just inside the door (people must get in).
         for (let yy = 1; yy <= 3 && s < 0; yy++) for (let xx = 1; xx <= 3 && s < 0; xx++) {
@@ -1758,7 +1779,7 @@ export class Survival {
       if ((v.leather ?? 0) >= 2 && !(v.clothes ?? 0) && !(v.armor ?? 0)) w.tasks.start(i, (v.ore ?? 0) >= 1 ? 'make armour' : 'make clothes', 'myself', [{ do: 'craft', what: (v.ore ?? 0) >= 1 ? 'armor' : 'clothes' }]);
       else if ((v.ore ?? 0) >= 1 && (v.wood ?? 0) >= 1 && !(v.sword ?? 0)) start(i, 'make a sword', [{ do: 'craft', what: 'sword' }]);
       else if (prey >= 0 && (hasW || e.sub[prey]! < 2) && ((st?.food ?? 0) < n * 2 || e.hunger[i]! > 40) && w.rng.chance(0.45)) start(i, 'go hunting', [{ do: 'hunt' }]);
-      else if (camp && this.huts[mi]!.length && w.rng.chance(0.12) && this.countTiles(mi, this.T.bed) < this.huts[mi]!.length) start(i, 'put a bed in a hut', [{ do: 'build', what: 'bed' }]);
+      else if (camp && this.huts[mi]!.length && w.rng.chance(0.12) && this.bedWanted(i)) start(i, 'put a bed in my home', [{ do: 'build', what: 'bed' }]);
       else if (camp && w.rng.chance(0.1) && !this.lampNear(mi, camp.x, camp.y, 10)) start(i, 'put a lamp at the camp', [{ do: 'build', what: 'lamp' }]);
       else if (!(this.inv(i).spear ?? 0) && (this.inv(i).scrap ?? 0) >= 1 && w.zombies.perNight > 0 && w.rng.chance(0.5)) start(i, 'make a spear', [{ do: 'craft', what: 'spear' }]);
       else if (w.rng.chance(0.2)) start(i, 'search the ruins', [{ do: 'loot', times: 2 }]);

@@ -646,6 +646,18 @@
    "gain": 0.4,
    "license": "CC0",
    "source": "https://opengameart.org/content/wind1"
+  },
+  {
+   "id": "whistle",
+   "files": [
+    "action/whistle_1.ogg",
+    "action/whistle_2.ogg"
+   ],
+   "cat": "action",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "made for this game: tools/audio/whistle.mjs (synthesised)"
   }
  ]
 }

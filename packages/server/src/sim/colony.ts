@@ -321,7 +321,14 @@ export class Colony {
       // The wall goes up round what it protects: once the huts stand (or at once when zombies come).
       if (left > 0 && (roofs >= needRoofs || threat)) gs.push({ name: 'wall', text: 'build the wall round the camp', want: [{ '+wall': 2 }], value: threat ? 0.7 : 0.22, trait: 'strength', crew: threat ? 3 : 1 });
       else if (up > 0 && threat && sv.defenceSite(m, 'spikes') >= 0) gs.push({ name: 'spikes', text: 'put spikes outside the wall', want: [{ '+spikes': 1 }], value: 0.4, trait: 'courage', crew: 1 });
-      if (sv.countTiles(m, sv.T.bed) < roofs) gs.push({ name: 'bed', text: 'put a bed in a hut', want: [{ '+bed': 1 }], value: 0.22, trait: 'intelligence', crew: 1 });
+      // Beds: one per sleeper of each home (owner, partner, children of 3+), made by ONE of the couple, never in a full home.
+      let beds = 0;
+      for (const h of sv.homes.list) {
+        if (h.m !== m || beds >= 2 || sv.homes.bedsMissing(h) <= 0) continue; // two homes at a time: beds wait for the rest of the work
+        beds++;
+        const d = sv.homes.doer(h), s = d >= 0 ? w.e.slot(d) : -1;
+        if (s >= 0 && people.includes(s)) gs.push({ name: 'bed', text: 'put a bed in my home', want: [{ '+bed': 1 }], value: 0.24, trait: 'intelligence', crew: 1, only: s });
+      }
       if (!sv.lampNear(m, cx, cy, 10)) gs.push({ name: 'lamp', text: 'put a lamp at the camp', want: [{ '+lamp': 1 }], value: threat ? 0.35 : 0.15, trait: 'intelligence', crew: 1 });
     }
     // Food security: a store with two portions a head, fields to grow more.

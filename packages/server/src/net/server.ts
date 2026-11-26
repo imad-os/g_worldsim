@@ -51,6 +51,8 @@ interface Session {
   q: Int32Array;     // slot -> last sent x, y, angle (quantized)
   g: Int32Array;     // slot -> last sent gear code
   horsesSent?: boolean;
+  /** Names this viewer already has (entity id -> name): only new ones are sent (Notice `names`, for names over heads). */
+  names?: Map<number, string>;
   list: Int32Array;  // slots known after the last frame
   listN: number;
   /** Frames since the last one sent (a quiet view still gets one a second: the clock moves on). */
@@ -325,7 +327,7 @@ export class NetServer {
       };
       this.sessions.set(s.id, s);
     } else {
-      s.ws = ws; s.goneAt = 0; s.chunks.clear(); s.known.fill(0); s.listN = 0;
+      s.ws = ws; s.goneAt = 0; s.chunks.clear(); s.known.fill(0); s.listN = 0; s.names = undefined;
     }
     const w = this.world;
     this.send(s, {
@@ -581,7 +583,7 @@ export class NetServer {
           const j = this.world.nearest(s.avatar, 2.5);
           this.send(s, { t: Msg.Notice, kind: 'interact', data: j >= 0 ? { id: this.world.e.id(j), kind: this.world.e.kind[j] } : null });
           // Talking to a person: at most one answer per 4 s per viewer.
-          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && Date.now() - (s.talkAt ?? 0) > 4000) { s.talkAt = Date.now(); this.onTalk(s.name, s.avatar, j); }
+          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && Date.now() - (s.talkAt ?? 0) > 4000) { s.talkAt = Date.now(); this.world.e.lonely[s.avatar] = Math.max(0, this.world.e.lonely[s.avatar]! - 15); this.onTalk(s.name, s.avatar, j); }
         }
         return;
       }
@@ -595,7 +597,7 @@ export class NetServer {
         if (m.a === 'talk') {
           const j = this.world.nearest(s.avatar, 3);
           const text = typeof m.text === 'string' ? m.text.trim().slice(0, 300) : '';
-          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && (text || Date.now() - (s.talkAt ?? 0) > 4000)) { s.talkAt = Date.now(); this.onTalk(s.name, s.avatar, j, text || undefined); }
+          if (j >= 0 && this.world.e.kind[j] === Kind.Agent && (text || Date.now() - (s.talkAt ?? 0) > 4000)) { s.talkAt = Date.now(); this.world.e.lonely[s.avatar] = Math.max(0, this.world.e.lonely[s.avatar]! - 15); this.onTalk(s.name, s.avatar, j, text || undefined); }
           this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
           return;
         }
@@ -739,9 +741,28 @@ export class NetServer {
       if (s.role !== 'viewer') continue;
       if (s.avatar >= 0 && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
       if (s.view) { const hs = this.horses(s.view.map, s.view.x, s.view.y, s.view.r, s.avatar); if (hs.length || s.horsesSent) this.send(s, { t: Msg.Notice, kind: 'horses', data: hs }); s.horsesSent = hs.length > 0; }
+      if (s.view) this.sendNames(s);
       if (s.view && this.isSeer(s.name)) this.send(s, { t: Msg.Notice, kind: 'minds', data: this.minds(s.view.map, s.view.x, s.view.y, s.view.r) });
     }
   }
+
+  /** Names of the people, players and town teachers in view that this viewer does not have yet: [[id, name], ...] (imad 2026-11-26: names over heads). */
+  private sendNames(s: Session): void {
+    const w = this.world, e = w.e, v = s.view!, out: [number, string][] = [];
+    const have = s.names ??= new Map();
+    if (have.size > 3000) have.clear();
+    for (let i = 0; i < e.hi && out.length < 80; i++) {
+      const k = e.kind[i];
+      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Npc) || e.map[i] !== v.map) continue;
+      if (Math.abs(e.x[i]! - v.x) > v.r || Math.abs(e.y[i]! - v.y) > v.r) continue;
+      const id = e.id(i), n = this.nameFor(i);
+      if (!n || have.get(id) === n) continue;
+      have.set(id, n); out.push([id, n]);
+    }
+    if (out.length) this.send(s, { t: Msg.Notice, kind: 'names', data: out });
+  }
+  /** The name shown over someone's head (set by the app). */
+  nameFor: (i: number) => string = (i) => this.world.profileOf(i)?.name ?? '';
 
   /** Slots no longer in any map (transit) are simply not in the grid, so they leave every view. */
   static readonly TRANSIT = NO_MAP;

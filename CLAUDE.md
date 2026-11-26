@@ -680,3 +680,27 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   (home, a parent's home, else camp), `leashed()` in `goTo` (no walk past `KID_RANGE` 35 m from home alone unless thirst > 75 / hunger > 85).
 - Clan kids (imad): `Family.threatToClanKid` = only empathy x .6 + courage x .4 > .45, against 1-4 attackers by those traits, never 5+;
   clan members are preferred as stand-in carers and kind ones bring food to a clan child whose parents are away.
+
+## Sleeping at home, beds by need, riding by yourself, compass, names (imad 2026-11-26, app 0.12.7)
+- **Sleeping out is risky**: `Brain.mayStayOut(i, d)` = only worn out (tired 97+) and 60 m+ from the hut, or hp < 25 % and 30 m+ (was tired 92 / 40 m);
+  4 tries to get home; evening (20-05) with tired > 25 and home > 40 m = +0.25 sleep score (set off early). `sleepSafe` = in my home, by a fire or
+  under a roof. Someone WITH a hut on the map asleep elsewhere = `outside` (rest x0.6, up and home once tired < 55) + memory note; the homeless are
+  not penalised (no choice; also keeps the siege test's dice).
+- **Beds by need** (`Homes.sleepers` = owner, partner, children 3-17 living there; `bedsIn`, `bedsMissing`, `doer` = owner first, else partner: ONE
+  of the couple; `bedText` in every prompt via `describe`). Colony goal 'bed' per home lacking beds (`only` = doer, 2 homes a pass); ownPlans use
+  `Survival.bedWanted`; `buildThing('bed')` goes into MY home (or a free hut with no bed) and refuses a full home; `Survival.noNeed(i, what)` ends a
+  build-bed task at once with the reason (before gathering). Test needs-beds.test.ts.
+- **Players' company**: `Brain.playerNeeds` now counts loneliness (grows alone; people awake within 6 m lower it, `Brain.company`); talking -15.
+- **On horseback** (server app.ts): A / take / use = get off (no chopping, mining, picking up); pickup / drink = code `onHorse`; attack and talk work.
+- **Riding by yourself** (`ops/waypoints.ts` `Waypoints`, `App.waypoints`): Do `rideTo` '' -> `dests` [id, kind, label, m (-1 = other map)]: home (in
+  front of its door), this map's camp, other maps (through their gate), 5 nearest marks; nothing within 30 m. Do `rideTo` id -> `pts` (A* 60000
+  nodes / 256 points) for this map's leg, `gate` = it ends in a gate. TV (`nav.ts AutoRide`): steers like the stick at a gallop, camera eases
+  behind; a new map / road end / stuck 2.5 s = ask again; touching the stick = `rideStopped`. Quick wheel when riding = Get off, Stop, ride
+  destinations, Talk, Attack, Map (refreshed every 5 s while riding).
+- **Whistle**: `docs/audio/action/whistle_*.ogg` synthesised by `tools/audio/whistle.mjs` (CC0), DID_SOUND `called`.
+- **Compass bar** (`nav.ts Compass`, `#compass` under the top bar, `#note` moved to 9vw): Do `compass` every 2 s -> places [kind, label, x, y, d, via]
+  (gates, home, this map's camp, my horses, my partner, my marks; other-map places at the gate on the way). White SVG icons, ±100° field,
+  N / E / S / W ticks; Settings > Compass bar (`MyPC.save('compass')`).
+- **Names over heads** (`nav.ts Names`, `#names`): Notice `names` [[id, name]] sends each name once per session (`Session.names`, reset on reconnect;
+  NPCs by their table name); nearest 14 within 26 m; Settings > Names over heads (`MyPC.save('names')`). Strings `i18n8.ts` (T8).
+- Proof `ADMIN_TOKEN=... node tools/ride-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.ride / dests / quick / names / do`).

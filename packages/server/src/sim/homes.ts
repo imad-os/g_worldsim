@@ -218,6 +218,54 @@ export class Homes {
     const rows = all.slice(0, 14).map((h) => `(${Math.floor(h.x)}, ${Math.floor(h.y)}) ${h.owner === id ? 'yours' : h.free ? 'FREE: anyone without a home can move in' : `${h.ownerName}'s${fam(h.owner) ? ' (your family)' : ''}`}`);
     return `Huts on this map (${all.length}; huts are dear to build, so move into a free one before building): ${rows.join('; ')}${all.length > 14 ? '; ...' : ''}.`;
   }
+  // ------------------------------------------------------------------ beds (imad 2026-11-26: "4 beds in his hut and he builds a new one")
+  /** Who sleeps in hut h: the owner, their partner and the children of 3+ who live there (little ones sleep by a parent). */
+  sleepers(h: Home): number[] {
+    const w = this.w, out: number[] = [];
+    if (h.owner < 0) return out;
+    const o = w.profiles.get(h.owner);
+    if (!o || o.died !== undefined) return out;
+    out.push(h.owner);
+    if (o.partner >= 0 && w.profiles.get(o.partner)?.died === undefined && w.profiles.has(o.partner)) out.push(o.partner);
+    for (const [id, q] of w.profiles) {
+      if (q.died !== undefined || out.includes(id) || q.partner >= 0 || q.player) continue;
+      if (!(q.parents.includes(h.owner) || (o.partner >= 0 && q.parents.includes(o.partner)))) continue;
+      const age = ageOf(q, w.gameSec, w.yearSec);
+      if (age >= 3 && age < 18 && this.homeOf(id) === h) out.push(id);
+    }
+    return out;
+  }
+  /** Bed tiles inside hut h. */
+  bedsIn(h: Home): number {
+    const sv = this.w.survival, r = sv.hutRect(h.m, h.out, h.dir), tm = this.w.maps[h.m]!.tiles;
+    if (!r) return 0;
+    let n = 0;
+    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) if (tm.tiles[(r.y0 + yy) * tm.w + r.x0 + xx] === sv.T.bed) n++;
+    return n;
+  }
+  /** Beds hut h still lacks: one per sleeper, never more. */
+  bedsMissing(h: Home): number { return Math.max(0, this.sleepers(h).length - this.bedsIn(h)); }
+  /**
+   * The one of a couple who does a job for the home (imad: "one partner will do it, not both"): the owner when they are an AI person
+   * on their feet on that map, else the partner; -1 = nobody (both are players played by hand, or away).
+   */
+  doer(h: Home): number {
+    const w = this.w, e = w.e, o = w.profiles.get(h.owner);
+    if (!o) return -1;
+    for (const id of [h.owner, o.partner]) { // always the same one (owner first): never both of them
+      const s = id >= 0 ? e.slot(id) : -1;
+      if (s >= 0 && e.kind[s] === Kind.Agent && e.map[s] === h.m && this.adult(id)) return id;
+    }
+    return -1;
+  }
+  /** For prompts: what my home holds and still needs (so nobody builds a fifth bed). */
+  bedText(id: number): string {
+    const h = this.homeOf(id);
+    if (!h) return '';
+    const b = this.bedsIn(h), n = this.sleepers(h).length, miss = Math.max(0, n - b);
+    return `Your home has ${b} bed${b === 1 ? '' : 's'} for ${n} sleeper${n === 1 ? '' : 's'}${miss ? `: it needs ${miss} more` : ': enough, build no more beds'}.`;
+  }
+
   /** How many more huts map m needs so every household has a home. */
   needed(m: number): number { return Math.max(0, this.homeless(m).length - this.free(m).length); }
   /** For the panel and prompts: who owns what. */
@@ -225,7 +273,7 @@ export class Homes {
     const h = this.homeOf(id);
     if (!h) return 'No home yet (you sleep by the camp fire).';
     const c = this.middle(h), own = h.owner === id, ow = this.w.profiles.get(h.owner);
-    return own ? `Your home: your hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}); only your family may go in.`
-      : `Your home: ${ow?.name ?? 'your family'}'s hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}).`;
+    return (own ? `Your home: your hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}); only your family may go in.`
+      : `Your home: ${ow?.name ?? 'your family'}'s hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}).`) + ' ' + this.bedText(id);
   }
 }

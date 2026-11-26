@@ -26,6 +26,8 @@ Every sound here is CC0 (public domain): free to use, change and share, no credi
 - Fire Crackling: https://opengameart.org/content/fire-crackling (CC0)
 - Rain (loopable): https://opengameart.org/content/rain-loopable (CC0)
 
+- whistle (calling the horse): synthesised for this game by `tools/audio/whistle.mjs` (CC0, 2026-11-26)
+
 Prepared for this game (2026-11-21): trimmed, levelled to -1 dBFS peak, Ogg Vorbis 44.1 kHz quality 5; one-shots mono, loops stereo with a crossfaded seam.
 
 Not found yet as good CC0 recordings: deer, wolf_howl, sleep (yawn/snore), talk_m, talk_f, baby_cry, laugh.

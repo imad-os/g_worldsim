@@ -22,6 +22,7 @@ import { DEATH_SECS } from './gfx/animals.js';
 import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
 import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
+import { Compass, Names, AutoRide, type CompassRow } from './nav.js';
 import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind } from '@worldsim/protocol';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
@@ -36,7 +37,7 @@ let tileName: string[] = [];
 /** What each answer from the server sounds like. */
 const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', herbs: 'pickup', healed: 'reward', noMedkit: 'ui_error', fullHp: 'ui_error', drank: 'drink',
   ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
-  doorOpened: 'door_open', doorClosed: 'door_close', doorLocked: 'ui_error', doorSomeone: 'ui_error',
+  called: 'whistle', doorOpened: 'door_open', doorClosed: 'door_close', doorLocked: 'ui_error', doorSomeone: 'ui_error',
   noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', hutLimit: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
 const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar'];
 
@@ -152,7 +153,7 @@ function myAng(): number {
 function targetNear(x: number, y: number, a: number, r: number, cone: number): number {
   let best = -1, bd = r;
   for (let i = 0; i < CAP; i++) {
-    if (eid[i] === -1 || (kind[i] !== Kind.Threat && kind[i] !== Kind.Animal) || (flags[i]! & EFlag.Dead)) continue;
+    if (eid[i] === -1 || (kind[i] !== Kind.Threat && kind[i] !== Kind.Animal) || (flags[i]! & EFlag.Dead) || riding[i]) continue; // never the horse I sit on
     const dx = nx[i]! - x, dy = ny[i]! - y, d = Math.hypot(dx, dy);
     if (d >= bd) continue;
     let da = Math.atan2(dy, dx) - a; da = Math.atan2(Math.sin(da), Math.cos(da));
@@ -367,6 +368,7 @@ function onMsg(m: ServerMsg): void {
         const d = m.data as PersonInfo | null;
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
       }
+      if (m.kind === 'names') names.add(m.data as [number, string][]);
       if (m.kind === 'horses') { horseInfo.clear(); for (const r of m.data as [number, number, number, number, number, number, string][]) horseInfo.set(r[0], [r[1] / 100, r[2], r[3], r[4], r[5], r[6]]); }
       if (m.kind === 'minds') { seer = true; mindsAt = performance.now(); bubbles.set(m.data as unknown[], actName); }
       break;
@@ -669,6 +671,35 @@ function loadWheel(): void {
 }
 function saveWheel(): void { MyPC.save('wheel', wheelIds); }
 let wheelEdit = '';
+// ------------------------------------------------------------ the compass bar, names over heads, riding by yourself (imad 2026-11-26)
+const compass = new Compass(), names = new Names();
+let namesOn = true, compassOn = true, compassAt = 0, rideDestsAt = 0;
+/** Where I can ride from here: [id, kind, label, metres (-1 = another map)] (Do `rideTo` ''). */
+let rideDests: [string, string, string, number][] = [];
+let autoRide: AutoRide | null = null;
+const ARV: [number, number] = [0, 0];
+function rideLabel(r: [string, string, string, number]): string {
+  if (r[1] === 'home') return t('rideHome');
+  if (r[1] === 'camp') return t('rideCamp');
+  if (r[1] === 'map' || r[1] === 'wild') return tf('rideMap', r[2]);
+  const k = r[1].slice(5) as MarkKind;
+  return `${MARK_ICON[k] ?? ''} ${r[2] && r[2] !== MARK_ICON[k] ? r[2] : t(MARK_KEY[k] ?? 'mkStar')}`;
+}
+function rideIcon(kind: string): string { return kind === 'home' ? '🏠' : kind === 'camp' ? '🔥' : kind === 'wild' ? '🌲' : kind === 'map' ? '🏘' : MARK_ICON[kind.slice(5) as MarkKind] ?? '📍'; }
+function startAutoRide(id: string, label: string): void {
+  if (!meNeeds?.ride) return;
+  autoRide = new AutoRide(id, label);
+  autoRide.asked = performance.now();
+  send({ t: Msg.Do, a: 'rideTo', text: id });
+  note(tf('rideGoing', label), 4000);
+}
+function stopAutoRide(why: Key | '' = ''): void {
+  if (!autoRide) return;
+  autoRide = null; runHeld = false;
+  if (why) note(t(why), 3000);
+}
+function mapNow(): string { return map; }
+function compassName(kind: string, label: string): string { return kind === 'home' ? t('cHome') : kind === 'camp' ? t('cCamp') : kind === 'partner' ? `${t('cPartner')}: ${label}` : label; }
 /** The wheel's button: held on a controller (let go = do it), pressed once on the remote (arrows + OK). */
 function wheelButton(pressed: boolean, pad: boolean): void {
   if (mode !== 'world' || menu.open || rp) return;
@@ -676,6 +707,15 @@ function wheelButton(pressed: boolean, pad: boolean): void {
     if (wheel.open) { if (!pad) wheel.close(); return; }
     if (how !== 'play' || !playing()) return;
     held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
+    if (meNeeds?.ride) { // on horseback: a wheel of its own (imad 2026-11-26): where to ride by yourself, get off, talk, attack
+      const items: WheelItem[] = [{ id: 'rideOff', icon: '🐎', label: t('rideOff') }];
+      if (autoRide) items.push({ id: 'rideStop', icon: '✋', label: t('rideStop') });
+      for (const r of rideDests.slice(0, 12 - 4 - items.length)) items.push({ id: 'ride:' + r[0], icon: rideIcon(r[1]), label: rideLabel(r) });
+      items.push({ id: 'talk', icon: WHEEL_ICON.talk!, label: t('qTalk') }, { id: 'attack', icon: WHEEL_ICON.attack!, label: t('qAttack') }, { id: 'map', icon: WHEEL_ICON.map!, label: t('qMap') });
+      wheel.show(items, pad, pad ? t('wheelRide') : t('wheelRemote'));
+      rideDestsAt = performance.now(); send({ t: Msg.Do, a: 'rideTo', text: '' });
+      return;
+    }
     const items: WheelItem[] = wheelIds.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : t(WHEEL_KEY[id]!) }));
     wheel.show(items, pad, t(pad ? 'wheelHelp' : 'wheelRemote'));
     return;
@@ -867,6 +907,9 @@ function drawGhost(): void {
 function placeLabel(): string { const p = placeable(); return p ? tf('cPut', thing(p)) : t('qPlace'); }
 function runQuick(id: string | null): void {
   if (!id) return;
+  if (id === 'rideOff') { stopAutoRide(); doAction('horse', true); return; }
+  if (id === 'rideStop') { stopAutoRide('rideStopped'); return; }
+  if (id.startsWith('ride:')) { const r = rideDests.find((x) => x[0] === id.slice(5)); if (r) startAutoRide(r[0], r[1] === 'home' ? t('cHome') : r[1] === 'camp' ? t('cCamp') : r[1].startsWith('mark:') ? rideLabel(r) : r[2]); return; }
   if (id === 'camera') { nextCamera(); return; }
   if (id === 'bag') { openMenu('bag'); return; }
   if (id === 'heal') { send({ t: Msg.Do, a: 'medkit' }); return; }
@@ -916,8 +959,23 @@ function updatePlay(dt: number, now: number): void {
     }
     mx = my = 0;
   }
+  let autoRun = false;
+  if (autoRide) { // riding by myself along the server's road; touching the stick takes the reins
+    if (!meNeeds?.ride) stopAutoRide();
+    else if (Math.hypot(mx, my) > 0.3) stopAutoRide('rideStopped');
+    else if (!meTransit) {
+      if (autoRide.map && autoRide.map !== map) autoRide.pts = []; // a new map: the next leg
+      const st = autoRide.steer(predX, predY, now, ARV);
+      if (st === 'go') { mx = ARV[0]; my = ARV[1]; autoRun = true; if (g3 && g3.view !== 'top') { let dy = Math.atan2(my, mx) + Math.PI / 2 - yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); yaw += dy * Math.min(1, dt * 2.5); } }
+      else if (st === 'arrived') { const l = autoRide.label; stopAutoRide(); note(tf('rideArrived', l), 3500); sound.play('ui_ok'); }
+      else if (now - autoRide.asked > 1500) { // the road ran out, I got stuck or I am on a new map: ask again
+        if (st === 'ask' && ++autoRide.fails > 4) stopAutoRide('rideLost');
+        else { autoRide.asked = now; autoRide.pts = []; send({ t: Msg.Do, a: 'rideTo', text: autoRide.id }); }
+      }
+    }
+  }
   STICK[0] = mx; STICK[1] = my;
-  const run = runHeld && !menu.open;
+  const run = (runHeld || autoRun) && !menu.open;
   const s = meSlot();
   if (s < 0) return;
   if (!predOk) { predX = nx[s]!; predY = ny[s]!; pvx = pvy = 0; predOk = true; }
@@ -1259,6 +1317,16 @@ function onSttText(e: { text: string }): void {
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
   if (quests.did(d as never)) return;
+  if (d.code === 'compass') { compass.set(((d as unknown as { places?: CompassRow[] }).places ?? []), compassName); return; }
+  if (d.code === 'rideDests') { rideDests = (d as unknown as { dests?: [string, string, string, number][] }).dests ?? []; return; }
+  if (d.a === 'rideTo') {
+    const r = d as typeof d & { id?: string; pts?: [number, number][]; gate?: boolean; full?: boolean; label?: string };
+    if (!autoRide || r.id !== autoRide.id) return;
+    if (d.code === 'route' && r.pts?.length) { autoRide.load(r.pts, !!r.gate, r.full !== false, mapNow(), performance.now()); return; }
+    if (d.code === 'arrived') { const l = autoRide.label; stopAutoRide(); note(tf('rideArrived', l), 3500); sound.play('ui_ok'); return; }
+    stopAutoRide('rideNoWay'); return;
+  }
+  if (d.code === 'onHorse') { note(t('onHorse'), 2500); sound.play('ui_error'); return; }
   if (d.a === 'map') { if (d.ok) mapScreen.set(d as unknown as MapData); return; }
   if (d.a === 'mark') {
     const dm = d as typeof d & { marks?: MapMark[]; id?: number };
@@ -1328,7 +1396,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     if (d.code === 'walkOver') { note(tf('hWalkOver', d.name ?? '', String(hx.dist ?? '')), 3500); return; }
     if (d.code === 'otherMap') { note(tf('hOtherMap', d.name ?? '', mapName(hx.map ?? '')), 3500); return; }
     if (d.code === 'came') { note(tf('hCame', d.name ?? ''), 3500); sound.play('ui_ok'); return; }
-    if (d.a === 'horse' && HC[d.code]) { note(tf(HC[d.code]!, d.name ?? ''), d.code === 'mounted' ? 4500 : 2500); return; }
+    if ((d.a === 'horse' || d.a === 'take' || d.a === 'use') && HC[d.code]) { note(tf(HC[d.code]!, d.name ?? ''), d.code === 'mounted' ? 4500 : 2500); return; }
   }
   if (d.code === 'zHit' || d.code === 'zKilled') { note(t(d.code) + arrows, 1800); return; }
   if (d.code === 'swing') { note(t('dSwing'), 1200); return; }
@@ -1572,6 +1640,7 @@ function buildPage(id: string): Page {
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
       if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
+      rows.push({ id: 'names', label: t('sNames'), value: onOff(namesOn) }, { id: 'compass', label: t('sCompass'), value: onOff(compassOn) });
       rows.push({ id: 'uisize', label: t('sUiSize'), value: `${Math.round(uiSize * 100)} %` }, { id: 'wheel', label: t('sWheel'), sub: true }, { id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
@@ -1709,6 +1778,8 @@ function pickRow(page: string, row: string): void {
   } else if (page === 'settings') {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
     else if (row === 'cam') { nextCamera(); menu.refresh(); }
+    else if (row === 'names') { namesOn = !namesOn; MyPC.save('names', namesOn); menu.refresh(); }
+    else if (row === 'compass') { compassOn = !compassOn; MyPC.save('compass', compassOn); compassAt = 0; menu.refresh(); }
     else if (row === 'uisize') { uiSize = UI_SIZES[(UI_SIZES.indexOf(uiSize) + 1) % UI_SIZES.length]!; MyPC.save('uiSize', uiSize); applyUiSize(); menu.refresh(); }
     else if (row === 'gfx' || row === 'snd') menu.push(row);
     else if (row === 'wheel') menu.push('wheelset');
@@ -1948,7 +2019,22 @@ function draw(now: number, dt: number): void {
   // Thoughts over heads: only for players the owner allows (the server sends them to nobody else).
   if (seer && thoughtsOn && !menu.open && now - mindsAt < 4000) bubbles.draw(bubblePos, bubbleProject, fx, fy, actName);
   else bubbles.hide();
+  if (namesOn && !menu.open && !rp) names.draw(eachPerson, nameProject, fx, fy, 26); else names.hide();
+  const cpOn = compassOn && how === 'play' && playing() && !menu.open && !meTransit && !rp;
+  compass.show(cpOn);
+  if (cpOn) compass.draw(predX, predY, g3.view !== 'top' ? yaw - Math.PI / 2 : -Math.PI / 2, Math.min(innerWidth * 0.42, 900));
 }
+/** Every person / player / teacher drawn this frame but me: (id, x, y, height of the name). */
+function eachPerson(fn: (id: number, x: number, y: number, h: number) => void): void {
+  for (let i = 0; i < CAP; i++) {
+    if (eid[i] === -1 || drawnF[i] !== frameNo || eid[i] === meId) continue;
+    const k = kind[i];
+    if (k !== Kind.Agent && k !== Kind.Player && k !== Kind.Npc) continue;
+    const f = flags[i]!;
+    fn(eid[i]!, drawnX[i]!, drawnY[i]!, (f & EFlag.Small ? 1.05 : f & EFlag.Child ? 1.55 : 2.05) + (riding[i] ? 1.2 : 0));
+  }
+}
+const nameProject = (x: number, h: number, z: number, out: { x: number; y: number }) => !!g3 && g3.project(x, h, z, out);
 /**
  * The bow's crosshair in third / first person: a small sight on the screen where the arrow will fly (15 m ahead), or on the
  * locked target (red, closing in, its distance). The engine's own assist decides the target, as before.
@@ -1999,6 +2085,10 @@ function frame(ts: number): void {
   if (gfx.fps && ts - fpsAt > 500) { fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms`; fpsN = 0; fpsAt = ts; }
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
   if (ts - pingAt > 3000) { pingAt = ts; send({ t: Msg.Ping, c: ts }); }
+  if (how === 'play' && mode === 'world' && playing() && !meTransit) {
+    if (compassOn && ts - compassAt > 2000) { compassAt = ts; send({ t: Msg.Do, a: 'compass' }); }
+    if (meNeeds?.ride && ts - rideDestsAt > 5000) { rideDestsAt = ts; send({ t: Msg.Do, a: 'rideTo', text: '' }); }
+  }
   updateInteract(ts);
   if (ts - hudAt > 500 && mode === 'world') {
     hudAt = ts; updateHud(ts);
@@ -2171,6 +2261,7 @@ MyPC.init({
     const cv = MyPC.load('cam', 'top');
     camView = CAM_VIEWS.includes(cv) ? cv : 'top';
     thoughtsOn = MyPC.load('thoughts', true) !== false;
+    namesOn = MyPC.load('names', true) !== false; compassOn = MyPC.load('compass', true) !== false;
     loadWheel();
     window.addEventListener('resize', resize);
     setMenu();
@@ -2180,7 +2271,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }) };
     MyPC.ready();
   },
   onStart() {

@@ -823,9 +823,25 @@ export class Brain {
       e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * h * (asleep ? 0.5 : 1));
       e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * h * (w.survival.onBed(e.map[i]!, e.x[i]!, e.y[i]!) ? 2 : 1)) : Math.min(100, e.tired[i]! + N.tired * k * h);
       if (asleep && e.tired[i]! <= 0) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
+      // Company: people awake within 6 m keep loneliness down, alone it grows like everyone's (it was never counted: the bar stayed full).
+      if (!asleep) {
+        const near = this.company(i, 6);
+        e.lonely[i] = near > 0 ? Math.max(0, e.lonely[i]! - (8 + 4 * Math.min(3, near)) * h) : Math.min(100, e.lonely[i]! + N.lonely * k * h);
+      }
       // Wounds (zombie bites) heal: 20 a game hour when fed and watered, twice that asleep.
       if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 20 * h * (asleep ? 2 : 1));
     }
+  }
+
+  /** People awake within r metres of i (agents and players' characters on the map, not away). */
+  company(i: number, r: number): number {
+    const w = this.w, e = w.e; let n = 0;
+    for (let j = 0; j < e.hi; j++) {
+      if (j === i || e.map[j] !== e.map[i] || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
+      if ((e.flags[j]! & EFlag.Sleeping) || e.act[j] === Act.Sleep || w.away.has(e.id(j))) continue;
+      if (Math.abs(e.x[j]! - e.x[i]!) < r && Math.abs(e.y[j]! - e.y[i]!) < r && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < r) n++;
+    }
+    return n;
   }
 
   /** Metres from (x, y) to the nearest place to drink on map m (Infinity = none). */
@@ -902,6 +918,27 @@ export class Brain {
   walking(i: number): boolean { return this.pN[i]! > 0; }
   /** Walks home that were cut short (sleep), per slot. */
   private readonly homeTries: number[] = [];
+  /** 1 = asleep in the open (not home, no roof, no fire): light, uneasy sleep. */
+  private readonly outside: number[] = [];
+  private shelterIds: Set<number> | null = null;
+  /**
+   * Sleeping here is safe (imad 2026-11-26: "make them feel it is risky to sleep outside their hut"): inside my own (family's) home,
+   * by a fire or under a roof. Anywhere else = light, uneasy sleep (rest comes slower) and they go home once a little rested.
+   */
+  sleepSafe(i: number): boolean {
+    const w = this.w, e = w.e, m = e.map[i]!, homes = w.survival.homes, h = homes.homeOf(e.id(i));
+    if (h && h.m === m && homes.inside(i, h)) return true;
+    if (w.survival.warm(m, e.x[i]!, e.y[i]!)) return true; // by a fire (the camp's, a siege rally): watched over, not alone in the dark
+    const t = w.maps[m]!.tiles, x = Math.floor(e.x[i]!), y = Math.floor(e.y[i]!);
+    if (x < 0 || y < 0 || x >= t.w || y >= t.h) return false;
+    this.shelterIds ??= new Set(w.sc.tiles.filter((s) => this.life.shelter.includes(s.name)).map((s) => s.id));
+    return this.shelterIds.has(t.tiles[y * t.w + x]!);
+  }
+  /** Someone with a hut d metres away may sleep where they are only with no choice: worn out (tired 97+) and 60 m+ away, or badly hurt (hp < 25 %) and 30 m+ away. */
+  mayStayOut(i: number, d: number): boolean {
+    const e = this.w.e;
+    return (e.tired[i]! >= 97 && d > 60) || (e.hp[i]! < this.w.sc.agents.hp * 0.25 && d > 30);
+  }
   /** A free tile inside my home's room (a bed first; spread by person so a family does not stack on one tile), or -1. */
   homeSpot(i: number): number {
     const w = this.w, e = w.e, homes = w.survival.homes, h = homes.homeOf(e.id(i));
@@ -929,7 +966,7 @@ export class Brain {
     e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * met * since * (asleep ? 0.5 : 1));
     e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * since * (asleep ? 0.5 : 1));
     const warm = (asleep && w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!) ? 1.5 : 1) * (asleep && w.survival.onBed(e.map[i]!, e.x[i]!, e.y[i]!) ? 2 : 1); // by a fire, on a bed
-    e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * warm * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
+    e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * warm * (this.outside[i] ? 0.6 : 1) * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
     e.lonely[i] = Math.min(100, e.lonely[i]! + N.lonely * k * since);
     // Health: starving or parched hurts; otherwise it heals slowly.
     if (e.hunger[i]! >= 100 || e.thirst[i]! >= 100) e.hp[i]! -= 6 * since * k;
@@ -1022,6 +1059,13 @@ export class Brain {
       if (dusk && e.hunger[i]! > 35) { sEat += e.carry[i]! > 0 ? 0.2 : 0; sForage += e.carry[i]! > 0 ? 0 : 0.12; }
       if (night && e.tired[i]! > 15 && (w.zombies.perNight > 0 || w.zombies.count(e.map[i]!) > 0)) sSleep += 0.3;
     }
+    { // a hut far away: set off for it before the night, sleeping out is risky
+      const h = w.survival.homes.homeOf(e.id(i)), hr = this.hour();
+      if (h && h.m === e.map[i] && (hr >= 20 || hr < 5) && e.tired[i]! > 25 && guard < 0) {
+        const c = w.survival.homes.middle(h);
+        if (Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!) > 40) sSleep += 0.25;
+      }
+    }
     const scores = [sDrink, sEat, guard >= 0 && e.hunger[i]! < 80 ? 0 : sForage, sSleep, guard >= 0 ? sTalk * 0.3 : sTalk, sWander, sRest, sTravel];
     const acts = [Act.Drink, Act.Eat, Act.Forage, Act.Sleep, Act.Talk, Act.Wander, Act.Rest, Act.Travel];
     const wish = this.wishOf(i);
@@ -1096,7 +1140,7 @@ export class Brain {
         let t = -1;
         // My own home (or my family's) first: people know where they live (imad 2026-11-25).
         const h = homes.homeOf(e.id(i));
-        if (h && h.m === m && (e.tired[i]! < 92 || Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!) < 40)) t = this.homeSpot(i); // anywhere on the map, unless too tired to walk
+        if (h && h.m === m && !this.mayStayOut(i, Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!))) t = this.homeSpot(i); // anywhere on the map: outside is risky (only worn out or badly hurt and far)
         if (t < 0 && camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
           t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3, mine);
           if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
@@ -1192,19 +1236,26 @@ export class Brain {
       case Act.Sleep: {
         if (!(e.flags[i]! & EFlag.Sleeping)) { // the walk ended: at home? (a blocked or cut-short walk is tried again, twice)
           const homes = w.survival.homes, h = homes.homeOf(e.id(i));
-          if (h && h.m === e.map[i] && !homes.inside(i, h) && this.guardian(i) < 0 && (this.homeTries[i] ?? 0) < 2 && e.tired[i]! < 95 && e.tired[i]! > 3) {
+          if (h && h.m === e.map[i] && !homes.inside(i, h) && this.guardian(i) < 0 && (this.homeTries[i] ?? 0) < 4 && !this.mayStayOut(i, Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!)) && e.tired[i]! > 3) {
             this.homeTries[i] = (this.homeTries[i] ?? 0) + 1;
             const t = this.homeSpot(i), W = w.maps[e.map[i]!]!.tiles.w;
             if (t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.schedule(i, 1); return true; }
           }
           this.homeTries[i] = 0;
           this.stop(i); this.setAct(i, Act.Sleep); w.emit('sleep', { id: e.id(i) }); // arrived at the bed
+          if (!this.sleepSafe(i)) { this.outside[i] = h && h.m === e.map[i] ? 1 : 0; // uneasy sleep (slower rest, up and home soon) for those who have a hut here
+            w.memory.add(e.id(i), 'sleepOut', 3, h ? 'I had to sleep outside, far from my hut: it felt unsafe' : 'I slept in the open with no hut of my own: it felt unsafe'); }
+          else this.outside[i] = 0;
         }
         const night = this.hour() >= 22 || this.hour() < 6;
         if (e.tired[i]! > 3 || (night && e.tired[i]! > 0)) {
           const g = this.guardian(i);
           if (g >= 0 && e.act[g] !== Act.Sleep && Math.hypot(e.x[g]! - e.x[i]!, e.y[g]! - e.y[i]!) > 10 && e.tired[i]! < 70) { // mum left: up and after her
             this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) }); this.choose(i, 0); return true;
+          }
+          if (this.outside[i] && e.tired[i]! < 55 && this.guardian(i) < 0) { // rested a little in the open: up and home to sleep safe
+            const h = w.survival.homes.homeOf(e.id(i));
+            if (h && h.m === e.map[i]) { this.outside[i] = 0; this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) }); if (!this.start(i, Act.Sleep)) this.choose(i, 0); return true; }
           }
           if (e.thirst[i]! > 90 || e.hunger[i]! > 92) { // woken by need: go and fix it
             this.setAct(i, Act.Idle);
@@ -1213,6 +1264,7 @@ export class Brain {
           }
           this.schedule(i, 3); return true;
         }
+        this.outside[i] = 0;
         this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) });
         return false;
       }

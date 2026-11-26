@@ -1,7 +1,7 @@
 import { animalKills } from './sim/kills.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, NPCS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -36,6 +36,7 @@ import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
 import { ErrorLog } from './ops/errors.js';
 import { Chats } from './ai/chatroom.js';
 import { MapView } from './ops/mapview.js';
+import { Waypoints } from './ops/waypoints.js';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
@@ -270,6 +271,12 @@ export class App {
       if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
       if (a === 'map') return this.mapView.view(name, player, String(text ?? '')); // the TV's map: tiles + places + my marks
       if (a === 'mark') return this.mapView.mark(name, String(text ?? 'list'));
+      if (a === 'compass') return e.map[player] === NO_MAP ? { ok: false, code: 'nothing' } : this.waypoints.compass(name, player); // the compass bar on top of the TV
+      if (a === 'rideTo') { // on horseback, ride by yourself: '' = where to, else the road for this map's leg
+        if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
+        const id = String(text ?? '');
+        return id ? this.waypoints.route(name, player, id) : { ok: true, code: 'rideDests', dests: this.waypoints.dests(name, player) };
+      }
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
       if (a === 'quests') return { ok: true, code: 'quests', list: w.quests.rows(e.id(player)) };
       if (a === 'npc') { // talk to the town teacher next to me: take / hand in a quest (the registrar also founds clans)
@@ -421,6 +428,9 @@ export class App {
         if (c === 'doorOpened' || c === 'doorClosed') w.gear.play(player, 'use');
         return { ok: c === 'doorOpened' || c === 'doorClosed', code: c };
       }
+      // On horseback (imad 2026-11-26): no chopping, mining, searching or picking up from the saddle; A gets off (attack and talk still work).
+      if ((a === 'use' || a === 'take') && w.horses.riding[player]) return w.horses.playerAct(player);
+      if ((a === 'pickup' || a === 'drink') && w.horses.riding[player]) return { ok: false, code: 'onHorse' };
       if (a === 'use' || a === 'take') {
         if (a === 'use') { // older TVs: "use" also hits what is next to me
           const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!;
@@ -452,6 +462,10 @@ export class App {
     this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0,
       inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], gear: { ...w.gear.state(i), use: { weapon: w.gear.equipped(i, 'weapon'), ranged: w.gear.equipped(i, 'ranged'), head: w.gear.equipped(i, 'head'), body: w.gear.equipped(i, 'body') } }, pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()), ride: w.horses.rideOf(i) });
     this.net.horses = (m, x, y, r, me) => this.horsesAround(m, x, y, r, me);
+    this.net.nameFor = (i) => { // over heads: a person's / player's name, a town teacher's
+      if (w.e.kind[i] === Kind.Npc) { const k = w.quests.keyOf(w.e.id(i)); return k ? NPCS.find((n) => n.key === k)?.name ?? '' : ''; }
+      return w.profileOf(i)?.name ?? '';
+    };
     w.survival.playerName = (i) => this.net.characters().find(([, k]) => k === i)?.[0] ?? '';
     // Walking into the wrecks across a road out while travel is closed: that player is told why.
     // Married or divorced by words: the player's TV is told (and shows it on the Me page).
@@ -608,6 +622,9 @@ export class App {
   private _mapView: MapView | null = null;
   /** The TV's map and each player's marks on it (ops/mapview.ts). */
   get mapView(): MapView { if (!this._mapView) { this._mapView = new MapView(this.world, this.db); this._mapView.planner = () => this.net.characters(); } return this._mapView; }
+  private _way: Waypoints | null = null;
+  /** The compass bar and riding by yourself (ops/waypoints.ts). */
+  get waypoints(): Waypoints { return this._way ??= new Waypoints(this.world, (n) => this.mapView.marks(n)); }
   private readonly hitAt = new Map<string, number>();
   /** The nearest zombie or animal in front of player i (within `r` m and `cone` radians either side of angle `a`), or -1. */
   private frontTarget(i: number, a: number, r: number, cone: number): number {
