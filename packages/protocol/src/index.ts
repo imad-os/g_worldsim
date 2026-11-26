@@ -6,3 +6,4 @@ export * from './craft.js';
 export * from './gear.js';
 export * from './quests.js';
 export * from './marks.js';
+export * from './items.js';

@@ -78,6 +78,9 @@ const RANGE = 28;
 /** Taming level from points: 0 .. 10. */
 export function tameLevel(xp = 0): number { return Math.min(10, Math.floor(Math.sqrt(Math.max(0, xp) / 12))); }
 
+/** Age in years of person slot i (0 = unknown). */
+function ageOfSlot(w: World, i: number): number { const p = w.profileOf(i); return p ? (w.gameSec - p.born) / w.yearSec : 0; }
+
 export class Horses {
   readonly h = new Map<number, Horse>();
   readonly herds = new Map<number, Herd>();
@@ -361,6 +364,22 @@ export class Horses {
     const a = this.ridden(i), h = a >= 0 ? this.h.get(this.w.e.id(a)) : undefined;
     return h ? { name: h.name, q: h.q, coat: h.coat, scale: +this.scale(h).toFixed(2) } : undefined;
   }
+  /**
+   * What person i knows about horses, for the prompts: their own horse (where it is, how to use it) or where the wild ones are and
+   * how to get one (imad 2026-11-26: "nobody uses horses to move").
+   */
+  promptText(i: number): string {
+    const w = this.w, e = w.e, m = e.map[i]!, mine = this.mine(i);
+    if (this.riding[i] === 1) { const a = this.ridden(i), h = a >= 0 ? this.of(a) : undefined; return `You are riding your horse${h ? ' ' + h.name : ''}: it carries you fast, also through the gates.`; }
+    if (mine.length) {
+      const a = mine[0]!, h = this.of(a)!, q = ['common', 'rare', 'legendary'][h.q];
+      const where = e.map[a] === m ? `${Math.round(Math.hypot(e.x[a]! - e.x[i]!, e.y[a]! - e.y[i]!))} m away` : e.map[a] === NO_MAP ? 'on the road' : `in ${w.maps[e.map[a]!]!.def.name}`;
+      return `Your horse: ${h.name} (${q}, gallops ${h.speed.toFixed(1)} m/s), ${where}. Ride it for any long way and to other places (skill ride): you get on by yourself when it is near, it comes when you whistle.`;
+    }
+    const wild = w.maps.filter((x) => this.count(x.index, true) > 0).map((x) => x.def.name);
+    if (!wild.length) return 'You have no horse, and there are no wild horses about.';
+    return `You have no horse. Wild horses live in ${wild.join(', ')}${this.count(m, true) ? ' (some here)' : ''}: tame one (skill tame: walk up calmly, brave and clever people do it best) and ride it everywhere, 3-5 times faster than walking.`;
+  }
   /** The nearest wild horse to person i within r m (slot / -1). */
   nearestWild(i: number, r: number): number {
     const e = this.w.e;
@@ -621,7 +640,8 @@ export class Horses {
     if (e.kind[r] === Kind.Agent) {
       const act = e.act[r]!;
       const off = act === Act.Sleep || act === Act.Talk || act === Act.Eat || act === Act.Drink || act === Act.Rest;
-      if (off || (w.brain.goalDist(r) < 2 && Math.hypot(e.vx[r]!, e.vy[r]!) < 0.2)) this.dismount(r);
+      const going = act === Act.Travel || w.tasks.stepOf(e.id(r))?.do === 'ride'; // on the way to a gate / riding somewhere: stay on
+      if (off || (!going && w.brain.goalDist(r) < 2 && Math.hypot(e.vx[r]!, e.vy[r]!) < 0.2)) this.dismount(r);
     }
   }
   /** Agents with a horse close by get on it for a long way (called by update for agents, every pass). */
@@ -634,9 +654,11 @@ export class Horses {
       if ((e.flags[o]! & (EFlag.Sleeping | EFlag.Child)) || this.riding[o]) continue;
       const act = e.act[o]!;
       if (act !== Act.Go && act !== Act.Wander && act !== Act.Forage && act !== Act.Travel && act !== Act.Flee && act !== Act.Fight && act !== Act.Gather && act !== Act.Build) continue;
-      if (w.brain.goalDist(o) < 22) continue;
-      const d = Math.hypot(e.x[a]! - e.x[o]!, e.y[a]! - e.y[o]!);
-      if (d > 6) { if (h.mode !== 'flee' && h.mode !== 'come' && d < 150) this.call(a, o); continue; } // whistle: it runs over, they get on when it is there
+      // A long way to go (30 m+): whistle, it gallops over; get on when it is there and there is still 10 m+ to go (imad 2026-11-26:
+      // "nobody uses horses": the old rule wanted 22 m left AFTER the horse arrived, so most calls ended with no ride).
+      const left = w.brain.goalDist(o), d = Math.hypot(e.x[a]! - e.x[o]!, e.y[a]! - e.y[o]!);
+      if (left < (d <= 6 ? 10 : 30)) continue;
+      if (d > 6) { if (h.mode !== 'flee' && h.mode !== 'come' && d < 120) this.call(a, o); continue; } // whistle: it runs over, they get on when it is there
       this.mount(o, a);
     }
   }
@@ -724,19 +746,44 @@ export class Horses {
   /** Hourly: on a map with wild horses, now and then a free adult with a knack for it (and no horse yet) goes to tame one. */
   private ownPlans(): void {
     const w = this.w, e = w.e;
+    const taming = (m: number) => { for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && (m < 0 || e.map[i] === m) && (w.profileOf(i)?.mind?.task as { steps?: { do: string }[] } | undefined)?.steps?.some((s) => s.do === 'tame' || s.do === 'ride')) return true; return false; };
+    const free = (i: number) => {
+      if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP || (e.flags[i]! & (EFlag.Child | EFlag.Small | EFlag.Sleeping))) return false;
+      const p = w.profileOf(i);
+      if (!p || p.mind?.task || w.rules.forbidden(i, 'tame')) return false;
+      return !(e.hunger[i]! > 60 || e.thirst[i]! > 60 || e.tired[i]! > 80 || e.lonely[i]! > 40); // company first
+    };
+    const home = (i: number) => { const h = w.survival.homes.homeOf(e.id(i)); return h ? h.m : w.startMap(); };
+    const wildAnywhere = this.count(-1, true) > 0, hour = w.brain.hour();
     w.maps.forEach((_, m) => {
-      if (!this.count(m, true) || !this.rng.chance(0.15)) return;
-      for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === m && (w.profileOf(i)?.mind?.task as { steps?: { do: string }[] } | undefined)?.steps?.some((s) => s.do === 'tame')) return; // one at a time
-      let best = -1, bp = 0.45;
-      for (let i = 0; i < e.hi; i++) {
-        if (e.kind[i] !== Kind.Agent || e.map[i] !== m || (e.flags[i]! & (EFlag.Child | EFlag.Sleeping))) continue;
-        const p = w.profileOf(i);
-        if (!p || p.mind?.task || this.mine(i).length || w.rules.forbidden(i, 'tame')) continue;
-        if (e.hunger[i]! > 60 || e.thirst[i]! > 60 || e.tired[i]! > 80 || e.lonely[i]! > 40) continue; // company first
-        const pw = this.power(i) + this.rng.range(-0.08, 0.08);
-        if (pw > bp && this.nearestWild(i, 160) >= 0) { bp = pw; best = i; }
+      if (this.count(m, true)) {
+        if (!this.rng.chance(0.15) || taming(m)) return; // one at a time
+        let best = -1, bp = 0.45;
+        for (let i = 0; i < e.hi; i++) {
+          if (e.map[i] !== m || !free(i) || this.mine(i).length) continue;
+          const pw = this.power(i) + this.rng.range(-0.08, 0.08);
+          if (pw > bp && this.nearestWild(i, 160) >= 0) { bp = pw; best = i; }
+        }
+        if (best >= 0) w.tasks.start(best, 'tame a wild horse', 'myself', [{ do: 'tame' }, ...(home(best) >= 0 && home(best) !== m ? [{ do: 'ride', what: 'home' }] : [])]);
+        return;
       }
-      if (best >= 0) w.tasks.start(best, 'tame a wild horse', 'myself', [{ do: 'tame' }]);
+      // No wild horses here (the town, imad 2026-11-26: "nobody uses horses to move"): while the roads are open, now and then one
+      // free adult with a knack for it (and no horse yet) goes out to the wild in the morning, tames one and rides it home.
+      // Someone whose horse was left on another map goes and fetches it.
+      if (!w.travelOpen || hour < 6 || hour >= 12) return;
+      for (let i = 0; i < e.hi; i++) {
+        if (e.map[i] !== m || !free(i)) continue;
+        const mine = this.mine(i);
+        if (mine.length && !mine.some((a) => e.map[a] === m) && mine.some((a) => e.map[a] !== NO_MAP) && w.brain.mayGoWild(i) && this.rng.chance(0.3)) { w.tasks.start(i, 'fetch my horse', 'myself', [{ do: 'ride', what: 'home' }]); return; }
+      }
+      if (!wildAnywhere || taming(-1) || !this.rng.chance(0.25)) return;
+      let best = -1, bp = 0.4;
+      for (let i = 0; i < e.hi; i++) {
+        if (e.map[i] !== m || !free(i) || this.mine(i).length || !w.brain.mayGoWild(i) || ageOfSlot(w, i) < 18) continue;
+        const pw = this.power(i) + this.rng.range(-0.08, 0.08);
+        if (pw > bp) { bp = pw; best = i; }
+      }
+      if (best >= 0) w.tasks.start(best, 'go to the wild, tame a horse and ride it home', 'myself', [{ do: 'tame' }, { do: 'ride', what: 'home' }]);
     });
   }
 

@@ -157,7 +157,7 @@ export class Memory {
       case 'reward': if (d.ok) this.add(id, 'praise', 4, `${String(d.from) === 'owner' ? 'the owner' : String(d.from)} was pleased: ${String(d.text)}`); break;
       case 'levelup': this.add(id, 'grow', 6, `got better at things (level ${String(d.level)})`); break;
       case 'grown': this.add(id, 'grow', 8, 'grew up: on my own now'); break;
-      case 'leader': if (id >= 0) { this.add(id, 'leader', 7, 'became the leader'); for (const [pid, q] of w.profiles) if (pid !== id && q.died === undefined && e.slot(pid) >= 0 && w.maps[e.map[e.slot(pid)]!]!.def.id === d.map) this.add(pid, 'leader', 3, `${this.name(id)} leads us now`, id); } break;
+      case 'leader': if (id >= 0) { this.add(id, 'leader', 7, 'became the leader'); for (const [pid, q] of w.profiles) if (pid !== id && q.died === undefined && e.slot(pid) >= 0 && w.maps[e.map[e.slot(pid)]!]?.def.id === d.map) this.add(pid, 'leader', 3, `${this.name(id)} leads us now`, id); } break;
       case 'duel': { const a = Number(d.a), b = Number(d.b); this.add(a, 'quarrel', 6, `fought with ${this.name(b)} (${String(d.why ?? '')})`, b); this.add(b, 'quarrel', 6, `fought with ${this.name(a)} (${String(d.why ?? '')})`, a); break; }
       case 'build': if (id >= 0 && d.what) this.add(id, 'build', d.what === 'hut' ? 6 : 3, `built a ${String(d.what)}`); break;
       case 'craft': if (id >= 0) this.add(id, 'craft', 2, `made a ${String(d.what)}`); break;

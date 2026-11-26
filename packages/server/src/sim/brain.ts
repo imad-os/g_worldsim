@@ -243,6 +243,35 @@ export class Brain {
     return true;
   }
   huntOf(i: number): number { return this.huntId[i]!; }
+  /**
+   * A hunter with a bow and arrows shoots the animal from where they stand (imad 2026-11-26: "people must know how to use their
+   * things"): one arrow every 1.5 s, the hit by skill and range (30 / 24 / 18 damage x the bow's level and quality, as for players).
+   * Never with someone else near the line of fire. False = no bow / arrows, or no clear shot (then they close in as before).
+   */
+  private bowShot(i: number, a: number, d: number): boolean {
+    const w = this.w, e = w.e, sv = w.survival, inv = sv.inv(i);
+    if ((inv.bow ?? 0) < 1 || (inv.arrows ?? 0) < 1) return false;
+    const m = e.map[i]!, x = e.x[i]!, y = e.y[i]!, dx = (e.x[a]! - x) / d, dy = (e.y[a]! - y) / d;
+    for (let j = 0; j < e.hi; j++) {
+      if (j === i || e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
+      const rx = e.x[j]! - x, ry = e.y[j]! - y, along = rx * dx + ry * dy;
+      if (along > 0 && along < d + 1 && Math.abs(rx * dy - ry * dx) < 1.5) return false; // someone in the way
+    }
+    this.stop(i); e.angle[i] = Math.atan2(dy, dx);
+    const now = w.tick;
+    if ((this.shotAt.get(e.id(i)) ?? -1e9) > now) return true; // drawing the next arrow
+    this.shotAt.set(e.id(i), now + Math.round(1.5 / w.dt));
+    sv.add(i, 'arrows', -1);
+    w.gear.play(i, 'shoot');
+    const p = w.shoot(m, x + dx * 0.6, y + dy * 0.6, dx, dy, i, 100);
+    if (p >= 0) e.hp[p] = 0; // the flying arrow is only seen: the hit is decided here
+    const skill = w.profileOf(i)?.traits.intelligence ?? 0.5;
+    w.emit('shot', { id: e.id(i), at: e.id(a), d: Math.round(d) });
+    if (!w.rng.chance(Math.max(0.25, 0.6 + skill * 0.3 - d / 50))) return true; // missed
+    w.animals.hit(a, (d < 10 ? 30 : d < 16 ? 24 : 18) * w.gear.bowMul(i), i);
+    return true;
+  }
+  private readonly shotAt = new Map<number, number>();
   /** How far the end of the path person i is walking is (0 = not walking): riders get on a horse for a long way. */
   goalDist(i: number): number { const e = this.w.e; return this.pN[i]! > 0 ? Math.hypot(this.gx[i]! - e.x[i]!, this.gy[i]! - e.y[i]!) : 0; }
   private hunting(i: number): boolean {
@@ -257,6 +286,7 @@ export class Brain {
     }
     this.setAct(i, Act.Fight); e.target[i] = id;
     const ax = e.x[a]!, ay = e.y[a]!;
+    if (d > 3.5 && d < 16 && this.bowShot(i, a, d)) { this.schedule(i, 0, 5); return true; } // a bow: shoot from afar (sim/knowhow.ts)
     if (d > 1.2) { if (!this.walking(i) || Math.hypot(this.gx[i]! - ax, this.gy[i]! - ay) > 1.5) { if (!this.goTo(i, ax, ay, true)) { this.huntId[i] = -1; return false; } } }
     else { this.stop(i); e.angle[i] = Math.atan2(ay - e.y[i]!, ax - e.x[i]!); }
     this.schedule(i, 0, 5);

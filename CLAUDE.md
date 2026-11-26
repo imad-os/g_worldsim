@@ -647,3 +647,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   forage avoid cells with fear 3+ (neighbours half), hunters skip feared beasts unless armed 30+, nerve -up to 30 %, no chats started with a distrusted
   person, a wild map with dread 5+ = armed adults only, 9+ = nobody (`mayGoWild`); `promptText` in every prompt; lessons list (80). Admin `lore`,
   panel page Society (`panel/src/society.ts`). Test lore.test.ts; proof `node tools/society-proof.mjs <outdir>`.
+
+## What every thing is for, horses ridden, bows used (imad 2026-11-26, app 0.12.6)
+- `protocol/items.ts` `ITEM_INFO` (ONE table, en / fr / es / ar): one phrase per thing = its benefit + how to get / use it (materials, food, weapons,
+  wear, medkit, defences, furniture, hut, store crate, field, horse). TV bag screen shows it (`invui.ts what()`). Server `sim/knowhow.ts`: `KNOW_HOW`
+  (all phrases, once per batch prompt and per chat prompt) and `ownText(w, i)` ("Your things: axe (...)") + `Horses.promptText(i)` (your horse and
+  where it is / where wild ones live) in `Planner.describe`. A new item = a new ITEM_INFO row (test items.test.ts checks every recipe / placeable / resource).
+- **Horses (imad: woods only; with travel closed nobody gets one)**: task skill `tame` now takes the road to the nearest map with wild horses
+  (`Tasks.walkToMap` = job to the gate + `e.goal`), by day (`Brain.mayGoWild`), walks (never runs) up to the horse, gives up at 16:00 in the wild;
+  new skill `ride { what: home | map }` (get on, whistle for it, ride through the gates home, off by the camp / home; also fetches a horse left on
+  another map). `Horses.ownPlans`: on a map without wild horses, 06-12 while travel is open, 1 free adult with a knack (power > 0.4) goes out
+  ("go to the wild, tame a horse and ride it home"); chat / planner tame plans get `ride home` added. `autoMount`: call for 30 m+ left, get on with
+  10 m+ left (before: 22 m left AFTER it arrived, so calls ended with no ride); `rideLogic` keeps them on while heading to a gate / on a ride step.
+  4-day runs with travel open: 3-5 people own a horse, 16-34 rides; closed: none (by design).
+- **Bows**: `Brain.bowShot` = a hunter with bow + arrows shoots from 3.5-16 m (1.5 s, uses an arrow, hit by intelligence and range, damage as for
+  players, never with a person near the line; event `shot`). Colony goals `bow` (quick + brave, only with a home or 6+ leather: huts need 5) / `arrows`.

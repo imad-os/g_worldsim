@@ -29,7 +29,9 @@ import type { World } from './world.js';
  *  hunt what times     hunt an animal (rabbit, deer, boar, wolf, bear): meat, leather, claws
  *  npc what            walk to a town teacher (guide, smith, hunter, warden, registrar) and talk: take / hand in a quest (sim/quests.ts)
  *  clan what who       join (who = the clan's leader or the clan's name) / quit / found (at the registrar) / vote (who) / call (a vote)
- *  tame                walk calmly up to the nearest wild horse and tame it (sim/horses.ts: courage, intelligence, speed, level)
+ *  tame                walk calmly up to the nearest wild horse and tame it (sim/horses.ts: courage, intelligence, speed, level);
+ *                      none on this map = take the road to the woods first (travel open, by day)
+ *  ride {what}         get on my horse (call it when far) and ride to a place: 'home' / '' = my home's map, or a map by name
  */
 /** Food, wood, stone, scrap from free words (4 languages). */
 export function resOf(what: string | undefined, dflt: 'food' | 'wood' = 'food'): 'food' | 'wood' | 'stone' | 'scrap' | 'ore' | 'brick' | 'leather' | 'claw' {
@@ -58,11 +60,11 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   if (/weapon|arme|arma|سلاح/.test(q)) return 'spear';
   return kind === 'craft' ? 'axe' : 'campfire';
 }
-export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean; p0?: number; n1?: number; wait?: number }
+export interface Step { gx?: number; gy?: number; key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean; p0?: number; n1?: number; wait?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'destroy'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -132,6 +134,46 @@ export class Tasks {
     return false;
   }
 
+  /** The step person `id` is on now (undefined = no task). */
+  stepOf(id: number): Step | undefined { const t = this.taskOf(id); return t ? t.steps[t.k] : undefined; }
+  /** The nearest map (by road) with wild horses that person i may go to (-1 none: travel closed, or no horses anywhere). */
+  private wildHorseMap(i: number): number {
+    const w = this.w, e = w.e, here = e.map[i]!;
+    if (!w.travelOpen) return -1;
+    let best = -1, bd = Infinity;
+    for (let m = 0; m < w.maps.length; m++) {
+      if (m === here || !w.horses.count(m, true)) continue;
+      const r = w.routeMaps(here, m);
+      if (!r || !r.length) continue;
+      const d = r.reduce((a, pi) => a + w.portals[pi]!.travel, 0);
+      if (d < bd) { bd = d; best = m; }
+    }
+    return best;
+  }
+  /** The map a place name means for person i: 'home' / '' = the map of their home, else the start map; or a map by id / name. */
+  private mapFor(i: number, what: string): number {
+    const w = this.w, q = what.trim().toLowerCase();
+    if (!q || /^(home|back|camp|town|maison|casa|بيت|المنزل)$/.test(q)) {
+      const h = w.survival.homes.homeOf(w.e.id(i));
+      if (h) return h.m;
+      const st = w.startMap();
+      return st >= 0 ? st : w.e.map[i]!;
+    }
+    for (const mp of w.maps) if (mp.def.id.toLowerCase() === q || mp.def.name.toLowerCase() === q || mp.def.name.toLowerCase().includes(q)) return mp.index;
+    if (/wood|forest|wild|for[eê]t|bosque|غابة/.test(q)) { for (const mp of w.maps) if (w.wild(mp.index)) return mp.index; }
+    return -1;
+  }
+  /** Walk (or ride) to the gate on the way to map `to` and take it. False = no road (or travel closed). */
+  private walkToMap(i: number, to: number, s: Step): boolean {
+    const w = this.w, e = w.e, b = w.brain;
+    if (!w.travelOpen) return false;
+    const r = w.routeMaps(e.map[i]!, to);
+    if (!r || !r.length) return false;
+    const pi = r[0]!, p = w.portals[pi]!;
+    if (b.orderOf(i).kind !== 'job' || s.gx !== p.x || s.gy !== p.y) { b.job(i, p.x, p.y, p.x, p.y, Act.Travel); s.gx = p.x; s.gy = p.y; }
+    e.goal[i] = pi; // World.step takes the gate when they reach it
+    return true;
+  }
   private taskOf(id: number): Task | undefined { return this.w.profiles.get(id)?.mind?.task as Task | undefined; }
 
   /** Give person i a task (replaces the one they had). */
@@ -169,7 +211,7 @@ export class Tasks {
         s.p0 = pr ? this.didCount(e.id(i), pr[0]) : 0;
         if (s.do === 'forage') s.n0 = this.didCount(e.id(i), 'eat');
       }
-      else if (w.gameSec - s.t0 > (s.do === 'hunt' ? 2 * MAX_STEP_SEC : MAX_STEP_SEC)) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
+      else if (w.gameSec - s.t0 > (s.do === 'hunt' || s.do === 'tame' || s.do === 'ride' ? 2 * MAX_STEP_SEC : MAX_STEP_SEC)) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
       let r = this.run(i, s, t);
       // Done only with proof: a hunt that killed nothing, a build with no new building, a drink never drunk is not done.
       if (r === true && !this.proved(i, s)) r = `I did not manage to ${s.do === 'bring' ? 'bring it' : s.do + (s.what ? ' ' + String(s.what).trim().slice(0, 40) : '')}`;
@@ -371,25 +413,71 @@ export class Tasks {
       }
       case 'tame': {
         // Walk up to a wild horse (calmly: running people scare horses, sim/horses.ts), then try; each try makes it trust them
-        // a little more. Up to 8 tries, then they give up.
+        // a little more. Up to 8 tries, then they give up. No wild horse on this map (imad 2026-11-26: "nobody uses horses"):
+        // take the road to the nearest map that has some (the woods), by day and only while travel is open.
         const H = w.horses;
-        if (first) { s.phase = 1; s.n0 = 0; s.who = -1; if (w.rules.forbidden(i, 'tame')) return 'I must not tame horses'; }
+        if (first) { s.phase = 1; s.n0 = 0; s.who = -1; s.wait = undefined; if (w.rules.forbidden(i, 'tame')) return 'I must not tame horses'; }
         let h = (s.who ?? -1) >= 0 ? e.slot(s.who!) : -1;
-        if (h >= 0 && H.owned(h)) { if (H.of(h)!.owner === e.id(i)) { b.order(i, 'stop', -1, -1, 0); return true; } h = -1; } // someone else got it first
+        if (h >= 0 && (H.owned(h) || e.map[h] !== e.map[i])) { if (H.of(h)?.owner === e.id(i)) { b.order(i, 'stop', -1, -1, 0); return true; } h = -1; s.who = -1; } // someone else got it first
         if (h < 0) {
-          h = H.nearestWild(i, 160);
-          if (h < 0) return 'there are no wild horses near here';
-          s.who = e.id(h);
-          b.order(i, 'follow', s.who, -1, 120);
+          h = H.nearestWild(i, 400);
+          if (h < 0) {
+            const to = this.wildHorseMap(i);
+            if (to < 0) return w.travelOpen ? 'there are no wild horses anywhere I can go' : 'the roads are closed and the wild horses live out in the wild';
+            if (w.wild(e.map[i]!) || !w.wild(to) || b.mayGoWild(i)) { if (!this.walkToMap(i, to, s)) return 'I found no way to the wild horses'; return false; }
+            return 'it is too late in the day to go out to the wild horses';
+          }
+          s.who = e.id(h); s.wait = undefined;
+        }
+        if (w.wild(e.map[i]!) && b.hour() >= 16) { b.order(i, 'stop', -1, -1, 0); return 'night was coming, I had to leave the wild before I could tame one'; }
+        const d = Math.hypot(e.x[h]! - e.x[i]!, e.y[h]! - e.y[i]!);
+        if (d > 12) { // far: walk (never run) to a spot next to it; again when it has moved on
+          const gx = e.x[h]! + (e.x[i]! - e.x[h]!) / d * 2.5, gy = e.y[h]! + (e.y[i]! - e.y[h]!) / d * 2.5;
+          if (b.orderOf(i).kind !== 'job' || (s.gx ?? 1e9) === 1e9 || Math.hypot(gx - s.gx!, gy - s.gy!) > 5) { b.job(i, gx, gy, e.x[h]!, e.y[h]!, Act.Go); s.gx = gx; s.gy = gy; }
           return false;
         }
-        if (Math.hypot(e.x[h]! - e.x[i]!, e.y[h]! - e.y[i]!) > 3.3) { if (b.orderOf(i).kind !== 'follow') b.order(i, 'follow', s.who!, -1, 120); return false; }
+        if (d > 3.3) { if (b.orderOf(i).kind !== 'follow') b.order(i, 'follow', s.who!, -1, 120); return false; }
         const r = H.tame(i, h);
         if (r.code === 'tamed') { b.order(i, 'stop', -1, -1, 0); return true; }
         if (r.code === 'wait' || r.code === 'tooFar') return false;
         if (r.code === 'forbidden') return 'I must not tame horses';
         if (r.code === 'tooYoung') return 'I am too young';
         if ((s.n0 = (s.n0 ?? 0) + 1) >= 8) { b.order(i, 'stop', -1, -1, 0); return `${r.name ?? 'the horse'} would not let me tame it`; }
+        return false;
+      }
+      case 'ride': {
+        // Get on my horse (whistle for it when it is farther away) and ride to a place: "home" / "" = the map of my home (else the
+        // start map), or a map by name. There: off the horse by the camp (sim/horses.ts rideLogic lets them down when they stop).
+        const H = w.horses;
+        if (first) { s.phase = 1; s.n0 = this.mapFor(i, String(s.what ?? '')); s.wait = undefined; s.gx = undefined; }
+        const to = s.n0!;
+        if (to < 0) return `I don't know where ${s.what} is`;
+        if (!H.riding[i]) {
+          const mine = H.mine(i).filter((a) => e.map[a] === e.map[i] && H.of(a)!.rider < 0);
+          if (!mine.length) {
+            const far = H.mine(i).find((a) => e.map[a] !== NO_MAP && H.of(a)!.rider < 0);
+            if (far === undefined) return e.map[i] === to ? true : H.mine(i).length ? 'my horse is not here' : 'I have no horse';
+            // My horse is on another map (left in the woods): walk there first, by day.
+            if (w.wild(e.map[far]!) && !w.wild(e.map[i]!) && !b.mayGoWild(i)) return 'it is too late in the day to fetch my horse';
+            if (!this.walkToMap(i, e.map[far]!, s)) return 'my horse is somewhere I cannot go';
+            return false;
+          }
+          const a = mine.sort((x, y) => Math.hypot(e.x[x]! - e.x[i]!, e.y[x]! - e.y[i]!) - Math.hypot(e.x[y]! - e.x[i]!, e.y[y]! - e.y[i]!))[0]!;
+          const d = Math.hypot(e.x[a]! - e.x[i]!, e.y[a]! - e.y[i]!);
+          if (d <= 3.4) { const c = H.mount(i, a); if (c !== 'mounted') return `I could not get on my horse (${c})`; s.gx = undefined; }
+          else {
+            s.wait ??= w.gameSec;
+          if (w.gameSec - s.wait > 1800) return 'my horse would not come';
+          if (d > 10 && H.of(a)!.mode !== 'come') H.call(a, i);
+            else if (d <= 10 && b.orderOf(i).kind !== 'follow') b.order(i, 'follow', e.id(a), -1, 20);
+            return false;
+          }
+        }
+        if (e.map[i] !== to) { if (!this.walkToMap(i, to, s)) return 'I found no road there'; return false; }
+        const c = w.survival.campOf(to), hm = w.survival.homes.homeOf(e.id(i));
+        const gx = hm && hm.m === to ? w.survival.homes.middle(hm).x : c?.x, gy = hm && hm.m === to ? w.survival.homes.middle(hm).y : c?.y;
+        if (gx === undefined || gy === undefined || Math.hypot(gx - e.x[i]!, gy - e.y[i]!) < 12) { b.order(i, 'stop', -1, -1, 0); H.dismount(i); return true; }
+        if (b.orderOf(i).kind !== 'job' || s.gx !== gx || s.gy !== gy + 6) { b.job(i, gx, gy + 6, gx, gy, Act.Go); s.gx = gx; s.gy = gy + 6; }
         return false;
       }
       case 'hunt': {

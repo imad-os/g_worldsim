@@ -338,6 +338,13 @@ export class Colony {
       if (!(v.axe ?? 0)) gs.push({ name: 'axe', text: 'make an axe', want: [{ axe: 1 }], value: 0.28, trait: 'intelligence', crew: 1, only: i });
       // Fear of what may come (instinct): a weapon even on quiet days, more so under threat.
       if ((threat || w.ai.instinct) && !armed) gs.push({ name: 'weapon', text: 'make a weapon', want: [{ spear: 1 }, { sword: 1 }], value: threat ? 0.6 : 0.26, trait: 'courage', crew: 1, only: i });
+      // A bow and arrows for the quick and brave (imad 2026-11-26: people use what things are for): they hunt from afar (Brain.bowShot).
+      // Only with a home already (or leather to spare): a hut needs 5 leather and leather is scarce.
+      const tq = w.profileOf(i)?.traits;
+      if (tq && (tq.speed + tq.courage) / 2 > 0.5) {
+        if (!(v.bow ?? 0) && (v.leather ?? 0) >= 1 && (sv.homes.homeOf(w.e.id(i)) || (v.leather ?? 0) >= 6)) gs.push({ name: 'bow', text: 'make a bow', want: [{ bow: 1 }], value: 0.24, trait: 'speed', crew: 1, only: i });
+        else if ((v.bow ?? 0) && (v.arrows ?? 0) < 5) gs.push({ name: 'arrows', text: 'make arrows', want: [{ arrows: (v.arrows ?? 0) + 5 }], value: 0.22, trait: 'intelligence', crew: 1, only: i });
+      }
       if ((v.leather ?? 0) >= 1 && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: 0.3, trait: 'intelligence', crew: 1, only: i });
       if (fire >= 0 && (v.wood ?? 0) < 3) gs.push({ name: 'firewood', text: 'gather firewood', want: [{ wood: (v.wood ?? 0) + 4 }], value: 0.18, trait: 'strength', crew: 1, only: i });
     }

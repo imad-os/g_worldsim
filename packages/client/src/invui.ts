@@ -9,8 +9,9 @@ import { WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLi
 import {
   RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, MEDKIT_HEAL, WEAPONS, DEFENCE, BOW_DAMAGE, SLOT_OF, QUALITY_COLOR, MAX_LEVEL, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear, matchRecipe,
   type Recipe, type GearState, type Slot, type Anim,
+  itemText,
 } from '@worldsim/protocol';
-import { t, tf, type Key } from './i18n.js';
+import { t, tf, getLang, type Key } from './i18n.js';
 import { iconStyle, hasIcon } from './gfx/items.js';
 import { People, type PersonLook } from './gfx/people.js';
 
@@ -183,7 +184,13 @@ export class BagScreen {
   }
   /** Keep the cursor on something after the bag changed. */
   fix(): void { this.i = Math.max(0, Math.min(this.i, this.items().length - 1)); }
-  private what(k: string): [string, string] { // what it is / does, and what A does
+  /** What it is / does (the item's phrase, protocol/items.ts, after its numbers), and what A does. */
+  private what(k: string): [string, string] {
+    const [d, a] = this.what0(k), info = itemText(k, getLang());
+    if (!info) return [d, a];
+    return [WEAPONS[k] || k === 'bow' || DEFENCE[k] ? `${d} · ${info}` : info, a];
+  }
+  private what0(k: string): [string, string] {
     const up = this.c.gear()?.up?.[k] ?? [0, 0];
     if (k === 'medkit') return [tf('dsHeal', String(MEDKIT_HEAL)), tf('invHintHeal', String(MEDKIT_HEAL))];
     if (k === 'arrows') return [t('dsArrows'), ''];

@@ -98,6 +98,7 @@ test('horses: taming depends on the person, trust grows with each try, then the 
   assert.ok(w.animals.nearest(m, w.e.x[a]!, w.e.y[a]!, 10, -1) !== a, 'nobody hunts a tamed horse');
   // Mount: the rider moves at the horse's pace.
   const e = w.e;
+  if (w.horses.riding[p] === 1) w.horses.dismount(p); // the new owner may already be on it (they get on for any way of 10 m+)
   e.x[a] = e.x[p]! + 1; e.y[a] = e.y[p]!; w.bodies[a]?.setPosition({ x: e.x[a]!, y: e.y[a]! });
   assert.equal(w.horses.mount(p, a), 'mounted');
   assert.ok(w.horses.riding[p] === 1 && w.horses.riding[a] === 2);
