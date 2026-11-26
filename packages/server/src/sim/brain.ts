@@ -207,6 +207,10 @@ export class Brain {
   job(i: number, sx: number, sy: number, fx: number, fy: number, act: number): boolean {
     const w = this.w, e = w.e;
     if (e.kind[i] !== Kind.Agent || w.family.dependent(i)) return false;
+    { // a new mother's week at home: work only inside it (the fridge, the chest)
+      const h = w.family.lyingInHome(i), W = w.maps[e.map[i]!]!.tiles.w;
+      if (h && w.survival.homes.at(h.m, Math.floor(sy) * W + Math.floor(sx)) !== h) return false;
+    }
     this.ordKind[i] = 6; this.ordWho[i] = -1; this.ordAct[i] = act; this.ordUntil[i] = w.gameSec + 6 * HOUR;
     this.noWay.delete(e.id(i));
     this.jobX[i] = sx; this.jobY[i] = sy; this.faceX[i] = fx; this.faceY[i] = fy;
@@ -1123,15 +1127,19 @@ export class Brain {
     }
     const scores = [sDrink, sEat, guard >= 0 && e.hunger[i]! < 80 ? 0 : sForage, sSleep, guard >= 0 ? sTalk * 0.3 : sTalk, sWander, sRest, sTravel];
     const acts = [Act.Drink, Act.Eat, Act.Forage, Act.Sleep, Act.Talk, Act.Wander, Act.Rest, Act.Travel];
+    // A new mother's week at home (sim/family.ts): no talks, walks or travel; rest at home, the fridge for food and water.
+    const stay = this.stayHome(i);
+    if (stay) { scores[4] = -1; scores[5] = -1; scores[7] = -1; scores[6] = Math.max(scores[6]!, 0.3); }
     const wish = this.wishOf(i);
     let best = -1, bs = -1;
     for (let k = 0; k < scores.length; k++) {
+      if (scores[k]! < 0) continue;
       if (acts[k] !== Act.Rest && acts[k] !== Act.Talk && w.rules.forbidden(i, ACT_RULE[acts[k]!]!)) { scores[k] = -1; continue; } // the owner's rule
       if (acts[k] === wish && !(wish === Act.Travel && !w.travelOpen) && !(wish === Act.Eat && e.carry[i]! <= 0)) scores[k]! += 0.32;
       const s = scores[k]! + (acts[k] === e.act[i] ? 0.08 : 0) + jitter * 0.04 * ((k * 7 + 3) % 5) / 5;
       if (s > bs) { bs = s; best = k; }
     }
-    if (!this.start(i, acts[best]!)) { if (!this.start(i, Act.Wander)) { this.setAct(i, Act.Rest, 10); this.schedule(i, 2, this.ticksLeft(i)); } }
+    if (!this.start(i, acts[best]!)) { if (!this.start(i, stay ? Act.Rest : Act.Wander)) { this.setAct(i, Act.Rest, 10); this.schedule(i, 2, this.ticksLeft(i)); } }
   }
 
   /**
@@ -1156,10 +1164,21 @@ export class Brain {
     return -1;
   }
 
+  /** A mother in her week at home with a newborn, on her home's map, with nothing urgent: she keeps indoors (sim/family.ts). */
+  stayHome(i: number): boolean { return !!this.w.family.lyingInHome(i) && !this.w.family.urgentOut(i); }
+
   /** Begin an action: pick its target and the path there. False when it can't be done now. */
   private start(i: number, a: number): boolean {
     const w = this.w, e = w.e, rng = w.rng, m = e.map[i]!;
     e.target[i] = -1; e.goal[i] = -1;
+    const stay = this.stayHome(i);
+    if (stay && (a === Act.Talk || a === Act.Wander || a === Act.Travel)) return false;
+    if (stay && (a === Act.Drink || a === Act.Forage)) { // only what the home's fridge holds (the father keeps it filled)
+      if (a === Act.Drink && w.survival.drinkBottle(i)) { w.family.drank(i); this.stop(i); this.setAct(i, Act.Drink, 6); this.schedule(i, 2, this.ticksLeft(i)); return true; }
+      const f = w.survival.myBox(i, 'fridge', 140, a === Act.Drink ? 'water' : 'food'), sp = f >= 0 ? w.survival.besideStore(m, f) : null;
+      if (!sp || !this.goTo(i, sp.x, sp.y)) return false;
+      this.setAct(i, a, a === Act.Drink ? 15 : 0); e.target[i] = a === Act.Drink ? f : -1; e.goal[i] = a === Act.Drink ? -4 : -3; this.schedule(i, 1); return true;
+    }
     switch (a) {
       case Act.Drink: {
         const t = this.nearestSpot(this.drinkSpots[m]!, w.maps[m]!.tiles.w, e.x[i]!, e.y[i]!);
@@ -1243,7 +1262,7 @@ export class Brain {
         if (h && h.m === m && !w.survival.homes.inside(i, h)) {
           const c = w.survival.homes.middle(h), d = Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!), t = this.homeSpot(i), W = w.maps[m]!.tiles.w;
           const night = this.hour() >= 20 || this.hour() < 6;
-          if ((d < 90 || night) && t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.setAct(i, Act.Rest, 0); e.goal[i] = -5; this.schedule(i, 1); return true; }
+          if ((d < 90 || night || stay) && t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.setAct(i, Act.Rest, 0); e.goal[i] = -5; this.schedule(i, 1); return true; }
         }
         this.stop(i); this.setAct(i, Act.Rest, h && w.survival.homes.inside(i, h) ? 30 + rng.next() * 60 : 10 + rng.next() * 30); this.schedule(i, 2, this.ticksLeft(i)); return true;
       }
@@ -1279,6 +1298,7 @@ export class Brain {
           const f = w.survival.boxNear(i, 'fridge', 2.4, 'water');
           if (f < 0 || w.survival.boxTake(i, f, 'water', 1) !== 1) return false;
           w.survival.drinkBottle(i);
+          w.family.drank(i); // the little ones with them drink too
           return false;
         }
         e.thirst[i] = 0; e.target[i] = -1; w.emit('drink', { id: e.id(i) });
@@ -1429,6 +1449,7 @@ export class Brain {
     const d = fam.duty(i);
     if (!d.what) return false;
     const k = d.kid;
+    if (d.what === 'bring' && this.stayHome(i)) return false; // home with the newborn: the others bring it
     if (d.what === 'bring') { // food for an older child of mine (or of the clan): walk over and hand it
       if (fam.bring(i, k)) { this.stop(i); this.schedule(i, 2); return true; }
       if (this.walking(i) && e.act[i] === Act.Go && e.target[i] === e.id(k) && Math.hypot(this.gx[i]! - e.x[k]!, this.gy[i]! - e.y[k]!) < 2.5) { this.schedule(i, 1); return true; }

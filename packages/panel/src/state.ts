@@ -1,7 +1,7 @@
 import { cmd } from './api.js';
 
 /** What several screens share: everyone (names), the overview, the history. Refreshed on demand, at most so often. */
-export type Person = { id: number; alive: boolean; player?: boolean; online?: boolean; asleep?: boolean; child?: boolean; pregnant?: boolean; partner?: string | null; name: string; sex?: string; age: number;
+export type Person = { id: number; alive: boolean; player?: boolean; online?: boolean; asleep?: boolean; child?: boolean; pregnant?: boolean; pregnantPct?: number | null; lyingIn?: number | null; partner?: string | null; name: string; sex?: string; age: number;
   map: string | null; x: number; y: number; act: number; hunger: number; thirst: number; tired: number; lonely: number; hp: number; carry: number; inv?: Record<string, number>;
   talkingTo: string | null; task?: string | null; order?: string | null;
   goal?: Goal | null; xp?: number; level?: number; goals?: { text: string; from: string; ok: boolean; at: number; xp: number }[]; kills?: Kills; influence?: number; influenceLog?: { t: number; d: number; why: string }[] };

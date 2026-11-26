@@ -89,11 +89,14 @@ export class People {
    * One person. x, z = ground position; facing = rotation around up (0 = towards +z); phase / amp = walk cycle
    * (amp 0 standing .. 1 running); lying = asleep or dead. `size` 1 = adult; children are drawn smaller (0.6).
    * `reach` = arms held out in front (a zombie). `gear` = packed gear + move (protocol gear.ts), `at` = seconds since the move began.
+   * `lying` may be a share 0..1 (lying down / getting up, imad 2026-11-26), `lift` = metres up (on top of a bed).
    */
-  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean, size = 1, reach = false, gear = 0, at = 0, seat = 0): void {
+  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean | number, size = 1, reach = false, gear = 0, at = 0, seat = 0, lift = 0): void {
     if (this.n >= this.cap) return;
     const i = this.n++;
-    const anim = lying ? 0 : (gear >> 15) & 7;
+    const lie = typeof lying === 'number' ? lying : lying ? 1 : 0;
+    if (lie > 0) amp = 0;
+    const anim = lie > 0.3 ? 0 : (gear >> 15) & 7;
     // The move: arm angles (x = forward / up, z = out to the side), a twist and a lean of the whole body, a nod.
     let rx = 0, rz = 0.12, lx = 0, lz = 0.12, twist = 0, lean = 0, nod = 0, armsSet = false;
     if (anim === 1) { // attack: wind up overhead, strike down in front
@@ -127,9 +130,9 @@ export class People {
     // On a horse (`seat` = its back's height): sit there, legs astride, hands on the reins.
     const bob = seat > 0 ? seat - 0.52 * SCALE * size + Math.abs(Math.sin(phase * 0.5)) * 0.05 * amp : Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
     if (seat > 0) amp = 0;
-    this.base.compose(this.v.set(x, bob, z), this.q.setFromEuler(this.e.set(0, facing + twist, 0)), this.s.set(k, k, k));
-    if (lying) {
-      this.part.compose(this.v.set(0, 0.2, -0.55), this.q.setFromEuler(this.e.set(Math.PI / 2, 0, 0)), this.s.set(1, 1, 1));
+    this.base.compose(this.v.set(x, bob + lift, z), this.q.setFromEuler(this.e.set(0, facing + twist, 0)), this.s.set(k, k, k));
+    if (lie > 0) {
+      this.part.compose(this.v.set(0, 0.2 * lie, -0.55 * lie), this.q.setFromEuler(this.e.set((Math.PI / 2) * lie, 0, 0)), this.s.set(1, 1, 1));
       this.base.multiply(this.part);
     }
     // The legs stay planted; the body leans from the hips.
@@ -159,7 +162,7 @@ export class People {
       (kk === 0 ? this.hand : this.lhand).copy(this.m);
     }
     // In the hands: the tool the move needs (axe to chop, a heavy hammer to mine, a hammer to build), else the weapon.
-    if (!lying && !reach) {
+    if (lie < 0.3 && !reach) {
       const held = HELD[gear & 7] ?? '', hq = (gear >> 3) & 7;
       const tool: Model | '' = anim === 2 ? 'axe' : anim === 3 ? 'sledge' : anim === 4 ? 'hammer' : anim === 6 ? 'bow' : (held as Model | '');
       if (tool === 'bow') this.holdIn('bow', this.lhand, held === 'bow' ? hq : 0); // the bow in the other hand

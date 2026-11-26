@@ -360,6 +360,7 @@ export class Rules {
           continue;
         }
         if (r.kind !== 'goal' || !r.goal) continue;
+        if (w.family.lyingIn(i)) continue; // home with a newborn this week: the rule waits (sim/family.ts)
         const task = p.mind?.task as { from: string; rule?: string } | undefined;
         if (ageOf(p, now, y) < (r.goal === 'plan' ? 16 : 18)) continue; // a child
         if (e.hunger[i]! > 70 || e.thirst[i]! > 70 || e.tired[i]! > 85 || e.act[i] === Act.Sleep) continue; // needs first

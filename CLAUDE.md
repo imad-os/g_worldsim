@@ -770,3 +770,16 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   0.5 (high 0.6) and 1.15 x the tier's size (max 1), down after 2 slow seconds (fps < screen rate - 5), up after 8 smooth ones;
   a step up that fails is blocked 30 s doubling to 5 min; the screen rate is learnt (50-60 Hz). Not judged while a menu is open,
   chunks are loading or riding through a gate.
+
+## A week at home after a birth, beds, box / tree animations, pregnancy % (imad 2026-11-26, app 0.14.3)
+- Lying-in (`Family.startLyingIn` on birth, `Profile.lyingIn` { until, baby }, `LYING_IN_DAYS` 7 game days, AI mothers only): her task is put aside
+  (not the owner's), `Tasks.start` refuses all but owner / sky orders, rules / jobs / night watch skip her; `Brain.stayHome` = no talk / wander /
+  travel, drink and eat from the home fridge or a bottle, rest at home; out only when `Family.urgentOut` (thirst > 80 / hunger > 85 and the fridge
+  empty). `Family.provide()` (hourly): the father (else grown kin) gets "fill the fridge for X and the baby" (build fridge if none, food x3, water).
+  NOTE: with 1 game day a year the baby is ~7 by the end of the week. Test lyingin.test.ts.
+- Beds: A next to a bed (1.8 m, `Survival.bedNear`) = lie in it (code `bedSleep`, hint `iaBed`; asleep = A wakes, hint `iaWake`, checked before boxes).
+  TV eases people onto the bed (`lieK`, `bedPose` matches chunkmesh's bed turn): step up, lie back on top towards the pillow (`People.add` lie 0..1 + lift).
+- `client/src/gfx/anims.ts` (`World3D.anims`): fridge door / chest lid open on Notice `boxOpen` [tx, ty, secs] (`Survival.opened` from boxOut / boxPut,
+  `NetServer.toMap`; kept open while the box page is open); a cut tree (tile change in `Msg.Chunk`) falls away from the chopper, bounces, leaves fly, sinks.
+- `Life.pregnancyPct` (0-100): panel cards "expecting N%", person page bar, TV Me / person pages; prompts say it. Admin `agentSet { pregnant: 0-100 | -1 }`.
+  Proofs `ADMIN_TOKEN=... node tools/home-proof.mjs <server> <sdk.js> <outdir>`, `node tools/pregnancy-proof.mjs <server> <outdir>` (dark panel).

@@ -277,6 +277,18 @@ export class Survival {
     return false;
   }
   /** Sleeping on a bed: rest comes twice as fast. */
+  /** The nearest bed within r metres that person i may lie in (their home's, a free hut's, or one in the open): tile, or -1. */
+  bedNear(i: number, r: number): number {
+    if (this.T.bed < 0) return -1;
+    const e = this.w.e, m = e.map[i]!, tm = this.w.maps[m]!.tiles, x = e.x[i]!, y = e.y[i]!, R = Math.ceil(r);
+    let best = -1, bd = r;
+    for (let yy = Math.floor(y) - R; yy <= Math.floor(y) + R; yy++) for (let xx = Math.floor(x) - R; xx <= Math.floor(x) + R; xx++) {
+      if (!tm.inside(xx, yy) || tm.tiles[yy * tm.w + xx] !== this.T.bed) continue;
+      const k = yy * tm.w + xx, d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
+      if (d < bd && this.homes.mayEnter(i, m, k)) { bd = d; best = k; }
+    }
+    return best;
+  }
   onBed(m: number, x: number, y: number): boolean {
     if (this.T.bed < 0) return false;
     const tm = this.w.maps[m]!.tiles, cx = Math.floor(x), cy = Math.floor(y);
@@ -1141,8 +1153,11 @@ export class Survival {
   box(m: number, k: number): Inv { const key = `${m}:${k}`; let b = this.boxes.get(key); if (!b) this.boxes.set(key, (b = {})); return b; }
   /** May person i open the fridge / chest on tile k: the home's family (sim/homes.ts), anyone for one in a free hut. */
   mayUseBox(i: number, m: number, k: number): boolean { return this.homes.mayEnter(i, m, k); }
+  /** A fridge / chest is opened for a moment (viewers swing its door / lid open: imad 2026-11-26). */
+  opened(m: number, k: number, secs = 2.5): void { this.w.emit('boxOpen', { m, k, secs }); }
   private boxOut(m: number, k: number, item: string, n: number): number {
     const b = this.box(m, k), g = Math.min(n, b[item] ?? 0);
+    if (g > 0) this.opened(m, k);
     b[item] = (b[item] ?? 0) - g; if (!b[item]) delete b[item];
     return g;
   }
@@ -1221,6 +1236,7 @@ export class Survival {
       if (g > fromBag) this.w.e.carry[i] = this.w.e.carry[i]! - (g - fromBag);
     } else this.add(i, item, -g);
     b[item] = (b[item] ?? 0) + g;
+    this.opened(m, k);
     this.w.emit('store', { id: this.w.e.id(i), what: item, n: g, total: b[item], map: this.w.maps[m]!.def.id, box: kind });
     return g;
   }
@@ -1338,6 +1354,7 @@ export class Survival {
     const w = this.w, e = w.e, t = w.maps[j.m]!.tiles;
     const rn = JOB_RULE[j.kind] ?? j.kind, rule = w.rules.forbidden(i, rn, j.kind === 'heal' ? e.slot(j.who!) : -1);
     if (rule) return `I must not: "${rule}"`;
+    if (j.box === undefined && w.family.lyingIn(i)) return 'I stay home with my newborn this week'; // only the fridge / chest at home (sim/family.ts)
     // Where to stand: next to the tile (a tree is solid); for a hut, outside the door.
     let sx = j.tx + 0.5, sy = j.ty + 0.5;
     if (j.kind === 'pick') { const it = e.slot(j.who!); if (it < 0) return 'it is gone'; sx = e.x[it]!; sy = e.y[it]!; }
@@ -1885,7 +1902,7 @@ export class Survival {
     let have = this.guards(m);
     if (have >= want) return;
     const lid = this.leader[m] ?? -1;
-    const fit = people.filter((i) => !this.jobs.has(e.id(i)) && !w.profileOf(i)?.mind?.task && !w.brain.orderOf(i).kind && e.hp[i]! > 60 && e.hunger[i]! < 60 && e.thirst[i]! < 60 && e.tired[i]! < 65 && !w.rules.forbidden(i, 'fight')
+    const fit = people.filter((i) => !this.jobs.has(e.id(i)) && !w.family.lyingIn(i) && !w.profileOf(i)?.mind?.task && !w.brain.orderOf(i).kind && e.hp[i]! > 60 && e.hunger[i]! < 60 && e.thirst[i]! < 60 && e.tired[i]! < 65 && !w.rules.forbidden(i, 'fight')
       && (w.profileOf(i)?.traits.courage ?? 0.5) > 0.4)
       .sort((a, b) => this.guardScore(b, lid) - this.guardScore(a, lid));
     for (const i of fit) {

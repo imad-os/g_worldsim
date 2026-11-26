@@ -31,6 +31,8 @@ export interface Profile {
   bonds?: Record<string, number>;
   /** Expecting a baby: the father's entity id and the birth time (game seconds). */
   pregnant?: { father: number; due: number };
+  /** A new mother's week at home with her newborn (imad 2026-11-26): until (game seconds) and the baby's entity id (sim/family.ts). */
+  lyingIn?: { until: number; baby: number };
   /** What they carry besides food: wood, stone, scrap, axe, spear (milestone 8, sim/survival.ts). */
   inv?: import('./survival.js').Inv;
   /** The owner's strict rules for this person (at most 5, sim/rules.ts). */

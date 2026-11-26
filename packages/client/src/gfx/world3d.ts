@@ -12,6 +12,7 @@ import { Precip } from './weather.js';
 import { patchShadows } from './shadows.js';
 import type { ChunkGeo } from './chunkmesh.js';
 import { CHUNK_TILES } from '@worldsim/protocol';
+import { Anims } from './anims.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -40,6 +41,8 @@ export class World3D {
   /** The camera's view volume this frame (after follow()): off-screen horses skip their skeleton. */
   readonly frustum = new Frustum();
   private pm = new Matrix4();
+  /** Fridge doors / chest lids opening, cut trees falling (gfx/anims.ts). */
+  readonly anims: Anims;
   private hemi = new HemisphereLight(0xcfe3ff, 0x5d4c3a, 1.1);
   private sun = new DirectionalLight(0xfff1d6, 2.4);
   private lamp = new PointLight(0xffc27a, 0, 14, 1.6);
@@ -120,6 +123,7 @@ export class World3D {
     this.scene.add(this.water);
     this.people = new People(this.scene, 512, shadows);
     this.peopleFar = new People(this.scene, 256, false, true);
+    this.anims = new Anims(this.scene, shadows);
     this.animals = new Animals3D(this.scene, 128, shadows);
     this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
     this.horses.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };

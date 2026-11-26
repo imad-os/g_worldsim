@@ -244,7 +244,7 @@ export class Bubbles {
 
 // ------------------------------------------------------------ person card text (watch mode / menu page)
 export interface PersonInfo {
-  id: number; name: string; sex: 'f' | 'm'; age: number; alive: boolean; cause?: string; personality: string[]; generation: number; pregnant: boolean;
+  id: number; name: string; sex: 'f' | 'm'; age: number; alive: boolean; cause?: string; personality: string[]; generation: number; pregnant: boolean; pregnantPct?: number | null;
   partner: string | null; parents: string[]; children: string[]; traits: Record<string, number>;
   act?: number; hunger?: number; thirst?: number; tired?: number; lonely?: number; hp?: number; carry?: number; inv?: Record<string, number>;
   mind?: { mood: string; plan: { act: string; with: string | null; why: string } | null; memory: string; said: string | null; recent: string[] };
@@ -257,7 +257,7 @@ const TRAIT_KEY: Record<string, Key> = { strength: 'tStrength', speed: 'tSpeed',
 /** HTML for the side card (short) or the menu page (full). Escapes everything. */
 export function personHtml(p: PersonInfo, actName: (a: number) => string, full: boolean): string {
   const e = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-  const head = `<div class="pn">${e(p.name)}</div><div class="ps">${p.sex === 'f' ? t('pWoman') : t('pMan')} · ${tf('pAge', String(p.age))}${p.stage && p.stage !== 'adult' ? ' · ' + t(STAGE_KEY[p.stage] ?? 'stChild') : p.age < 16 ? ' · ' + t('pChild') : ''}${p.carer ? ' · ' + e(tf('famLooked', p.carer)) : ''}${p.pregnant ? ' · ' + t('pExpecting') : ''}</div>`;
+  const head = `<div class="pn">${e(p.name)}</div><div class="ps">${p.sex === 'f' ? t('pWoman') : t('pMan')} · ${tf('pAge', String(p.age))}${p.stage && p.stage !== 'adult' ? ' · ' + t(STAGE_KEY[p.stage] ?? 'stChild') : p.age < 16 ? ' · ' + t('pChild') : ''}${p.carer ? ' · ' + e(tf('famLooked', p.carer)) : ''}${p.pregnant ? ' · ' + t('pExpecting') + (p.pregnantPct !== undefined && p.pregnantPct !== null ? ` ${p.pregnantPct} %` : '') : ''}</div>`;
   if (!p.alive) return head + `<div class="ps">${t('pDead')}${p.cause ? ' (' + e(p.cause) + ')' : ''}</div>`;
   const lines = [head, `<div class="pa">${e(actName(p.act ?? 0))}${p.carry ? ' · ' + tf('carry', String(p.carry)) : ''}${invWords(p.inv) ? ' · ' + e(tf('has', invWords(p.inv))) : ''}</div>`,
     `<div class="pbars">${bar(t('nFood'), p.hunger ?? 0)}${bar(t('nWater'), p.thirst ?? 0)}${bar(t('nRest'), p.tired ?? 0)}${bar(t('nFun'), p.lonely ?? 0)}${bar(t('nHp'), 100 - (p.hp ?? 100))}</div>`];

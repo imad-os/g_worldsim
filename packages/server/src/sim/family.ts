@@ -20,6 +20,10 @@ import { ageOf, PLAYER_AGE, type Profile } from './people.js';
 import type { World } from './world.js';
 
 export const BABY = 1;
+/** A new mother stays home this many game days with her newborn (imad 2026-11-26: "it must stay home for the game week"). */
+export const LYING_IN_DAYS = 7;
+/** The fridge of a home with a newborn is kept at least this full (food, water) by the father. */
+const KEEP_FOOD = 4, KEEP_WATER = 3;
 export const TODDLER = 3;
 export type Stage = 'baby' | 'toddler' | 'child' | 'teen' | 'adult';
 export function stageOf(age: number): Stage { return age < BABY ? 'baby' : age < TODDLER ? 'toddler' : age < 14 ? 'child' : age < 16 ? 'teen' : 'adult'; }
@@ -49,7 +53,7 @@ export class Family {
   constructor(private w: World) {
     this.carer = new Int32Array(w.e.cap).fill(-1);
     this.carried = new Int32Array(w.e.cap).fill(-1);
-    w.listeners.push((ev) => { if (ev.kind === 'birth') this.born(Number(ev.data.id)); });
+    w.listeners.push((ev) => { if (ev.kind === 'birth') { this.born(Number(ev.data.id)); this.startLyingIn(Number(ev.data.mother), Number(ev.data.id)); } });
   }
 
   // ------------------------------------------------------------------ who is family
@@ -190,9 +194,81 @@ export class Family {
       else if (held && age >= BABY && !moving && !danger && e.act[c] !== Act.Sleep) this.putDown(i);
     }
     if (this.nextHour === 0) this.nextHour = w.gameSec + 3600;
-    if (w.gameSec >= this.nextHour) { this.nextHour = w.gameSec + 3600; this.hourly(); }
+    if (w.gameSec >= this.nextHour) { this.nextHour = w.gameSec + 3600; this.hourly(); this.provide(); }
     if (this.nextDay === 0) this.nextDay = w.gameSec + 86400;
     if (w.gameSec >= this.nextDay) { this.nextDay = w.gameSec + 86400; for (const [k, v] of this.given) if (v < 1) this.given.delete(k); else this.given.set(k, v / 2); }
+  }
+
+  // ------------------------------------------------------------------ a week at home after a birth (imad 2026-11-26)
+  /**
+   * "When the mother gives birth, she must stay home for the game week to take care of him and get out only for urgent actions,
+   * no walking or standing outside, and the father must provide water and food to the fridge."
+   * The mother (AI-driven) keeps to her home: no wandering, talks, travel, work or quests (Tasks.start and Survival.begin refuse
+   * them, Brain.choose leaves only rest, sleep and the fridge); she goes out only when it is urgent (danger, the cold, thirst
+   * past 80 or hunger past 85 with an empty fridge). The father (else grown family) keeps the home's fridge stocked.
+   */
+  private startLyingIn(mid: number, baby: number): void {
+    const w = this.w, p = this.prof(mid);
+    if (!p || p.player) return; // a player's character is played by hand: their own choice
+    p.lyingIn = { until: w.gameSec + LYING_IN_DAYS * 86400, baby };
+    const i = w.e.slot(mid);
+    if (i >= 0 && p.mind?.task && p.mind.task.from !== 'owner') w.tasks.stop(i); // the work waits: home with the baby
+    w.emit('lyingIn', { id: mid, baby, days: LYING_IN_DAYS });
+  }
+  /** Person (slot) i is a mother in her week at home with a newborn (AI-driven, the baby alive). */
+  lyingIn(i: number): boolean {
+    const w = this.w, e = w.e;
+    if (i < 0 || e.kind[i] !== Kind.Agent) return false;
+    const p = w.profileOf(i), l = p?.lyingIn;
+    if (!l) return false;
+    if (w.gameSec >= l.until || e.slot(l.baby) < 0) { delete p!.lyingIn; return false; }
+    return true;
+  }
+  /** Her home on the map she is on (lying-in only means something there), or undefined. */
+  lyingInHome(i: number): import('./homes.js').Home | undefined {
+    if (!this.lyingIn(i)) return undefined;
+    const h = this.w.survival.homes.homeOf(this.w.e.id(i));
+    return h && h.m === this.w.e.map[i] ? h : undefined;
+  }
+  /** Urgent enough to step out: thirst past 80 (no water in the fridge) or hunger past 85 (no food in it). */
+  urgentOut(i: number): boolean {
+    const e = this.w.e, sv = this.w.survival;
+    return (e.thirst[i]! > 80 && sv.myBox(i, 'fridge', 60, 'water') < 0) || (e.hunger[i]! > 85 && sv.myBox(i, 'fridge', 60, 'food') < 0 && e.carry[i]! <= 0);
+  }
+  /** Game hours of the lying-in left (-1 = none): the panel / prompts. */
+  lyingInLeft(id: number): number {
+    const p = this.prof(id), l = p?.lyingIn;
+    return l && l.until > this.w.gameSec ? (l.until - this.w.gameSec) / 3600 : -1;
+  }
+  /** Every game hour: the father (else grown family) fills the fridge of every home with a lying-in mother. */
+  private provide(): void {
+    const w = this.w, e = w.e, sv = w.survival;
+    for (let i = 0; i < e.hi; i++) {
+      const h = this.lyingInHome(i);
+      if (!h) continue;
+      const p = w.profileOf(i)!, f = sv.boxIn(h, 'fridge'), inv = f >= 0 ? sv.box(h.m, f) : {};
+      const food = inv.food ?? 0, water = inv.water ?? 0;
+      if (f >= 0 && food >= KEEP_FOOD && water >= KEEP_WATER) continue;
+      const fid = p.lyingIn ? this.parentsOf(p.lyingIn.baby).find((x) => x !== e.id(i)) : undefined;
+      const cands = [fid ?? p.partner, ...this.childrenOf(e.id(i)), ...this.parentsOf(e.id(i)), ...this.siblingsOf(e.id(i))];
+      let j = -1;
+      for (const id of cands) {
+        if (id === undefined || id < 0) continue;
+        const k = e.slot(id);
+        if (k < 0 || k === i || e.kind[k] !== Kind.Agent || e.map[k] !== h.m || this.dependent(k) || this.ageOf(k) < 14 || this.lyingIn(k)) continue;
+        if (e.act[k] === Act.Sleep || e.act[k] === Act.Fight || e.act[k] === Act.Flee || e.thirst[k]! > 85 || e.hunger[k]! > 90) continue;
+        const t = w.profileOf(k)?.mind?.task;
+        if (t && (t.from === 'owner' || t.rule || /fridge/.test(t.text))) continue;
+        if (t && [...w.profiles.values()].some((q) => q.player && q.player === t.from)) continue; // a player's order comes first
+        j = k; break;
+      }
+      if (j < 0) continue;
+      const steps: Parameters<typeof w.tasks.start>[3] = [];
+      if (f < 0) steps.push({ do: 'build', what: 'fridge' });
+      if (food < KEEP_FOOD) steps.push({ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' });
+      if (water < KEEP_WATER) steps.push({ do: 'store', what: 'water' });
+      if (w.tasks.start(j, `fill the fridge for ${p.name} and the baby`, 'myself', steps)) w.emit('care', { id: e.id(j), kid: p.lyingIn!.baby, what: 'fridge', mother: e.id(i) });
+    }
   }
 
   // ------------------------------------------------------------------ both parents provide (imad 2026-11-26: "both parents must be responsible")
@@ -208,6 +284,8 @@ export class Family {
   /** Whose turn it is to feed / water child k: of the free parents, the one who gave less (the one already with it on a tie); -1 = nobody free. */
   provider(k: number): number {
     const e = this.w.e, near = this.carer[k]!;
+    const mum = e.slot(this.prof(e.id(k))?.parents[0] ?? -1);
+    if (mum >= 0 && this.prof(e.id(mum))?.lyingIn?.baby === e.id(k) && this.lyingIn(mum) && this.free(mum, k)) return mum; // her week at home: she has it
     let best = -1, bs = Infinity;
     for (const pid of this.parentsOf(e.id(k))) {
       const j = e.slot(pid);

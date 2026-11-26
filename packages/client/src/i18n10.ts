@@ -2,7 +2,7 @@
 export const T10 = {
   en: {
     xFridge: 'fridge', xChest: 'chest', xWater: 'water bottle', xFood: 'food',
-    iaFridge: 'Open the fridge', iaChest: 'Open the chest', iaFill: 'Fill water bottles',
+    iaFridge: 'Open the fridge', iaChest: 'Open the chest', iaFill: 'Fill water bottles', iaBed: 'Sleep', iaWake: 'Get up', dBedSleep: 'You lie down in the bed. Move or press A to get up.',
     cInsideHut: 'only inside a hut, on its floor', dPickedBag: 'Hands full: {0} went into your bag.',
     dFilled: 'Water bottles filled: {0} in your bag.', dBottlesFull: 'You carry all the water you can (20).', dDrankBottle: 'You drank a bottle of water.',
     boxFridge: 'Fridge', boxChest: 'Chest', boxHelpFridge: 'Keeps food and water for later (up to {0} of each). A takes or puts one.',
@@ -16,7 +16,7 @@ export const T10 = {
   },
   fr: {
     xFridge: 'frigo', xChest: 'coffre', xWater: 'bouteille d\'eau', xFood: 'nourriture',
-    iaFridge: 'Ouvrir le frigo', iaChest: 'Ouvrir le coffre', iaFill: 'Remplir des bouteilles',
+    iaFridge: 'Ouvrir le frigo', iaChest: 'Ouvrir le coffre', iaFill: 'Remplir des bouteilles', iaBed: 'Dormir', iaWake: 'Se lever', dBedSleep: 'Vous vous couchez dans le lit. Bougez ou appuyez sur A pour vous lever.',
     cInsideHut: 'seulement dans une cabane, sur son plancher', dPickedBag: 'Mains pleines : {0} est allé dans ton sac.',
     dFilled: 'Bouteilles remplies : {0} dans ton sac.', dBottlesFull: 'Tu portes toute l\'eau possible (20).', dDrankBottle: 'Tu as bu une bouteille d\'eau.',
     boxFridge: 'Frigo', boxChest: 'Coffre', boxHelpFridge: 'Garde nourriture et eau pour plus tard (jusqu\'à {0} de chaque). A prend ou pose une unité.',
@@ -30,7 +30,7 @@ export const T10 = {
   },
   es: {
     xFridge: 'nevera', xChest: 'cofre', xWater: 'botella de agua', xFood: 'comida',
-    iaFridge: 'Abrir la nevera', iaChest: 'Abrir el cofre', iaFill: 'Llenar botellas de agua',
+    iaFridge: 'Abrir la nevera', iaChest: 'Abrir el cofre', iaFill: 'Llenar botellas de agua', iaBed: 'Dormir', iaWake: 'Levantarse', dBedSleep: 'Te acuestas en la cama. Muévete o pulsa A para levantarte.',
     cInsideHut: 'solo dentro de una cabaña, en su suelo', dPickedBag: 'Manos llenas: {0} fue a tu bolsa.',
     dFilled: 'Botellas llenas: {0} en tu bolsa.', dBottlesFull: 'Llevas toda el agua que puedes (20).', dDrankBottle: 'Bebiste una botella de agua.',
     boxFridge: 'Nevera', boxChest: 'Cofre', boxHelpFridge: 'Guarda comida y agua para luego (hasta {0} de cada). A toma o pone una.',
@@ -44,7 +44,7 @@ export const T10 = {
   },
   ar: {
     xFridge: 'ثلاجة', xChest: 'صندوق', xWater: 'قارورة ماء', xFood: 'طعام',
-    iaFridge: 'افتح الثلاجة', iaChest: 'افتح الصندوق', iaFill: 'املأ قوارير الماء',
+    iaFridge: 'افتح الثلاجة', iaChest: 'افتح الصندوق', iaFill: 'املأ قوارير الماء', iaBed: 'نم', iaWake: 'انهض', dBedSleep: 'تستلقي في السرير. تحرك أو اضغط A لتنهض.',
     cInsideHut: 'داخل كوخ فقط، على أرضيته', dPickedBag: 'يداك ممتلئتان: ذهب {0} إلى حقيبتك.',
     dFilled: 'مُلئت القوارير: {0} في حقيبتك.', dBottlesFull: 'تحمل أقصى ما يمكن من الماء (20).', dDrankBottle: 'شربت قارورة ماء.',
     boxFridge: 'ثلاجة', boxChest: 'صندوق', boxHelpFridge: 'تحفظ الطعام والماء لوقت لاحق (حتى {0} من كل). A يأخذ أو يضع واحدة.',

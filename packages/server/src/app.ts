@@ -57,7 +57,7 @@ function byId(tiles: { id: number; name: string; color: number; solid?: boolean 
 const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'lore', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'campPlan', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['weather', 'autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
-const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
+const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant', 'lyingIn',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give',
   'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm', 'destroy', 'reset', 'door']);
 
@@ -452,7 +452,17 @@ export class App {
           const an = w.animals.nearest(m, x, y, 2.4);
           if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
         }
+        if (e.flags[player]! & EFlag.Sleeping) return w.brain.playerDo(player, 'sleep'); // asleep: A gets up
         if (w.brain.nearestItem(player, 1.4) < 0) { const bk = sv.boxNear(player, '', 2.2); if (bk >= 0) { const W = w.maps[e.map[player]!]!.tiles.w; return this.boxDo(player, `${bk % W},${(bk / W) | 0}`); } } // A next to my fridge / chest opens it
+        if (w.brain.nearestItem(player, 1.4) < 0) { // A next to a bed I may use: lie down in it (imad 2026-11-26)
+          const bd = sv.bedNear(player, 1.8);
+          if (bd >= 0) {
+            const W = w.maps[e.map[player]!]!.tiles.w, bx = (bd % W) + 0.5, by = ((bd / W) | 0) + 0.5;
+            w.setPos(player, bx, by); e.inX[player] = e.inY[player] = 0;
+            const r = w.brain.playerDo(player, 'sleep');
+            return r.ok ? { ok: true, code: 'bedSleep', x: bx, y: by } : r;
+          }
+        }
         const r0 = w.brain.playerDo(player, 'use');
         if (r0.ok) return r0;
         // A tree, a rock or rubble next to me: chop / mine one piece (at most one a second).
@@ -494,6 +504,7 @@ export class App {
     });
     // A called horse got to its owner: that player's TV says so.
     w.listeners.push((ev) => { if (ev.kind === 'horseCame') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'did', { a: 'horse', ok: true, code: 'came', name: ev.data.name }); } });
+    w.listeners.push((ev) => { if (ev.kind === 'boxOpen') { const W = w.maps[Number(ev.data.m)]!.tiles.w, k = Number(ev.data.k); this.net.toMap(Number(ev.data.m), 'boxOpen', [k % W, (k / W) | 0, ev.data.secs]); } });
     w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', ev.data.why ? { why: ev.data.why } : {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     // Quests (sim/quests.ts): the NPCs speak to the viewers of their map, lessons go into memory, players see their progress.
@@ -683,6 +694,7 @@ export class App {
       if (typeof r === 'string') code = r; else { moved = r; code = mv[1] === 'put' ? 'boxPut' : 'boxTook'; }
     }
     const kind = sv.boxKind(m, k);
+    sv.opened(m, k, 8); // open while the player looks inside (the TV's page keeps it open for its own player)
     return { ok: code === 'box' || moved > 0, code, kind, at: [k % W, (k / W) | 0], inv: { ...sv.box(m, k) }, bag: { ...sv.inv(player) }, food: sv.foodOf(player), carry: e.carry[player], cap: 40, moved, item: mv?.[4] };
   }
   private hitAnimal(player: number, a: number, dmg: number): { ok: boolean; code: string; got?: Record<string, number>; item?: string } {
@@ -1044,7 +1056,7 @@ export class App {
     return {
       name: p.name, sex: p.sex, skin: p.skin ?? 1, chose: !!p.chose, sexDays: Math.ceil(left / 86400_000), auto: !!p.auto,
       rules: (p.rules ?? []).map((r) => r.text), max: MAX_RULES, xp: p.xp ?? 0, level: levelOf(p.xp), influence: w.influence.of(id), influenceLog: w.influence.log(id).slice(0, 5), goal: w.tasks.progress(id),
-      goals: (p.goals ?? []).slice(-5).reverse(), partner, children, family, asks, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1,
+      goals: (p.goals ?? []).slice(-5).reverse(), partner, children, family, asks, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1, expectingPct: p.pregnant ? w.life.pregnancyPct(p) : -1,
       traits: Object.fromEntries(TRAIT_KEYS.filter((k) => k !== 'metabolism').map((k) => [k, Math.round(p.traits[k] * 100)])),
       hp: Math.round(e.hp[i]!),
       horses: w.horses.mine(i).map((h) => w.horses.info(h, i)), tame: tameLevel(w.horses.skill.get(id)), tamePower: Math.round(w.horses.power(i) * 100),
@@ -1057,7 +1069,7 @@ export class App {
     const i = e.slot(id), r2 = (v: number) => Math.round(v * 100) / 100;
     const base: Record<string, unknown> = {
       id, name: p.name, sex: p.sex, age: Math.floor(ageOf(p, w.gameSec, w.yearSec)), alive: i >= 0, cause: p.cause,
-      personality: p.personality, generation: p.generation, pregnant: !!p.pregnant,
+      personality: p.personality, generation: p.generation, pregnant: !!p.pregnant, pregnantPct: p.pregnant ? w.life.pregnancyPct(p) : null,
       partner: p.partner >= 0 ? this.nameOf(p.partner) : null, parents: p.parents.map((x) => this.nameOf(x)),
       children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).map(([, q]) => q.name),
       traits: Object.fromEntries(Object.entries(p.traits).map(([k, v]) => [k, k === 'lifespan' ? Math.round(v) : r2(v)])),
@@ -1105,7 +1117,7 @@ export class App {
       goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       player: p?.player ?? null, auto: !!p?.auto, manual: e.kind[i] === Kind.Player, online: p?.player ? this.net.online(p.player) : false,
-      carry: e.carry[i], inv: w.survival.inv(i), home: w.survival.homes.describe(e.id(i)), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
+      carry: e.carry[i], inv: w.survival.inv(i), home: w.survival.homes.describe(e.id(i)), lod: e.lod[i], child: !!(e.flags[i]! & 32), pregnant: !!p?.pregnant, pregnantPct: p?.pregnant ? w.life.pregnancyPct(p) : null, lyingIn: w.family.lyingInLeft(id) >= 0 ? Math.ceil(w.family.lyingInLeft(id)) : null, partner: p && p.partner >= 0 ? this.nameOf(p.partner) : null, talkingTo: e.act[i] === 6 && e.target[i]! >= 0 ? this.nameOf(e.target[i]!) : null,
     };
   }
 
@@ -1436,6 +1448,7 @@ export class App {
           }
           if ((TRAIT_KEYS as readonly string[]).includes(k)) { p.traits[k as (typeof TRAIT_KEYS)[number]] = num(v, 0, 1, k, undefined, 100); continue; }
           if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
+          if (k === 'pregnant') { const r = w.life.setPregnant(p, fixed(v, -1, 100, k)); if (r !== true) throw new Error(r); continue; } // % of the way (-1 = not expecting)
           if (k === 'age') { if (p.player) throw new Error("players' characters stay 25"); p.born = w.gameSec - num(v, 0, 100, k, [0, 1000]) * w.yearSec; const ag = Number(v); e.flags[i] = (e.flags[i]! & ~(EFlag.Child | EFlag.Small)) | (ag < 16 ? EFlag.Child : 0) | (ag < 3 ? EFlag.Small : 0); continue; } // years
           if (k.startsWith('bag.')) { const inv = w.survival.inv(i), it = k.slice(4); inv[it] = fixed(v, 0, it === 'arrows' ? 30 : 20, k) | 0; if (!inv[it]) delete inv[it]; continue; } // bag: { 'bag.ore': 5 }
           throw new Error(`can't change ${k}`);

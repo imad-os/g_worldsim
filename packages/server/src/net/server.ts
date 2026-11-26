@@ -507,6 +507,11 @@ export class NetServer {
     for (const s of this.sessions.values()) if (s.ws && s.avatar === slot && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind, data });
   }
 
+  /** A notice for every viewer looking at map m (not the admins' panels). */
+  toMap(m: number, kind: string, data: unknown): void {
+    for (const s of this.sessions.values()) if (s.ws && s.view && s.view.map === m) this.send(s, { t: Msg.Notice, kind, data });
+  }
+
   say(m: number, data: { id: number; name: string; text: string }): void {
     for (const s of this.sessions.values()) {
       if (s.role === 'admin' || (s.view && s.view.map === m)) this.send(s, { t: Msg.Notice, kind: 'say', data });

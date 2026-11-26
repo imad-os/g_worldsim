@@ -452,8 +452,10 @@ export class Planner {
       ...(Object.keys(p.kin ?? {}).length ? ['(Some of this family was chosen, not born: it is just as real. Never court or marry your family.)'] : []),
       ...((() => { const little = kids.filter((c) => { const s = e.slot(c); return s >= 0 && w.family.dependent(s); }); return little.length ? [`You look after your little one${little.length > 1 ? 's' : ''} (${little.map(nameAge).join(', ')}): they cannot feed themselves; keep them fed, watered and safe.`] : []; })()),
       ...(sibs.length ? [`Brothers and sisters: ${sibs.map(nameAge).join(', ')}.`] : []),
-      ...(p.pregnant ? ['You are expecting a baby.'] : []),
-      ...(partner?.pregnant && p.sex === 'm' ? [`${partner.name} is expecting your baby.`] : []),
+      ...(p.pregnant ? [`You are expecting a baby (${w.life.pregnancyPct(p)} % of the way).`] : []),
+      ...(partner?.pregnant && p.sex === 'm' ? [`${partner.name} is expecting your baby (${w.life.pregnancyPct(partner)} % of the way).`] : []),
+      ...(w.family.lyingInLeft(id) >= 0 ? [`You just gave birth: you stay home with your newborn for ${Math.ceil(w.family.lyingInLeft(id) / 24)} more game days and go out only when it is urgent; your family fills the fridge.`] : []),
+      ...(partner && p.partner >= 0 && w.family.lyingInLeft(p.partner) >= 0 ? [`${partner.name} is home with your newborn: you keep your home's fridge filled with food and water.`] : []),
     ];
     void e;
     return `Family: ${parts.join(' ')}`;

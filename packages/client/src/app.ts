@@ -8,7 +8,7 @@ import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, HUT_SIZE, INSI
 import { World3D, type Tier, type ChunkView } from './gfx/world3d.js';
 import { DynRes } from './gfx/dynres.js';
 import { buildChunk, chunkGeo, type ChunkData } from './gfx/chunkmesh.js';
-import { looksFor, hash2, type Look } from './gfx/look.js';
+import { looksFor, hash2, Shape, type Look } from './gfx/look.js';
 import type { PersonLook } from './gfx/people.js';
 import { RideScene } from './gfx/ride.js';
 import { ReplayPlayer, gameTime, type ReplayRec, type ReplaySummary } from './replay.js';
@@ -121,6 +121,8 @@ const px = new Float32Array(CAP), py = new Float32Array(CAP), nx = new Float32Ar
 const vx = new Float32Array(CAP), vy = new Float32Array(CAP), ang = new Float32Array(CAP);
 const nextCry = new Float64Array(256 * 64);
 const face = new Float32Array(CAP), phase = new Float32Array(CAP), spd = new Float32Array(CAP), lastX = new Float32Array(CAP), lastY = new Float32Array(CAP);
+/** Lying down 0..1 (eased in / out: lying down, climbing into bed, getting up). */
+const lieK = new Float32Array(CAP);
 const lookOf: PersonLook[] = [];
 const slotOf = new Map<number, number>();
 let frameAt = 0, frameGap = 100;
@@ -187,7 +189,7 @@ let past: ReplaySummary[] | null = null;
 /** My character as a person (the "Me" page): look, family, autopilot, rules, level. */
 interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number; influence?: number; influenceLog?: { d: number; why: string }[];
   goal: { text: string; from: string; k: number; n: number; pct: number } | null; goals: { text: string; ok: boolean; xp: number }[];
-  partner: { id: number; name: string } | null; children: Kid[]; expecting: number; traits: Record<string, number>; hp: number;
+  partner: { id: number; name: string } | null; children: Kid[]; expecting: number; expectingPct: number; traits: Record<string, number>; hp: number;
   horses?: { name: string; quality: string; speed: number; stamina: number; intel: number }[]; tame?: number; tamePower?: number;
   family?: { id: number; name: string; role: string; rel: string }[]; asks?: { from: number; name: string; role: string }[] }
 /** One of my children, with their needs (0 fine .. 100 desperate): a parent looks after the little ones by hand. */
@@ -380,6 +382,7 @@ function onMsg(m: ServerMsg): void {
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
       }
       if (m.kind === 'names') names.add(m.data as [number, string][]);
+      if (m.kind === 'boxOpen' && g3) { const [bx, by, secs] = m.data as [number, number, number]; g3.anims.openBox(bx, by, secs, tileName[tileUnder(bx + 0.5, by + 0.5)] === 'fridge', performance.now()); }
       if (m.kind === 'weather') {
         const d = m.data as WeatherInfo, first = !wxInfo;
         if (wxInfo && wxInfo.s !== d.s) note(tf('seasonNews', t(`se${d.s}` as Key)), 6000);
@@ -395,6 +398,8 @@ function onMsg(m: ServerMsg): void {
     case Msg.Chunk: {
       if (m.map !== map || !welcome) break;
       const k = chunkKey(m.cx, m.cy);
+      const old = tilesOf.get(k);
+      if (old && g3) fellTrees(m.cx, m.cy, old, m.tiles); // a cut tree falls (gfx/anims.ts)
       tilesOf.set(k, m.tiles);
       queueBuild(k);
       break;
@@ -596,6 +601,39 @@ function tileUnder(x: number, y: number): number {
   const t = tilesOf.get(chunkKey((tx / CHUNK_TILES) | 0, (ty / CHUNK_TILES) | 0));
   return t ? t[(ty % CHUNK_TILES) * CHUNK_TILES + (tx % CHUNK_TILES)]! : -1;
 }
+/** Trees in the old tiles of a chunk that are gone in the new ones fell: each falls away from the nearest person (who cut it). */
+function fellTrees(cx: number, cy: number, old: Uint8Array, now: Uint8Array): void {
+  const t = performance.now();
+  for (let k = 0; k < old.length; k++) {
+    const a = looks[old[k]!], b = looks[now[k]!];
+    if (!a || a.shape !== Shape.Tree || (b && b.shape === Shape.Tree)) continue;
+    const wx = cx * CHUNK_TILES + (k % CHUNK_TILES), wy = cy * CHUNK_TILES + ((k / CHUNK_TILES) | 0);
+    let bx = NaN, by = NaN, bd = 4;
+    for (let i = 0; i < CAP; i++) {
+      if (eid[i] === -1 || (kind[i] !== Kind.Agent && kind[i] !== Kind.Player)) continue;
+      const d = Math.hypot(nx[i]! - wx - 0.5, ny[i]! - wy - 0.5);
+      if (d < bd) { bd = d; bx = nx[i]!; by = ny[i]!; }
+    }
+    g3!.anims.fellTree(wx, wy, a, bx, by, t);
+  }
+}
+/** A bed next to (x, y) a sleeper lies in: where to lie (on top of it, along it, the head on the pillow), or null. */
+function bedPose(x: number, y: number, size: number): { x: number; y: number; f: number } | null {
+  const cx = Math.floor(x), cy = Math.floor(y);
+  for (let yy = cy - 1; yy <= cy + 1; yy++) for (let xx = cx - 1; xx <= cx + 1; xx++) {
+    const id = tileUnder(xx + 0.5, yy + 0.5);
+    if (id < 0 || looks[id]?.shape !== Shape.Bed) continue;
+    // The foot of the bed reaches over the open floor next to it (as chunkmesh.ts draws it).
+    const open = (ax: number, ay: number) => { const j = tileUnder(ax + 0.5, ay + 0.5); return j >= 0 && looks[j]?.shape === Shape.Ground; };
+    const [fx, fz] = open(xx, yy + 1) ? [0, 1] : open(xx, yy - 1) ? [0, -1] : open(xx + 1, yy) ? [1, 0] : open(xx - 1, yy) ? [-1, 0] : [0, 0];
+    const mx = xx + 0.5 + fx * 0.45, my = yy + 0.5 + fz * 0.45;
+    if (Math.hypot(mx - x, my - y) > 1.25) continue;
+    const along = fx || fz ? -0.45 + 0.9 * 1.25 * size : 0; // the head near the headboard, the feet towards the foot
+    return { x: xx + 0.5 + fx * along, y: yy + 0.5 + fz * along, f: fx || fz ? Math.atan2(-fx, -fz) : 0 };
+  }
+  return null;
+}
+const easeS = (v: number) => { const u = Math.max(0, Math.min(1, v)); return u * u * (3 - 2 * u); };
 function stepUnder(x: number, y: number): string { const t = tileUnder(x, y); return stepName[t] ?? 'step_dirt'; }
 /** Every second: ambience by the hour and the map, the campfire's crackle by how near the nearest one is. */
 function ambience(now: number): void {
@@ -654,21 +692,24 @@ function nearDoor(): [number, number, boolean] | null {
   return best;
 }
 function interactHint(): { key: Key; door?: [number, number] } | null {
-  if (how !== 'play' || !playing() || !meNeeds || meNeeds.asleep) return null;
+  if (how !== 'play' || !playing() || !meNeeds) return null;
   const x = focusX(), y = focusY();
   if (meNeeds.ride) return { key: 'iaOff' };
+  if (meNeeds.asleep) return { key: 'iaWake' };
+  let bk = '', bxd = 2.2; // my fridge / chest (imad 2026-11-26)
+  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
+    const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
+    if (n !== 'fridge' && n !== 'chest') continue;
+    const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
+    if (d < bxd) { bxd = d; bk = n; }
+  }
   const dr = nearDoor();
-  if (dr) return { key: dr[2] ? 'iaClose' : 'iaOpen', door: [dr[0], dr[1]] };
+  // A door beside the fridge: the nearer one wins (standing at the fridge = the fridge).
+  if (dr && !(bk && bxd < Math.hypot(dr[0] + 0.5 - x, dr[1] + 0.5 - y))) return { key: dr[2] ? 'iaClose' : 'iaOpen', door: [dr[0], dr[1]] };
   for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.4) return { key: 'iaPick' };
-  { // my fridge / chest (imad 2026-11-26)
-    let bk = '', bd = 2.2;
-    for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
-      const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
-      if (n !== 'fridge' && n !== 'chest') continue;
-      const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
-      if (d < bd) { bd = d; bk = n; }
-    }
-    if (bk) return { key: bk === 'fridge' ? 'iaFridge' : 'iaChest' };
+  if (bk) return { key: bk === 'fridge' ? 'iaFridge' : 'iaChest' };
+  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) { // a bed: lie down in it (imad 2026-11-26)
+    if (tileName[tileUnder(xx + 0.5, yy + 0.5)] === 'bed' && Math.hypot(xx + 0.5 - x, yy + 0.5 - y) < 1.8) return { key: 'iaBed' };
   }
   for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.8) return { key: 'iaPick' };
   for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
@@ -1487,6 +1528,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'replay') { startReplay(d.rec as ReplayRec); return; }
   if (d.code === 'noReplay') { note(t('pastNone'), 2500); return; }
   if (d.code === 'roster') { roster = d.list ?? []; if (menu.page === 'goto') menu.refresh(); return; }
+  if (d.code === 'bedSleep') { predX = d.x ?? predX; predY = d.y ?? predY; sound.play('drop'); note(t('dBedSleep'), 3500); return; } // onto the bed: the lying-down animation does the rest
   if (d.code === 'tp') { predX = camX = d.x ?? predX; predY = camY = d.y ?? predY; snapCam = true; sendView(); if (d.name) note(tf('dTp', d.name), 3000); return; }
   const dd = d as typeof d & { got?: Record<string, number>; left?: number; need?: Record<string, number>; kept?: boolean; lv?: number; q?: number };
   const arrows = dd.left !== undefined ? ' ' + tf('arrowsLeft', String(dd.left)) : '';
@@ -1707,7 +1749,7 @@ function buildPage(id: string): Page {
         + (c.goal ? `<div class="pm">${t('pGoal')}: <b>${esc(c.goal.text)}</b> · ${Math.min(c.goal.k + 1, c.goal.n)}/${c.goal.n}</div><div class="bp${c.goal.from !== 'myself' ? ' ord' : ''}"><i style="width:${Math.max(6, c.goal.pct)}%"></i></div>` : '')
         + `<div class="pm">${t('mePartner')}: <b>${esc(c.partner?.name ?? t('meNone'))}</b></div>`
         + `<div class="pm">${t('meChildren')}: <b>${c.children.length ? c.children.map((k) => `${esc(k.name)} (${k.age})`).join(', ') : esc(t('meNone'))}</b></div>`
-        + (c.expecting >= 0 ? `<div class="pm">${esc(tf('meExpecting', String(c.expecting)))}</div>` : '')
+        + (c.expecting >= 0 ? `<div class="pm">${esc(tf('meExpecting', String(c.expecting)))}${c.expectingPct >= 0 ? ` <b>${c.expectingPct} %</b><div class="pbar"><i style="width:${Math.max(2, c.expectingPct)}%"></i></div>` : ''}</div>` : '')
         + `<div class="pm dim">${esc(tf('meTraits', String(tr.strength ?? 0), String(tr.speed ?? 0), String(tr.intelligence ?? 0), String(tr.courage ?? 0), String(tr.empathy ?? 0)))}</div>`
         + `<div class="pm">${esc(tf('meTame', String(c.tame ?? 0), String(c.tamePower ?? 0)))}</div>`
         + (c.horses?.length ? `<div class="pm">${t('meHorses')}: ${c.horses.map((h) => esc(tf('meHorse', h.name, t(h.quality === 'legendary' ? 'qLegendary' : h.quality === 'rare' ? 'qRare' : 'qCommon'), String(h.speed), String(h.stamina), String(h.intel)))).join('<br>')}</div>` : '')
@@ -2130,14 +2172,29 @@ function draw(now: number, dt: number): void {
     if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
     if (i === me && aimOn) face[i] = Math.PI / 2 - (aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng); // I turn to my aim
     if (eyes && i === me) continue;
-    const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
+    // Lying down (imad 2026-11-26: "they are not visible, the bed hides them"): asleep next to a bed = climb onto it and lie on top
+    // of it along it, the head on the pillow; elsewhere lie down on the ground; getting up plays it backwards.
+    const dead = (flags[i]! & EFlag.Dead) !== 0, asleep = (flags[i]! & EFlag.Sleeping) !== 0, size = flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1;
+    lieK[i] = dead ? 1 : lieK[i]! + Math.sign((asleep ? 1 : 0) - lieK[i]!) * Math.min(Math.abs((asleep ? 1 : 0) - lieK[i]!), dt / (asleep ? 1.1 : 0.8));
+    let lying: number = lieK[i]!, lift = 0;
+    if (lying > 0 && !dead && !(flags[i]! & EFlag.Carried) && !riding[i]) {
+      const bp = bedPose(x, y, size);
+      if (bp) {
+        const u = lying, mv = easeS(u * 1.5);
+        x += (bp.x - x) * mv; y += (bp.y - y) * mv;
+        lift = 0.5 * easeS(u / 0.45); // a step up onto it first
+        lying = easeS((u - 0.3) / 0.7); // then lie back
+        let df = bp.f - face[i]!; df = Math.atan2(Math.sin(df), Math.cos(df));
+        face[i] = face[i]! + df * easeS(u * 2) * Math.min(1, dt * 14);
+      } else lying = easeS(lying);
+    }
     const zed = kind[i] === Kind.Threat;
     const mine = i === me || eid[i] === meId;
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     const seat = riding[i] ? riderSeat(x, y) : 0;
     if (i === me) { myLook = look; myGear = gearOf[i]!; }
     const PP = i === me ? P : g3.peopleFor(x, y); // far away: the simpler set
-    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat);
+    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, size, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat, lift);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) PP.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (kind[i] === Kind.Npc) PP.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
     else if (eid[i] === follow) PP.marker(x, y, tsec, GOLD);
@@ -2148,6 +2205,7 @@ function draw(now: number, dt: number): void {
     g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
   }
   P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
+  g3.anims.update(now, dt, (tx, ty) => tileUnder(tx + 0.5, ty + 0.5), looks, menu.open && menu.page === 'box' && boxView ? [boxView.at[0]!, boxView.at[1]!] : null);
   if (aimOn && me >= 0) {
     const lk = aimLock >= 0 && eid[aimLock] !== -1 ? aimLock : -1;
     const ang = lk >= 0 ? Math.atan2(ny[lk]! - predY, nx[lk]! - predX) : aimAng;
@@ -2444,7 +2502,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [] };
     MyPC.ready();
   },
   onStart() {

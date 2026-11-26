@@ -149,6 +149,22 @@ export class Life {
     return true;
   }
 
+  /** How far along a pregnancy is, 0-100 % (the due time moves with Life.rescale, the share stays). */
+  pregnancyPct(p: { pregnant?: { due: number } }): number {
+    if (!p.pregnant) return 0;
+    const len = GESTATION_YEARS * this.yearSec;
+    return Math.max(0, Math.min(100, Math.round(100 * (1 - (p.pregnant.due - this.w.gameSec) / len))));
+  }
+
+  /** The panel sets how far along a pregnancy is (pct 0-100; < 0 = not expecting). True, or why not. */
+  setPregnant(p: { sex: string; partner: number; pregnant?: { father: number; due: number } }, pct: number): true | string {
+    if (pct < 0) { delete p.pregnant; return true; }
+    if (p.sex !== 'f') return 'only a woman can be expecting';
+    if (p.partner < 0) return 'she has no partner';
+    p.pregnant = { father: p.partner, due: this.w.gameSec + (1 - Math.min(100, pct) / 100) * GESTATION_YEARS * this.yearSec };
+    return true;
+  }
+
   /** A mother rests at least a year between babies (imad's world had one woman with 5 in a few days). */
   private babyLately(mid: number): boolean {
     const w = this.w, now = w.gameSec;
