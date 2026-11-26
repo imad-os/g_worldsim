@@ -12,54 +12,120 @@ const invChips = (inv?: Record<string, number>, carry = 0) => {
 };
 
 // ------------------------------------------------------------ the list
-let tab = load('pTab', 'alive'), q = '', sort = load('pSort', 'name'), mapF = 'all';
-function listHtml(): string {
-  if (tab === 'dead' || tab === 'all') {
-    const rows = S.profiles.filter((p) => (tab === 'all' || !p.alive) && (!q || p.name.toLowerCase().includes(q))).sort((a, b) => (b.died ?? 1e12) - (a.died ?? 1e12));
-    if (!rows.length) return '<div class="empty">Nobody here.</div>';
-    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Age</th><th>Gen.</th><th>Parents</th><th>Partner</th><th>Children</th><th>Kills</th><th>Died</th></tr></thead><tbody>${rows.map((p) =>
-      `<tr class="link" data-id="${p.id}"><td>${avatar(p.name, p.sex, 'sm')} <b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</td><td>${p.age}</td><td>${p.generation}</td><td>${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td>${p.children}</td><td><small>${esc(killsText(p.kills) || '-')}</small></td><td>${p.died !== null ? `${gameTime(p.died)}<br><small>${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`;
+/**
+ * People screen (imad 2026-11-26: "very tall, badly designed"): one section at a time (People / Clans / Camps / Quests / Dead / Everyone ever),
+ * quick filters with counts, a dense table (default) or compact cards, players' characters as one slim row each.
+ */
+type Sec = 'alive' | 'clans' | 'camps' | 'quests' | 'dead' | 'all';
+const SECS: [Sec, string][] = [['alive', 'People'], ['clans', 'Clans'], ['camps', 'Camp plans'], ['quests', 'Quests'], ['dead', 'Dead'], ['all', 'Everyone ever']];
+let tab = load('pTab', 'alive') as Sec, q = '', sort = load('pSort', 'name'), mapF = 'all', layout = load('pLay', 'table'), filt = 'all';
+if (!SECS.some(([k]) => k === tab)) tab = 'alive';
+const needy = (p: Person) => p.hunger > 70 || p.thirst > 70 || p.tired > 85 || p.hp < 40;
+const FILTERS: [string, string, (p: Person) => boolean][] = [
+  ['all', 'Everyone', () => true],
+  ['needy', 'Needs help', needy],
+  ['goal', 'On an objective', (p) => !!p.goal],
+  ['kids', 'Children', (p) => !!p.child],
+  ['expecting', 'Expecting', (p) => !!p.pregnant || !!p.lyingIn],
+  ['single', 'Single adults', (p) => !p.child && !p.partner],
+];
+const SORTS: [string, string, (p: Person) => number | string][] = [
+  ['name', 'name', (p) => p.name.toLowerCase()], ['age', 'oldest', (p) => -p.age], ['hp', 'weakest', (p) => p.hp], ['hunger', 'hungriest', (p) => -p.hunger],
+  ['thirst', 'thirstiest', (p) => -p.thirst], ['tired', 'most tired', (p) => -p.tired], ['act', 'activity', (p) => ACTS[p.act] ?? ''], ['map', 'map', (p) => mapName(p.map)],
+  ['influence', 'most influence', (p) => -(p.influence ?? 0)], ['kills', 'most kills', (p) => -((p.kills?.animals ?? 0) + (p.kills?.zombies ?? 0) * 3 + (p.kills?.people ?? 0) * 10)],
+];
+const tags = (p: Person) => (p.child ? '<span class="tag">child</span>' : '') + (p.pregnant ? `<span class="tag warn" title="pregnancy">expecting ${p.pregnantPct ?? 0}%</span>` : '')
+  + (p.lyingIn ? '<span class="tag ok">newborn at home</span>' : '') + (needy(p) ? '<span class="tag bad">needs help</span>' : '');
+const doing = (p: Person) => `<span class="pdo"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}</span>`;
+const objective = (p: Person) => p.goal
+  ? `<div class="pobj${p.goal.from !== 'myself' ? ' ordered' : ''}" title="${esc(p.goal.from === 'myself' ? 'their own goal' : p.goal.from === 'owner' ? 'your order' : 'asked by ' + p.goal.from)} · step ${Math.min(p.goal.k + 1, p.goal.n)}/${p.goal.n}: ${esc(p.goal.step)}"><span>${esc(p.goal.text)}</span><div class="meter good"><i style="width:${Math.max(4, p.goal.pct)}%"></i></div><small>${p.goal.pct}%</small></div>`
+  : p.order ? `<small class="dim">Told to ${esc(p.order)}</small>` : '';
+const needsHtml = (p: Person) => `<div class="pneeds">${([['Food', p.hunger, true], ['Water', p.thirst, true], ['Rest', p.tired, true], ['Health', p.hp, false]] as [string, number, boolean][])
+  .map(([l, v, lack]) => `<div><span>${l}</span>${meter(v, lack, l)}</div>`).join('')}</div>`;
+const where = (p: Person) => `${esc(mapName(p.map))} <span class="dim">${Math.round(p.x)}, ${Math.round(p.y)}</span>`;
+const killShort = (p: Person) => { const k = p.kills; if (!k) return ''; const n = (k.animals ?? 0) + (k.zombies ?? 0) + (k.people ?? 0); return n ? String(n) : ''; };
+
+function aliveHtml(): string {
+  const base = S.people.filter((p) => !p.player && (mapF === 'all' || p.map === mapF) && (!q || p.name.toLowerCase().includes(q)));
+  const f = FILTERS.find((x) => x[0] === filt) ?? FILTERS[0]!;
+  const k = (SORTS.find((x) => x[0] === sort) ?? SORTS[0]!)[2];
+  const list = base.filter(f[2]).sort((a, b) => { const x = k(a), y = k(b); return x < y ? -1 : x > y ? 1 : a.name.localeCompare(b.name); });
+  const chips = `<div class="pfilt" id="pFilt">${FILTERS.map(([key, label, fn]) => { const n = base.filter(fn).length; return key !== 'all' && !n ? '' : `<button data-f="${key}" class="${filt === key ? 'on' : ''}${key === 'needy' && n ? ' alert' : ''}">${label} <b>${n}</b></button>`; }).join('')}</div>`;
+  let body: string;
+  if (!list.length) body = '<div class="empty">Nobody matches.</div>';
+  else if (layout === 'cards') body = `<div class="pgrid">${list.map((p) => `<a class="pcard" href="#/person/${p.id}">
+      <div class="pc-h">${avatar(p.name, p.sex, 'sm')}<div class="pc-n"><b>${esc(p.name)}</b><small>${p.sex === 'f' ? 'Woman' : 'Man'}, ${p.age}${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}</small></div>${p.influence !== undefined ? `<span class="pinf" title="influence">${icon('star')}${p.influence}</span>` : ''}</div>
+      ${tags(p) ? `<div class="ptags">${tags(p)}</div>` : ''}
+      <div class="pc-a">${doing(p)}</div>${objective(p)}
+      ${needsHtml(p)}
+      <div class="pc-f">${icon('map')} ${where(p)}${killShort(p) ? ` · <span title="${esc(killsText(p.kills))}">⚔ ${killShort(p)}</span>` : ''}</div></a>`).join('')}</div>`;
+  else {
+    const th = (key: string, label: string, cls = '') => `<th class="${cls}${sort === key ? ' on' : ''}" data-s="${key}">${label}${sort === key ? ' ▾' : ''}</th>`;
+    body = `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl pal"><thead><tr>${th('name', 'Person')}${th('act', 'Doing')}${th('hunger', 'Food', 'nd')}${th('thirst', 'Water', 'nd')}${th('tired', 'Rest', 'nd')}${th('hp', 'Health', 'nd')}${th('map', 'Where', 'hs')}${th('influence', '★', 'num hs')}${th('kills', '⚔', 'num hs')}</tr></thead><tbody>${list.map((p) =>
+      `<tr class="link" data-id="${p.id}"><td class="pn"><div class="pnw">${avatar(p.name, p.sex, 'sm')}<div><b>${esc(p.name)}</b> <small class="dim">${p.sex === 'f' ? 'F' : 'M'} ${p.age}${p.partner ? ` · ♥ ${esc(p.partner)}` : ''}</small>${tags(p) ? `<div class="ptags">${tags(p)}</div>` : ''}</div></div></td>
+      <td class="pd">${doing(p)}${objective(p)}</td><td class="nd" data-l="Food">${meter(p.hunger, true, 'Food')}</td><td class="nd" data-l="Water">${meter(p.thirst, true, 'Water')}</td><td class="nd" data-l="Rest">${meter(p.tired, true, 'Rest')}</td><td class="nd" data-l="Health">${meter(p.hp, false, 'Health')}</td>
+      <td class="hs nowrap">${where(p)}</td><td class="num hs">${p.influence ?? ''}</td><td class="num hs" title="${esc(killsText(p.kills))}">${killShort(p) || '<span class="dim">·</span>'}</td></tr>`).join('')}</tbody></table></div>`;
   }
-  let list = S.people.filter((p) => !p.player && (mapF === 'all' || p.map === mapF) && (!q || p.name.toLowerCase().includes(q)));
-  const key: Record<string, (p: Person) => number | string> = { name: (p) => p.name, age: (p) => -p.age, hp: (p) => p.hp, hunger: (p) => -p.hunger, thirst: (p) => -p.thirst, act: (p) => p.act, influence: (p) => -(p.influence ?? 0), kills: (p) => -((p.kills?.animals ?? 0) + (p.kills?.zombies ?? 0) * 3 + (p.kills?.people ?? 0) * 10) };
-  const k = key[sort] ?? key.name!;
-  list = list.sort((a, b) => { const x = k(a), y = k(b); return x < y ? -1 : x > y ? 1 : 0; });
   const players = S.people.filter((p) => p.player && (!q || p.name.toLowerCase().includes(q)));
-  return (list.length ? `<div class="pgrid">${list.map((p) => `<a class="pcard" href="#/person/${p.id}">
-      <div class="pc-h">${avatar(p.name, p.sex)}<div><b>${esc(p.name)}</b><small>${p.sex === 'f' ? 'Woman' : 'Man'}, ${p.age}${p.child ? ' · child' : ''}${p.pregnant ? ` · expecting ${p.pregnantPct ?? 0}%` : ''}${p.lyingIn ? ' · home with the newborn' : ''}</small></div></div>
-      <div class="pc-a"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}${!p.goal && p.order ? `<br><small>Told to ${esc(p.order)}</small>` : ''}</div>${p.goal ? goalHtml(p.goal, esc) : ''}
-      <div class="pc-m"><span>Food</span>${meter(p.hunger)}<span>Water</span>${meter(p.thirst)}<span>Rest</span>${meter(p.tired)}<span>Health</span>${meter(p.hp, false)}</div>
-      <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}${p.influence !== undefined ? ` · ${icon('star')} influence ${p.influence}` : ''}${killsText(p.kills) ? `<br><small>Killed ${esc(killsText(p.kills))}</small>` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
-    + (players.length ? `<h4 class="sub">Players' characters</h4><div class="pgrid">${players.map((p) => `<a class="pcard player" href="#/person/${p.id}"><div class="pc-h">${avatar(p.name)}<div><b>${esc(p.name)}</b><small>player · ${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away (asleep)'}</small></div></div><div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})</div></a>`).join('')}</div>` : '');
+  const prow = players.length ? `<h4 class="sub">Players' characters · ${players.length}</h4><div class="prows">${players.map((p) => `<a class="prow" href="#/person/${p.id}">${avatar(p.name, p.sex, 'sm')}<b>${esc(p.name)}</b><span class="tag ${p.online && !p.asleep ? 'ok' : ''}">${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away'}</span><span class="dim">${icon('map')} ${where(p)}</span></a>`).join('')}</div>` : '';
+  return chips + body + prow;
+}
+function deadHtml(): string {
+  const rows = S.profiles.filter((p) => (tab === 'all' || !p.alive) && (!q || p.name.toLowerCase().includes(q))).sort((a, b) => (b.died ?? 1e12) - (a.died ?? 1e12));
+  if (!rows.length) return '<div class="empty">Nobody here.</div>';
+  return `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Name</th><th>Age</th><th class="hs">Gen.</th><th class="hs">Parents</th><th>Partner</th><th class="num">Children</th><th class="hs">Kills</th><th>Died</th></tr></thead><tbody>${rows.map((p) =>
+    `<tr class="link" data-id="${p.id}"><td class="pn"><div class="pnw">${avatar(p.name, p.sex, 'sm')}<div><b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</div></td><td>${p.age}</td><td class="hs">${p.generation}</td><td class="hs">${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td class="num">${p.children}</td><td class="hs"><small>${esc(killsText(p.kills) || '-')}</small></td><td>${p.died !== null ? `${gameTime(p.died)}<br><small class="dim">${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`;
+}
+const listHtml = () => tab === 'alive' ? aliveHtml() : tab === 'dead' || tab === 'all' ? deadHtml() : '';
+const isList = () => tab === 'alive' || tab === 'dead' || tab === 'all';
+
+function drawList(): void { setHtml('pList', listHtml()); bindList(); }
+function toolbarState(): void {
+  const v = view(), hide = (sel: string, h: boolean) => { const el = v.querySelector<HTMLElement>(sel); if (el) el.hidden = h; };
+  hide('.ptool', !isList());
+  for (const sel of ['#pMapF', '#pSort', '#pLay', '#pAdd']) hide(sel, tab !== 'alive');
 }
 
 export const peopleScreen: Screen = {
   title: 'People', icon: 'people', help: 'people', every: 4,
   render() {
-    return `<div class="toolbar">
-        <div class="seg" id="pTabs">${[['alive', 'Alive'], ['dead', 'Dead'], ['all', 'Everyone ever']].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <label class="search">${icon('search')}<input id="pQ" placeholder="Search a name" value="${esc(q)}"></label>
+    return `<div class="seg ptabs" id="pTabs">${SECS.map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="toolbar ptool">
+        <label class="search tb-i">${icon('search')}<input id="pQ" placeholder="Search a name" value="${esc(q)}"></label>
         <select id="pMapF" aria-label="Map"><option value="all">Every map</option></select>
-        <select id="pSort" aria-label="Sort"><option value="name">Sort: name</option><option value="age">Sort: oldest</option><option value="hp">Sort: weakest</option><option value="hunger">Sort: hungriest</option><option value="thirst">Sort: thirstiest</option><option value="act">Sort: activity</option><option value="influence">Sort: most influence</option><option value="kills">Sort: most kills</option></select>
-        <button class="btn" id="pAdd">${icon('plus')} Add a person</button>
-      </div><div id="pClans"></div><div id="pList"><div class="skel tall"></div></div>`;
+        <select id="pSort" aria-label="Sort">${SORTS.map(([k, l]) => `<option value="${k}">Sort: ${l}</option>`).join('')}</select>
+        <div class="seg sm" id="pLay" role="group" aria-label="Layout"><button data-l="table" class="${layout === 'table' ? 'on' : ''}" title="Table">${icon('rows')}<span> Table</span></button><button data-l="cards" class="${layout === 'cards' ? 'on' : ''}" title="Cards">${icon('tiles')}<span> Cards</span></button></div>
+        <button class="btn sm" id="pAdd">${icon('plus')}<span> Add a person</span></button>
+      </div><div id="pList"><div class="skel tall"></div></div>`;
   },
   async mount() {
-    on('#pTabs button', 'click', (b) => { tab = b.dataset.t!; save('pTab', tab); for (const x of view().querySelectorAll('#pTabs button')) x.classList.toggle('on', x === b); void this.refresh!(); });
-    on('#pQ', 'input', (el) => { q = (el as HTMLInputElement).value.trim().toLowerCase(); setHtml('pList', listHtml()); bindList(); });
-    on('#pSort', 'change', (el) => { sort = (el as HTMLSelectElement).value; save('pSort', sort); setHtml('pList', listHtml()); bindList(); });
-    on('#pMapF', 'change', (el) => { mapF = (el as HTMLSelectElement).value; setHtml('pList', listHtml()); bindList(); });
+    on('#pTabs button', 'click', (b) => { tab = b.dataset.t as Sec; save('pTab', tab); for (const x of view().querySelectorAll('#pTabs button')) x.classList.toggle('on', x === b); toolbarState(); setHtml('pList', '<div class="skel tall"></div>'); void this.refresh!(); });
+    on('#pQ', 'input', (el) => { q = (el as HTMLInputElement).value.trim().toLowerCase(); drawList(); });
+    on('#pSort', 'change', (el) => { sort = (el as HTMLSelectElement).value; save('pSort', sort); drawList(); });
+    on('#pMapF', 'change', (el) => { mapF = (el as HTMLSelectElement).value; drawList(); });
+    on('#pLay button', 'click', (b) => { layout = b.dataset.l!; save('pLay', layout); for (const x of view().querySelectorAll('#pLay button')) x.classList.toggle('on', x === b); drawList(); });
     on('#pAdd', 'click', async () => {
       if (!confirm('Add a new person in Old Town? (The world normally grows only by births.)')) return;
       try { const r = await cmd<{ name?: string }>({ cmd: 'spawn', map: 'town', x: 128, y: 128 }); toast(`${r.name || 'A new person'} arrived in Old Town`, 'ok'); void this.refresh!(); } catch (e) { toast(String(e), 'err'); }
     });
+    // Clicks inside the list (filters, sortable headers) are delegated: the list is redrawn every few seconds.
+    document.getElementById('pList')?.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      const f = t.closest<HTMLElement>('[data-f]'); if (f) { filt = f.dataset.f!; drawList(); return; }
+      const s = t.closest<HTMLElement>('th[data-s]'); if (s) { sort = s.dataset.s!; save('pSort', sort); (document.getElementById('pSort') as HTMLSelectElement).value = sort; drawList(); }
+    });
     (document.getElementById('pSort') as HTMLSelectElement).value = sort;
+    toolbarState();
     const ov = await overview();
     (document.getElementById('pMapF') as HTMLSelectElement).innerHTML = '<option value="all">Every map</option>' + ov.maps.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
     await this.refresh!();
   },
   async refresh() {
-    try { if (tab === 'alive') await people(true); else await profiles(); setHtml('pList', listHtml()); bindList(); void loadClans(); } catch (e) { toast(String(e), 'err'); }
+    try {
+      if (tab === 'alive') { await people(true); drawList(); }
+      else if (tab === 'dead' || tab === 'all') { await profiles(); drawList(); }
+      else await loadSection(tab);
+    } catch (e) { toast(String(e), 'err'); }
   },
 };
 type ClanRow = { id: number; name: string; map: string; leader: string; leaderId: number; home: number[]; founder: string; approval: number; order: string; lastVote: number;
@@ -74,25 +140,28 @@ type QuestsInfo = { npcs: { key: string; name: string; x: number; y: number; map
  * Clans (imad 2026-11-25: deep clans): elected leader with the members' approval, members by respect with loyalty, the election under way or the
  * last result, the leader's order of the day, rivals; "Call a vote" opens an election. Quests: the town's teachers and everyone's progress.
  */
-async function loadClans(): Promise<void> {
-  const el = document.getElementById('pClans'); if (!el) return;
+async function loadSection(sec: Sec): Promise<void> {
+  const el = document.getElementById('pList'); if (!el) return;
   try {
-    const [r, q, pl] = await Promise.all([cmd<{ clans: ClanRow[]; now: number }>({ cmd: 'clans' }), cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null), cmd<{ plans: PlanRow[] }>({ cmd: 'campPlan' }).catch(() => null)]);
+    const [r, q, pl] = await Promise.all([sec === 'clans' ? cmd<{ clans: ClanRow[]; now: number }>({ cmd: 'clans' }) : null, sec === 'quests' ? cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null) : null, sec === 'camps' ? cmd<{ plans: PlanRow[] }>({ cmd: 'campPlan' }).catch(() => null) : null]);
+    if (tab !== sec) return;
     const plans = pl?.plans.length ? card('Camp plans', `<p class="dim">Each camp keeps food and water for the days to come, a home for every household with beds, a fridge and a chest, and wood and stone in the store. Free people work on the biggest hole first; the leader says it aloud.</p>`
       + pl.plans.map((p) => `<div class="li" style="display:block"><b>${esc(p.name)}</b> <span class="dim">${p.clan ? esc(p.clan) + ' clan · ' : ''}${p.people} people${p.leader ? ' · leader ' + esc(p.leader) : ''}${p.most ? ' · most needed: <b>' + esc(PLAN_WORDS[p.most] ?? p.most) + '</b>' : ' · all stocked'}</span>
         <div class="plan">${p.lines.filter((l) => l.want > 0).map((l) => { const pc = Math.min(100, Math.round((l.have / l.want) * 100)); return `<div class="pl"><span>${esc(PLAN_WORDS[l.key] ?? l.key)}</span><div class="bar"><i style="width:${pc}%;background:${pc >= 100 ? 'var(--ok)' : pc >= 50 ? 'var(--warn)' : 'var(--bad)'}"></i></div><b>${l.have} / ${l.want}</b></div>`; }).join('')}</div>
         ${Object.keys(p.working).length ? `<small class="dim">Working on it now: ${Object.entries(p.working).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)} ${n}`).join(', ')}</small><br>` : ''}
         ${p.boxes.length ? `<small class="dim">Stores at home: ${p.boxes.map((b) => `${b.kind === 'fridge' ? '🧊' : '🧰'} ${esc(b.owner || 'free hut')} (${Object.entries(b.inv).filter(([, v]) => v).map(([k, v]) => `${v} ${esc(k)}`).join(', ') || 'empty'})`).join(' · ')}</small>` : ''}</div>`).join('')) : '';
-    const clans = r.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
+    const clans = r?.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
       <div class="chips">${c.members.slice().sort((a, b) => (b.influence ?? 0) - (a.influence ?? 0)).map((m) => `<a class="chip" href="#/person/${m.id}" title="influence ${m.influence ?? '?'}, respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.influence !== undefined ? `influence ${m.influence} · ` : ''}loyal ${m.loyalty}%</small></a>`).join('')}</div>
       ${c.vote ? `<small><b>Election on</b>: ${esc(c.vote.cands.join(' / '))} (${esc(c.vote.why)}), ${c.vote.votes} votes so far, closes ${gameTime(c.vote.end)}</small><br>` : c.result ? `<small class="dim">Last vote ${gameTime(c.result.at)}: ${esc(c.result.winner)} won${c.result.winner !== c.result.old ? ' (was ' + esc(c.result.old) + ')' : ''} · ${c.result.tally.map(([n, v]) => `${esc(n)} ${v}`).join(', ')}</small><br>` : ''}
       ${c.order ? `<small class="dim">Leader's order: “${esc(c.order)}”</small><br>` : ''}
       ${c.rivals.length ? `<small class="dim">Rivals: ${c.rivals.map((x) => `${esc(x.name)} (tension ${x.tension}/10)`).join(', ')}</small><br>` : ''}
       ${c.vote ? '' : `<button class="btn sm" data-vote="${c.id}">Call a vote</button>`}</div>`).join('')) : '';
     const quests = q ? card('Quests', `<p class="dim">Teachers in ${esc(mapName(q.npcs[0]?.map ?? ''))}: ${q.npcs.map((n) => `${esc(n.name)} (${n.x}, ${n.y})`).join(', ')}. Ten quests in order; each lesson stays in the person's prompts.</p>
-      <table><tr><th>Person</th><th>Done</th><th>Now</th></tr>${q.people.sort((a, b) => b.done - a.done).map((p) => `<tr><td><a href="#/person/${p.id}">${esc(p.name)}</a>${p.player ? ' <small class="dim">player</small>' : ''}</td><td>${p.done} / ${q.quests.length}</td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <small>(hand it in)</small>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</table>`) : '';
-    el.innerHTML = plans + clans + quests;
-    on('[data-vote]', 'click', (b) => { void cmd({ cmd: 'clanVote', id: Number(b.dataset.vote) }).then(() => { toast('Election opened (2 game hours)'); void loadClans(); }, (e) => toast(String(e), 'err')); });
+      <div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Person</th><th>Done</th><th>Now</th></tr></thead><tbody>${q.people.sort((a, b) => b.done - a.done || a.name.localeCompare(b.name)).map((p) => `<tr class="link" data-id="${p.id}"><td class="nowrap"><b>${esc(p.name)}</b>${p.player ? ' <span class="tag">player</span>' : ''}</td><td class="qdone"><div class="meter good"><i style="width:${Math.max(2, Math.round((p.done / Math.max(1, q.quests.length)) * 100))}%"></i></div><small>${p.done} / ${q.quests.length}</small></td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <span class="tag ok">hand it in</span>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</tbody></table></div>`) : '';
+    const none: Record<string, string> = { clans: 'No clans yet: a camp leader founds one at the registrar.', camps: 'No camp yet: the first fire or hut makes one.', quests: 'Quests are not available on this server.' };
+    el.innerHTML = (sec === 'clans' ? clans : sec === 'camps' ? plans : quests) || `<div class="empty">${none[sec] ?? ''}</div>`;
+    on('[data-vote]', 'click', (b) => { void cmd({ cmd: 'clanVote', id: Number(b.dataset.vote) }).then(() => { toast('Election opened (2 game hours)'); void loadSection(sec); }, (e) => toast(String(e), 'err')); });
+    bindList();
   } catch { /* next time */ }
 }
 function bindList(): void { on('tr.link', 'click', (el) => { location.hash = `#/person/${el.dataset.id}`; }); }

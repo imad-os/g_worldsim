@@ -783,3 +783,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `NetServer.toMap`; kept open while the box page is open); a cut tree (tile change in `Msg.Chunk`) falls away from the chopper, bounces, leaves fly, sinks.
 - `Life.pregnancyPct` (0-100): panel cards "expecting N%", person page bar, TV Me / person pages; prompts say it. Admin `agentSet { pregnant: 0-100 | -1 }`.
   Proofs `ADMIN_TOKEN=... node tools/home-proof.mjs <server> <sdk.js> <outdir>`, `node tools/pregnancy-proof.mjs <server> <outdir>` (dark panel).
+
+## People screen layout (imad 2026-11-26: "very tall, badly designed")
+- `panel/src/people.ts`: section tabs People / Clans / Camp plans / Quests / Dead / Everyone ever (`pTab`; clans, camp plans and quests were cards above the
+  list and grew with the population), filter chips with counts (needs help, on an objective, children, expecting, single adults), Table (default, sortable
+  headers, `pLay`) or compact Cards; phone = the table's rows turn into 2-line blocks; players' characters = slim rows. Desktop 2150 -> 1150 px for 16 people.

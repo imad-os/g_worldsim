@@ -18,7 +18,7 @@ export const HELP: Record<string, [string, string]> = {
   alerts: ['Needs your attention', 'TVs waiting for a code, people starving or hurt, the AI failing, the world paused or the internet link down.'],
   feed: ['Latest events', 'The newest things that happened. The Events page has all of them with filters.'],
   mapsTable: ['Maps', 'Each map: who is there, zombies and animals, the camp (where the first fire or hut went up), huts (and their doors), fires burning, the leader (chosen by courage, mind, kindness, strength and level: they hand out the work), the wall round the camp (pieces up / all) and the camp store.'],
-  people: ['People', 'Everyone alive, and the dead too (their family stays known). Tap someone for their page: needs, mind, talk, orders, family, rules and what happened to them.'],
+  people: ['People', 'One section at a time: People (a table or cards; the chips filter who needs help, who is on an objective, children, expecting, single adults; click a column to sort), Clans, Camp plans, Quests, the Dead and Everyone ever. Tap someone for their page: needs, mind, talk, orders, family, rules and what happened to them.'],
   person: ['Person', 'One person. Talk to them as if you were there, give orders they must obey, edit their needs and traits, see their memory and plans (from the AI).'],
   pMind: ['Mind', 'Filled by the AI brain: mood, what they want to do now and why, and what they remember. Empty while the AI is off.'],
   pTalk: ['Talk', 'You talk as the owner. They answer (with the AI, or built-in lines without it) and may do what you ask: "come to imad", "build a hut", "go and find a wife".'],
