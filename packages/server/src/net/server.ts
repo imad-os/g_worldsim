@@ -599,7 +599,7 @@ export class NetServer {
           this.send(s, { t: Msg.Notice, kind: 'did', data: { a: 'talk', ok: j >= 0, code: j >= 0 ? 'talk' : 'nobody' } });
           return;
         }
-        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, m.a === 'ruleAdd' || m.a === 'clan' ? 210 : 40) : undefined) } });
+        this.send(s, { t: Msg.Notice, kind: 'did', data: { a: m.a, ...this.onDo(s.name, s.avatar, m.a, typeof m.text === 'string' ? m.text.slice(0, m.a === 'ruleAdd' || m.a === 'clan' || m.a === 'mark' ? 210 : 40) : undefined) } });
         if ((m.a === 'equip' || m.a === 'upgrade' || m.a === 'craft' || m.a === 'medkit' || m.a === 'take' || m.a === 'use') && s.avatar >= 0 && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) }); // the bag / gear screens at once
         this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
         return;

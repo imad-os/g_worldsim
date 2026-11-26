@@ -21,6 +21,8 @@ import { loadItems, iconStyle } from './gfx/items.js';
 import { DEATH_SECS } from './gfx/animals.js';
 import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
+import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
+import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind } from '@worldsim/protocol';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
 const sound = new Sound();
@@ -61,6 +63,7 @@ function applyUiSize(): void {
   r.setProperty('--ui', String(uiSize));
   r.setProperty('--uib', String(Math.min(uiSize, 1.1))); // the big screens (bag, crafting, gear) fill the screen already: they grow less
 }
+const xhairEl = document.getElementById('xhair') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'xhair', hidden: true }));
 const aimEl = document.getElementById('aimhud') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'aimhud', hidden: true }));
 const cardEl = document.getElementById('card')!;
 
@@ -132,7 +135,7 @@ const held = { left: false, right: false, up: false, down: false };
 
 // Game menu, buttons, thoughts, person card.
 let binds: Binds = cloneBinds(DEFAULT_BINDS);
-let bindsNews = false;
+let bindsNews = false, mapNews = false;
 let capture: ActionId | null = null;
 /** The bow's aim (imad 2026-11-20 "a good system to attack with a bow"): held Aim = the stick points, Attack shoots along it. */
 let aimOn = false, aimAng = 0, aimLock = -1, moveAng = NaN, aimAt = 0, aimShown = -1;
@@ -223,7 +226,8 @@ function lookFor(id: number): PersonLook {
 function show(m: typeof mode, extra = ''): void {
   mode = m;
   canvas.style.visibility = m === 'world' ? 'visible' : 'hidden';
-  hudTop.hidden = hudHint.hidden = m !== 'world';
+  hudTop.hidden = m !== 'world';
+  hudHint.hidden = true; // imad 2026-11-25: "remove the bottom black block with the buttons, I don't need it"
   fpsEl.hidden = !gfx.fps || m !== 'world';
   if (m !== 'world') { noteEl.hidden = true; cardEl.hidden = true; cardHtml = ''; if (menu?.open) menu.close(); bubbles?.hide(); }
   screenEl.hidden = m === 'world';
@@ -637,7 +641,7 @@ function viewStick(dt: number): [number, number] {
   if (Math.hypot(ax, ay) < 0.18) { ax = 0; ay = 0; }
   if (Math.abs(rx) < 0.2) rx = 0;
   const turn = rx * Math.abs(rx) + (held.right ? 1 : 0) - (held.left ? 1 : 0);
-  yaw += turn * 2.4 * dt;
+  yaw += turn * (aimOn ? 1.3 : 2.4) * dt; // drawing the bow: slower, finer turns
   // The left stick (and a controller's D-pad) walks / runs along where I look and steps sideways; it never turns the camera.
   if (!ax && !ay) { ax = (padHeld.right ? 1 : 0) - (padHeld.left ? 1 : 0); ay = (padHeld.down ? 1 : 0) - (padHeld.up ? 1 : 0); }
   const fwd = -ay + (held.up ? 1 : 0) - (held.down ? 1 : 0), side = ax;
@@ -652,9 +656,19 @@ const VSTICK: [number, number] = [0, 0];
 
 // ------------------------------------------------------------ quick action wheel
 const wheel = new Wheel(document.getElementById('wheel')!);
-const WHEEL_IDS = ['use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson'] as const;
-const WHEEL_ICON: Record<string, string> = { horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️', heal: '✚' };
-const WHEEL_KEY: Record<string, Key> = { horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson', heal: 'qHeal' };
+/** Everything the wheel can hold; the player picks which and in what order (Settings > Quick action wheel, `MyPC.save('wheel')`). */
+const WHEEL_ALL = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson', 'gear', 'me', 'talk', 'attack', 'pickup', 'thoughts'] as const;
+const WHEEL_DEFAULT: string[] = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson'];
+const WHEEL_MAX = 12;
+let wheelIds: string[] = [...WHEEL_DEFAULT];
+const WHEEL_ICON: Record<string, string> = { map: '🗺', horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️', heal: '✚', gear: '🛡', me: '🙂', talk: '💬', attack: '🗡', pickup: '👐', thoughts: '💭' };
+const WHEEL_KEY: Record<string, Key> = { map: 'qMap', horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson', heal: 'qHeal', gear: 'qGear', me: 'qMe', talk: 'qTalk', attack: 'qAttack', pickup: 'qPickup', thoughts: 'qThoughts' };
+function loadWheel(): void {
+  const v = MyPC.load('wheel', null) as unknown;
+  if (Array.isArray(v)) { const ok = v.filter((x): x is string => typeof x === 'string' && (WHEEL_ALL as readonly string[]).includes(x)); if (ok.length >= 2) wheelIds = [...new Set(ok)].slice(0, WHEEL_MAX); }
+}
+function saveWheel(): void { MyPC.save('wheel', wheelIds); }
+let wheelEdit = '';
 /** The wheel's button: held on a controller (let go = do it), pressed once on the remote (arrows + OK). */
 function wheelButton(pressed: boolean, pad: boolean): void {
   if (mode !== 'world' || menu.open || rp) return;
@@ -662,7 +676,7 @@ function wheelButton(pressed: boolean, pad: boolean): void {
     if (wheel.open) { if (!pad) wheel.close(); return; }
     if (how !== 'play' || !playing()) return;
     held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
-    const items: WheelItem[] = WHEEL_IDS.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : t(WHEEL_KEY[id]!) }));
+    const items: WheelItem[] = wheelIds.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : t(WHEEL_KEY[id]!) }));
     wheel.show(items, pad, t(pad ? 'wheelHelp' : 'wheelRemote'));
     return;
   }
@@ -856,6 +870,8 @@ function runQuick(id: string | null): void {
   if (id === 'camera') { nextCamera(); return; }
   if (id === 'bag') { openMenu('bag'); return; }
   if (id === 'heal') { send({ t: Msg.Do, a: 'medkit' }); return; }
+  if (id === 'gear') { openMenu('gear'); return; }
+  if (id === 'me') { send({ t: Msg.Do, a: 'mine' }); openMenu('me'); return; }
   if (id === 'place') { const p = placeable(); if (p) startPlacing(p); else note(t('qNothing'), 2000); return; }
   doAction(id as ActionId, true);
 }
@@ -878,11 +894,27 @@ function updatePlay(dt: number, now: number): void {
   let [mx, my] = placing ? [0, 0] : g3 && g3.view !== 'top' ? viewStick(dt) : stick();
   if (placing) placeTick(now); // the stick moves the model, my character stands
   if (aimOn) {
-    // Aiming: the stick turns the aim, my character stands; the nearest target close to the line is locked (red ring).
-    if (Math.hypot(mx, my) > 0.35) aimAng = Math.atan2(my, mx);
+    const s0 = meSlot(), ax0 = predOk ? predX : s0 >= 0 ? nx[s0]! : 0, ay0 = predOk ? predY : s0 >= 0 ? ny[s0]! : 0;
+    if (g3 && g3.view !== 'top') {
+      // Third / first person (imad 2026-11-25, "aim like a real person, a crosshair on the target"): I aim where the camera looks.
+      // The right stick / ◀ ▶ turn (slower), the left stick sideways turns finely; my character stands with the bow drawn.
+      const gp = MyPC.gamepad;
+      let lx = gp && !menu.open ? gp.axis(0) : 0; if (Math.abs(lx) < 0.2) lx = 0;
+      yaw += lx * Math.abs(lx) * 0.9 * dt;
+      // Aim assist (as before: the shot goes to the locked target): near the line, the aim also drifts onto it.
+      if (s0 >= 0) aimLock = targetNear(ax0, ay0, yaw - Math.PI / 2, 26, 0.12);
+      if (aimLock >= 0 && eid[aimLock] !== -1) {
+        let d = Math.atan2(ny[aimLock]! - ay0, nx[aimLock]! - ax0) - (yaw - Math.PI / 2);
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        if (Math.abs(d) < 0.12) yaw += d * Math.min(1, dt * 4);
+      }
+      aimAng = yaw - Math.PI / 2;
+    } else {
+      // From above: the stick turns the aim, the nearest target close to the line is locked (red ring).
+      if (Math.hypot(mx, my) > 0.35) aimAng = Math.atan2(my, mx);
+      if (s0 >= 0) aimLock = targetNear(ax0, ay0, aimAng, 22, 0.14);
+    }
     mx = my = 0;
-    const s0 = meSlot();
-    if (s0 >= 0) aimLock = targetNear(predOk ? predX : nx[s0]!, predOk ? predY : ny[s0]!, aimAng, 22, 0.14);
   }
   STICK[0] = mx; STICK[1] = my;
   const run = runHeld && !menu.open;
@@ -1071,6 +1103,7 @@ function doAction(a: ActionId, pressed: boolean): void {
       note(`${t('sThoughts')}: ${t(thoughtsOn ? 'on' : 'off')}`, 1500);
       return;
     case 'person': openMenu('person'); return;
+    case 'map': openMap(); return;
     case 'camera': if (how === 'play') nextCamera(); return;
     case 'wheel': wheelButton(true, false); return;
     case 'build': if (placing) placeTurn(); else if (how === 'play') openMenu('build'); return;
@@ -1127,7 +1160,7 @@ function setAim(on: boolean, fire = false): void {
   aimOn = on;
   const inv = meNeeds?.inv ?? {}, bow = (inv.bow ?? 0) > 0, arrows = inv.arrows ?? 0;
   if (on) {
-    aimAng = Number.isFinite(moveAng) ? moveAng : myAng(); aimAt = performance.now();
+    aimAng = g3 && g3.view !== 'top' && camView !== 'top' ? yaw - Math.PI / 2 : Number.isFinite(moveAng) ? moveAng : myAng(); aimAt = performance.now();
     if (!bow) note(t('noBow'), 3500);
     else if (arrows < 1) note(t('noArrows'), 3500);
     else note(tf('aimOn', keyName('aim')), 2500);
@@ -1139,7 +1172,7 @@ function setAim(on: boolean, fire = false): void {
       send({ t: Msg.Do, a: 'shoot', text: t0.toFixed(3) });
     }
     if (bow) send({ t: Msg.Do, a: 'aim', text: '0' });
-    aimLock = -1; g3?.aim(false);
+    aimLock = -1; g3?.aim(false); xhairEl.hidden = true;
   }
   aimHud();
 }
@@ -1226,6 +1259,16 @@ function onSttText(e: { text: string }): void {
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
   if (quests.did(d as never)) return;
+  if (d.a === 'map') { if (d.ok) mapScreen.set(d as unknown as MapData); return; }
+  if (d.a === 'mark') {
+    const dm = d as typeof d & { marks?: MapMark[]; id?: number };
+    if (dm.marks) mapScreen.setMarks(dm.marks);
+    const added = dm.marks?.find((m) => m.id === dm.id);
+    const msg: Record<string, string> = { marked: tf('marked', added ? markName(added.kind) : ''), unmarked: t('unmarked'), renamed: t('renamed'), markFull: t('markFull'), markBad: t('markBad') };
+    if (msg[d.code]) { sound.play(d.ok ? 'ui_ok' : 'ui_error'); note(msg[d.code]!, 2500); }
+    if (menu.open && MAP_PAGES.has(menu.page)) menu.refresh();
+    return;
+  }
   if (d.a === 'destroy') {
     const dd = d as typeof d & { tx?: number; ty?: number; check?: boolean; cells?: number[]; owner?: string };
     if (dd.check) { if (placing?.what === 'destroy') { destroyInfo = { tx: dd.tx ?? -1, ty: dd.ty ?? -1, code: d.code, cells: dd.cells ?? [], owner: dd.owner ?? '' }; placeNote(); } return; }
@@ -1358,6 +1401,34 @@ function buildPage(id: string): Page {
   { const qp = quests.page(id); if (qp) return qp; } // quests, NPC talk, clan (questui.ts)
   const rows: Row[] = [];
   switch (id) {
+    case 'map': return { id, title: t('mMap'), rows, big: true, html: mapScreen.html(), grid: mapScreen };
+    case 'markNew': {
+      for (const k of MARK_KINDS) rows.push({ id: 'k:' + k, label: markName(k) });
+      const at = mapScreen.markAt();
+      return { id, title: t('markNew'), rows, text: `${t('markHelp')} (${Math.round(at.x)}, ${Math.round(at.y)})` };
+    }
+    case 'markEdit': {
+      const m = markSel;
+      if (!m) return { id, title: t('markEdit'), rows: [{ id: 'back', label: t('mBack') }] };
+      rows.push({ id: 'name', label: t('markName'), value: m.label || '—' }, { id: 'icon', label: t('markIcon'), value: markName(m.kind), sub: true }, { id: 'del', label: t('markRemove') }, { id: 'back', label: t('mBack') });
+      return { id, title: `${MARK_ICON[m.kind]} ${m.label || t(MARK_KEY[m.kind])}`, rows, text: `${Math.round(m.x)}, ${Math.round(m.y)}` };
+    }
+    case 'markIcon':
+      for (const k of MARK_KINDS) rows.push({ id: 'k:' + k, label: markName(k), value: markSel?.kind === k ? '✓' : undefined });
+      return { id, title: t('markIcon'), rows };
+    case 'wheelset': {
+      wheelIds.forEach((w, n) => rows.push({ id: 'w:' + w, label: `${WHEEL_ICON[w] ?? ''} ${wheelLabel(w)}`, value: tf('wOn', String(n + 1)) }));
+      for (const w of WHEEL_ALL) if (!wheelIds.includes(w)) rows.push({ id: 'w:' + w, label: `${WHEEL_ICON[w] ?? ''} ${wheelLabel(w)}`, value: t('wOff'), dim: true });
+      rows.push({ id: 'reset', label: t('wReset') });
+      return { id, title: t('sWheel'), rows, wide: true, text: t('wheelSetHelp') };
+    }
+    case 'wheelitem': {
+      const n = wheelIds.indexOf(wheelEdit);
+      if (n >= 0) rows.push({ id: 'up', label: t('wEarlier'), dim: n === 0 }, { id: 'down', label: t('wLater'), dim: n === wheelIds.length - 1 }, { id: 'off', label: t('wRemove') });
+      else rows.push({ id: 'on', label: t('wAdd') });
+      rows.push({ id: 'back', label: t('mBack') });
+      return { id, title: `${WHEEL_ICON[wheelEdit] ?? ''} ${wheelLabel(wheelEdit)}`, rows, text: n >= 0 ? tf('wOn', String(n + 1)) : t('wOff') };
+    }
     case 'inv': return { id, title: t('invTitle'), rows, big: true, html: invScreen.html(), grid: invScreen };
     case 'gear': return { id, title: t('gearTitle'), rows, big: true, html: gearScreen.html(), grid: gearScreen };
     case 'root': {
@@ -1365,6 +1436,7 @@ function buildPage(id: string): Page {
       if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'bag', label: t('bagTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true }, ...quests.rootRows());
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push(...(meId >= 0 ? [{ id: 'mine', label: t('mFollowMe') }] : []), { id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
+      rows.push({ id: 'worldmap', label: t('mMap') });
       rows.push({ id: 'past', label: t('mPast'), sub: true });
       rows.push({ id: 'how', label: t(how === 'play' ? 'mWatch' : 'mPlay') });
       rows.push({ id: 'settings', label: t('mSettings'), sub: true }, { id: 'controls', label: t('mControls'), sub: true });
@@ -1500,7 +1572,7 @@ function buildPage(id: string): Page {
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
       if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
-      rows.push({ id: 'uisize', label: t('sUiSize'), value: `${Math.round(uiSize * 100)} %` }, { id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
+      rows.push({ id: 'uisize', label: t('sUiSize'), value: `${Math.round(uiSize * 100)} %` }, { id: 'wheel', label: t('sWheel'), sub: true }, { id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
     case 'snd': {
@@ -1538,6 +1610,33 @@ function pickRow(page: string, row: string): void {
     else if (row === 'next') { menu.close(); followNext(); }
     else if (row === 'map') { menu.close(); nextMap(); }
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
+    else if (row === 'worldmap') { menu.close(); openMap(); }
+  } else if (page === 'markNew') {
+    const at = mapScreen.markAt();
+    if (row.startsWith('k:')) { send({ t: Msg.Do, a: 'mark', text: `add:${at.map}:${at.x}:${at.y}:${row.slice(2)}` }); menu.back(); }
+  } else if (page === 'markEdit') {
+    const m = markSel;
+    if (row === 'back' || !m) menu.back();
+    else if (row === 'icon') menu.push('markIcon');
+    else if (row === 'del') { send({ t: Msg.Do, a: 'mark', text: `del:${m.id}` }); menu.back(); }
+    else if (row === 'name') {
+      if (!MyPC.text?.keyboard) return;
+      void (MyPC.text.keyboard({ value: m.label, kind: 'text', label: t('markLabel'), ok: 'OK' }) as Promise<string | null>)
+        .then((v) => { if (v !== null && v !== undefined) { m.label = v.trim().slice(0, 40); send({ t: Msg.Do, a: 'mark', text: `name:${m.id}:${m.label}` }); menu.refresh(); } });
+    }
+  } else if (page === 'markIcon') {
+    if (markSel && row.startsWith('k:')) { markSel.kind = row.slice(2) as MarkKind; send({ t: Msg.Do, a: 'mark', text: `kind:${markSel.id}:${markSel.kind}` }); menu.back(); }
+  } else if (page === 'wheelset') {
+    if (row === 'reset') { wheelIds = [...WHEEL_DEFAULT]; saveWheel(); menu.refresh(); }
+    else { wheelEdit = row.slice(2); menu.push('wheelitem'); }
+  } else if (page === 'wheelitem') {
+    const n = wheelIds.indexOf(wheelEdit);
+    if (row === 'back') { menu.back(); return; }
+    if (row === 'up' && n > 0) { [wheelIds[n - 1], wheelIds[n]] = [wheelIds[n]!, wheelIds[n - 1]!]; }
+    else if (row === 'down' && n >= 0 && n < wheelIds.length - 1) { [wheelIds[n + 1], wheelIds[n]] = [wheelIds[n]!, wheelIds[n + 1]!]; }
+    else if (row === 'off') { if (wheelIds.length <= 2) { note(t('wMin'), 2500); return; } wheelIds.splice(n, 1); saveWheel(); menu.back(); return; }
+    else if (row === 'on') { if (wheelIds.length >= WHEEL_MAX) { note(t('wMax'), 2500); return; } wheelIds.push(wheelEdit); saveWheel(); menu.back(); return; }
+    saveWheel(); menu.refresh();
   } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
   else if (page === 'build') startPlacing(row.slice(2));
   else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('inv'); else if (row === 'pvp') { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); } }
@@ -1612,6 +1711,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'cam') { nextCamera(); menu.refresh(); }
     else if (row === 'uisize') { uiSize = UI_SIZES[(UI_SIZES.indexOf(uiSize) + 1) % UI_SIZES.length]!; MyPC.save('uiSize', uiSize); applyUiSize(); menu.refresh(); }
     else if (row === 'gfx' || row === 'snd') menu.push(row);
+    else if (row === 'wheel') menu.push('wheelset');
     else if (row === 'zin') zoomBy(1 / 1.2);
     else if (row === 'zout') zoomBy(1.2);
     else if (row === 'server') { menu.close(); void askServer(); }
@@ -1659,6 +1759,38 @@ const quests = new QuestUi({
   thing: (k) => thing(k),
 });
 menu.onSound = (id) => sound.play(id);
+/** The TV's map (mapui.ts) and the mark being changed on it. */
+const mapScreen = new MapScreen({
+  colors: () => {
+    const color: number[] = [], solid: boolean[] = [];
+    for (const x of welcome?.tiles ?? []) { color[x.id] = x.color; solid[x.id] = x.solid; }
+    return { color, solid };
+  },
+  me: () => (meSlot() >= 0 || playing() ? [focusX(), focusY(), myAng(), map] : [camX, camY, 0, map]),
+  send: (a, text) => send({ t: Msg.Do, a, text }),
+  push: (page) => { markSel = mapScreen.hovered() ?? null; menu.push(page); },
+  remote: () => !pads,
+  npcName: (k) => NPCS.find((n) => n.key === k)?.name ?? k,
+});
+let markSel: MapMark | null = null;
+const MAP_PAGES = new Set(['map', 'markNew', 'markEdit', 'markIcon']);
+function openMap(): void {
+  if (mode !== 'world') return;
+  if (menu.open && menu.page === 'map') { menu.close(); return; }
+  wheel.close(); setAim(false); stopPlacing();
+  held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
+  mapScreen.start();
+  menu.show('map');
+  MyPC.back?.(true);
+}
+/** A button on the map: X / 🔴 back to me, Y / 🟢 next map, L R / CH + − zoom. True = used. */
+function mapKey(k: 'me' | 'next' | 'in' | 'out' | ''): boolean {
+  if (!k || !menu.open || menu.page !== 'map') return false;
+  sound.play('ui_move'); mapScreen.key(k);
+  return true;
+}
+const markName = (k: MarkKind) => `${MARK_ICON[k]} ${t(MARK_KEY[k])}`;
+const wheelLabel = (id: string) => (id === 'place' ? t('qPlace') : t(WHEEL_KEY[id] ?? 'qUse'));
 const bubbles = new Bubbles(8);
 
 function openMenu(page = 'root'): void {
@@ -1726,6 +1858,7 @@ function draw(now: number, dt: number): void {
     const parts = (['use', 'talk', 'attack', 'aim', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
     note(tf('bindsNew', parts.join(' · ')), 9000);
   }
+  if (mapNews && playing() && predOk) { mapNews = false; note(t('mapBtnNews'), 7000); }
   const fx = focusX(), fy = focusY();
   g3.view = rp || !playing() || !predOk ? 'top' : camView;
   g3.yaw = yaw;
@@ -1784,6 +1917,7 @@ function draw(now: number, dt: number): void {
       continue;
     }
     if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
+    if (i === me && aimOn) face[i] = Math.PI / 2 - (aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng); // I turn to my aim
     if (eyes && i === me) continue;
     const lying = (flags[i]! & (EFlag.Sleeping | EFlag.Dead)) !== 0;
     const zed = kind[i] === Kind.Threat;
@@ -1808,10 +1942,36 @@ function draw(now: number, dt: number): void {
     g3.aim(true, predX, predY, ang, lk >= 0 ? Math.max(1, Math.hypot(nx[lk]! - predX, ny[lk]! - predY) - 0.6) : 22, lk >= 0 ? nx[lk]! : NaN, lk >= 0 ? ny[lk]! : NaN);
   } else g3.aim(false);
   drawGhost();
+  g3.aiming = aimOn && me >= 0 && (meNeeds?.inv?.bow ?? 0) > 0;
   g3.render();
+  crosshair(me, now);
   // Thoughts over heads: only for players the owner allows (the server sends them to nobody else).
   if (seer && thoughtsOn && !menu.open && now - mindsAt < 4000) bubbles.draw(bubblePos, bubbleProject, fx, fy, actName);
   else bubbles.hide();
+}
+/**
+ * The bow's crosshair in third / first person: a small sight on the screen where the arrow will fly (15 m ahead), or on the
+ * locked target (red, closing in, its distance). The engine's own assist decides the target, as before.
+ */
+let xhairState = '', xhairLock = -1, xhairLockAt = 0;
+const XP = { x: 0, y: 0 };
+function crosshair(me: number, now: number): void {
+  if (!g3 || !aimOn || me < 0 || g3.view === 'top' || (meNeeds?.inv?.bow ?? 0) < 1) { if (!xhairEl.hidden) xhairEl.hidden = true; xhairState = ''; return; }
+  const lk = aimLock >= 0 && eid[aimLock] !== -1 ? aimLock : -1;
+  if (lk !== xhairLock) { xhairLock = lk; xhairLockAt = now; }
+  let ok: boolean, dist = 0;
+  if (lk >= 0) { dist = Math.hypot(nx[lk]! - predX, ny[lk]! - predY); ok = g3.project(drawnF[lk] === frameNo ? drawnX[lk]! : nx[lk]!, kind[lk] === Kind.Animal ? 0.6 : 1.2, drawnF[lk] === frameNo ? drawnY[lk]! : ny[lk]!, XP); }
+  else ok = g3.project(predX + Math.cos(aimAng) * 15, 1.25, predY + Math.sin(aimAng) * 15, XP);
+  if (!ok) { XP.x = innerWidth / 2; XP.y = innerHeight / 2; }
+  const k = lk >= 0 ? Math.max(0, 1 - (now - xhairLockAt) / 180) : 0; // the lock closes in
+  xhairEl.style.transform = `translate(${Math.round(XP.x)}px, ${Math.round(XP.y)}px) translate(-50%, -50%) scale(${(1 + k * 0.8).toFixed(2)})`;
+  const st = lk >= 0 ? 'lock:' + Math.round(dist) : 'free';
+  if (st !== xhairState) {
+    xhairState = st;
+    xhairEl.className = lk >= 0 ? 'lock' : '';
+    xhairEl.innerHTML = `<i class="xr"></i><i class="xt"></i><i class="xb"></i><i class="xl"></i><i class="xg"></i><i class="xd"></i>${lk >= 0 ? `<b>${Math.round(dist)} m</b>` : ''}`;
+  }
+  if (xhairEl.hidden) xhairEl.hidden = false;
 }
 function bubblePos(id: number, out: { x: number; y: number }): boolean {
   const s = slotOf.get(id);
@@ -1831,6 +1991,10 @@ function frame(ts: number): void {
   while (acc >= STEP) { update(ts); acc -= STEP; }
   // Under the game menu the world is only drawn 10 times a second: the menu answers at once on small TVs.
   if (menu.open && menu.page === 'gear') gearScreen.draw(ts); else gearScreen.stop();
+  if (menu.open && MAP_PAGES.has(menu.page)) {
+    if (menu.page === 'map' && MyPC.gamepad) mapScreen.stick(MyPC.gamepad.axis(0), MyPC.gamepad.axis(1), dt);
+    mapScreen.draw(ts);
+  } else mapScreen.stop();
   if (!menu.open || ts - drawAt > 100) { draw(ts, ts - drawAt > 200 ? dt : Math.min(0.1, (ts - drawAt) / 1000)); drawAt = ts; fpsN++; }
   if (gfx.fps && ts - fpsAt > 500) { fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms`; fpsN = 0; fpsAt = ts; }
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
@@ -1877,7 +2041,12 @@ const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
 /** Arrows / D-pad / stick as directions: the menu when it is open, else moving. */
 function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean, fromPad = false): void {
   if (rp && !menu.open) { if (pressed) { if (d === 'left' || d === 'right') rp.seek(d === 'left' ? -5 : 5); else if (!repeat) rp.faster(d === 'up'); } return; }
-  if (menu.open) { if (pressed) menu.input(d); return; }
+  if (menu.open) {
+    // The map reads the controller's stick itself (smooth); its D-pad and the remote's arrows step.
+    if (fromPad && menu.page === 'map' && MyPC.gamepad && Math.hypot(MyPC.gamepad.axis(0), MyPC.gamepad.axis(1)) > 0.3) return;
+    if (pressed) menu.input(d);
+    return;
+  }
   if (wheel.open) { if (pressed && !repeat) wheel.step(d); return; }
   if (repeat) return;
   // A controller's stick / D-pad only moves (its right stick turns the camera); the remote's ◀ ▶ turn in third / first person.
@@ -1900,6 +2069,8 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
   if (rp && !menu.open) { if (pressed && !repeat && name === 'ok') rp.toggle(); return; }
   if (menu.open) {
     if (!pressed || repeat) return;
+    if (menu.page === 'map' && remoteAction(binds, name) === 'map') { menu.close(); return; }
+    if (mapKey(name === 'red' ? 'me' : name === 'green' ? 'next' : name === 'chUp' ? 'in' : name === 'chDown' ? 'out' : '')) return;
     if (name === 'ok') menu.input('ok');
     else if (remoteAction(binds, name) === 'menu') menu.close();
     return;
@@ -1931,6 +2102,8 @@ function onPad(i: number, pressed: boolean): void {
   if (rp && !menu.open) { if (pressed) { if (i === 0) rp.toggle(); else if (i === 1 || padAction(binds, i) === 'menu') stopReplay(); } return; }
   if (menu.open) {
     if (!pressed) return;
+    if (menu.page === 'map' && padAction(binds, i) === 'map') { menu.close(); return; }
+    if (mapKey(i === 2 ? 'me' : i === 3 ? 'next' : i === 4 ? 'in' : i === 5 ? 'out' : '')) return;
     if (i === 0) menu.input('ok');
     else if (i === 1) menu.input('back');
     else if (padAction(binds, i) === 'menu') menu.close();
@@ -1982,6 +2155,8 @@ MyPC.init({
       binds = cloneBinds(DEFAULT_BINDS); MyPC.save('binds', binds); bindsNews = true;
     } else if (b && b.pad && b.remote) {
       binds = { pad: { ...b.pad }, remote: { ...b.remote }, v: BINDS_V };
+      // The map takes − from Thoughts when the player still had it there (Thoughts stays in Settings and the Buttons page).
+      if (!('map' in b.pad) && b.pad.thoughts === DEFAULT_BINDS.pad.map) { delete binds.pad.thoughts; binds.pad.map = DEFAULT_BINDS.pad.map; MyPC.save('binds', binds); mapNews = true; }
       // Actions added since: their default button, when the player has not used it for something else.
       for (const a of ACTIONS) {
         const dp = DEFAULT_BINDS.pad[a], dr = DEFAULT_BINDS.remote[a];
@@ -1996,6 +2171,7 @@ MyPC.init({
     const cv = MyPC.load('cam', 'top');
     camView = CAM_VIEWS.includes(cv) ? cv : 'top';
     thoughtsOn = MyPC.load('thoughts', true) !== false;
+    loadWheel();
     window.addEventListener('resize', resize);
     setMenu();
     if (MyPC.gamepad) {
@@ -2004,7 +2180,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); } };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); } };
     MyPC.ready();
   },
   onStart() {
@@ -2055,6 +2231,7 @@ MyPC.init({
       doAction(dev === 'touch' ? 'use' : remoteAction(binds, 'ok') ?? 'use', true);
       return;
     }
+    if (menu.open && (action === 'pageUp' || action === 'pageDown')) { if (pressed) mapKey(action === 'pageUp' ? 'in' : 'out'); return; }
     if (mode !== 'world' || menu.open) return;
     if (action === 'run') { doAction('run', pressed); return; }
     if (!pressed) return;

@@ -8,11 +8,11 @@
 import { t, tf, type Key } from './i18n.js';
 
 // ------------------------------------------------------------ actions and buttons
-export const ACTIONS = ['use', 'talk', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel', 'attackPerson', 'horse'] as const;
+export const ACTIONS = ['use', 'talk', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel', 'attackPerson', 'horse', 'map'] as const;
 export type ActionId = (typeof ACTIONS)[number];
 const ACTION_KEY: Record<ActionId, Key> = {
   use: 'aUse', run: 'aRun', eat: 'aEat', drink: 'aDrink', pickup: 'aPickup', sleep: 'aSleep', zoomIn: 'aZoomIn', zoomOut: 'aZoomOut',
-  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', talk: 'aTalk', attack: 'aAttack', aim: 'aAim', build: 'aBuild', attackPerson: 'aAttackPerson', horse: 'aHorse',
+  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', talk: 'aTalk', attack: 'aAttack', aim: 'aAim', build: 'aBuild', attackPerson: 'aAttackPerson', horse: 'aHorse', map: 'aMap',
 };
 export const actionLabel = (a: ActionId) => t(ACTION_KEY[a]);
 
@@ -21,12 +21,13 @@ export interface Binds { pad: Partial<Record<ActionId, number>>; remote: Partial
 export const BINDS_V = 2;
 /**
  * Defaults (imad 2026-11-20): A interact (take, gather, drink...), B run, X attack, Y talk to the person next to me,
- * L / R zoom, ZL aim the bow (hold), ZR quick actions (hold), − thoughts, + menu, L3 build, R3 camera. Eat / sleep are on the wheel.
- * Remote: OK interact, red attack, green talk, yellow thoughts, blue person, CH + / − zoom, Info menu, ⏯ quick actions, ⏩ aim, Tools build.
+ * L / R zoom, ZL aim the bow (hold), ZR quick actions (hold), − map (imad 2026-11-25; thoughts are in Settings), + menu, L3 build, R3 camera.
+ * Eat / sleep are on the wheel. Remote: OK interact, red attack, green talk, yellow thoughts, blue person, CH + / − zoom, Info menu,
+ * ⏯ quick actions, ⏩ aim, Tools build, Guide map.
  */
 export const DEFAULT_BINDS: Binds = {
-  pad: { use: 0, run: 1, attack: 2, talk: 3, zoomIn: 4, zoomOut: 5, aim: 6, wheel: 7, thoughts: 8, menu: 9, build: 10, camera: 11 },
-  remote: { use: 'ok', attack: 'red', talk: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause', aim: 'ff', build: 'tools' },
+  pad: { use: 0, run: 1, attack: 2, talk: 3, zoomIn: 4, zoomOut: 5, aim: 6, wheel: 7, map: 8, menu: 9, build: 10, camera: 11 },
+  remote: { use: 'ok', attack: 'red', talk: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause', aim: 'ff', build: 'tools', map: 'guide' },
   v: BINDS_V,
 };
 export function cloneBinds(b: Binds): Binds { return { pad: { ...b.pad }, remote: { ...b.remote }, v: b.v }; }
@@ -55,6 +56,7 @@ export class Menu {
   private stack: { id: string; sel: number }[] = [];
   private rows: Row[] = [];
   private cur: Page | null = null;
+  private htmlNow = '';
   open = false;
   sel = 0;
 
@@ -91,7 +93,9 @@ export class Menu {
     this.titleEl.textContent = p.title;
     this.el.classList.toggle('wide', !!p.wide);
     this.el.classList.toggle('big', !!p.big);
-    if (p.html) this.textEl.innerHTML = p.html; else this.textEl.textContent = p.text ?? '';
+    // The same html as on screen = left alone (a page's own canvas, e.g. the map, stays put while its cursor moves).
+    if (p.html) { if (this.htmlNow !== p.html || this.textEl.dataset.pg !== p.id) { this.textEl.innerHTML = p.html; this.htmlNow = p.html; this.textEl.dataset.pg = p.id; } }
+    else { this.textEl.textContent = p.text ?? ''; this.htmlNow = ''; }
     this.textEl.hidden = !p.text && !p.html;
     this.listEl.textContent = '';
     for (const r of p.rows) {

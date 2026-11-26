@@ -52,6 +52,9 @@ export class World3D {
   view: 'top' | 'third' | 'first' = 'top';
   /** Where 'third' / 'first' look (radians, 0 = north, clockwise). */
   yaw = 0;
+  /** Drawing the bow in third / first person (imad 2026-11-25): the camera eases over the right shoulder and zooms in. */
+  aiming = false;
+  private aimK = 0;
   /** Distance behind the character in 'third'. */
   back = 7;
   private viewSet = '';
@@ -119,7 +122,7 @@ export class World3D {
       this.aimLine.renderOrder = this.aimRing.renderOrder = 5;
       this.scene.add(this.aimLine, this.aimRing);
     }
-    this.aimLine.visible = true;
+    this.aimLine.visible = this.view === 'top'; // third / first person: the crosshair on the screen instead (app.ts)
     this.aimLine.position.set(x + Math.cos(ang) * 0.5, 0.06, z + Math.sin(ang) * 0.5);
     this.aimLine.rotation.set(0, -ang, 0);
     this.aimLine.scale.set(len, 1, 1);
@@ -251,10 +254,12 @@ export class World3D {
     const k = snap ? 1 : 1 - Math.exp(-dt * (this.view === 'top' ? 6 : 14));
     this.look.x += (x - this.look.x) * k; this.look.z += (z - this.look.z) * k;
     let d = this.dist;
-    if (this.view !== this.viewSet) {
+    const ak = this.aimK;
+    this.aimK += ((this.aiming && this.view !== 'top' ? 1 : 0) - ak) * (snap ? 1 : 1 - Math.exp(-dt * 9));
+    if (this.view !== this.viewSet || Math.abs(this.aimK - ak) > 1e-4) {
       this.viewSet = this.view;
       const cam = this.camera;
-      if (this.view === 'top') { cam.fov = 30; cam.near = 1; cam.far = 400; } else { cam.fov = this.view === 'first' ? 62 : 55; cam.near = 0.12; cam.far = this.sight * (this.fogK ? Math.max(1, this.fogK) : 1.6) + 6; }
+      if (this.view === 'top') { cam.fov = 30; cam.near = 1; cam.far = 400; } else { cam.fov = (this.view === 'first' ? 62 : 55) - this.aimK * (this.view === 'first' ? 22 : 13); cam.near = 0.12; cam.far = this.sight * (this.fogK ? Math.max(1, this.fogK) : 1.6) + 6; }
       cam.updateProjectionMatrix();
     }
     let sx0 = this.look.x, sz0 = this.look.z;
@@ -265,13 +270,15 @@ export class World3D {
     } else {
       // Forward on the ground: yaw 0 = north (-z).
       const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      const ak = this.aimK, rx = -fz, rz = fx; // right of where I look
       if (this.view === 'third') {
-        const b = this.back;
-        this.camera.position.set(this.look.x - fx * b, 1.4 + b * 0.42, this.look.z - fz * b);
-        this.camera.lookAt(this.look.x + fx * 3, 1.1, this.look.z + fz * 3);
+        // Aiming: from behind (back, high) to just over the right shoulder, looking far down the arrow's line.
+        const b = this.back + (2.9 - this.back) * ak, side = 0.95 * ak, h = 1.4 + this.back * 0.42 + (1.72 - 1.4 - this.back * 0.42) * ak, ahead = 3 + 13 * ak;
+        this.camera.position.set(this.look.x - fx * b + rx * side, h, this.look.z - fz * b + rz * side);
+        this.camera.lookAt(this.look.x + fx * ahead + rx * side * 0.35, 1.1 + 0.15 * ak, this.look.z + fz * ahead + rz * side * 0.35);
       } else {
         this.camera.position.set(this.look.x + fx * 0.18, 1.55, this.look.z + fz * 0.18);
-        this.camera.lookAt(this.look.x + fx * 10, 0.9, this.look.z + fz * 10);
+        this.camera.lookAt(this.look.x + fx * 10, 0.9 + 0.35 * ak, this.look.z + fz * 10);
       }
       this.fogAt(this.sight * 0.35, this.sight);
       d = this.sight * 0.4;

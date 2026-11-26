@@ -35,6 +35,7 @@ import { Agent } from './ops/agent.js';
 import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
 import { ErrorLog } from './ops/errors.js';
 import { Chats } from './ai/chatroom.js';
+import { MapView } from './ops/mapview.js';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
@@ -267,6 +268,8 @@ export class App {
       const e = w.e;
       if (a === 'replays') return { ok: true, code: 'replays', list: this.replayList() };
       if (a === 'replay') { const v = this.db.getMeta('replay:' + Number(text)); return v ? { ok: true, code: 'replay', rec: JSON.parse(v) } : { ok: false, code: 'noReplay' }; }
+      if (a === 'map') return this.mapView.view(name, player, String(text ?? '')); // the TV's map: tiles + places + my marks
+      if (a === 'mark') return this.mapView.mark(name, String(text ?? 'list'));
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
       if (a === 'quests') return { ok: true, code: 'quests', list: w.quests.rows(e.id(player)) };
       if (a === 'npc') { // talk to the town teacher next to me: take / hand in a quest (the registrar also founds clans)
@@ -597,6 +600,9 @@ export class App {
   private readonly workAt = new Map<string, number>();
   /** Players (lower case) who switched PvP on: only they can hit or be hit by other people (imad 2026-11-21). */
   private pvp = new Set<string>();
+  private _mapView: MapView | null = null;
+  /** The TV's map and each player's marks on it (ops/mapview.ts). */
+  get mapView(): MapView { if (!this._mapView) { this._mapView = new MapView(this.world, this.db); this._mapView.planner = () => this.net.characters(); } return this._mapView; }
   private readonly hitAt = new Map<string, number>();
   /** The nearest zombie or animal in front of player i (within `r` m and `cone` radians either side of angle `a`), or -1. */
   private frontTarget(i: number, a: number, r: number, cone: number): number {
@@ -1147,6 +1153,7 @@ export class App {
         // The bag: added together.
         const bagA = w.survival.pinv.get(from);
         if (bagA) { const bagB = w.survival.pinv.get(into) ?? {}; for (const [k, n] of Object.entries(bagA)) bagB[k as keyof typeof bagB] = Math.min(20, (bagB[k as keyof typeof bagB] ?? 0) + (n ?? 0)); w.survival.pinv.set(into, bagB); w.survival.pinv.delete(from); }
+        this.mapView.merge(from, into); // the map's marks too
         // The character in use ("from", unless keep: 'into') stays, with its place, look and family; the other goes.
         const keepInto = c.keep === 'into' && ib >= 0;
         if (keepInto) { if (ia >= 0) { w.profiles.delete(a!); w.remove(ia, 'merged'); } }
@@ -1190,6 +1197,7 @@ export class App {
         if (id !== undefined) w.away.delete(id);
         this.net.residents.delete(known);
         w.survival.pinv.delete(known);
+        this.mapView.forget(known);
         this.db.delMeta('pos:' + known);
         const s = this.seers(); if (s.delete(known.toLowerCase())) this.db.setMeta('seers', JSON.stringify([...s]));
         const acct = this.accounts.byName(known); if (acct) this.accounts.link(acct.uid, '');

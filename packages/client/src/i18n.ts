@@ -6,6 +6,7 @@ import { T6 } from './i18n6.js';
 import { TB } from './i18nBuild.js';
 import { TG } from './i18ng.js';
 import { T7 } from './i18n7.js';
+import { TM } from './i18nMap.js';
 /** Texts in the 4 My PC languages (fall back to English). */
 const T = {
   en: {
@@ -126,13 +127,13 @@ const T = {
   },
 } as const;
 
-export type Key = keyof typeof T.en | keyof typeof T2.en | keyof typeof T3.en | keyof typeof T4.en | keyof typeof T5.en | keyof typeof T6.en | keyof typeof TB.en | keyof typeof TG.en | keyof typeof T7.en;
+export type Key = keyof typeof T.en | keyof typeof T2.en | keyof typeof T3.en | keyof typeof T4.en | keyof typeof T5.en | keyof typeof T6.en | keyof typeof TB.en | keyof typeof TG.en | keyof typeof T7.en | keyof typeof TM.en;
 let lang: keyof typeof T = 'en';
 export function setLang(l: string): void { lang = (l in T ? l : 'en') as keyof typeof T; }
 export function getLang(): string { return lang; }
 export function t(k: Key): string {
-  const a = T[lang] as Record<string, string>, b = T2[lang] as Record<string, string>, c = T3[lang] as Record<string, string>, d = T4[lang] as Record<string, string>, f = T5[lang] as Record<string, string>, g = T6[lang] as Record<string, string>, h = TB[lang] as Record<string, string>, gg = TG[lang] as Record<string, string>, g7 = T7[lang] as Record<string, string>;
-  return a[k] ?? b[k] ?? c[k] ?? d[k] ?? f[k] ?? g[k] ?? h[k] ?? gg[k] ?? g7[k] ?? (T.en as Record<string, string>)[k] ?? (T2.en as Record<string, string>)[k] ?? (T3.en as Record<string, string>)[k] ?? (T4.en as Record<string, string>)[k] ?? (T5.en as Record<string, string>)[k] ?? (T6.en as Record<string, string>)[k] ?? (TB.en as Record<string, string>)[k] ?? (TG.en as Record<string, string>)[k] ?? (T7.en as Record<string, string>)[k] ?? k;
+  const a = T[lang] as Record<string, string>, b = T2[lang] as Record<string, string>, c = T3[lang] as Record<string, string>, d = T4[lang] as Record<string, string>, f = T5[lang] as Record<string, string>, g = T6[lang] as Record<string, string>, h = TB[lang] as Record<string, string>, gg = TG[lang] as Record<string, string>, g7 = T7[lang] as Record<string, string>, tm = TM[lang] as Record<string, string>;
+  return a[k] ?? b[k] ?? c[k] ?? d[k] ?? f[k] ?? g[k] ?? h[k] ?? gg[k] ?? g7[k] ?? tm[k] ?? (T.en as Record<string, string>)[k] ?? (T2.en as Record<string, string>)[k] ?? (T3.en as Record<string, string>)[k] ?? (T4.en as Record<string, string>)[k] ?? (T5.en as Record<string, string>)[k] ?? (T6.en as Record<string, string>)[k] ?? (TB.en as Record<string, string>)[k] ?? (TG.en as Record<string, string>)[k] ?? (T7.en as Record<string, string>)[k] ?? (TM.en as Record<string, string>)[k] ?? k;
 }
 
 export function tf(k: Key, ...a: string[]): string { return t(k).replace(/\{(\d)\}/g, (_, i) => a[Number(i)] ?? ''); }

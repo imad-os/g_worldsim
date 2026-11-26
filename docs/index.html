@@ -172,6 +172,24 @@
   .bbig { width: 13vw; height: 13vw; border-radius: 1vw; background: radial-gradient(circle, #3d424a, #1f2227 70%); display: flex; align-items: center; justify-content: center; }
   .bbig i { width: 13vw; height: 13vw; display: block; }
   .bname { font-size: 2.2vw; color: #ffd166; font-weight: 600; } .bcnt { font-size: 1.5vw; } .bdesc { font-size: 1.4vw; color: #c9d1d9; } .bact { font-size: 1.4vw; color: #9ff0b8; margin-top: 0.4vw; }
+  /* the TV map (mapui.ts) */
+  .mapv { display: flex; flex-direction: column; gap: 0.5vw; }
+  .mtabs { display: flex; gap: 0.6vw; } .mtab { padding: 0.2vw 1vw; border-radius: 0.6vw; background: rgba(255, 255, 255, 0.06); font-size: 1.2vw; color: #c9d1d9; } .mtab.cur { background: rgba(255, 209, 102, 0.18); color: #ffd166; }
+  #mapbox { position: relative; height: 62vh; border-radius: 0.9vw; overflow: hidden; background: #1a1712; border: 0.15vw solid rgba(255, 230, 180, 0.25); }
+  #mapbox canvas.mapc { position: static; inset: auto; width: 100%; height: 100%; display: block; }
+  .mapwait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa3ad; font-size: 1.6vw; }
+  .minfo { font-size: 1.35vw; color: #e6eaee; min-height: 1.9vw; } .minfo b { color: #ffd166; } .minfo .mw { color: #ffe7a3; }
+  .mlegend { display: flex; flex-wrap: wrap; gap: 0.3vw 1.4vw; font-size: 1vw; color: #9aa3ad; } .lg b { margin-right: 0.35vw; color: #e6eaee; font-weight: 400; } .lg-me b { color: #ffd166; } .lg-hut b { color: #b07a45; } .lg-gate b { color: #8fd3ff; }
+  /* the bow's crosshair in third / first person (app.ts crosshair()) */
+  #xhair { position: fixed; left: 0; top: 0; width: 3.4vw; height: 3.4vw; pointer-events: none; z-index: 4; will-change: transform; }
+  #xhair[hidden] { display: none; }
+  #xhair i { position: absolute; display: block; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 0.2vw rgba(0, 0, 0, 0.8); }
+  #xhair .xr { left: 0; top: 0; right: 0; bottom: 0; background: none; border: 0.14vw solid rgba(255, 255, 255, 0.55); border-radius: 50%; box-shadow: 0 0 0.25vw rgba(0, 0, 0, 0.6); }
+  #xhair .xt, #xhair .xb { left: 50%; width: 0.16vw; height: 0.8vw; margin-left: -0.08vw; } #xhair .xt { top: -0.35vw; } #xhair .xb { bottom: -0.35vw; }
+  #xhair .xl, #xhair .xg { top: 50%; height: 0.16vw; width: 0.8vw; margin-top: -0.08vw; } #xhair .xl { left: -0.35vw; } #xhair .xg { right: -0.35vw; }
+  #xhair .xd { left: 50%; top: 50%; width: 0.36vw; height: 0.36vw; margin: -0.18vw 0 0 -0.18vw; border-radius: 50%; }
+  #xhair.lock .xr { border-color: #ff5a3c; border-width: 0.2vw; } #xhair.lock i { background: #ff6b4a; } #xhair.lock .xr { background: none; }
+  #xhair b { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 0.6vw; font-size: 1.1vw; color: #ffb4a0; text-shadow: 0 0.1vw 0.3vw #000; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -181,10 +199,11 @@
 <div id="hint" class="bar" hidden></div>
 <div id="note" class="bar" hidden></div>
 <div id="aimhud" hidden></div>
+<div id="xhair" hidden></div>
 <div id="iahint" hidden></div>
 <div id="card" hidden></div>
 <div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.12.4"></script>
+<script type="module" src="game.js?v=0.12.5"></script>
 </body>
 </html>

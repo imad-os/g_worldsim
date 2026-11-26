@@ -596,3 +596,20 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   system already reads. Day 06-20, night 20-06; sleep = `playersAsleep()` (App: at least one online player, every online player's character
   EFlag.Sleeping) when faster than the hour's own. Ticks / physics unchanged (deterministic, same real walking pace). Frames carry `cs` (live
   clockScale) so TVs extrapolate the sun right; Welcome clockScale = live. Panel World > Time rows + "Now: ..." line (stats `clock`). Test clock.test.ts.
+
+## TV map, marks, wheel settings, bow crosshair, no button bar (imad 2026-11-25, app 0.12.5)
+- **Map** (`client/src/mapui.ts` `MapScreen`, a big Menu page with a Grid; server `ops/mapview.ts` `MapView`): action `map` (pad − = button 8, remote
+  Guide; saved binds that still had Thoughts on − give it to the map once, note `mapBtnNews`), quick wheel, game menu row. Do `map` text = map id
+  ('' = mine, "<id>:live" = no tiles): tiles once per map + places (every hut with owner / mine / free, my home, camp, fires, store, gates, NPCs, my
+  horses, people, players) refreshed every 4 s. Stick / arrows move a cursor (the canvas redraws only when something changed), A / OK = mark here or
+  edit the mark under the cursor, X / 🔴 back to me, Y / 🟢 next map, L R / CH + − / PgUp PgDn zoom (fit, 2, 4, 7, 11 px per m).
+- **Marks** (`protocol/marks.ts` MARK_KINDS home mine hunt wood water farm danger camp star, MAX_MARKS 60): Do `mark` "add:map:x:y:kind[:label]" /
+  "del:id" / "name:id:label" / "kind:id:kind", kept by character name in meta `marks:<name>` (mergePlayer moves them, playerDelete forgets them).
+  Do text limit 210 for `mark`. Test mapview.test.ts.
+- **Quick wheel settings**: Settings > Quick action wheel (pages wheelset / wheelitem): `WHEEL_ALL` (map, use, horse, eat, drink, sleep, heal, build,
+  place, bag, camera, attackPerson, gear, me, talk, attack, pickup, thoughts), 2-12 in order, `MyPC.save('wheel')`.
+- **Bow in third / first person**: aiming = where the camera looks (`aimAng = yaw - π/2`), turns slower, left stick sideways turns finely; the camera
+  eases over the right shoulder (`World3D.aiming`, fov -13 / -22); `#xhair` crosshair (white = 15 m ahead, red + distance = the locked target;
+  the old lock-on assist + a gentle pull within 0.12 rad); my character turns to the aim. Top view keeps the ground line + ring.
+- `#hint` (the bottom button bar) is never shown (imad: not needed); the A context pill (`#iahint`) stays. `Menu.render` leaves a page's html
+  alone when unchanged (the map's canvas stays put). Proof `ADMIN_TOKEN=... node tools/map-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.page / yaw / xhair / map`).
