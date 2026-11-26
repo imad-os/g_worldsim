@@ -6,6 +6,7 @@ import { HUTS_PER_MAP } from './homes.js';
 import { ageOf } from './people.js';
 import { ADULT } from './life.js';
 import { ORE_CHANCE, ROCK_STONE } from './survival.js';
+import { FOOD_HEAD, WATER_HEAD, WOOD_STOCK, STONE_STOCK } from './campplan.js';
 
 /**
  * The camp's work mind (research/ARCHITECTURE.md): instead of a fixed list of "if this then that job", the camp has
@@ -21,7 +22,7 @@ import { ORE_CHANCE, ROCK_STONE } from './survival.js';
  */
 
 /** Game seconds of work (kept in step with sim/survival.ts WORK). */
-const WORK = { chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 650, tend: 45, pick: 20, store: 40, plant: 180, repair: 60, hunt: 700, craft: 15 };
+const WORK = { fill: 30, chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 650, tend: 45, pick: 20, store: 40, plant: 180, repair: 60, hunt: 700, craft: 15 };
 const HOUR = 3600;
 /** Plans tried per allocation pass and map (counted, not timed, so runs stay deterministic): a big camp is served over a few passes. */
 const PLANS_PER_PASS = 24;
@@ -138,7 +139,8 @@ export class Colony {
     const fire = camp ? sv.fireNear(m, camp.x, camp.y, 15) : sv.nearestFire(i, 30);
     f.fire = fire >= 0 ? 1 : 0;
     f.fuel = fire >= 0 ? sv.fuel(m, fire) : 0;
-    f.stash = sv.stash[m]?.food ?? 0;
+    const kept = w.plan.kept(m); // the camp's stores: crate + fridges (sim/campplan.ts)
+    f.stash = kept.food; f.wstash = kept.water; f.crwood = kept.wood; f.crstone = kept.stone;
     f.broken = sv.damaged(m) >= 0 ? 1 : 0;
     return f;
   }
@@ -171,6 +173,9 @@ export class Colony {
       add('gather:brick', { add: { brick: 1 }, step: { do: 'gather', what: 'brick', unit: 'brick' } }, () => (WORK.dig + hop(dRubble)) / 0.5);
       add('gather:scrap', { add: { scrap: 1 }, step: { do: 'gather', what: 'scrap', unit: 'scrap' } }, () => (WORK.dig + hop(dRubble)) / 0.3);
     }
+    // Water: bottles filled at the water's edge (imad 2026-11-26), 3 a trip.
+    const ws = w.brain.waterSpot(i);
+    if (ws >= 0) { const W = w.maps[m]!.tiles.w, dW = Math.hypot((ws % W) + 0.5 - x, ((ws / W) | 0) + 0.5 - y); add('gather:water', { add: { water: 3 }, step: { do: 'gather', what: 'water', unit: 'water' } }, () => WORK.fill + hop(dW)); }
     // Food lying around (kept, not eaten).
     let dItem = Infinity;
     for (let j = 0; j < e.hi; j++) if (e.kind[j] === Kind.Item && e.map[j] === m) dItem = Math.min(dItem, Math.hypot(e.x[j]! - x, e.y[j]! - y));
@@ -205,8 +210,12 @@ export class Colony {
         add(`build:${r.what}`, { use: r.need as Facts, add: { [fact]: 1 }, step: { do: 'build', what: r.what } }, () => WORK.place + WORK.craft + toCamp);
         add(`place:${r.what}`, { use: { [r.what]: 1 }, add: { [fact]: 1 }, step: { do: 'build', what: r.what } }, () => WORK.place + toCamp); // one already made
       }
+      // Water goes into my home's fridge, else the camp's crate.
+      add('store:water', { use: { water: 1 }, add: { wstash: 1 }, step: { do: 'store', what: 'water' } }, () => (WORK.store + toCamp) / 3);
       if (camp) {
         add('store:food', { use: { food: 1 }, add: { stash: 1 }, step: { do: 'store', what: 'food' } }, () => (WORK.store + toCamp) / 3);
+        add('store:wood', { use: { wood: 1 }, add: { crwood: 1 }, step: { do: 'store', what: 'wood' } }, () => (WORK.store + toCamp) / 4);
+        add('store:stone', { use: { stone: 1 }, add: { crstone: 1 }, step: { do: 'store', what: 'stone' } }, () => (WORK.store + toCamp) / 4);
         add('farm', { add: { '+field': 1 }, step: { do: 'farm' } }, () => WORK.plant + toCamp);
       }
     }
@@ -333,10 +342,21 @@ export class Colony {
       }
       if (!sv.lampNear(m, cx, cy, 10)) gs.push({ name: 'lamp', text: 'put a lamp at the camp', want: [{ '+lamp': 1 }], value: threat ? 0.35 : 0.15, trait: 'intelligence', crew: 1 });
     }
-    // Food security: a store with two portions a head, fields to grow more.
+    // Storage in every home (imad 2026-11-26): a fridge for food and water, a chest for things; made by ONE of the couple.
     if (camp) {
-      const st = sv.stash[m]?.food ?? 0;
-      if (st < n * 2) gs.push({ name: 'store', text: 'collect food and store it', want: [{ stash: st + 3 }], value: 0.25 + 0.4 * (1 - st / (n * 2)), trait: 'empathy', crew: Math.max(1, Math.ceil(n / 4)) });
+      let boxes = 0;
+      for (const h of sv.homes.list) {
+        if (h.m !== m || h.owner < 0 || boxes >= 3) continue;
+        const d = sv.homes.doer(h), s = d >= 0 ? w.e.slot(d) : -1;
+        if (s < 0 || !people.includes(s)) continue;
+        if (sv.boxIn(h, 'fridge') < 0) { boxes++; gs.push({ name: 'fridge', text: 'put a fridge in my home', want: [{ '+fridge': 1 }], value: 0.34, trait: 'intelligence', crew: 1, only: s }); }
+        else if (sv.boxIn(h, 'chest') < 0) { boxes++; gs.push({ name: 'chest', text: 'put a chest in my home', want: [{ '+chest': 1 }], value: 0.2, trait: 'intelligence', crew: 1, only: s }); }
+      }
+    }
+    // Food and water security, the camp's collective plan (sim/campplan.ts): 3 portions of food and 2 bottles of water a head
+    // kept in the fridges and the crate, wood and stone in the store, fields to grow more.
+    for (const g of this.stock(m, n)) gs.push(g);
+    if (camp) {
       let fields = 0;
       for (const k of sv.farms.keys()) if (k.startsWith(m + ':')) fields++;
       if (fields < Math.ceil(n / 2)) gs.push({ name: 'field', text: 'plant a field', want: [{ '+field': 1 }], value: 0.3, trait: 'intelligence', crew: 1 });
@@ -354,7 +374,7 @@ export class Colony {
         if (!(v.bow ?? 0) && (v.leather ?? 0) >= 1 && (sv.homes.homeOf(w.e.id(i)) || (v.leather ?? 0) >= 6)) gs.push({ name: 'bow', text: 'make a bow', want: [{ bow: 1 }], value: 0.24, trait: 'speed', crew: 1, only: i });
         else if ((v.bow ?? 0) && (v.arrows ?? 0) < 5) gs.push({ name: 'arrows', text: 'make arrows', want: [{ arrows: (v.arrows ?? 0) + 5 }], value: 0.22, trait: 'intelligence', crew: 1, only: i });
       }
-      if (((v.leather ?? 0) >= 1 || chilly) && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: chilly ? 'make warm clothes for the cold' : 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: chilly ? 0.62 : 0.3, trait: 'intelligence', crew: 1, only: i });
+      if ((((v.leather ?? 0) >= 1 && (sv.homes.homeOf(w.e.id(i)) || (v.leather ?? 0) >= 6)) || chilly) && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: chilly ? 'make warm clothes for the cold' : 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: chilly ? 0.62 : 0.3, trait: 'intelligence', crew: 1, only: i });
       if (fire >= 0 && (v.wood ?? 0) < 3) gs.push({ name: 'firewood', text: 'gather firewood', want: [{ wood: (v.wood ?? 0) + 4 }], value: 0.18, trait: 'strength', crew: 1, only: i });
     }
     // Offspring (instinct): a single adult looks for a partner among the single adults they know best (the rules of
@@ -391,6 +411,18 @@ export class Colony {
     return gs.sort((a, b) => b.value - a.value);
   }
 
+  /** The camp's stock lines (food, water, wood, stone kept), as goals: the bigger the lack, the more it matters and the bigger the crew. */
+  stock(m: number, n: number): Goal[] {
+    const w = this.w, k = w.plan.kept(m), camp = w.survival.campOf(m), out: Goal[] = [];
+    const lack = (have: number, want: number) => (want <= 0 ? 0 : Math.max(0, 1 - have / want));
+    const fw = n * FOOD_HEAD, ww = n * WATER_HEAD;
+    if (camp && k.food < fw) { const l = lack(k.food, fw); out.push({ name: 'store', text: 'gather food for the stores', want: [{ stash: k.food + 3 }], value: 0.25 + 0.45 * l, trait: 'empathy', crew: Math.max(1, Math.ceil(n * l / 3)) }); }
+    if (k.water < ww) { const l = lack(k.water, ww); out.push({ name: 'water', text: 'fill bottles and store water', want: [{ wstash: k.water + 3 }], value: 0.3 + 0.45 * l, trait: 'speed', crew: Math.max(1, Math.ceil(n * l / 3)) }); }
+    if (camp && k.wood < WOOD_STOCK) out.push({ name: 'stockwood', text: 'put wood in the store', want: [{ crwood: k.wood + 4 }], value: 0.12 + 0.12 * lack(k.wood, WOOD_STOCK), trait: 'strength', crew: 1 });
+    if (camp && k.stone < STONE_STOCK) out.push({ name: 'stockstone', text: 'put stone in the store', want: [{ crstone: k.stone + 3 }], value: 0.1 + 0.12 * lack(k.stone, STONE_STOCK), trait: 'strength', crew: 1 });
+    return out;
+  }
+
   /**
    * Hand out the camp's goals to the free people of map m: goals by value, each to the candidate with the best
    * value x fit - hours of work x 0.04 (the plan's own cost), skipping goals already being worked on by enough people.
@@ -423,6 +455,25 @@ export class Colony {
         if (g.name === 'explore') (this.explored[m] ??= []).push(w.gameSec);
         free.splice(free.indexOf(bi), 1);
         started++;
+      }
+    }
+    // Nobody idles while the plan has holes (imad 2026-11-26: "people wander without goals"): whoever is still free takes the
+    // most lacking stock line of the camp's plan (food, water, wood, stone kept), crews or not.
+    // By day only, and half of those still free at most: the rest keep time for their own needs, quests and hunts.
+    if (free.length && budget > 0 && w.ai.goap && hour >= 7 && hour < 19) {
+      const fill = this.stock(m, all.length).sort((a, b) => b.value - a.value);
+      // Lonely people keep their time for company (talks), and those with a quest left go to the teachers.
+      for (const i of free.filter((x) => !w.quests.wants(x) && e.lonely[x]! < 35).slice(0, Math.ceil(free.length / 2))) {
+        if (budget <= 0) break;
+        for (const g of fill) {
+          if (this.resting(i, g.name) || budget-- <= 0) continue;
+          const p = this.planFor(i, g);
+          if (!p || !w.tasks.start(i, g.text, from(i), p.steps)) continue;
+          (w.profileOf(i)!.mind!.task as { goal?: string }).goal = g.name;
+          free.splice(free.indexOf(i), 1);
+          started++;
+          break;
+        }
       }
     }
     return started;

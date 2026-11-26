@@ -29,7 +29,7 @@ export interface MapCtx {
   npcName(key: string): string;
 }
 
-const ZOOMS = [0, 2, 4, 7, 11]; // pixels per metre (0 = the whole map fits)
+const ZOOMS = [0, 2, 4, 7, 11, 16, 24]; // pixels per metre (0 = the whole map fits); imad 2026-11-26: "make sure I can zoom in"
 const NPC_ICON = '📜';
 export const MARK_KEY: Record<MarkKind, Key> = { home: 'mkHome', mine: 'mkMine', hunt: 'mkHunt', wood: 'mkWood', water: 'mkWater', farm: 'mkFarm', danger: 'mkDanger', camp: 'mkCamp', star: 'mkStar' };
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -103,7 +103,7 @@ export class MapScreen implements Grid {
     const legend = [['me', '▲', t('mapYou')], ['home', '🏠', t('mapHome')], ['hut', '▪', t('mapHut')], ['camp', '🔥', t('mapCamp')], ['gate', '⇆', t('mapGate').replace(/\s*\{0\}/, '')], ['npc', NPC_ICON, 'NPC'], ['horse', '🐎', t('mapHorses')], ['mark', '⭐', t('markEdit')]]
       .map(([k, i, l]) => `<span class="lg lg-${k}"><b>${i}</b>${esc(l!)}</span>`).join('');
     return `<div class="mapv"><div class="mtabs">${tabs}</div><div id="mapbox">${d ? '' : `<div class="mapwait">${esc(t('mapLoading'))}</div>`}</div>
-<div class="minfo" id="mapinfo"></div><div class="mlegend">${legend}</div><div class="nv">${esc(t(this.c.remote() ? 'mapHelpRemote' : 'mapHelp'))}</div></div>`;
+<div class="minfo" id="mapinfo"></div><div class="mlegend">${legend}</div><div class="nv">${esc(t(this.c.remote() ? 'mapHelpRemote2' : 'mapHelp2'))}</div></div>`;
   }
 
   // ---------------------------------------------------------------- input
@@ -119,13 +119,26 @@ export class MapScreen implements Grid {
     this.cx += ax * Math.abs(ax) * sp; this.cy += ay * Math.abs(ay) * sp;
     this.clampCursor(); this.dirty = true;
   }
+  private zoomAt = 0;
+  /** The right stick up / down zooms in / out (one step, then repeats while held). */
+  zoomStick(ay: number, now: number): void {
+    if (Math.abs(ay) < 0.55) { this.zoomAt = 0; return; }
+    if (now < this.zoomAt) return;
+    this.zoomAt = now + (this.zoomAt ? 260 : 420);
+    this.key(ay < 0 ? 'in' : 'out');
+  }
   ok(): void {
     if (!this.data) return;
     this.c.push(this.hover >= 0 ? 'markEdit' : 'markNew');
   }
   /** Buttons of the map: 'me' (back to me), 'next' (next map), 'in' / 'out' (zoom). */
   key(k: 'me' | 'next' | 'in' | 'out'): void {
-    if (k === 'in' || k === 'out') { this.zoom = Math.max(0, Math.min(ZOOMS.length - 1, this.zoom + (k === 'in' ? 1 : -1))); this.dirty = true; return; }
+    if (k === 'in' || k === 'out') {
+      const z = Math.max(0, Math.min(ZOOMS.length - 1, this.zoom + (k === 'in' ? 1 : -1)));
+      if (z === this.zoom) return;
+      if (ZOOMS[this.zoom] === 0) { this.vx = this.cx; this.vy = this.cy; } // from the whole map: zoom in where the cursor is
+      this.zoom = z; this.dirty = true; return;
+    }
     if (k === 'me') { const me = this.c.me(); if (me[3] !== this.mapId) { this.mapId = me[3]; this.data = null; this.ask(true); } this.cx = me[0]; this.cy = me[1]; this.dirty = true; return; }
     const maps = this.data?.maps ?? [];
     if (maps.length < 2) return;
@@ -236,6 +249,13 @@ export class MapScreen implements Grid {
     g.strokeStyle = on ? '#ffd166' : '#ffffff'; g.lineWidth = 2;
     g.beginPath(); g.arc(ux, uy, 11, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.moveTo(ux - 20, uy); g.lineTo(ux - 7, uy); g.moveTo(ux + 7, uy); g.lineTo(ux + 20, uy); g.moveTo(ux, uy - 20); g.lineTo(ux, uy - 7); g.moveTo(ux, uy + 7); g.lineTo(ux, uy + 20); g.stroke();
+    // The zoom and a scale bar (bottom left): how far 1 bar is in metres.
+    const steps = [5, 10, 20, 50, 100, 200], len = steps.find((s) => s * k >= 70) ?? 200, bw = len * k, by = H - 18;
+    g.fillStyle = 'rgba(14, 12, 9, 0.72)'; g.fillRect(10, by - 22, Math.max(bw, 60) + 92, 32);
+    g.strokeStyle = '#fff6e0'; g.lineWidth = 2; g.beginPath(); g.moveTo(18, by - 4); g.lineTo(18, by); g.lineTo(18 + bw, by); g.lineTo(18 + bw, by - 4); g.stroke();
+    g.font = `600 ${Math.round(fs * 0.62)}px sans-serif`; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff6e0';
+    g.fillText(`${len} m`, 18, by - 8);
+    g.textAlign = 'right'; g.fillText(tf('mapZoom', `${this.zoom + 1}/${ZOOMS.length}`), Math.max(bw, 60) + 96, by - 8);
     this.info(me);
   }
 

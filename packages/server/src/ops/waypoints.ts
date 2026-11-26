@@ -84,7 +84,24 @@ export class Waypoints {
   route(name: string, i: number, id: string): Record<string, unknown> {
     const w = this.w, e = w.e, m = e.map[i]!;
     let target: { map: number; x: number; y: number; label: string } | null = null;
-    if (id.startsWith('map:')) {
+    const pt = /^pt:([^:]+):(-?[\d.]+):(-?[\d.]+)$/.exec(id); // a place picked on the TV's map (imad 2026-11-26)
+    if (pt) {
+      const k = w.maps.findIndex((q) => q.def.id === pt[1]);
+      if (k < 0) return { ok: false, code: 'noRoute' };
+      const tm = w.maps[k]!.tiles, x = Math.max(0.5, Math.min(tm.w - 0.5, Number(pt[2]))), y = Math.max(0.5, Math.min(tm.h - 0.5, Number(pt[3])));
+      // A solid spot (a tree, a wall, water): the nearest open ground next to it.
+      let gx = x, gy = y;
+      if (tm.isSolidAt(x, y)) {
+        let bd = Infinity;
+        for (let r = 1; r <= 6 && bd === Infinity; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          const xx = Math.floor(x) + dx, yy = Math.floor(y) + dy;
+          if (!tm.inside(xx, yy) || tm.solid[tm.get(xx, yy)]) continue;
+          const d = dx * dx + dy * dy; if (d < bd) { bd = d; gx = xx + 0.5; gy = yy + 0.5; }
+        }
+        if (bd === Infinity) return { ok: false, code: 'noRoute' };
+      }
+      target = { map: k, x: gx, y: gy, label: `${Math.round(x)}, ${Math.round(y)}` };
+    } else if (id.startsWith('map:')) {
       const k = w.maps.findIndex((q) => q.def.id === id.slice(4));
       if (k < 0) return { ok: false, code: 'noRoute' };
       if (k === m) return { ok: true, code: 'arrived', id, label: w.maps[k]!.def.name };

@@ -65,6 +65,9 @@ export const peopleScreen: Screen = {
 type ClanRow = { id: number; name: string; map: string; leader: string; leaderId: number; home: number[]; founder: string; approval: number; order: string; lastVote: number;
   vote: { end: number; why: string; cands: string[]; votes: number } | null; result: { at: number; winner: string; old: string; tally: [string, number][] } | null;
   members: { id: number; name: string; loyalty: number; respect: number; influence?: number }[]; rivals: { name: string; tension: number }[] };
+type PlanRow = { map: string; name: string; people: number; clan: string; leader: string; most: string; lines: { key: string; have: number; want: number }[];
+  boxes: { kind: 'fridge' | 'chest'; at: number[]; inv: Record<string, number>; owner: string }[]; working: Record<string, number> };
+const PLAN_WORDS: Record<string, string> = { food: 'Food kept', water: 'Water kept', homes: 'Homes', beds: 'Beds', fridges: 'Fridges', chests: 'Chests', wood: 'Wood in store', stone: 'Stone in store' };
 type QuestsInfo = { npcs: { key: string; name: string; x: number; y: number; map: string }[]; quests: { id: string; title: string; npc: string; lesson: string; xp: number }[];
   people: { id: number; name: string; player: boolean; done: number; cur: string; n: number; need: number; ready: boolean }[] };
 /**
@@ -74,7 +77,12 @@ type QuestsInfo = { npcs: { key: string; name: string; x: number; y: number; map
 async function loadClans(): Promise<void> {
   const el = document.getElementById('pClans'); if (!el) return;
   try {
-    const [r, q] = await Promise.all([cmd<{ clans: ClanRow[]; now: number }>({ cmd: 'clans' }), cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null)]);
+    const [r, q, pl] = await Promise.all([cmd<{ clans: ClanRow[]; now: number }>({ cmd: 'clans' }), cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null), cmd<{ plans: PlanRow[] }>({ cmd: 'campPlan' }).catch(() => null)]);
+    const plans = pl?.plans.length ? card('Camp plans', `<p class="dim">Each camp keeps food and water for the days to come, a home for every household with beds, a fridge and a chest, and wood and stone in the store. Free people work on the biggest hole first; the leader says it aloud.</p>`
+      + pl.plans.map((p) => `<div class="li" style="display:block"><b>${esc(p.name)}</b> <span class="dim">${p.clan ? esc(p.clan) + ' clan · ' : ''}${p.people} people${p.leader ? ' · leader ' + esc(p.leader) : ''}${p.most ? ' · most needed: <b>' + esc(PLAN_WORDS[p.most] ?? p.most) + '</b>' : ' · all stocked'}</span>
+        <div class="plan">${p.lines.filter((l) => l.want > 0).map((l) => { const pc = Math.min(100, Math.round((l.have / l.want) * 100)); return `<div class="pl"><span>${esc(PLAN_WORDS[l.key] ?? l.key)}</span><div class="bar"><i style="width:${pc}%;background:${pc >= 100 ? 'var(--ok)' : pc >= 50 ? 'var(--warn)' : 'var(--bad)'}"></i></div><b>${l.have} / ${l.want}</b></div>`; }).join('')}</div>
+        ${Object.keys(p.working).length ? `<small class="dim">Working on it now: ${Object.entries(p.working).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)} ${n}`).join(', ')}</small><br>` : ''}
+        ${p.boxes.length ? `<small class="dim">Stores at home: ${p.boxes.map((b) => `${b.kind === 'fridge' ? '🧊' : '🧰'} ${esc(b.owner || 'free hut')} (${Object.entries(b.inv).filter(([, v]) => v).map(([k, v]) => `${v} ${esc(k)}`).join(', ') || 'empty'})`).join(' · ')}</small>` : ''}</div>`).join('')) : '';
     const clans = r.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
       <div class="chips">${c.members.slice().sort((a, b) => (b.influence ?? 0) - (a.influence ?? 0)).map((m) => `<a class="chip" href="#/person/${m.id}" title="influence ${m.influence ?? '?'}, respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.influence !== undefined ? `influence ${m.influence} · ` : ''}loyal ${m.loyalty}%</small></a>`).join('')}</div>
       ${c.vote ? `<small><b>Election on</b>: ${esc(c.vote.cands.join(' / '))} (${esc(c.vote.why)}), ${c.vote.votes} votes so far, closes ${gameTime(c.vote.end)}</small><br>` : c.result ? `<small class="dim">Last vote ${gameTime(c.result.at)}: ${esc(c.result.winner)} won${c.result.winner !== c.result.old ? ' (was ' + esc(c.result.old) + ')' : ''} · ${c.result.tally.map(([n, v]) => `${esc(n)} ${v}`).join(', ')}</small><br>` : ''}
@@ -83,7 +91,7 @@ async function loadClans(): Promise<void> {
       ${c.vote ? '' : `<button class="btn sm" data-vote="${c.id}">Call a vote</button>`}</div>`).join('')) : '';
     const quests = q ? card('Quests', `<p class="dim">Teachers in ${esc(mapName(q.npcs[0]?.map ?? ''))}: ${q.npcs.map((n) => `${esc(n.name)} (${n.x}, ${n.y})`).join(', ')}. Ten quests in order; each lesson stays in the person's prompts.</p>
       <table><tr><th>Person</th><th>Done</th><th>Now</th></tr>${q.people.sort((a, b) => b.done - a.done).map((p) => `<tr><td><a href="#/person/${p.id}">${esc(p.name)}</a>${p.player ? ' <small class="dim">player</small>' : ''}</td><td>${p.done} / ${q.quests.length}</td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <small>(hand it in)</small>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</table>`) : '';
-    el.innerHTML = clans + quests;
+    el.innerHTML = plans + clans + quests;
     on('[data-vote]', 'click', (b) => { void cmd({ cmd: 'clanVote', id: Number(b.dataset.vote) }).then(() => { toast('Election opened (2 game hours)'); void loadClans(); }, (e) => toast(String(e), 'err')); });
   } catch { /* next time */ }
 }

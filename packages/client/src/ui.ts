@@ -107,7 +107,13 @@ export class Menu {
       if (r.value !== undefined) { const v = document.createElement('span'); v.className = 'mv'; v.textContent = r.value; d.appendChild(v); }
       this.listEl.appendChild(d);
     }
-    this.select(Math.min(sel, Math.max(0, p.rows.length - 1)));
+    this.select(this.skip(Math.min(sel, Math.max(0, p.rows.length - 1)), 1));
+  }
+  /** From row i in direction d, the first row that is not a greyed header (`dim` rows with an id starting 'h:'). */
+  private skip(i: number, d: 1 | -1): number {
+    const n = this.rows.length;
+    for (let k = 0; k < n; k++) { const j = (((i + d * k) % n) + n) % n; const r = this.rows[j]!; if (!(r.dim && r.id.startsWith('h:'))) return j; }
+    return i;
   }
 
   private select(i: number): void {
@@ -131,8 +137,8 @@ export class Menu {
     if (a === 'left' || a === 'right') return;
     const n = this.rows.length;
     this.onSound(a === 'up' || a === 'down' ? 'ui_move' : a === 'ok' ? 'ui_ok' : this.stack.length > 1 ? 'ui_back' : 'ui_close');
-    if (a === 'up' && n) this.select((this.sel + n - 1) % n);
-    else if (a === 'down' && n) this.select((this.sel + 1) % n);
+    if (a === 'up' && n) this.select(this.skip((this.sel + n - 1) % n, -1));
+    else if (a === 'down' && n) this.select(this.skip((this.sel + 1) % n, 1));
     else if (a === 'back') this.back();
     else if (a === 'ok' && n) { const r = this.rows[this.sel]!; this.onPick(this.page, r.id); }
   }

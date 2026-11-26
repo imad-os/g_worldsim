@@ -853,6 +853,11 @@ export class Brain {
     const W = this.w.maps[m]!.tiles.w, t = this.nearestSpot(this.drinkSpots[m]!, W, x, y);
     return t < 0 ? Infinity : Math.hypot((t % W) + 0.5 - x, ((t / W) | 0) + 0.5 - y);
   }
+  /** The nearest place to drink from person i (a tile index, -1 = none on this map). */
+  waterSpot(i: number): number {
+    const e = this.w.e, m = e.map[i]!;
+    return this.nearestSpot(this.drinkSpots[m]!, this.w.maps[m]!.tiles.w, e.x[i]!, e.y[i]!);
+  }
   /** Next to water (the tile under or beside x, y). */
   nearWater(m: number, x: number, y: number): boolean {
     const t = this.w.maps[m]!.tiles, W = t.w;
@@ -881,27 +886,35 @@ export class Brain {
     if (a === 'use') {
       if (item() >= 0) a = 'pickup';
       else if (this.nearWater(m, e.x[i]!, e.y[i]!) && e.thirst[i]! > 5) a = 'drink';
-      else if (e.carry[i]! > 0 && e.hunger[i]! > 15) a = 'eat';
+      else if (this.nearWater(m, e.x[i]!, e.y[i]!)) a = 'fill'; // not thirsty at the water: fill bottles for later (imad 2026-11-26)
+      else if (w.survival.foodOf(i) > 0 && e.hunger[i]! > 15) a = 'eat';
       else return { ok: false, code: 'nothing' };
     }
     switch (a) {
       case 'drink':
-        if (!this.nearWater(m, e.x[i]!, e.y[i]!)) return { ok: false, code: 'noWater' };
+        if (!this.nearWater(m, e.x[i]!, e.y[i]!)) return w.survival.drinkBottle(i) ? { ok: true, code: 'drankBottle' } : { ok: false, code: 'noWater' };
         e.thirst[i] = 0; w.emit('drink', { id: e.id(i), player: true });
         return { ok: true, code: 'drank' };
+      case 'fill': {
+        if (!this.nearWater(m, e.x[i]!, e.y[i]!)) return { ok: false, code: 'noWater' };
+        const n = w.survival.fillBottles(i);
+        return n > 0 ? { ok: true, code: 'filled', item: String(w.survival.inv(i).water ?? 0) } : { ok: false, code: 'bottlesFull' };
+      }
       case 'pickup': {
         const t = item();
         if (t < 0) return { ok: false, code: 'nothing' };
-        if (e.carry[i]! >= 5) return { ok: false, code: 'full' };
-        const def = this.itemDef.get(e.sub[t]!);
+        if (w.survival.foodRoom(i) <= 0) return { ok: false, code: 'full' }; // hands (5) and bag (20) both full
+        const def = this.itemDef.get(e.sub[t]!), toBag = e.carry[i]! >= 5;
         w.remove(t, 'taken');
-        e.carry[i]!++;
+        w.survival.addFood(i, 1);
         w.emit('pickup', { id: e.id(i), item: def?.name ?? 'food', player: true });
-        return { ok: true, code: 'picked', item: def?.name ?? 'food' };
+        return { ok: true, code: toBag ? 'pickedBag' : 'picked', item: def?.name ?? 'food' };
       }
       case 'eat':
+        w.survival.refill(i);
         if (e.carry[i]! <= 0) return { ok: false, code: 'noFood' };
         e.carry[i]!--; e.hunger[i] = Math.max(0, e.hunger[i]! - 35);
+        w.survival.refill(i);
         return { ok: true, code: 'ate' };
       case 'sleep':
         if (e.flags[i]! & EFlag.Sleeping) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; return { ok: true, code: 'wake' }; }
@@ -1150,8 +1163,15 @@ export class Brain {
     switch (a) {
       case Act.Drink: {
         const t = this.nearestSpot(this.drinkSpots[m]!, w.maps[m]!.tiles.w, e.x[i]!, e.y[i]!);
+        const W = w.maps[m]!.tiles.w, dw = t < 0 ? Infinity : Math.hypot((t % W) + 0.5 - e.x[i]!, ((t / W) | 0) + 0.5 - e.y[i]!);
+        // Water kept for later (imad 2026-11-26): a bottle from the bag when the water is far, else the home's fridge when it is nearer.
+        if (dw > 15 && w.survival.drinkBottle(i)) { this.stop(i); this.setAct(i, Act.Drink, 6); this.schedule(i, 2, this.ticksLeft(i)); return true; }
+        const f = w.survival.myBox(i, 'fridge', Math.min(dw, 140), 'water');
+        if (f >= 0) {
+          const sp = w.survival.besideStore(m, f);
+          if (sp && this.goTo(i, sp.x, sp.y, e.thirst[i]! > 85)) { this.setAct(i, Act.Drink, 15); e.target[i] = f; e.goal[i] = -4; this.schedule(i, 1); return true; }
+        }
         if (t < 0) return false;
-        const W = w.maps[m]!.tiles.w;
         if (!this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5, e.thirst[i]! > 85)) return false;
         this.setAct(i, Act.Drink, 15); e.target[i] = t;
         this.schedule(i, 1); return true;
@@ -1163,7 +1183,7 @@ export class Brain {
         // Food in the camp's store is the first place to look when it is near (people stock it for this).
         const st = e.carry[i]! <= 0 && (e.hunger[i]! > 40 || w.family.wantsFood(i)) ? w.survival.stashFood(i, 150) : -1;
         if (st >= 0) {
-          const W = w.maps[m]!.tiles.w, sp = w.freeSpot(m, (st % W) + 0.5, ((st / W) | 0) + 1.5, 6);
+          const sp = w.survival.besideStore(m, st);
           if (sp && this.goTo(i, sp.x, sp.y, e.hunger[i]! > 85)) { this.setAct(i, Act.Forage); e.goal[i] = -3; this.schedule(i, 1); return true; }
         }
         const t = this.nearestItem(i, 90);
@@ -1254,6 +1274,13 @@ export class Brain {
       case Act.Drink: {
         if (e.target[i]! < 0) return false;
         if (e.actT[i]! > 0) { this.stop(i); this.schedule(i, 2, this.ticksLeft(i)); return true; }
+        if (e.goal[i] === -4) { // at the home's fridge: a bottle out of it
+          e.goal[i] = -1; e.target[i] = -1;
+          const f = w.survival.boxNear(i, 'fridge', 2.4, 'water');
+          if (f < 0 || w.survival.boxTake(i, f, 'water', 1) !== 1) return false;
+          w.survival.drinkBottle(i);
+          return false;
+        }
         e.thirst[i] = 0; e.target[i] = -1; w.emit('drink', { id: e.id(i) });
         w.family.drank(i); // the little ones with them drink too
         return false;
@@ -1278,7 +1305,7 @@ export class Brain {
         w.emit('pickup', { id: e.id(i), item: def?.name ?? 'item' });
         w.remove(t, 'taken');
         if (e.hunger[i]! > 30 && !(e.carry[i]! <= 0 && w.family.wantsFood(i))) { e.hunger[i] = Math.max(0, e.hunger[i]! - (def?.food ?? 30)); this.stop(i); e.actT[i] = 10; this.schedule(i, 2, this.ticksLeft(i)); return true; }
-        if (e.carry[i]! < 5) e.carry[i]!++;
+        w.survival.addFood(i, 1); // into the hands, else the bag
         return false;
       }
       case Act.Sleep: {
@@ -1481,7 +1508,7 @@ export class Brain {
     return best;
   }
 
-  private nearestItem(i: number, r: number): number {
+  nearestItem(i: number, r: number): number {
     const e = this.w.e, m = e.map[i]!;
     let best = -1, bd = r * r;
     for (let j = 0; j < e.hi; j++) {

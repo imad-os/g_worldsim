@@ -284,3 +284,4 @@ details.si-tok{margin-top:16px;font-size:13px;color:var(--dim)}details.si-tok su
 }
 .todo .todo-c{border-left:3px solid var(--line);padding:6px 10px;margin:8px 0;background:var(--bg2);border-radius:0 8px 8px 0}.todo .todo-c.claude{border-left-color:var(--acc)}
 .todo .todo-t{white-space:pre-wrap;font-size:14px;overflow-wrap:anywhere}.todo textarea{resize:vertical}
+.plan{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 18px;margin:8px 0 6px}.plan .pl{display:grid;grid-template-columns:104px 1fr 54px;align-items:center;gap:8px;font-size:13px}.plan .pl b{text-align:right;font-variant-numeric:tabular-nums}.plan .bar{height:7px;border-radius:5px;background:var(--line);overflow:hidden}.plan .bar i{display:block;height:100%;border-radius:5px}

@@ -332,6 +332,27 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       addTpl(o, t.box, place(wx + 0.5, 1.68, wy + 0.5, 0, 0.6, 0, 0.3, 0.06, 0.3), c, 0.8);
       colOf(L.top, c); addTpl(og, t.box, place(wx + 0.5, 1.45, wy + 0.5, 0, 0.6, 0, 0.2, 0.24, 0.2), c, 1);
       colOf(0xffb24a, c); addPool(op, wx + 0.5, wy + 0.5, 4.2, c);
+    } else if (L.shape === Shape.Fridge || L.shape === Shape.Chest) {
+      // A fridge (tall, pale, a door line and a handle) or a chest (a wooden box with iron bands and a lock), its back to the
+      // nearest wall and its front to the room (imad 2026-11-26: built only inside a hut).
+      const wallAt = (x: number, y: number) => { const id2 = at(x, y); return id2 >= 0 && looks[id2]!.shape === Shape.Wall ? 1 : 0; };
+      const [bx, bz] = wallAt(lx, ly - 1) ? [0, -1] : wallAt(lx, ly + 1) ? [0, 1] : wallAt(lx - 1, ly) ? [-1, 0] : wallAt(lx + 1, ly) ? [1, 0] : [0, -1];
+      const yaw = bx ? Math.PI / 2 : 0, fx = -bx, fz = -bz; // front = away from the wall
+      const cx0 = wx + 0.5 + bx * 0.12, cz0 = wy + 0.5 + bz * 0.12;
+      if (L.shape === Shape.Fridge) {
+        colOf(L.top, c); addTpl(o, t.box, place(cx0, 0, cz0, 0, yaw, 0, 0.74, 1.78, 0.66), c, 0.75);
+        colOf(L.side, c);
+        addTpl(o, t.box, place(cx0 + fx * 0.335, 1.14, cz0 + fz * 0.335, 0, yaw, 0, 0.7, 0.03, 0.02), c, 0.9); // the freezer's door line
+        const hx = cx0 + fx * 0.345 + (bx ? 0 : 0.26), hz = cz0 + fz * 0.345 + (bx ? 0.26 : 0);
+        addTpl(o, t.box, place(hx, 0.5, hz, 0, yaw, 0, 0.04, 0.55, 0.04), c, 1); // handles
+        addTpl(o, t.box, place(hx, 1.25, hz, 0, yaw, 0, 0.04, 0.35, 0.04), c, 1);
+      } else {
+        colOf(L.top, c); addTpl(o, t.box, place(cx0, 0, cz0, 0, yaw, 0, 0.84, 0.5, 0.56), c, 0.7);
+        colOf(0x7c5230, c); addTpl(o, t.box, place(cx0, 0.5, cz0, 0, yaw, 0, 0.86, 0.12, 0.58), c, 0.8); // the lid
+        colOf(L.side, c);
+        for (const s2 of [-0.3, 0.3]) addTpl(o, t.box, place(cx0 + (bx ? 0 : s2), 0, cz0 + (bx ? s2 : 0), 0, yaw, 0, 0.06, 0.63, 0.6), c, 0.9); // iron bands
+        addTpl(o, t.box, place(cx0 + fx * 0.29, 0.38, cz0 + fz * 0.29, 0, yaw, 0, 0.1, 0.14, 0.04), c, 1); // the lock
+      }
     } else if (L.shape === Shape.Herbs) {
       // A patch of healing herbs: a few round leafy clumps with small lilac and white flowers (A next to it picks them).
       for (let k = 0; k < 4; k++) {

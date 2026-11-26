@@ -21,7 +21,7 @@ export interface Home { m: number; out: number; dir: number; owner: number; by: 
 
 export class Homes {
   readonly list: Home[] = [];
-  /** `${map}:${tile}` -> home, for the 25 tiles of every hut. */
+  /** `${map}:${tile}` -> home, for every tile of every hut (49 for a 7 x 7 one). */
   private readonly tileOf = new Map<number, Home>();
   private saved = new Map<string, { owner: number; by: number; since: number }>();
 
@@ -46,7 +46,7 @@ export class Homes {
       const h: Home = { m, out, dir, owner: k?.owner ?? -1, by: k?.by ?? -1, since: k?.since ?? 0 };
       this.list.push(h);
       const r = sv.hutRect(m, out, dir), W = this.w.maps[m]!.tiles.w;
-      if (r) for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) this.tileOf.set(m * 0x1000000 + (r.y0 + yy) * W + r.x0 + xx, h);
+      if (r) for (let yy = 0; yy < r.s; yy++) for (let xx = 0; xx < r.s; xx++) this.tileOf.set(m * 0x1000000 + (r.y0 + yy) * W + r.x0 + xx, h);
     }));
     this.saved.clear();
   }
@@ -64,7 +64,7 @@ export class Homes {
   /** The middle of a hut's room (x, y in metres). */
   middle(h: Home): { x: number; y: number } {
     const r = this.w.survival.hutRect(h.m, h.out, h.dir)!;
-    return { x: r.x0 + 2.5, y: r.y0 + 2.5 };
+    return { x: r.x0 + r.s / 2, y: r.y0 + r.s / 2 };
   }
 
   /** Family by blood or marriage: partners, parents and children, brothers and sisters. */
@@ -240,7 +240,7 @@ export class Homes {
     const sv = this.w.survival, r = sv.hutRect(h.m, h.out, h.dir), tm = this.w.maps[h.m]!.tiles;
     if (!r) return 0;
     let n = 0;
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) if (tm.tiles[(r.y0 + yy) * tm.w + r.x0 + xx] === sv.T.bed) n++;
+    for (let yy = 0; yy < r.s; yy++) for (let xx = 0; xx < r.s; xx++) if (tm.tiles[(r.y0 + yy) * tm.w + r.x0 + xx] === sv.T.bed) n++;
     return n;
   }
   /** Beds hut h still lacks: one per sleeper, never more. */
@@ -263,7 +263,12 @@ export class Homes {
     const h = this.homeOf(id);
     if (!h) return '';
     const b = this.bedsIn(h), n = this.sleepers(h).length, miss = Math.max(0, n - b);
-    return `Your home has ${b} bed${b === 1 ? '' : 's'} for ${n} sleeper${n === 1 ? '' : 's'}${miss ? `: it needs ${miss} more` : ': enough, build no more beds'}.`;
+    const sv = this.w.survival, f = sv.boxIn(h, 'fridge'), c = sv.boxIn(h, 'chest');
+    const fi = f >= 0 ? sv.box(h.m, f) : null, ci = c >= 0 ? sv.box(h.m, c) : null;
+    const chest = ci ? Object.entries(ci).filter(([, v]) => v).map(([k, v]) => `${v} ${k}`).join(', ') : '';
+    return `Your home has ${b} bed${b === 1 ? '' : 's'} for ${n} sleeper${n === 1 ? '' : 's'}${miss ? `: it needs ${miss} more` : ': enough, build no more beds'}.`
+      + (fi ? ` Its fridge holds ${fi.food ?? 0} food and ${fi.water ?? 0} water (eat and drink from it, fill it for the days to come).` : ' It has no fridge yet (a fridge keeps food and water: build one inside).')
+      + (ci ? ` Its chest holds ${chest || 'nothing'}.` : ' It has no chest yet (keeps things and weapons).');
   }
 
   /** How many more huts map m needs so every household has a home. */

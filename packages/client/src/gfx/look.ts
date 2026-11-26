@@ -4,7 +4,7 @@ import type { TileTypeInfo } from '@worldsim/protocol';
  * How each tile type looks in 3D. The scenario only gives a name and a flat colour; the viewer picks a softer
  * palette and a shape by name (unknown names: solid = a wall block, else flat ground in the scenario's colour).
  */
-export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14, Herbs = 15 }
+export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14, Herbs = 15, Fridge = 16, Chest = 17 }
 
 /** `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides. */
 export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean; open?: boolean }
@@ -35,6 +35,8 @@ const BY_NAME: Record<string, Look> = {
   bed: { shape: Shape.Bed, ground: 0xb08a5f, top: 0xb0503c, side: 0x7a5432, height: 0 },
   herbs: { shape: Shape.Herbs, ground: 0x76a955, top: 0x4f9a3c, side: 0xb48ad8, height: 0 },
   lamp: { shape: Shape.Lamp, ground: 0x8d7a62, top: 0xffe08a, side: 0x4a4440, height: 0 },
+  fridge: { shape: Shape.Fridge, ground: 0xb08a5f, top: 0xdfe6e8, side: 0x8f9aa0, height: 0 },
+  chest: { shape: Shape.Chest, ground: 0xb08a5f, top: 0x9b6a3a, side: 0x5a5550, height: 0 },
 };
 
 export function looksFor(tiles: TileTypeInfo[]): Look[] {

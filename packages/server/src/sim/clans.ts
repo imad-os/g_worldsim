@@ -304,9 +304,16 @@ export class Clans {
     type S = Parameters<typeof w.tasks.start>[3];
     let text: string, steps: (i: number) => S;
     if (danger) { text = 'Night is coming: arm yourselves and gather by me.'; steps = (i) => [...(w.survival.weapon(i)[1] > 0 ? [] : [{ do: 'craft', what: 'spear' }]), { do: 'goto', who: c.leader }, { do: 'stay', minutes: 90 }]; }
-    else if (st && hour >= 5 && hour < 18 && st.food < 4) { text = 'We need food in the store. Collect some and put it there.'; steps = () => [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]; }
-    else if (st && hour >= 5 && hour < 18 && st.wood < 6) { text = 'Bring wood for the store: fires and walls need it.'; steps = () => [{ do: 'gather', what: 'wood', times: 3 }, { do: 'store', what: 'wood' }]; }
-    else return;
+    else if (hour >= 5 && hour < 18) { // by day: the hole in the clan's plan that is the biggest (sim/campplan.ts, imad 2026-11-26)
+      const plan = w.plan.of(c.map), line = (k: string) => plan.lines.find((l) => l.key === k)!;
+      const big = (k: string) => w.plan.lack(line(k)) > 0.5;
+      const fridges = line('fridges').have;
+      if (big('water') && (st || fridges)) { text = 'We have no water put by. Fill bottles at the water and store them.'; steps = () => [{ do: 'gather', what: 'water', times: 3 }, { do: 'store', what: 'water' }]; }
+      else if (big('food') && (st || fridges)) { text = 'We need food in the stores. Collect some and put it away.'; steps = () => [{ do: 'collect', what: 'food', times: 3 }, { do: 'store', what: 'food' }]; }
+      else if (st && big('wood')) { text = 'Bring wood for the store: fires and walls need it.'; steps = () => [{ do: 'gather', what: 'wood', times: 3 }, { do: 'store', what: 'wood' }]; }
+      else if (st && big('stone')) { text = 'Bring stone for the store: repairs and huts need it.'; steps = () => [{ do: 'gather', what: 'stone', times: 3 }, { do: 'store', what: 'stone' }]; }
+      else return;
+    } else return;
     c.order = text; c.orderAt = w.gameSec;
     w.speak(L, `${c.name}! ${text}`);
     let n = 0;

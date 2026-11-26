@@ -12,7 +12,7 @@ function openSpot(w: World, m: number, x: number, y: number): { x0: number; y0: 
   const tm = w.maps[m]!.tiles, G = tileId(w, 'grass'), D = tileId(w, 'dirt');
   for (let r = 0; r < 60; r++) for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) {
     let ok = true;
-    for (let j = -2; j < 9 && ok; j++) for (let i = -2; i < 7 && ok; i++) { const t = tm.inside(xx + i, yy + j) ? tm.get(xx + i, yy + j) : -1; if (t !== G && t !== D) ok = false; }
+    for (let j = -2; j < 11 && ok; j++) for (let i = -2; i < 9 && ok; i++) { const t = tm.inside(xx + i, yy + j) ? tm.get(xx + i, yy + j) : -1; if (t !== G && t !== D) ok = false; }
     if (ok && !w.land.inRing(m, xx, yy) && !w.portals.some((p) => p.from === m && Math.hypot(p.x - xx, p.y - yy) < 12)) return { x0: xx, y0: yy };
   }
   throw new Error('no open ground');
@@ -32,7 +32,7 @@ function couple(seed: string) {
   pa.born = pb.born = w.gameSec - 30 * w.yearSec; pa.sex = 'm'; pb.sex = 'f';
   for (const [p, q] of [[pa, pb], [pb, pa]] as const) { p.partner = e.id(q === pa ? a : b); p.parents = []; }
   const s = openSpot(w, town, 60, 60);
-  w.place(a, town, s.x0 + 2.5, s.y0 + 7.5);
+  w.place(a, town, s.x0 + 3.5, s.y0 + 9.5);
   sv.add(a, 'wood', 20); sv.add(a, 'stone', 10); sv.add(a, 'leather', 5);
   assert.equal(sv.placeAt(a, 'hut', s.x0, s.y0, 0), 'built');
   const h = sv.homes.homeOf(e.id(a))!;

@@ -40,6 +40,7 @@ export type AdminCmd =
   // a Firebase player may use only these (about themselves)
   | { cmd: 'me' }
   | { cmd: 'clans' }
+  | { cmd: 'campPlan' }
   | { cmd: 'clanVote'; id: number }
   | { cmd: 'quests' }
   | { cmd: 'joinWorld'; name: string }

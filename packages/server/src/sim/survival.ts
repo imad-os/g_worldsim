@@ -1,4 +1,4 @@
-import { Act, ANIMAL_NAMES, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, Kind, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, HANDS, WATER_FILL, WATER_DRINK, boxHolds, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
@@ -24,7 +24,7 @@ for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
 /** Kept in the inventory (not put down): weapons, arrows and clothes. */
 const KEEP = new Set(['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet']);
 /** Game seconds of work. */
-const WORK = { wreck: 90, chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
+const WORK = { fill: 30, wreck: 90, chop: 120, dig: 100, mine: 240, place: 40, fire: 240, hut: 50, tend: 45, pick: 20, store: 40, take: 30, loot: 150, plant: 180, repair: 60, heal: 120, guard: 300 } as const;
 /** What a storage crate keeps. */
 export type StashKey = 'food' | Res;
 export interface Stash { t: number; food: number; wood: number; stone: number; scrap: number; [k: string]: number }
@@ -39,7 +39,7 @@ const HERBS_WILD = 45, HERBS_TOWN = 14;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
 
 type JobKind = keyof typeof WORK;
-interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; dir?: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number }
+interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; dir?: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number; box?: number }
 const LAMP_R = 3.5, BED_R = 1.3;
 /** How far a player can aim a build (metres). */
 export const PLACE_REACH = 8;
@@ -47,7 +47,7 @@ export const PLACE_REACH = 8;
 const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
 
 /** Job kinds under the names the owner's rules use (sim/rules.ts). */
-const JOB_RULE: Record<string, string> = { wreck: 'build', chop: 'gather', dig: 'gather', mine: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
+const JOB_RULE: Record<string, string> = { fill: 'gather', wreck: 'build', chop: 'gather', dig: 'gather', mine: 'gather', fire: 'build', hut: 'build', place: 'build', pick: 'collect', plant: 'farm' };
 
 export class Survival {
   private readonly jobs = new Map<number, Job>();
@@ -65,7 +65,11 @@ export class Survival {
   /** Each map's leader (entity id, -1 = none): chosen every hour by courage, mind, kindness, strength and level (imad 2026-11-20: "social life and leaders"). */
   readonly leader: number[] = [];
   private toldAt: number[] = [];
-  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number; doorOpen: number; herbs: number };
+  readonly T: { tree: number; rubble: number; campfire: number; ashes: number; woodwall: number; floor: number; dirt: number; grass: number; water: number; crate: number; farm: number; rock: number; lamp: number; bed: number; door: number; doorOpen: number; herbs: number; fridge: number; chest: number };
+  /** What each fridge / chest holds (imad 2026-11-26): `${map}:${tile}` -> things. */
+  readonly boxes = new Map<string, Inv>();
+  /** Each hut's size (tiles a side) by `${map}:${out}`: new huts 7 (HUT_SIZE), huts from before 5. */
+  readonly hutSz = new Map<string, number>();
   /** Tile id of each thing that is put down (palisade, door, bed...). */
   readonly placeTile = new Map<string, number>();
   /** Players' things, by player name (agents keep theirs in Profile.inv). */
@@ -93,7 +97,7 @@ export class Survival {
 
   constructor(private w: World) {
     const id = (n: string) => w.sc.tiles.find((t) => t.name === n)?.id ?? -1;
-    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door'), doorOpen: id('dooropen'), herbs: id('herbs') };
+    this.T = { tree: id('tree'), rubble: id('rubble'), campfire: id('campfire'), ashes: id('ashes'), woodwall: id('woodwall'), floor: id('floor'), dirt: id('dirt'), grass: id('grass'), water: id('water'), crate: id('crate'), farm: id('farm'), rock: id('rock'), lamp: id('lamp'), bed: id('bed'), door: id('door'), doorOpen: id('dooropen'), herbs: id('herbs'), fridge: id('fridge'), chest: id('chest') };
     for (const n of PLACEABLE) if (id(n) >= 0) this.placeTile.set(n, id(n));
     for (const n of ['grass', 'dirt', 'sand', 'ashes']) if (id(n) >= 0) this.buildable.add(id(n));
     this.huts = w.maps.map(() => []);
@@ -107,7 +111,7 @@ export class Survival {
 
   /** What snapshots keep (fires, camps, crates, fields, huts). */
   save(): unknown {
-    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget, own: [...this.owners] };
+    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget, own: [...this.owners], boxes: [...this.boxes], hsz: [...this.hutSz] };
   }
   load(d: unknown): void {
     const v = d as { pinv?: [string, Inv][]; fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
@@ -123,6 +127,9 @@ export class Survival {
     this.huts.forEach((h, m) => { this.hutDir[m] = h.map((_, k) => vv.hutDir?.[m]?.[k] ?? 0); });
     vv.walls?.forEach((c, m) => { if (m < this.walls.length) this.walls[m] = c; });
     this.pinv.clear(); for (const [k, x] of v.pinv ?? []) this.pinv.set(k, x);
+    const vb = v as { boxes?: [string, Inv][]; hsz?: [string, number][] };
+    this.boxes.clear(); for (const [k, x] of vb.boxes ?? []) this.boxes.set(k, x);
+    this.hutSz.clear(); for (const [k, n] of vb.hsz ?? []) this.hutSz.set(k, n);
     this.w.colony.load((v as { colony?: unknown }).colony);
     this.homes.load((v as { homes?: unknown }).homes);
     const rt = (v as { res?: ({ tree: number; rock: number } | null)[] }).res;
@@ -154,17 +161,17 @@ export class Survival {
     let n = 0;
     for (let i = 0; i < e.hi; i++) if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && e.map[i] === m) n++;
     const roofs = Math.max(this.huts[m]!.length, Math.ceil((n + 2) / 2));
-    let r = Math.sqrt((roofs * 56 + 60) / Math.PI) + 2.5;
+    let r = Math.sqrt((roofs * (HUT_SIZE + 2.5) ** 2 + 60) / Math.PI) + 2.5;
     for (const out of this.huts[m]!) {
       const h = this.hutRect(m, out, this.hutDir[m]![this.huts[m]!.indexOf(out)] ?? 0);
       if (!h) continue;
-      for (const [x, y] of [[h.x0, h.y0], [h.x0 + 5, h.y0], [h.x0, h.y0 + 5], [h.x0 + 5, h.y0 + 5]] as const) {
+      for (const [x, y] of [[h.x0, h.y0], [h.x0 + h.s, h.y0], [h.x0, h.y0 + h.s], [h.x0 + h.s, h.y0 + h.s]] as const) {
         const d = Math.hypot(x - c.x, y - c.y);
-        if (d < 22) r = Math.max(r, d + 2);
+        if (d < 32) r = Math.max(r, d + 2);
       }
     }
     void tm;
-    return Math.min(20, Math.max(9, Math.ceil(r)));
+    return Math.min(28, Math.max(9, Math.ceil(r))); // 7 x 7 huts (imad 2026-11-26) need a wider circle in the town's blocks
   }
   /** Fix the wall's circle (the first piece is going up). */
   private freezeWall(m: number): void { if (this.w.ai.siting && !this.walls[m]) { const p = this.perimeter(m); if (p) this.walls[m] = p; } }
@@ -180,12 +187,32 @@ export class Survival {
     }
     return out;
   }
-  /** A hut's 5 x 5 square from the tile in front of its door and the way the door faces. */
-  hutRect(m: number, out: number, dir: number): { x0: number; y0: number; door: number; inside: number; dx: number; dy: number } | null {
+  /** A hut's square (s tiles a side: 7 now, 5 for huts from before) from the tile in front of its door and the way the door faces. */
+  hutRect(m: number, out: number, dir: number, size?: number): { x0: number; y0: number; door: number; inside: number; dx: number; dy: number; s: number } | null {
     if (out < 0) return null;
+    const s = size ?? this.sizeOf(m, out, dir), H = (s - 1) >> 1;
     const W = this.w.maps[m]!.tiles.w, [dx, dy] = DIRS[dir] ?? DIRS[0]!;
-    const ox = out % W, oy = (out / W) | 0, cx = ox - dx * 3, cy = oy - dy * 3;
-    return { x0: cx - 2, y0: cy - 2, door: (oy - dy) * W + ox - dx, inside: (oy - dy * 2) * W + ox - dx * 2, dx, dy };
+    const ox = out % W, oy = (out / W) | 0, cx = ox - dx * (H + 1), cy = oy - dy * (H + 1);
+    return { x0: cx - H, y0: cy - H, door: (oy - dy) * W + ox - dx, inside: (oy - dy * 2) * W + ox - dx * 2, dx, dy, s };
+  }
+  /** How big hut `out` is: as recorded when it went up, else read from its walls (the room's depth behind the door), else 5 (old huts). */
+  sizeOf(m: number, out: number, dir = 0): number {
+    const key = `${m}:${out}`, known = this.hutSz.get(key);
+    if (known) return known;
+    const tm = this.w.maps[m]?.tiles;
+    if (!tm || out < 0) return 5;
+    const [dx, dy] = DIRS[dir] ?? DIRS[0]!, ox = out % tm.w, oy = (out / tm.w) | 0;
+    let n = 0;
+    for (let k = 2; k <= HUT_SIZE; k++) { // past the doorway: count the room's tiles up to the back wall
+      const x = ox - dx * k, y = oy - dy * k;
+      if (!tm.inside(x, y)) break;
+      const t = tm.get(x, y);
+      if (t === this.T.woodwall || t === this.placeTile.get('window')) break;
+      n++;
+    }
+    const s = n >= HUT_SIZE - 2 ? HUT_SIZE : 5;
+    this.hutSz.set(key, s);
+    return s;
   }
   private setCamp(m: number, x: number, y: number): void { if (!this.camp[m]) { this.camp[m] = { x, y }; this.w.emit('camp', { map: this.w.maps[m]!.def.id, x, y }); } }
 
@@ -231,7 +258,7 @@ export class Survival {
     const e = this.w.e;
     for (const [k, n] of Object.entries(d)) {
       if (!n) continue;
-      if (k === 'meat') e.carry[i] = Math.min(5, e.carry[i]! + n);
+      if (k === 'meat') this.addFood(i, n);
       else this.add(i, k, n);
     }
   }
@@ -288,6 +315,7 @@ export class Survival {
     const k = ty * tm.w + tx;
     if (what === 'campfire') { this.fires.set(`${m}:${k}`, w.gameSec + FIRE_START); this.setCamp(m, tx + 0.5, ty + 0.5); }
     if (what === 'bed') w.brain.addShelter(m, k);
+    if (what === 'fridge' || what === 'chest') this.boxes.set(`${m}:${k}`, {});
     this.owners.set(`${m}:${k}`, w.e.id(i));
     w.emit('build', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx, ty });
   }
@@ -413,27 +441,27 @@ export class Survival {
       const hs = this.hutSite(m);
       if (hs) { x0 = hs.x0; y0 = hs.y0; dir = hs.dir; }
       else { // no room inside the wall: outside, as before (it will not be protected)
-        const s0 = this.site(m, cx, cy, 5, 5, 30);
+        const s0 = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 30);
         if (s0 < 0) return 'I found no clear ground for a hut';
         x0 = s0 % W; y0 = (s0 / W) | 0;
       }
     } else {
-      const s = this.site(m, cx, cy, 5, 5, 30);
+      const s = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 30);
       if (s < 0) return 'I found no clear ground for a hut';
       x0 = s % W; y0 = (s / W) | 0;
     }
-    const [ddx, ddy] = DIRS[dir]!, door = (y0 + 2 + ddy * 2) * W + x0 + 2 + ddx * 2;
+    const S = HUT_SIZE, H = (S - 1) >> 1, [ddx, ddy] = DIRS[dir]!, door = (y0 + H + ddy * H) * W + x0 + H + ddx * H;
     // Floor first (inside), then the walls from the back to the front; the doorway stays open.
     const floor: number[] = [], walls: number[] = [];
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
-      const k = (y0 + yy) * W + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+    for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
+      const k = (y0 + yy) * W + x0 + xx, edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
       if (k === door) continue;
       if (!edge) floor.push(k, this.T.floor);
       else walls.push(k, this.T.woodwall);
     }
     walls.push(door, this.T.door >= 0 ? this.T.door : this.T.floor); // its own door last (imad 2026-11-25: huts come with doors)
     // Stand just outside the door.
-    return this.begin(i, { kind: 'hut', m, tx: x0 + 2 + ddx * 3, ty: y0 + 2 + ddy * 3, work: 0, tiles: [...floor, ...walls], dir });
+    return this.begin(i, { kind: 'hut', m, tx: x0 + H + ddx * (H + 1), ty: y0 + H + ddy * (H + 1), work: 0, tiles: [...floor, ...walls], dir, n: S });
   }
 
   /**
@@ -476,8 +504,8 @@ export class Survival {
   hutSite(m: number): { x0: number; y0: number; dir: number } | null {
     const p = this.perimeter(m);
     if (!p) return null;
-    // Before the wall is fixed, a crowded spot may take a wider circle (the wall will follow the huts), up to 16 tiles.
-    for (let r = p.r; r <= (this.walls[m] ? p.r : 20); r += 2) { const h = this.hutSiteIn(m, { ...p, r }); if (h) return h; }
+    // Before the wall is fixed, a crowded spot may take a wider circle (the wall will follow the huts), up to 24 tiles.
+    for (let r = p.r; r <= (this.walls[m] ? p.r : 28); r += 2) { const h = this.hutSiteIn(m, { ...p, r }); if (h) return h; }
     return null;
   }
   private hutSiteIn(m: number, p: { x: number; y: number; r: number }): { x0: number; y0: number; dir: number } | null {
@@ -490,7 +518,7 @@ export class Survival {
       if (keep.has(k) || t === this.T.campfire) return false;
       return inner ? this.buildable.has(t) : tm.cost[t]! > 0;
     };
-    const R = p.r;
+    const R = p.r, S = HUT_SIZE, H = (S - 1) >> 1;
     // The village is a cluster (imad 2026-11-26: "camps must be a collection of huts, so the strategy is to stay close for a better
     // defence"): every hut that stands pulls the next one next to it, a one or two tile lane apart (a short wall, neighbours in call).
     const rects: { x0: number; y0: number }[] = [];
@@ -498,7 +526,7 @@ export class Survival {
     const cluster = (x0: number, y0: number) => {
       let v = 0;
       for (const r of rects) {
-        const gap = Math.max(Math.max(r.x0 - (x0 + 4), x0 - (r.x0 + 4)), Math.max(r.y0 - (y0 + 4), y0 - (r.y0 + 4))) - 1;
+        const gap = Math.max(Math.max(r.x0 - (x0 + S - 1), x0 - (r.x0 + S - 1)), Math.max(r.y0 - (y0 + S - 1), y0 - (r.y0 + S - 1))) - 1;
         if (gap < 1) continue;
         v += gap <= 2 ? (v ? 0.6 : 1.6) : gap <= 4 ? (v ? 0.2 : 0.7) : 0;
       }
@@ -506,11 +534,11 @@ export class Survival {
     };
     for (let cy = Math.floor(p.y - R); cy <= p.y + R; cy++) for (let cx = Math.floor(p.x - R); cx <= p.x + R; cx++) {
       const d = Math.hypot(cx + 0.5 - (p.x + 0.5), cy + 0.5 - (p.y + 0.5));
-      if (d + 3.6 > R - 1.2 || d < 4.5) continue;
-      const x0 = cx - 2, y0 = cy - 2;
+      if (d + (H + 0.55) * 1.42 > R - 1.2 || d < H + 2.5) continue;
+      const x0 = cx - H, y0 = cy - H;
       let fits = true;
-      for (let yy = y0 - 1; yy <= y0 + 5 && fits; yy++) for (let xx = x0 - 1; xx <= x0 + 5 && fits; xx++) {
-        const inner = xx >= x0 && yy >= y0 && xx < x0 + 5 && yy < y0 + 5;
+      for (let yy = y0 - 1; yy <= y0 + S && fits; yy++) for (let xx = x0 - 1; xx <= x0 + S && fits; xx++) {
+        const inner = xx >= x0 && yy >= y0 && xx < x0 + S && yy < y0 + S;
         if (!ok(xx, yy, inner) || (inner && this.occupied(m, xx, yy))) fits = false;
       }
       if (!fits) continue;
@@ -520,7 +548,7 @@ export class Survival {
       for (let dir = 0; dir < 4; dir++) {
         const [dx, dy] = DIRS[dir]!;
         // Two tiles of open ground in front of the door.
-        const fx = cx + dx * 3, fy = cy + dy * 3;
+        const fx = cx + dx * (H + 1), fy = cy + dy * (H + 1);
         if (!ok(fx, fy, false) || !ok(fx + dx, fy + dy, false)) continue;
         const face = dx * ux + dy * uy; // 1 = the door looks at the camp
         cands.push([face * 2 - d * 0.3 + cluster(x0, y0), x0, y0, dir]);
@@ -533,8 +561,8 @@ export class Survival {
     const targets = this.huts[m]!.filter((o) => o >= 0);
     const st = this.stash[m];
     for (const [, x0, y0, dir] of cands.slice(0, 8)) {
-      const [dx, dy] = DIRS[dir]!, door = (y0 + 2 + dy * 2) * tm.w + x0 + 2 + dx * 2, out = door + dy * tm.w + dx;
-      const wall = (k: number) => { const x = k % tm.w, y = (k / tm.w) | 0; return x >= x0 && y >= y0 && x < x0 + 5 && y < y0 + 5 && (x === x0 || y === y0 || x === x0 + 4 || y === y0 + 4) && k !== door; };
+      const [dx, dy] = DIRS[dir]!, door = (y0 + H + dy * H) * tm.w + x0 + H + dx * H, out = door + dy * tm.w + dx;
+      const wall = (k: number) => { const x = k % tm.w, y = (k / tm.w) | 0; return x >= x0 && y >= y0 && x < x0 + S && y < y0 + S && (x === x0 || y === y0 || x === x0 + S - 1 || y === y0 + S - 1) && k !== door; };
       const reach = flood(tm, c0 % tm.w, (c0 / tm.w) | 0, 8000, wall);
       if (!reach.has(out) || targets.some((o) => !reach.has(o))) continue;
       if (st && ![1, -1, tm.w, -tm.w].some((dd) => reach.has(st.t + dd))) continue;
@@ -549,7 +577,7 @@ export class Survival {
     if (this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return 'hutLimit';
     if (!this.has(i, RECIPES.hut!)) return 'needHut';
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
-    const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * 4, e.y[i]! + Math.sin(a) * 4, 5, 5, 12);
+    const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * 5, e.y[i]! + Math.sin(a) * 5, HUT_SIZE, HUT_SIZE, 20);
     if (s < 0) return 'noRoom';
     return this.hutAt(i, s % tm.w, (s / tm.w) | 0, 0);
   }
@@ -564,26 +592,31 @@ export class Survival {
     if (what === 'hut') {
       if (!this.enabled) return 'nothing';
       // Close enough: the square's nearest tile within 8 m.
-      const cx = Math.max(tx, Math.min(tx + 4, x - 0.5)), cy = Math.max(ty, Math.min(ty + 4, y - 0.5));
+      const S = HUT_SIZE, H = (S - 1) >> 1;
+      const cx = Math.max(tx, Math.min(tx + S - 1, x - 0.5)), cy = Math.max(ty, Math.min(ty + S - 1, y - 0.5));
       if (Math.hypot(cx + 0.5 - x, cy + 0.5 - y) > PLACE_REACH) return 'tooFar';
-      const [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (ty + 2 + dy * 2) * tm.w + tx + 2 + dx * 2;
-      for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+      const [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (ty + H + dy * H) * tm.w + tx + H + dx * H;
+      for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
         const X = tx + xx, Y = ty + yy;
         if (!tm.inside(X, Y) || w.land.inRing(m, X, Y)) return 'noRoom';
         const t = tm.get(X, Y);
         if (!this.buildable.has(t) && t !== 3 /* road */) return 'noRoom';
-        const edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+        const edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
         if (edge && Y * tm.w + X !== door && this.occupied(m, X, Y)) return 'someone';
       }
       // The ground in front of the door must be open (a way in).
-      const ox = tx + 2 + dx * 3, oy = ty + 2 + dy * 3;
+      const ox = tx + H + dx * (H + 1), oy = ty + H + dy * (H + 1);
       if (!tm.inside(ox, oy) || tm.solid[tm.get(ox, oy)]) return 'doorBlocked';
-      if (near(tx + 2.5, ty + 2.5, 6)) return 'noRoom';
+      if (near(tx + H + 0.5, ty + H + 0.5, H + 4)) return 'noRoom';
       return '';
     }
     const tile = this.placeTile.get(what);
     if (tile === undefined) return 'nothing';
     if (!tm.inside(tx, ty) || w.land.inRing(m, tx, ty)) return 'noRoom';
+    if (INSIDE_ONLY.includes(what)) { // a fridge or a chest: on a hut's floor, never on the tile just inside the door (imad 2026-11-26)
+      const c = this.insideSpot(i, m, ty * tm.w + tx);
+      if (c) return c;
+    }
     if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) > PLACE_REACH) return 'tooFar';
     const t = tm.get(tx, ty), wallish = t === this.T.woodwall || t === this.placeTile.get('palisade') || t === this.placeTile.get('stonewall') || t === this.T.floor;
     const ok = this.buildable.has(t) || t === this.T.floor || t === 3 /* road */ || ((what === 'door' || what === 'window') && wallish);
@@ -611,25 +644,26 @@ export class Survival {
   /** Put a player's hut up at once: walls, a floor, its own door (theirs: only their family may go in). */
   private hutAt(i: number, x0: number, y0: number, dir: number): string {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
-    const [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (y0 + 2 + dy * 2) * tm.w + x0 + 2 + dx * 2;
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
-      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+    const S = HUT_SIZE, H = (S - 1) >> 1, [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (y0 + H + dy * H) * tm.w + x0 + H + dx * H;
+    for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
+      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
       if (edge && k !== door && this.occupied(m, x0 + xx, y0 + yy)) return 'someone';
     }
     this.use(i, RECIPES.hut!);
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
-      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+    for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
+      const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
       if (tm.tiles[k] === this.T.water) continue;
       if (k === door) tm.set(x0 + xx, y0 + yy, this.T.door >= 0 ? this.T.door : this.T.floor);
       else tm.set(x0 + xx, y0 + yy, edge ? this.T.woodwall : this.T.floor);
       if (!edge) w.brain.addShelter(m, k);
     }
-    const out = (y0 + 2 + dy * 3) * tm.w + x0 + 2 + dx * 3;
+    const out = (y0 + H + dy * (H + 1)) * tm.w + x0 + H + dx * (H + 1);
+    this.hutSz.set(`${m}:${out}`, S);
     this.huts[m]!.push(out);
     this.hutDir[m]!.push(dir);
     this.homes.built(m, out, dir, e.id(i));
-    this.setCamp(m, x0 + 2.5 + dx * 4, y0 + 2.5 + dy * 4);
-    w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + 2, ty: y0 + 2, player: true });
+    this.setCamp(m, x0 + H + 0.5 + dx * (H + 2), y0 + H + 0.5 + dy * (H + 2));
+    w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + H, ty: y0 + H, player: true });
     return 'built';
   }
 
@@ -696,7 +730,7 @@ export class Survival {
     if (!h) return [k];
     const r = this.hutRect(m, h.out, h.dir);
     const out: number[] = [];
-    if (r) for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) out.push((r.y0 + yy) * W + r.x0 + xx);
+    if (r) for (let yy = 0; yy < r.s; yy++) for (let xx = 0; xx < r.s; xx++) out.push((r.y0 + yy) * W + r.x0 + xx);
     return out;
   }
   /** A player aims at tile (tx, ty): pull it down if it is theirs or its owner is dead. Code: destroyed / tooFar / nothing / unknown / notYours. */
@@ -736,7 +770,8 @@ export class Survival {
   private pullDown(i: number, m: number, k: number): void {
     const w = this.w, tm = w.maps[m]!.tiles, h = this.homes.at(m, k), W = tm.w;
     const what = h ? 'hut' : tm.tiles[k] === this.T.doorOpen ? 'door' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
-    for (const c of this.destroyCells(m, k)) {
+    const cells = this.destroyCells(m, k);
+    for (const c of cells) {
       if (tm.tiles[c] !== this.T.water && this.builtTile(tm.tiles[c]!)) tm.set(c % W, (c / W) | 0, this.groundOf(m, c));
       this.owners.delete(`${m}:${c}`); this.fires.delete(`${m}:${c}`); this.farms.delete(`${m}:${c}`);
     }
@@ -749,6 +784,7 @@ export class Survival {
       this.homes.sync();
       this.add(i, 'wood', Math.floor((HUT_NEED.wood ?? 0) / 2)); this.add(i, 'stone', Math.floor((HUT_NEED.stone ?? 0) / 2)); this.add(i, 'leather', Math.floor((HUT_NEED.leather ?? 0) / 2));
     } else if (what !== 'campfire' && what !== 'field' && this.placeTile.has(what)) this.add(i, what, 1);
+    for (const c of cells) this.emptyBox(i, m, c); // what was kept in a fridge / chest goes into the bag (the rest is lost)
     w.brain.resetShelters(m);
     w.emit('destroy', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx: k % W, ty: (k / W) | 0 });
   }
@@ -771,7 +807,7 @@ export class Survival {
       for (const p of w.profiles.values()) if (p.home && p.home.map === w.maps[mi]!.def.id) delete p.home;
       this.huts[mi] = []; this.hutDir[mi] = [];
       this.walls[mi] = null; this.camp[mi] = null; this.stash[mi] = null; this.legacy.delete(mi); delete this.doorCache[mi];
-      for (const map of [this.owners, this.fires, this.farms, this.looted] as Map<string, unknown>[]) for (const key of [...map.keys()]) if (key.startsWith(mi + ':')) map.delete(key);
+      for (const map of [this.owners, this.fires, this.farms, this.looted, this.boxes, this.hutSz] as Map<string, unknown>[]) for (const key of [...map.keys()]) if (key.startsWith(mi + ':')) map.delete(key);
       for (const [id, j] of [...this.jobs]) if (j.m === mi) this.cancel(id);
       w.brain.resetShelters(mi);
       out.maps++;
@@ -814,11 +850,19 @@ export class Survival {
         const h = this.hutRect(m, outs[n]!.out, outs[n]!.dir);
         if (!h) continue;
         // The far side of the room first, never the tile just inside the door (people must get in).
-        for (let yy = 1; yy <= 3 && s < 0; yy++) for (let xx = 1; xx <= 3 && s < 0; xx++) {
-          const k = (h.y0 + (h.dy < 0 ? 4 - yy : yy)) * tm.w + h.x0 + (h.dx < 0 ? 4 - xx : xx);
+        for (let yy = 1; yy <= h.s - 2 && s < 0; yy++) for (let xx = 1; xx <= h.s - 2 && s < 0; xx++) {
+          const k = (h.y0 + (h.dy < 0 ? h.s - 1 - yy : yy)) * tm.w + h.x0 + (h.dx < 0 ? h.s - 1 - xx : xx);
           if (tm.tiles[k] === this.T.floor && k !== h.inside) s = k;
         }
       }
+    }
+    if (INSIDE_ONLY.includes(what)) { // a fridge / chest: inside MY home (imad 2026-11-26: "must be built only inside the hut")
+      const home = this.homes.homeOf(e.id(i));
+      if (!home) return `I have no home to put a ${what} in`;
+      if (home.m !== m) return 'my home is on another map';
+      if (this.boxIn(home, what as 'fridge' | 'chest') >= 0) return `my home already has a ${what}`;
+      s = this.boxSite(home);
+      if (s < 0) return `there is no free floor in my home for a ${what}`;
     }
     if (what === 'door') s = this.doorSite(m); // the open doorway of a hut
     if (what === 'door' && s < 0) s = this.gateSite(m);
@@ -947,7 +991,7 @@ export class Survival {
   /** Pick up the nearest food (into the hands, not eaten). */
   collect(i: number): true | string {
     const e = this.w.e;
-    if (e.carry[i]! >= 5) return 'my hands are full';
+    if (this.foodRoom(i) <= 0) return 'my hands and my bag are full of food';
     let best = -1, bd = 90;
     for (let j = 0; j < e.hi; j++) {
       if (e.kind[j] !== Kind.Item || e.map[j] !== e.map[i]) continue;
@@ -975,10 +1019,14 @@ export class Survival {
     return this.stash[m]!;
   }
 
-  /** Put what they carry (food, or a material) into the camp's crate. */
-  store(i: number, what: StashKey): true | string {
+  /** Put what they carry (food, water or a material) away: food and water into their home's fridge when it has room, else the camp's crate. */
+  store(i: number, what: StashKey | 'water'): true | string {
     const e = this.w.e, m = e.map[i]!;
-    if ((what === 'food' ? e.carry[i]! : this.inv(i)[what] ?? 0) <= 0) return `I have no ${what} to store`;
+    if ((what === 'food' ? this.foodOf(i) : this.inv(i)[what] ?? 0) <= 0) return `I have no ${what} to store`;
+    if (what === 'food' || what === 'water') {
+      const f = this.myBox(i, 'fridge', 160, what, true);
+      if (f >= 0) { const W = this.W(i); return this.begin(i, { kind: 'store', m, tx: f % W, ty: (f / W) | 0, work: 0, what, box: f }); }
+    }
     const st = this.crateOf(m, e.x[i]!, e.y[i]!);
     if (!st) return 'I found no place for a store';
     const W = this.W(i);
@@ -992,8 +1040,10 @@ export class Survival {
     const W = this.W(i);
     return this.begin(i, { kind: 'take', m, tx: st.t % W, ty: (st.t / W) | 0, work: 0, what, n });
   }
-  /** Food in the camp's crate within r metres: the crate's tile, or -1. */
+  /** Food kept within r metres: my home's fridge first, else the camp's crate: its tile, or -1. */
   stashFood(i: number, r: number): number {
+    const f = this.myBox(i, 'fridge', r, 'food');
+    if (f >= 0) return f;
     const e = this.w.e, m = e.map[i]!, st = this.stash[m];
     if (!st || st.food <= 0) return -1;
     const W = this.W(i);
@@ -1002,7 +1052,8 @@ export class Survival {
   /** Take one food from the crate into the hands (for a little one), standing next to it. */
   grabFromStash(i: number): boolean {
     const e = this.w.e, st = this.stash[e.map[i]!];
-    if (!st || st.food <= 0 || e.carry[i]! >= 5) return false;
+    if (e.carry[i]! < HANDS) { const f = this.boxNear(i, 'fridge', 2.2, 'food'); if (f >= 0) { this.boxOut(e.map[i]!, f, 'food', 1); e.carry[i]!++; return true; } }
+    if (!st || st.food <= 0 || e.carry[i]! >= HANDS) return false;
     const W = this.W(i);
     if (Math.hypot((st.t % W) + 0.5 - e.x[i]!, ((st.t / W) | 0) + 0.5 - e.y[i]!) > 2.2) return false;
     st.food--; e.carry[i]!++;
@@ -1011,6 +1062,13 @@ export class Survival {
   /** Eat from the crate (standing next to it). */
   eatFromStash(i: number): boolean {
     const e = this.w.e, st = this.stash[e.map[i]!];
+    const f = this.boxNear(i, 'fridge', 2.2, 'food');
+    if (f >= 0) { // from the home's fridge
+      this.boxOut(e.map[i]!, f, 'food', 1);
+      e.hunger[i] = Math.max(0, e.hunger[i]! - 40);
+      this.w.emit('eat', { id: e.id(i), from: 'fridge' });
+      return true;
+    }
     if (!st || st.food <= 0) return false;
     const W = this.W(i);
     if (Math.hypot((st.t % W) + 0.5 - e.x[i]!, ((st.t / W) | 0) + 0.5 - e.y[i]!) > 2.2) return false;
@@ -1018,6 +1076,196 @@ export class Survival {
     e.hunger[i] = Math.max(0, e.hunger[i]! - 40);
     this.w.emit('eat', { id: e.id(i), from: 'store' });
     return true;
+  }
+
+  // ------------------------------------------------------------ food in the bag, water bottles, fridges and chests (imad 2026-11-26)
+  /** All the food a person has: in the hands (up to 5) and in the bag. */
+  foodOf(i: number): number { return this.w.e.carry[i]! + (this.inv(i).food ?? 0); }
+  /** How much more food fits: the hands, then the bag. */
+  foodRoom(i: number): number { return Math.max(0, HANDS - this.w.e.carry[i]!) + Math.max(0, CAP - (this.inv(i).food ?? 0)); }
+  /** Food found / given / hunted: into the hands, the rest into the bag (imad 2026-11-26: "it says my hands are full (5)"). How many fitted. */
+  addFood(i: number, n: number): number {
+    const e = this.w.e, h = Math.min(n, Math.max(0, HANDS - e.carry[i]!));
+    e.carry[i] = e.carry[i]! + h;
+    const b = Math.min(n - h, Math.max(0, CAP - (this.inv(i).food ?? 0)));
+    if (b > 0) this.add(i, 'food', b);
+    return h + b;
+  }
+  /** Take n food away (hands first, then the bag): how many. */
+  useFood(i: number, n: number): number {
+    const e = this.w.e, h = Math.min(n, e.carry[i]!);
+    e.carry[i] = e.carry[i]! - h;
+    const b = Math.min(n - h, this.inv(i).food ?? 0);
+    if (b > 0) this.add(i, 'food', -b);
+    return h + b;
+  }
+  /** Empty hands are filled from the bag again (eating, giving and feeding use the hands). */
+  refill(i: number): void {
+    const e = this.w.e, v = this.inv(i), n = Math.min(HANDS - e.carry[i]!, v.food ?? 0);
+    if (n > 0) { e.carry[i] = e.carry[i]! + n; this.add(i, 'food', -n); }
+  }
+  /** Drink a bottle of water from the bag (anywhere): true = drank. */
+  drinkBottle(i: number): boolean {
+    const e = this.w.e;
+    if ((this.inv(i).water ?? 0) <= 0) return false;
+    this.add(i, 'water', -1);
+    e.thirst[i] = Math.max(0, e.thirst[i]! - WATER_DRINK);
+    this.w.emit('drink', { id: e.id(i), from: 'bottle' });
+    return true;
+  }
+  /** A player at the water's edge fills bottles (3, up to 20): how many. */
+  fillBottles(i: number): number {
+    const before = this.inv(i).water ?? 0;
+    this.add(i, 'water', WATER_FILL);
+    const n = (this.inv(i).water ?? 0) - before;
+    if (n > 0) this.w.emit('gather', { id: this.w.e.id(i), what: 'water', n, map: this.w.maps[this.w.e.map[i]!]!.def.id });
+    return n;
+  }
+  /** An AI person fetches water: walk to the nearest water's edge and fill bottles there. */
+  fetchWater(i: number): true | string {
+    const w = this.w, e = w.e, m = e.map[i]!, W = this.W(i);
+    if ((this.inv(i).water ?? 0) >= CAP) return 'I carry all the water I can';
+    const t = w.brain.waterSpot(i);
+    if (t < 0) return 'there is no water near here';
+    return this.begin(i, { kind: 'fill', m, tx: t % W, ty: (t / W) | 0, work: 0 });
+  }
+
+  /** Is tile k of map m a fridge or a chest ('' = neither)? */
+  boxKind(m: number, k: number): '' | 'fridge' | 'chest' {
+    const t = this.w.maps[m]!.tiles.tiles[k];
+    return t === this.T.fridge && t >= 0 ? 'fridge' : t === this.T.chest && t >= 0 ? 'chest' : '';
+  }
+  /** What a fridge / chest holds (made empty when it has no record yet). */
+  box(m: number, k: number): Inv { const key = `${m}:${k}`; let b = this.boxes.get(key); if (!b) this.boxes.set(key, (b = {})); return b; }
+  /** May person i open the fridge / chest on tile k: the home's family (sim/homes.ts), anyone for one in a free hut. */
+  mayUseBox(i: number, m: number, k: number): boolean { return this.homes.mayEnter(i, m, k); }
+  private boxOut(m: number, k: number, item: string, n: number): number {
+    const b = this.box(m, k), g = Math.min(n, b[item] ?? 0);
+    b[item] = (b[item] ?? 0) - g; if (!b[item]) delete b[item];
+    return g;
+  }
+  /** Where a fridge / chest may go: '' = here, else why not (the TV's ghost and the AI use it). */
+  insideSpot(i: number, m: number, k: number): string {
+    const tm = this.w.maps[m]!.tiles, h = this.homes.at(m, k);
+    if (!h || tm.tiles[k] !== this.T.floor) return 'insideHut';
+    const r = this.hutRect(m, h.out, h.dir);
+    if (!r || k === r.inside || k === r.door) return 'doorBlocked';
+    if (i >= 0 && !this.homes.mayEnter(i, m, k)) return 'notYours';
+    return '';
+  }
+  /** The tile of hut h's fridge / chest, or -1. */
+  boxIn(h: { m: number; out: number; dir: number }, kind: 'fridge' | 'chest'): number {
+    const r = this.hutRect(h.m, h.out, h.dir), tm = this.w.maps[h.m]!.tiles, t = kind === 'fridge' ? this.T.fridge : this.T.chest;
+    if (!r || t < 0) return -1;
+    for (let yy = 1; yy < r.s - 1; yy++) for (let xx = 1; xx < r.s - 1; xx++) { const k = (r.y0 + yy) * tm.w + r.x0 + xx; if (tm.tiles[k] === t) return k; }
+    return -1;
+  }
+  /** A free floor tile against a wall of hut h for a fridge / chest (corners first, never in the way in from the door). */
+  boxSite(h: { m: number; out: number; dir: number }): number {
+    const r = this.hutRect(h.m, h.out, h.dir), tm = this.w.maps[h.m]!.tiles;
+    if (!r) return -1;
+    let best = -1, bs = -Infinity;
+    const doorX = r.door % tm.w, doorY = (r.door / tm.w) | 0;
+    for (let yy = 1; yy < r.s - 1; yy++) for (let xx = 1; xx < r.s - 1; xx++) {
+      const x = r.x0 + xx, y = r.y0 + yy, k = y * tm.w + x;
+      if (tm.tiles[k] !== this.T.floor || k === r.inside || this.occupied(h.m, x, y)) continue;
+      const edge = (xx === 1 ? 1 : 0) + (yy === 1 ? 1 : 0) + (xx === r.s - 2 ? 1 : 0) + (yy === r.s - 2 ? 1 : 0);
+      if (!edge) continue; // along the walls only: the middle stays free to walk
+      const inLine = r.dx === 0 ? x === doorX : y === doorY; // straight in from the door
+      const sc = edge * 2 + Math.hypot(x - doorX, y - doorY) * 0.3 - (inLine ? 5 : 0);
+      if (sc > bs) { bs = sc; best = k; }
+    }
+    return best;
+  }
+  /** My home's fridge / chest within r metres (with `item` in it, or with room for it when `room`): tile or -1. */
+  myBox(i: number, kind: 'fridge' | 'chest', r: number, item: string, room = false): number {
+    const e = this.w.e, h = this.homes.homeOf(e.id(i));
+    if (!h || h.m !== e.map[i]) return -1;
+    const k = this.boxIn(h, kind);
+    if (k < 0) return -1;
+    const W = this.W(i);
+    if (Math.hypot((k % W) + 0.5 - e.x[i]!, ((k / W) | 0) + 0.5 - e.y[i]!) > r) return -1;
+    const have = this.box(h.m, k)[item] ?? 0;
+    return room ? (have < BOX_CAP ? k : -1) : have > 0 ? k : -1;
+  }
+  /** A fridge / chest within r metres I may open (holding `item` when given): tile or -1. */
+  boxNear(i: number, kind: '' | 'fridge' | 'chest', r: number, item = ''): number {
+    const e = this.w.e, m = e.map[i]!, tm = this.w.maps[m]!.tiles, R = Math.ceil(r), cx = Math.floor(e.x[i]!), cy = Math.floor(e.y[i]!);
+    let best = -1, bd = Infinity;
+    for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+      if (!tm.inside(x, y)) continue;
+      const k = y * tm.w + x, bk = this.boxKind(m, k);
+      if (!bk || (kind && bk !== kind) || !this.mayUseBox(i, m, k)) continue;
+      if (item && !((this.box(m, k)[item] ?? 0) > 0)) continue;
+      const d = Math.hypot(x + 0.5 - e.x[i]!, y + 0.5 - e.y[i]!);
+      if (d <= r && d < bd) { bd = d; best = k; }
+    }
+    return best;
+  }
+  /** Put n of `item` from the bag (food: hands + bag) into the fridge / chest on tile k: how many went in, or a code. */
+  boxPut(i: number, k: number, item: string, n: number): number | string {
+    const m = this.w.e.map[i]!, kind = this.boxKind(m, k);
+    if (!kind) return 'nothing';
+    if (!this.mayUseBox(i, m, k)) return 'notYours';
+    if (!boxHolds(kind, item)) return kind === 'fridge' ? 'fridgeOnly' : 'chestNoFood';
+    const b = this.box(m, k), room = BOX_CAP - (b[item] ?? 0);
+    if (room <= 0) return 'boxFull';
+    const have = item === 'food' ? this.foodOf(i) : this.inv(i)[item] ?? 0;
+    const g = Math.min(n, have, room);
+    if (g <= 0) return 'noItem';
+    if (item === 'food') { // the bag's food goes first, the hands' last
+      const fromBag = Math.min(g, this.inv(i).food ?? 0);
+      if (fromBag) this.add(i, 'food', -fromBag);
+      if (g > fromBag) this.w.e.carry[i] = this.w.e.carry[i]! - (g - fromBag);
+    } else this.add(i, item, -g);
+    b[item] = (b[item] ?? 0) + g;
+    this.w.emit('store', { id: this.w.e.id(i), what: item, n: g, total: b[item], map: this.w.maps[m]!.def.id, box: kind });
+    return g;
+  }
+  /** Take n of `item` out of the fridge / chest on tile k into the hands / bag: how many, or a code. */
+  boxTake(i: number, k: number, item: string, n: number): number | string {
+    const m = this.w.e.map[i]!, kind = this.boxKind(m, k);
+    if (!kind) return 'nothing';
+    if (!this.mayUseBox(i, m, k)) return 'notYours';
+    const b = this.box(m, k), have = b[item] ?? 0;
+    if (have <= 0) return 'noItem';
+    const room = item === 'food' ? this.foodRoom(i) : (item === 'arrows' ? 30 : CAP) - (this.inv(i)[item] ?? 0);
+    const g = Math.min(n, have, Math.max(0, room));
+    if (g <= 0) return 'bagFull';
+    this.boxOut(m, k, item, g);
+    if (item === 'food') this.addFood(i, g); else this.add(i, item, g);
+    this.w.emit('take', { id: this.w.e.id(i), what: item, n: g, left: b[item] ?? 0, map: this.w.maps[m]!.def.id, box: kind });
+    return g;
+  }
+  /** A fridge / chest pulled down: what it held goes into the bag of who pulled it down (as much as fits). */
+  private emptyBox(i: number, m: number, k: number): void {
+    const key = `${m}:${k}`, b = this.boxes.get(key);
+    if (!b) return;
+    for (const [item, n] of Object.entries(b)) if (n) { if (item === 'food') this.addFood(i, n); else this.add(i, item, n); }
+    this.boxes.delete(key);
+  }
+  /** Where to stand to use the store on tile k: beside a fridge / chest on its hut's floor (never through the wall), else below the crate. */
+  besideStore(m: number, k: number): { x: number; y: number } | null {
+    const tm = this.w.maps[m]!.tiles, x = k % tm.w, y = (k / tm.w) | 0;
+    if (!this.boxKind(m, k)) return this.w.freeSpot(m, x + 0.5, y + 1.5, 6);
+    const h = this.homes.at(m, k);
+    for (const [dx, dy] of DIRS) {
+      const xx = x + dx, yy = y + dy;
+      if (!tm.inside(xx, yy) || tm.solid[tm.get(xx, yy)] || (h && this.homes.at(m, yy * tm.w + xx) !== h)) continue;
+      return { x: xx + 0.5, y: yy + 0.5 };
+    }
+    return null;
+  }
+  /** The fridges / chests of map m and what they hold (the panel, the camp plan). */
+  boxesOf(m: number): { k: number; kind: 'fridge' | 'chest'; inv: Inv }[] {
+    const out: { k: number; kind: 'fridge' | 'chest'; inv: Inv }[] = [];
+    for (const [key, inv] of this.boxes) {
+      const [mm, k] = key.split(':').map(Number) as [number, number];
+      if (mm !== m) continue;
+      const kind = this.boxKind(m, k);
+      if (kind) out.push({ k, kind, inv }); else this.boxes.delete(key); // broken by zombies: gone
+    }
+    return out;
   }
 
   /** Search an old building (a ruin's floor) for something useful. */
@@ -1055,10 +1303,10 @@ export class Survival {
     for (let n = 0; n < this.huts[m]!.length; n++) {
       const h = this.hutRect(m, this.huts[m]![n]!, this.hutDir[m]![n] ?? 0);
       if (!h) continue;
-      const { x0, y0 } = h;
-      for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+      const { x0, y0, s: S } = h;
+      for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
         const t = (y0 + yy) * tm.w + x0 + xx;
-        if (!(xx === 0 || yy === 0 || xx === 4 || yy === 4) || t === h.door) continue;
+        if (!(xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1) || t === h.door) continue;
         if (tm.tiles[t] !== this.T.woodwall ? this.buildable.has(tm.tiles[t]!) : tm.hp[t]! < tm.maxHp[this.T.woodwall]!) return t;
       }
     }
@@ -1091,7 +1339,7 @@ export class Survival {
     // Where to stand: next to the tile (a tree is solid); for a hut, outside the door.
     let sx = j.tx + 0.5, sy = j.ty + 0.5;
     if (j.kind === 'pick') { const it = e.slot(j.who!); if (it < 0) return 'it is gone'; sx = e.x[it]!; sy = e.y[it]!; }
-    else if (j.kind === 'loot') { /* stand on the floor tile itself */ }
+    else if (j.kind === 'loot' || j.kind === 'fill') { /* stand on the floor tile itself / at the water's edge */ }
     else if (j.kind !== 'hut') {
       let bd = Infinity;
       for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
@@ -1102,7 +1350,7 @@ export class Survival {
       }
       if (bd === Infinity) return 'I cannot get to it';
     }
-    const act = j.kind === 'chop' || j.kind === 'dig' || j.kind === 'pick' || j.kind === 'loot' || j.kind === 'take' ? Act.Gather : Act.Build;
+    const act = j.kind === 'chop' || j.kind === 'dig' || j.kind === 'pick' || j.kind === 'loot' || j.kind === 'take' || j.kind === 'fill' ? Act.Gather : Act.Build;
     if (!w.brain.job(i, sx, sy, j.tx + 0.5, j.ty + 0.5, act)) return 'I cannot get there';
     this.jobs.set(e.id(i), j);
     this.ended.delete(e.id(i));
@@ -1217,27 +1465,35 @@ export class Survival {
         if (it < 0 || e.kind[it] !== Kind.Item) return 'someone took it first';
         if (Math.hypot(e.x[it]! - e.x[i]!, e.y[it]! - e.y[i]!) > 1.8) return 'it was too far';
         w.remove(it, 'taken');
-        e.carry[i] = Math.min(5, e.carry[i]! + 1);
+        this.addFood(i, 1);
         w.emit('pickup', { id, item: 'food', keep: true });
         return true;
       }
+      case 'fill': {
+        if (!w.brain.nearWater(j.m, e.x[i]!, e.y[i]!)) return 'I could not reach the water';
+        return this.fillBottles(i) > 0 ? true : 'I carry all the water I can';
+      }
       case 'store': case 'take': {
+        if (j.box !== undefined) { // a home's fridge
+          const r = j.kind === 'store' ? this.boxPut(i, j.box, j.what!, 99) : this.boxTake(i, j.box, j.what!, j.n ?? 1);
+          return typeof r === 'number' ? true : r === 'boxFull' ? 'the fridge is full' : r === 'noItem' ? `I have no ${j.what}` : `I could not use the fridge (${r})`;
+        }
         const st = this.stash[j.m];
         if (!st || tm.tiles[st.t] !== this.T.crate) { this.stash[j.m] = null; return 'the store is gone'; }
         const what = j.what as StashKey;
         if (j.kind === 'store') {
-          const n = what === 'food' ? e.carry[i]! : this.inv(i)[what as Res] ?? 0;
+          const n = what === 'food' ? this.foodOf(i) : this.inv(i)[what as Res] ?? 0;
           if (n <= 0) return `I have no ${what}`;
-          if (what === 'food') e.carry[i] = 0; else this.add(i, what as Res, -n);
+          if (what === 'food') this.useFood(i, n); else this.add(i, what as Res, -n);
           st[what] = (st[what] ?? 0) + n;
           w.emit('store', { id, what, n, total: st[what], map: mapId });
           return true;
         }
-        const room = what === 'food' ? 5 - e.carry[i]! : CAP - (this.inv(i)[what as Res] ?? 0);
+        const room = what === 'food' ? this.foodRoom(i) : CAP - (this.inv(i)[what as Res] ?? 0);
         const n = Math.min(j.n ?? 1, st[what] ?? 0, room);
         if (n <= 0) return (st[what] ?? 0) <= 0 ? `there is no ${what} left in the store` : 'my hands are full';
         st[what] -= n;
-        if (what === 'food') e.carry[i]! += n; else this.add(i, what as Res, n);
+        if (what === 'food') this.addFood(i, n); else this.add(i, what as Res, n);
         w.emit('take', { id, what, n, left: st[what], map: mapId });
         return true;
       }
@@ -1245,7 +1501,7 @@ export class Survival {
         this.looted.set(`${j.m}:${k}`, w.gameSec);
         const r = w.rng.next();
         let got = 'nothing';
-        if (r < 0.35) { e.carry[i] = Math.min(5, e.carry[i]! + 1); got = 'canned food'; }
+        if (r < 0.35) { this.addFood(i, 1); got = 'canned food'; }
         else if (r < 0.65) { this.add(i, 'scrap', 1); got = 'scrap'; }
         else if (r < 0.8) { this.add(i, 'stone', 1); got = 'stone'; }
         else if (r < 0.85 && !(this.inv(i).spear ?? 0)) { this.add(i, 'spear', 1); got = 'an old spear'; }
@@ -1300,11 +1556,13 @@ export class Survival {
           if (type === this.T.floor) w.brain.addShelter(j.m, t);
         }
         if (j.tiles!.length) return false;
+        const hs = j.n ?? 5, hh = ((hs - 1) >> 1) + 1, [jdx, jdy] = DIRS[j.dir ?? 0] ?? DIRS[0]!;
+        this.hutSz.set(`${j.m}:${j.ty * tm.w + j.tx}`, hs);
         this.huts[j.m]!.push(j.ty * tm.w + j.tx);
         this.hutDir[j.m]!.push(j.dir ?? 0);
         this.homes.built(j.m, j.ty * tm.w + j.tx, j.dir ?? 0, id);
-        this.setCamp(j.m, j.tx + 0.5, j.ty + 1.5);
-        w.emit('build', { id, what: 'hut', map: mapId, tx: j.tx, ty: j.ty - 3 });
+        this.setCamp(j.m, j.tx + 0.5 + jdx, j.ty + 0.5 + jdy);
+        w.emit('build', { id, what: 'hut', map: mapId, tx: j.tx - jdx * hh, ty: j.ty - jdy * hh });
         return true;
       }
     }
@@ -1549,6 +1807,7 @@ export class Survival {
   /** AI people use a kit when badly hurt and not in the middle of a fight (every 20 ticks). */
   autoHeal(): void {
     const w = this.w, e = w.e, max = w.sc.agents.hp;
+    for (let i = 0; i < e.hi; i++) if ((e.kind[i] === Kind.Agent || e.kind[i] === Kind.Player) && e.carry[i]! < HANDS && e.map[i] !== NO_MAP) this.refill(i); // hands topped up from the bag
     for (let i = 0; i < e.hi; i++) {
       if (e.kind[i] !== Kind.Agent || e.hp[i]! <= 0 || e.hp[i]! > max * 0.55 || e.act[i] === Act.Fight) continue;
       if (w.family.dependent(i)) continue;
@@ -1671,7 +1930,7 @@ export class Survival {
     if (n >= 1 && ls >= 0 && e.map[ls] === m && (this.toldAt[m] ?? -1e9) < w.gameSec - 6 * HOUR) {
       this.toldAt[m] = w.gameSec;
       const threat = w.zombies.perNight > 0 || w.zombies.count(m) > 0;
-      w.speak(ls, threat ? 'Zombies are coming. Everyone: doors, walls and weapons!' : 'Everyone has work today: let us make this camp a home.');
+      w.speak(ls, threat ? 'Zombies are coming. Everyone: doors, walls and weapons!' : w.plan.speech(m)); // the camp's plan in words (sim/campplan.ts)
     }
   }
   /** Between the hours: whoever became free gets work at once (planning only, no new leader, no care round). */

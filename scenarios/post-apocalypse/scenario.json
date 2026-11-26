@@ -194,6 +194,22 @@
       "hp": 10,
       "breaksTo": 1,
       "color": 5939529
+    },
+    {
+      "id": 26,
+      "name": "fridge",
+      "solid": true,
+      "hp": 80,
+      "breaksTo": 4,
+      "color": 14275296
+    },
+    {
+      "id": 27,
+      "name": "chest",
+      "solid": true,
+      "hp": 60,
+      "breaksTo": 4,
+      "color": 9132587
     }
   ],
   "maps": [

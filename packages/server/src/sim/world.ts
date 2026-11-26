@@ -15,6 +15,7 @@ import { Family } from './family.js';
 import { Survival } from './survival.js';
 import { Gear } from './gear.js';
 import { Colony } from './colony.js';
+import { CampPlan } from './campplan.js';
 import { Memory } from './memory.js';
 import { Lore } from './lore.js';
 import { Influences } from './influence.js';
@@ -92,6 +93,8 @@ export class World {
   readonly gear: Gear;
   /** The camp's drives, goal planning (GOAP) and what people learn (sim/colony.ts). */
   readonly colony: Colony;
+  /** The camp's / clan's collective plan: food, water, homes, beds, fridges, chests, stock (sim/campplan.ts). */
+  readonly plan: CampPlan;
   /** What each person remembers of their life and the places they know (sim/memory.ts, flag instinct). */
   readonly memory: Memory;
   /** What the community learned and passes on to the next generations (sim/lore.ts). */
@@ -156,6 +159,7 @@ export class World {
     this.survival = new Survival(this);
     this.gear = new Gear(this);
     this.colony = new Colony(this);
+    this.plan = new CampPlan(this);
     this.memory = new Memory(this);
     this.lore = new Lore(this);
     this.influence = new Influences(this);

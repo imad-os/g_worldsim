@@ -394,13 +394,14 @@ export class Planner {
     const wish = mind.plan && mind.plan.until > w.gameSec ? `${mind.plan.act}${mind.plan.with !== undefined ? ' with ' + this.name(mind.plan.with) : ''}` : 'none';
     return [
       `Person: ${p.name} (${p.sex === 'f' ? 'woman' : 'man'}, ${Math.floor(ageOf(p, w.gameSec, w.yearSec))}; ${p.personality.join(', ')}; mood: ${mind.mood})`,
-      `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${e.carry[i]} food. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
+      `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${w.survival.foodOf(i)} food${w.survival.inv(i).water ? ` and ${w.survival.inv(i).water} water` : ''}. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
       this.selfText(i),
       this.familyText(i),
       ...(kidVoice(w.family.ageOf(i)) ? [kidVoice(w.family.ageOf(i))] : []),
       w.clans.promptText(i),
       ...(w.quests.promptText(i) ? [w.quests.promptText(i)] : []),
       `Has: ${this.invText(i)}.${this.campText(i)}`,
+      ...(w.plan.text(e.map[i]!) ? [w.plan.text(e.map[i]!) + ' Help with what is most needed when you are free.'] : []),
       ...(ownText(w, i) ? [ownText(w, i)] : []),
       w.horses.promptText(i),
       ...(this.placeText(i) ? [this.placeText(i)] : []),

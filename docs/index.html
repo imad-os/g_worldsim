@@ -21,7 +21,7 @@
   #aimhud { position: fixed; left: 50%; bottom: 7vw; transform: translateX(-50%); display: flex; align-items: center; gap: 0.8vw; padding: 0.5vw 1.4vw 0.5vw 0.8vw; background: rgba(8, 10, 14, 0.7); border: 0.15vw solid rgba(255, 209, 102, 0.55); border-radius: 3vw; color: #ffe7a3; font-size: 1.4vw; z-index: 4; pointer-events: none; }
   #aimhud[hidden] { display: none; }
   /* The compass bar (imad 2026-11-26, "like Zelda's: a line with white icons"): JS moves the ticks / icons by translateX from the middle. */
-  #compass { position: fixed; left: 50%; top: 4.6vw; width: 42vw; max-width: 900px; height: 3.6vw; transform: translateX(-50%); pointer-events: none; z-index: 3; overflow: hidden;
+  #compass { position: fixed; left: 50%; top: 4.6vw; width: 42vw; max-width: 900px; height: 4.3vw; transform: translateX(-50%); pointer-events: none; z-index: 3; overflow: hidden;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
   #compass[hidden] { display: none; }
   #compass:before { content: ''; position: absolute; left: 0; right: 0; top: 1.25vw; height: 0.14vw; background: rgba(255, 255, 255, 0.75); box-shadow: 0 0 0.3vw rgba(0, 0, 0, 0.7); }
@@ -31,9 +31,12 @@
   .cp-t { top: 1.0vw; width: 0.12vw; height: 0.6vw; margin-left: -0.06vw; background: rgba(255, 255, 255, 0.55); }
   .cp-t.big { top: 0.85vw; height: 0.9vw; background: rgba(255, 255, 255, 0.8); }
   .cp-c { top: 1.65vw; width: 2vw; margin-left: -1vw; text-align: center; font: 700 1.15vw/1 system-ui, sans-serif; color: #fff; text-shadow: 0 0 0.3vw #000, 0 0.1vw 0.2vw #000; }
-  .cp-i { top: 0.15vw; width: 2.2vw; margin-left: -1.1vw; text-align: center; }
+  .cp-i { top: 0.15vw; width: 6vw; margin-left: -3vw; text-align: center; }
   .cp-i svg { display: block; width: 1.9vw; height: 1.9vw; margin: 0 auto; fill: #fff; filter: drop-shadow(0 0 0.15vw rgba(0, 0, 0, 0.95)); }
-  .cp-i span { display: block; margin-top: 0.1vw; font: 600 0.85vw/1 system-ui, sans-serif; color: #fff; text-shadow: 0 0 0.25vw #000, 0 0.08vw 0.2vw #000; white-space: nowrap; }
+  /* Distance from me in metres (imad 2026-11-26: "show how many meters away from me"): a dark pill over the letters so it always reads. */
+  .cp-i { z-index: 2; }
+  .cp-i span { display: inline-block; margin-top: 0.15vw; padding: 0.12vw 0.4vw; border-radius: 0.6vw; background: rgba(10, 12, 16, 0.78); font: 700 1.0vw/1.1 system-ui, sans-serif; color: #fff; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cp-i.home span, .cp-i.horse span { color: #ffd166; }
   .cp-i.gate svg { width: 1.6vw; height: 1.6vw; margin-top: 0.15vw; opacity: 0.9; }
   /* Names over heads. */
   #names { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
@@ -224,6 +227,6 @@
 <div id="card" hidden></div>
 <div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.13.1"></script>
+<script type="module" src="game.js?v=0.14.0"></script>
 </body>
 </html>

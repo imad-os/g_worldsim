@@ -737,3 +737,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   ties keep the leader, else the most influential; a leader gone = the most influential; respect = feelings + influence / 20; split rebels by influence.
 - Shown: panel person card Influence (log, help `influence`), People cards + Sort: most influence, Clans card chips; TV Me page + Clan page (members by influence).
   Test influence.test.ts; proof `node tools/influence-proof.mjs <outdir>`.
+## Camp plan, fridges and chests, 7 x 7 huts, map ride (imad 2026-11-26, app 0.14.0)
+- `HUT_SIZE` 7 (protocol craft.ts; old 5 x 5 huts still read via `hutSz` / walls). Camp circle up to 28 tiles for the town's blocks.
+- Fridge (tiles 26) / chest (27): `INSIDE_ONLY`, placed only on a hut's floor along a wall, never by the door; family only (`mayUseBox`).
+  Fridge = food + water, chest = the rest (`boxHolds`, `BOX_CAP` 40). Do `box` "x,y" / "put|take:x,y:item:n"; TV page `box` (i18n10.ts T10).
+  Pulling a hut down gives the boxes' contents back. Food: 5 in the hands then the bag (`addFood`, code `pickedBag`); water bottles
+  (A at the water when not thirsty = `filled`, drink anywhere = `drankBottle`).
+- `sim/campplan.ts` (`World.plan`): food / water kept per head, homes, beds, fridges, chests, wood, stone -> `Colony.stock()` goals + a
+  daytime filler for half the free people (not lonely, not with a quest left). Chores of the plan give no company. Clothes only with a
+  home or 6+ leather. `thingOf` knows fridge / chest (they were built as campfires). Admin `campPlan`; panel People > Camp plans.
+- TV: map zoom 7 levels + scale bar, "Ride here" on the map only when mounted (`pt:` route), compass pills in metres. Menu skips `h:` headers.
+- Proof `ADMIN_TOKEN=... node tools/storage-proof.mjs <server> <sdk.js> <outdir>`. ai.goap "colony ... huts" is dice-sensitive (leather).

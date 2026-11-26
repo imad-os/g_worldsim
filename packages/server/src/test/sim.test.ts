@@ -346,12 +346,12 @@ test('survival: a command "build a hut" gathers wood and stone, builds a real hu
   assert.ok(hut, `hut built ${JSON.stringify(ev)}`);
   assert.ok((ev.gather ?? 0) >= 6, `gathered ${ev.gather}`);
   const tm = w.maps[e.map[a]!]!.tiles;
-  // The hut: 5 x 5, a ring of wooden walls with a door in the middle of the front, floor inside.
-  const x0 = hut.tx - 2, y0 = hut.ty - 2;
-  let walls = 0, floor = 0;
-  for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 5; x++) { const id = tm.get(x, y); if (id === T.woodwall) walls++; if (id === T.floor) floor++; }
-  assert.ok(walls >= 14 && floor >= 9, `walls ${walls} floor ${floor}`);
-  assert.equal(tm.get(x0 + 2, y0 + 4), T.door, 'the hut has its own door');
+  // The hut: 7 x 7 (imad 2026-11-26: 50 % bigger), a ring of wooden walls with a door in the middle of the front, floor inside.
+  const x0 = hut.tx - 3, y0 = hut.ty - 3;
+  let walls = 0, floor = 0, doors = 0;
+  for (let y = y0; y < y0 + 7; y++) for (let x = x0; x < x0 + 7; x++) { const id = tm.get(x, y); if (id === T.woodwall) walls++; if (id === T.floor) floor++; if (id === T.door) doors++; }
+  assert.ok(walls >= 22 && floor >= 25, `walls ${walls} floor ${floor}`);
+  assert.equal(doors, 1, 'the hut has its own door');
   assert.ok(s.campOf(e.map[a]!), 'the hut made a camp');
   // A campfire, from nothing: wood and stone first.
   w.profileOf(a)!.inv = {};

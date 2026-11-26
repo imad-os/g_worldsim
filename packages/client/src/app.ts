@@ -4,7 +4,7 @@ import {
 } from '@worldsim/protocol';
 import { Color, type Group } from 'three';
 import { t, tf, setLang, type Key } from './i18n.js';
-import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, boxHolds, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { World3D, type Tier } from './gfx/world3d.js';
 import { buildChunk } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
@@ -601,13 +601,22 @@ function interactHint(): { key: Key; door?: [number, number] } | null {
   if (meNeeds.ride) return { key: 'iaOff' };
   const dr = nearDoor();
   if (dr) return { key: dr[2] ? 'iaClose' : 'iaOpen', door: [dr[0], dr[1]] };
-  for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.8) return { key: 'iaPick' };
-  if (meNeeds.thirst > 5) {
+  for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.4) return { key: 'iaPick' };
+  { // my fridge / chest (imad 2026-11-26)
+    let bk = '', bd = 2.2;
     for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
-      if (tileName[tileUnder(xx + 0.5, yy + 0.5)] === 'water' && Math.abs(xx + 0.5 - x) < 2.1 && Math.abs(yy + 0.5 - y) < 2.1) return { key: 'iaDrink' };
+      const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
+      if (n !== 'fridge' && n !== 'chest') continue;
+      const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
+      if (d < bd) { bd = d; bk = n; }
     }
+    if (bk) return { key: bk === 'fridge' ? 'iaFridge' : 'iaChest' };
   }
-  if (meNeeds.carry > 0 && meNeeds.hunger > 15) return { key: 'iaEat' };
+  for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.8) return { key: 'iaPick' };
+  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
+    if (tileName[tileUnder(xx + 0.5, yy + 0.5)] === 'water' && Math.abs(xx + 0.5 - x) < 2.1 && Math.abs(yy + 0.5 - y) < 2.1) return { key: meNeeds.thirst > 5 ? 'iaDrink' : 'iaFill' }; // not thirsty: fill bottles
+  }
+  if ((meNeeds.carry > 0 || (meNeeds.inv?.food ?? 0) > 0) && meNeeds.hunger > 15) return { key: 'iaEat' };
   let best = '', bd = 1.6;
   for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
     const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
@@ -779,7 +788,9 @@ const PDIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
 const BUILD_ON = new Set(['grass', 'dirt', 'sand', 'ashes', 'road']);
 const WALLISH = new Set(['woodwall', 'palisade', 'stonewall', 'floor']);
 /** How tall each thing's model is (0 = flat). */
-const GHOST_H: Record<string, number> = { palisade: 1.3, spikes: 0.5, stonewall: 1.3, door: 1.5, window: 1.2, bed: 0.35, lamp: 1.6, campfire: 0.3 };
+const GHOST_H: Record<string, number> = { palisade: 1.3, spikes: 0.5, stonewall: 1.3, door: 1.5, window: 1.2, bed: 0.35, lamp: 1.6, campfire: 0.3, fridge: 1.7, chest: 0.6 };
+/** A hut's size (7 x 7 since imad 2026-11-26) and half of it. */
+const HS = HUT_SIZE, HH = (HUT_SIZE - 1) >> 1;
 function startPlacing(what: string): void {
   if (how !== 'play' || !playing()) return;
   menu.close();
@@ -788,10 +799,10 @@ function startPlacing(what: string): void {
   const a = myAng(), x = focusX(), y = focusY();
   held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
   if (what === 'hut') {
-    const cx = x + Math.cos(a) * 4.5, cy = y + Math.sin(a) * 4.5;
+    const cx = x + Math.cos(a) * (HH + 2.5), cy = y + Math.sin(a) * (HH + 2.5);
     // The door faces me.
     const dx = x - cx, dy = y - cy, dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : dy > 0 ? 0 : 2;
-    placing = { what, tx: Math.floor(cx - 2), ty: Math.floor(cy - 2), dir, moveAt: 0, sent: false };
+    placing = { what, tx: Math.floor(cx - HH), ty: Math.floor(cy - HH), dir, moveAt: 0, sent: false };
   } else placing = { what, tx: Math.floor(x + Math.cos(a) * 1.6), ty: Math.floor(y + Math.sin(a) * 1.6), dir: 0, moveAt: 0, sent: false };
   sound.play('ui_open');
   askDestroy();
@@ -819,17 +830,17 @@ function placeCheck(p: NonNullable<typeof placing>): string {
     return false;
   };
   if (p.what === 'hut') {
-    const cx = Math.max(p.tx, Math.min(p.tx + 4, x - 0.5)), cy = Math.max(p.ty, Math.min(p.ty + 4, y - 0.5));
+    const cx = Math.max(p.tx, Math.min(p.tx + HS - 1, x - 0.5)), cy = Math.max(p.ty, Math.min(p.ty + HS - 1, y - 0.5));
     if (Math.hypot(cx + 0.5 - x, cy + 0.5 - y) > PLACE_REACH) return 'tooFar';
-    const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + 2 + dx * 2, dY = p.ty + 2 + dy * 2;
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
+    const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + HH + dx * HH, dY = p.ty + HH + dy * HH;
+    for (let yy = 0; yy < HS; yy++) for (let xx = 0; xx < HS; xx++) {
       const t0 = tileUnder(p.tx + xx + 0.5, p.ty + yy + 0.5);
       if (t0 < 0) return 'unknown';
       if (!BUILD_ON.has(tileName[t0] ?? '')) return 'noRoom';
-      const edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+      const edge = xx === 0 || yy === 0 || xx === HS - 1 || yy === HS - 1;
       if (edge && !(p.tx + xx === dX && p.ty + yy === dY) && person(p.tx + xx, p.ty + yy)) return 'someone';
     }
-    const o = tileUnder(p.tx + 2 + dx * 3 + 0.5, p.ty + 2 + dy * 3 + 0.5);
+    const o = tileUnder(p.tx + HH + dx * (HH + 1) + 0.5, p.ty + HH + dy * (HH + 1) + 0.5);
     if (o < 0 || solid[o]) return 'doorBlocked';
     return '';
   }
@@ -837,11 +848,12 @@ function placeCheck(p: NonNullable<typeof placing>): string {
   const t0 = tileUnder(p.tx + 0.5, p.ty + 0.5);
   if (t0 < 0) return 'unknown';
   const n = tileName[t0] ?? '';
+  if (INSIDE_ONLY.includes(p.what) && n !== 'floor') return 'insideHut'; // a fridge / chest: on a hut's floor only (imad 2026-11-26)
   if (!BUILD_ON.has(n) && n !== 'floor' && !((p.what === 'door' || p.what === 'window') && WALLISH.has(n))) return 'noRoom';
   if (p.what !== 'bed' && p.what !== 'campfire' && person(p.tx, p.ty)) return 'someone';
   return '';
 }
-const PLACE_CODE: Record<string, Key> = { tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait', hutLimit: 'dHutLimit' };
+const PLACE_CODE: Record<string, Key> = { insideHut: 'cInsideHut', tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait', hutLimit: 'dHutLimit' };
 function placeNote(): void {
   if (!placing) return;
   if (placing.what === 'destroy') {
@@ -859,7 +871,7 @@ function placeNote(): void {
 }
 function placeMove(dx: number, dy: number): void {
   if (!placing) return;
-  const p = placing, w = p.what === 'hut' ? 5 : 1;
+  const p = placing, w = p.what === 'hut' ? HS : 1;
   const nxp = Math.max(0, Math.min(mapW - w, p.tx + dx)), nyp = Math.max(0, Math.min(mapH - w, p.ty + dy));
   // Never further than the reach (plus the hut's size).
   const cx = nxp + w / 2, cy = nyp + w / 2;
@@ -912,9 +924,9 @@ function drawGhost(): void {
     return;
   }
   if (p.what === 'hut') {
-    const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + 2 + dx * 2, dY = p.ty + 2 + dy * 2;
-    for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) {
-      const X = p.tx + xx, Y = p.ty + yy, edge = xx === 0 || yy === 0 || xx === 4 || yy === 4;
+    const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + HH + dx * HH, dY = p.ty + HH + dy * HH;
+    for (let yy = 0; yy < HS; yy++) for (let xx = 0; xx < HS; xx++) {
+      const X = p.tx + xx, Y = p.ty + yy, edge = xx === 0 || yy === 0 || xx === HS - 1 || yy === HS - 1;
       cells.push(X, Y, X === dX && Y === dY ? 1.5 : edge ? 1.2 : 0);
     }
     g3.ghost(cells, ok, [dX + 0.5 + dx * 1.1, dY + 0.5 + dy * 1.1, Math.atan2(dy, dx)]);
@@ -1343,6 +1355,23 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     stopAutoRide('rideNoWay'); return;
   }
   if (d.code === 'onHorse') { note(t('onHorse'), 2500); sound.play('ui_error'); return; }
+  { // a fridge / chest (imad 2026-11-26)
+    const bx = d as typeof d & { kind?: string; at?: number[]; inv?: Record<string, number>; bag?: Record<string, number>; food?: number; carry?: number; moved?: number; cap?: number };
+    if (bx.kind === 'fridge' || bx.kind === 'chest') {
+      boxView = { kind: bx.kind, at: bx.at ?? [0, 0], inv: bx.inv ?? {}, bag: { ...(bx.bag ?? {}), food: bx.food ?? 0 }, cap: bx.cap ?? BOX_CAP };
+      if (d.code === 'box') { if (!(menu.open && menu.page === 'box')) openMenu('box'); else menu.refresh(); sound.play('ui_open'); return; }
+      if (d.code === 'boxPut' || d.code === 'boxTook') { sound.play('ui_ok'); note(tf(d.code === 'boxPut' ? 'boxPutN' : 'boxTookN', String(bx.moved ?? 0), thing(d.item ?? '')), 1500); }
+      else { sound.play('ui_error'); note(t((BOX_CODE[d.code] ?? 'dNothing') as Key), 2200); }
+      if (menu.open && menu.page === 'box') menu.refresh();
+      return;
+    }
+    if ((d.a === 'box' || d.a === 'take' || d.a === 'use') && BOX_CODE[d.code]) { sound.play('ui_error'); note(t(BOX_CODE[d.code]! as Key), 2200); return; }
+    if (d.code === 'pickedBag') { sound.play('pickup'); note(tf('dPickedBag', ITEM_NAMES[d.item ?? ''] ?? d.item ?? ''), 2500); return; }
+    if (d.code === 'filled') { sound.play('drink'); note(tf('dFilled', d.item ?? ''), 2500); return; }
+    if (d.code === 'drankBottle') { sound.play('drink'); note(t('dDrankBottle'), 2000); return; }
+    if (d.code === 'bottlesFull') { sound.play('ui_error'); note(t('dBottlesFull'), 2200); return; }
+    if (d.code === 'notRiding') { sound.play('ui_error'); note(t('rideNotRiding'), 3000); if (autoRide) stopAutoRide(); return; }
+  }
   if (d.a === 'map') { if (d.ok) mapScreen.set(d as unknown as MapData); return; }
   if (d.a === 'mark') {
     const dm = d as typeof d & { marks?: MapMark[]; id?: number };
@@ -1457,7 +1486,7 @@ function drawCard(): void {
   if (mode === 'world' && !menu.open) {
     if (how === 'play' && meNeeds) {
       html = `<div class="pn">${esc(profileName())}</div><div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}${meNeeds.hp !== undefined && meNeeds.hp < 100 ? bar(t('nHp'), 100 - meNeeds.hp) : ''}</div>`
-        + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry)) : ''}</div>`
+        + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry + (meNeeds.inv?.food ?? 0))) : ''}</div>`
         + (meNeeds.cold && (meNeeds.cold.drain > 0 || meNeeds.cold.t < 5) ? `<div class="pa ${meNeeds.cold.drain > 0 ? 'cold' : ''}">${meNeeds.cold.drain > 0 ? '❄' : meNeeds.cold.fire ? '🔥' : '🌡'} ${Math.round(meNeeds.cold.t)} °C${meNeeds.cold.drain > 0 ? ` · −${meNeeds.cold.drain < 10 ? meNeeds.cold.drain.toFixed(1) : Math.round(meNeeds.cold.drain)} ${t('nHp')}/h` : ''}</div>` : '')
         + (meNeeds.ride ? `<div class="pa">🐎 ${esc(tf('hRide', meNeeds.ride.name, String(meNeeds.ride.sta)))}</div>` : (() => {
           const hs = horseNear(5), hi = hs >= 0 ? horseInfo.get(eid[hs]!) : undefined;
@@ -1487,7 +1516,25 @@ function buildPage(id: string): Page {
   const rows: Row[] = [];
   switch (id) {
     case 'map': return { id, title: t('mMap'), rows, big: true, html: mapScreen.html(), grid: mapScreen };
+    case 'box': { // my fridge / chest: take one, put one, put all
+      const b = boxView;
+      if (!b) return { id, title: t('boxFridge'), rows: [{ id: 'back', label: t('mBack') }] };
+      const inside = Object.entries(b.inv).filter(([, n]) => n > 0).sort((x, y) => y[1] - x[1]);
+      const fits = Object.entries(b.bag).filter(([k, n]) => n > 0 && boxHolds(b.kind, k));
+      rows.push({ id: 'h:in', label: `— ${t('boxInside')} —`, dim: true });
+      if (!inside.length) rows.push({ id: 'h:empty', label: t('boxEmpty'), dim: true });
+      for (const [k, n] of inside) rows.push({ id: 'take:' + k, label: tf('boxTake', cap1(thing(k))), value: `${n} / ${b.cap}` });
+      rows.push({ id: 'h:bag', label: `— ${t('boxBag')} —`, dim: true });
+      if (!fits.length) rows.push({ id: 'h:none', label: t('boxNothing'), dim: true });
+      for (const [k, n] of fits) {
+        rows.push({ id: 'put:' + k, label: tf('boxPut', cap1(thing(k))), value: `× ${n}` });
+        if (n > 1) rows.push({ id: 'all:' + k, label: tf('boxPutAll', thing(k)), value: `× ${n}` });
+      }
+      rows.push({ id: 'back', label: t('mBack') });
+      return { id, title: `${b.kind === 'fridge' ? '🧊' : '🧰'} ${t(b.kind === 'fridge' ? 'boxFridge' : 'boxChest')}`, rows, wide: true, text: tf(b.kind === 'fridge' ? 'boxHelpFridge' : 'boxHelpChest', String(b.cap)) };
+    }
     case 'markNew': {
+      if (meNeeds?.ride && mapScreen.markAt().map === map) rows.push({ id: 'ride', label: `🐎 ${t('mapRide')}` }); // only on horseback, on my map (imad 2026-11-26)
       for (const k of MARK_KINDS) rows.push({ id: 'k:' + k, label: markName(k) });
       const at = mapScreen.markAt();
       return { id, title: t('markNew'), rows, text: `${t('markHelp')} (${Math.round(at.x)}, ${Math.round(at.y)})` };
@@ -1495,6 +1542,7 @@ function buildPage(id: string): Page {
     case 'markEdit': {
       const m = markSel;
       if (!m) return { id, title: t('markEdit'), rows: [{ id: 'back', label: t('mBack') }] };
+      if (meNeeds?.ride) rows.push({ id: 'ride', label: `🐎 ${t('mapRide')}` });
       rows.push({ id: 'name', label: t('markName'), value: m.label || '—' }, { id: 'icon', label: t('markIcon'), value: markName(m.kind), sub: true }, { id: 'del', label: t('markRemove') }, { id: 'back', label: t('mBack') });
       return { id, title: `${MARK_ICON[m.kind]} ${m.label || t(MARK_KEY[m.kind])}`, rows, text: `${Math.round(m.x)}, ${Math.round(m.y)}` };
     }
@@ -1698,12 +1746,21 @@ function pickRow(page: string, row: string): void {
     else if (row === 'map') { menu.close(); nextMap(); }
     else if (row === 'how') { menu.close(); setHow(how === 'play' ? 'watch' : 'play'); }
     else if (row === 'worldmap') { menu.close(); openMap(); }
+  } else if (page === 'box') {
+    const b = boxView;
+    if (row === 'back' || !b) { menu.back(); return; }
+    const m = /^(take|put|all):(\w+)$/.exec(row);
+    if (!m) return;
+    const n = m[1] === 'all' ? b.bag[m[2]!] ?? 1 : 1;
+    send({ t: Msg.Do, a: 'box', text: `${m[1] === 'take' ? 'take' : 'put'}:${b.at[0]},${b.at[1]}:${m[2]}:${n}` });
   } else if (page === 'markNew') {
     const at = mapScreen.markAt();
+    if (row === 'ride') { menu.close(); startAutoRide(`pt:${at.map}:${at.x}:${at.y}`, `${Math.round(at.x)}, ${Math.round(at.y)}`); return; }
     if (row.startsWith('k:')) { send({ t: Msg.Do, a: 'mark', text: `add:${at.map}:${at.x}:${at.y}:${row.slice(2)}` }); menu.back(); }
   } else if (page === 'markEdit') {
     const m = markSel;
     if (row === 'back' || !m) menu.back();
+    else if (row === 'ride') { menu.close(); startAutoRide('mark:' + m.id, m.label || t(MARK_KEY[m.kind])); }
     else if (row === 'icon') menu.push('markIcon');
     else if (row === 'del') { send({ t: Msg.Do, a: 'mark', text: `del:${m.id}` }); menu.back(); }
     else if (row === 'name') {
@@ -1863,6 +1920,9 @@ const mapScreen = new MapScreen({
   npcName: (k) => NPCS.find((n) => n.key === k)?.name ?? k,
 });
 let markSel: MapMark | null = null;
+/** The fridge / chest open on the screen (its contents and what my bag holds), from the server's answer. */
+let boxView: { kind: 'fridge' | 'chest'; at: number[]; inv: Record<string, number>; bag: Record<string, number>; cap: number } | null = null;
+const BOX_CODE: Record<string, string> = { boxFull: 'boxFull', bagFull: 'bagFull', fridgeOnly: 'fridgeOnly', chestNoFood: 'chestNoFood', noBox: 'noBox', notYours: 'notYoursBox' };
 const MAP_PAGES = new Set(['map', 'markNew', 'markEdit', 'markIcon']);
 function openMap(): void {
   if (mode !== 'world') return;
@@ -2098,7 +2158,7 @@ function frame(ts: number): void {
   // Under the game menu the world is only drawn 10 times a second: the menu answers at once on small TVs.
   if (menu.open && menu.page === 'gear') gearScreen.draw(ts); else gearScreen.stop();
   if (menu.open && MAP_PAGES.has(menu.page)) {
-    if (menu.page === 'map' && MyPC.gamepad) mapScreen.stick(MyPC.gamepad.axis(0), MyPC.gamepad.axis(1), dt);
+    if (menu.page === 'map' && MyPC.gamepad) { mapScreen.stick(MyPC.gamepad.axis(0), MyPC.gamepad.axis(1), dt); mapScreen.zoomStick(MyPC.gamepad.axis(3), ts); }
     mapScreen.draw(ts);
   } else mapScreen.stop();
   if (!menu.open || ts - drawAt > 100) { draw(ts, ts - drawAt > 200 ? dt : Math.min(0.1, (ts - drawAt) / 1000)); drawAt = ts; fpsN++; }
@@ -2190,7 +2250,7 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
   if (menu.open) {
     if (!pressed || repeat) return;
     if (menu.page === 'map' && remoteAction(binds, name) === 'map') { menu.close(); return; }
-    if (mapKey(name === 'red' ? 'me' : name === 'green' ? 'next' : name === 'chUp' ? 'in' : name === 'chDown' ? 'out' : '')) return;
+    if (mapKey(name === 'red' ? 'me' : name === 'green' ? 'next' : name === 'chUp' || name === 'yellow' ? 'in' : name === 'chDown' || name === 'blue' ? 'out' : '')) return;
     if (name === 'ok') menu.input('ok');
     else if (remoteAction(binds, name) === 'menu') menu.close();
     return;
@@ -2223,7 +2283,7 @@ function onPad(i: number, pressed: boolean): void {
   if (menu.open) {
     if (!pressed) return;
     if (menu.page === 'map' && padAction(binds, i) === 'map') { menu.close(); return; }
-    if (mapKey(i === 2 ? 'me' : i === 3 ? 'next' : i === 4 ? 'in' : i === 5 ? 'out' : '')) return;
+    if (mapKey(i === 2 ? 'me' : i === 3 ? 'next' : i === 5 || i === 7 ? 'in' : i === 4 || i === 6 ? 'out' : '')) return; // R / ZR zoom in, L / ZL out
     if (i === 0) menu.input('ok');
     else if (i === 1) menu.input('back');
     else if (padAction(binds, i) === 'menu') menu.close();

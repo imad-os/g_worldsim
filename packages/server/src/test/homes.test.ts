@@ -12,7 +12,7 @@ function openSpot(w: World, m: number, x: number, y: number): { x0: number; y0: 
   const tm = w.maps[m]!.tiles, G = tileId(w, 'grass'), D = tileId(w, 'dirt');
   for (let r = 0; r < 60; r++) for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) {
     let ok = true;
-    for (let j = -2; j < 9 && ok; j++) for (let i = -2; i < 7 && ok; i++) { const t = tm.inside(xx + i, yy + j) ? tm.get(xx + i, yy + j) : -1; if (t !== G && t !== D) ok = false; }
+    for (let j = -2; j < 11 && ok; j++) for (let i = -2; i < 9 && ok; i++) { const t = tm.inside(xx + i, yy + j) ? tm.get(xx + i, yy + j) : -1; if (t !== G && t !== D) ok = false; }
     if (ok && !w.land.inRing(m, xx, yy) && !w.portals.some((p) => p.from === m && Math.hypot(p.x - xx, p.y - yy) < 12)) return { x0: xx, y0: yy };
   }
   throw new Error('no open ground');
@@ -25,30 +25,30 @@ test('aimed building: a player puts a hut exactly where aimed (door facing the c
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
   w.step();
   const s = openSpot(w, town, 60, 60);
-  const pl = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5);
+  const pl = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 9.5);
   w.playerProfile(pl, 'imad');
   sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5);
-  assert.equal(sv.canPlace(pl, 'hut', s.x0 + 30, s.y0, 0), 'tooFar', 'out of reach');
+  assert.equal(sv.canPlace(pl, 'hut', s.x0 + 32, s.y0, 0), 'tooFar', 'out of reach');
   assert.equal(sv.canPlace(pl, 'hut', s.x0, s.y0, 0), '', 'open ground in reach');
   assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
-  assert.equal(tm.get(s.x0 + 2, s.y0 + 4), T.door, 'the door in the middle of the south wall');
-  assert.equal(tm.get(s.x0, s.y0), T.woodwall); assert.equal(tm.get(s.x0 + 2, s.y0 + 2), T.floor);
+  assert.equal(tm.get(s.x0 + 3, s.y0 + 6), T.door, 'the door in the middle of the south wall');
+  assert.equal(tm.get(s.x0, s.y0), T.woodwall); assert.equal(tm.get(s.x0 + 3, s.y0 + 3), T.floor);
   const h = sv.homes.homeOf(e.id(pl));
   assert.ok(h, 'the builder owns it');
-  assert.deepEqual(w.profileOf(pl)!.home, { map: 'town', x: s.x0 + 2, y: s.y0 + 2 });
+  assert.deepEqual(w.profileOf(pl)!.home, { map: 'town', x: s.x0 + 3, y: s.y0 + 3 });
   assert.match(w.profileOf(pl)!.mind!.notes.at(-1)!.text, /My home is the hut/);
   // A thing put down exactly on a tile; a taken tile says so.
   sv.add(pl, 'lamp', 2);
-  assert.equal(sv.placeAt(pl, 'lamp', s.x0 + 5, s.y0 + 6), 'placed');
-  assert.equal(tm.get(s.x0 + 5, s.y0 + 6), tileId(w, 'lamp'));
-  assert.equal(sv.placeAt(pl, 'lamp', s.x0 + 5, s.y0 + 6), 'noRoom');
+  assert.equal(sv.placeAt(pl, 'lamp', s.x0 + 7, s.y0 + 8), 'placed');
+  assert.equal(tm.get(s.x0 + 7, s.y0 + 8), tileId(w, 'lamp'));
+  assert.equal(sv.placeAt(pl, 'lamp', s.x0 + 7, s.y0 + 8), 'noRoom');
   // Facing east this time: the door is on the east wall.
   sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5);
-  w.place(pl, town, s.x0 + 2.5, s.y0 + 7.5);
-  const s2 = openSpot(w, town, s.x0 + 2, s.y0 + 12);
-  w.place(pl, town, s2.x0 - 1.5, s2.y0 + 2.5);
+  w.place(pl, town, s.x0 + 3.5, s.y0 + 9.5);
+  const s2 = openSpot(w, town, s.x0 + 3, s.y0 + 14);
+  w.place(pl, town, s2.x0 - 1.5, s2.y0 + 3.5);
   assert.equal(sv.placeAt(pl, 'hut', s2.x0, s2.y0, 1), 'built');
-  assert.equal(tm.get(s2.x0 + 4, s2.y0 + 2), T.door, 'east door');
+  assert.equal(tm.get(s2.x0 + 6, s2.y0 + 3), T.door, 'east door');
 });
 
 test('a hut\'s door opens only for its owner and their family; strangers stay outside and are told', () => {
@@ -58,31 +58,31 @@ test('a hut\'s door opens only for its owner and their family; strangers stay ou
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
   w.step();
   const s = openSpot(w, town, 60, 60);
-  const owner = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5);
+  const owner = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 8.5);
   w.playerProfile(owner, 'imad');
   sv.add(owner, 'wood', 20); sv.add(owner, 'stone', 10); sv.add(owner, 'leather', 5);
   assert.equal(sv.placeAt(owner, 'hut', s.x0, s.y0, 0), 'built');
-  w.place(owner, town, s.x0 + 2.5, s.y0 + 5.5);
-  assert.equal(sv.toggleDoor(owner, s.x0 + 2, s.y0 + 4), 'doorOpened', 'left open: still only for the family');
-  w.place(owner, town, s.x0 - 3, s.y0 + 8);
-  const stranger = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5);
+  w.place(owner, town, s.x0 + 3.5, s.y0 + 7.5);
+  assert.equal(sv.toggleDoor(owner, s.x0 + 3, s.y0 + 6), 'doorOpened', 'left open: still only for the family');
+  w.place(owner, town, s.x0 - 3, s.y0 + 10);
+  const stranger = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 8.5);
   w.playerProfile(stranger, 'guest');
   const told: number[] = [];
   w.listeners.push((ev) => { if (ev.kind === 'blocked' && ev.data.why === 'door') told.push(Number(ev.data.id)); });
-  const inside = (i: number) => e.x[i]! > s.x0 + 1 && e.x[i]! < s.x0 + 4 && e.y[i]! > s.y0 + 1 && e.y[i]! < s.y0 + 4;
+  const inside = (i: number) => e.x[i]! > s.x0 + 1 && e.x[i]! < s.x0 + 6 && e.y[i]! > s.y0 + 1 && e.y[i]! < s.y0 + 6;
   const walkIn = (i: number) => { let got = false; for (let k = 0; k < 20 * 4; k++) { w.setInput(i, 0, -1, false); w.step(); if (inside(i)) got = true; } w.setInput(i, 0, 0, false); return got; };
   assert.equal(walkIn(stranger), false, 'a stranger cannot go in');
   assert.ok(told.includes(e.id(stranger)), 'the stranger is told why');
   // The client's own moves are checked too.
-  w.place(stranger, town, s.x0 + 2.5, s.y0 + 5.5);
-  assert.equal(w.trustMove(stranger, s.x0 + 2.5, s.y0 + 4.5), false, 'no stepping onto the door');
+  w.place(stranger, town, s.x0 + 3.5, s.y0 + 7.5);
+  assert.equal(w.trustMove(stranger, s.x0 + 3.5, s.y0 + 6.5), false, 'no stepping onto the door');
   // Married to the owner: the door opens.
-  w.place(stranger, town, s.x0 + 2.5, s.y0 + 6.5);
+  w.place(stranger, town, s.x0 + 3.5, s.y0 + 8.5);
   w.profileOf(stranger)!.partner = e.id(owner); w.profileOf(owner)!.partner = e.id(stranger);
   assert.equal(walkIn(stranger), true, 'family goes in');
   assert.equal(sv.homes.homeOf(e.id(stranger)), sv.homes.homeOf(e.id(owner)), 'their home too');
   // Zombies never pass a door.
-  const z = w.zombies.spawn(town, s.x0 + 2.5, s.y0 + 6.5, true);
+  const z = w.zombies.spawn(town, s.x0 + 3.5, s.y0 + 8.5, true);
   assert.ok(z >= 0);
 });
 
@@ -96,7 +96,7 @@ test('homes: free huts go to families without one, a dead owner leaves it to the
   w.step(); // the first step counts the map's huts
   // A hut nobody owns (built by a child, say): the hourly pass gives it to a household.
   const s = openSpot(w, town, 60, 60);
-  const pl = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5);
+  const pl = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 9.5);
   w.playerProfile(pl, 'builder');
   sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5);
   assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
@@ -112,9 +112,9 @@ test('homes: free huts go to families without one, a dead owner leaves it to the
   // Sleep: the owner heads home.
   const own = e.slot(h.owner);
   e.tired[own] = 99;
-  w.place(own, town, s.x0 + 2.5, s.y0 + 12);
+  w.place(own, town, s.x0 + 3.5, s.y0 + 14);
   let home = false;
-  for (let k = 0; k < 20 * 60 && !home; k++) { e.tired[own] = 99; e.hunger[own] = 0; e.thirst[own] = 0; w.step(); home = e.x[own]! > s.x0 && e.x[own]! < s.x0 + 5 && e.y[own]! > s.y0 && e.y[own]! < s.y0 + 5; }
+  for (let k = 0; k < 20 * 60 && !home; k++) { e.tired[own] = 99; e.hunger[own] = 0; e.thirst[own] = 0; w.step(); home = e.x[own]! > s.x0 && e.x[own]! < s.x0 + 7 && e.y[own]! > s.y0 && e.y[own]! < s.y0 + 7; }
   assert.ok(home, 'they sleep in their own hut');
   // Kept in snapshots.
   const saved = JSON.parse(JSON.stringify(sv.save()));
@@ -179,46 +179,46 @@ test('pulling down: only your own building, or one whose owner is dead; an admin
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
   w.step();
   const s = openSpot(w, town, 60, 60);
-  const me = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5); w.playerProfile(me, 'imad');
-  const other = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 7.5); w.playerProfile(other, 'lina');
+  const me = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 9.5); w.playerProfile(me, 'imad');
+  const other = w.spawnPlayer(town, s.x0 + 4.5, s.y0 + 9.5); w.playerProfile(other, 'lina');
   sv.add(me, 'wood', 20); sv.add(me, 'stone', 10); sv.add(me, 'leather', 5); sv.add(me, 'lamp', 1);
   assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
-  assert.equal(sv.placeAt(me, 'lamp', s.x0 + 5, s.y0 + 6), 'placed');
+  assert.equal(sv.placeAt(me, 'lamp', s.x0 + 7, s.y0 + 8), 'placed');
   // Someone else may not; the map's own ground is not a building.
-  assert.equal(sv.destroyAt(other, s.x0 + 5, s.y0 + 6), 'notYours');
-  assert.equal(sv.destroyAt(other, s.x0, s.y0), 'notYours', 'not my hut');
-  assert.equal(sv.destroyAt(other, s.x0 + 6, s.y0 + 8), 'nothing');
-  assert.equal(sv.destroyCells(town, s.y0 * tm.w + s.x0).length, 25, 'a hut comes down whole');
+  assert.equal(sv.destroyAt(other, s.x0 + 7, s.y0 + 8), 'notYours');
+  assert.equal(sv.destroyAt(other, s.x0, s.y0 + 6), 'notYours', 'not my hut');
+  assert.equal(sv.destroyAt(other, s.x0 + 8, s.y0 + 10), 'nothing');
+  assert.equal(sv.destroyCells(town, s.y0 * tm.w + s.x0).length, 49, 'a hut comes down whole');
   // The owner may: the lamp goes back into the bag, the hut gives back half its materials and the home is gone.
-  assert.equal(sv.destroyAt(me, s.x0 + 5, s.y0 + 6), 'destroyed');
-  assert.notEqual(tm.get(s.x0 + 5, s.y0 + 6), tileId(w, 'lamp'));
+  assert.equal(sv.destroyAt(me, s.x0 + 7, s.y0 + 8), 'destroyed');
+  assert.notEqual(tm.get(s.x0 + 7, s.y0 + 8), tileId(w, 'lamp'));
   assert.equal(sv.inv(me).lamp, 1);
-  assert.equal(sv.destroyAt(me, s.x0 + 2, s.y0 + 4), 'destroyed');
+  assert.equal(sv.destroyAt(me, s.x0 + 3, s.y0 + 6), 'destroyed');
   assert.equal(sv.huts[town]!.length, 0); assert.equal(sv.homes.homeOf(e.id(me)), undefined);
   assert.equal(w.profileOf(me)!.home, undefined);
-  for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) assert.ok(!sv.builtTile(tm.get(s.x0 + xx, s.y0 + yy)), 'all its tiles are ground again');
+  for (let yy = 0; yy < 7; yy++) for (let xx = 0; xx < 7; xx++) assert.ok(!sv.builtTile(tm.get(s.x0 + xx, s.y0 + yy)), 'all its tiles are ground again');
   assert.equal(sv.inv(me).wood, 10); assert.equal(sv.inv(me).stone, 5); assert.equal(sv.inv(me).leather, 2);
   // An AI person's hut: nobody else may, until the owner is dead.
   const ai = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent)!;
-  w.place(ai, town, s.x0 + 2.5, s.y0 + 7.5);
+  w.place(ai, town, s.x0 + 3.5, s.y0 + 9.5);
   sv.add(ai, 'wood', 20); sv.add(ai, 'stone', 10); sv.add(ai, 'leather', 5);
   assert.equal(sv.placeAt(ai, 'hut', s.x0, s.y0, 0), 'built');
-  w.place(other, town, s.x0 + 3.5, s.y0 + 7.5);
-  assert.equal(sv.destroyAt(other, s.x0 + 2, s.y0 + 4), 'notYours');
+  w.place(other, town, s.x0 + 4.5, s.y0 + 9.5);
+  assert.equal(sv.destroyAt(other, s.x0 + 3, s.y0 + 6), 'notYours');
   w.profileOf(ai)!.died = w.gameSec;
-  assert.equal(sv.destroyAt(other, s.x0 + 2, s.y0 + 4), 'destroyed', 'the owner is dead');
+  assert.equal(sv.destroyAt(other, s.x0 + 3, s.y0 + 6), 'destroyed', 'the owner is dead');
   // An AI person pulls down their own thing by a task step.
   const ai2 = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent && i !== ai)!;
-  w.place(ai2, town, s.x0 + 4.5, s.y0 + 7.5);
+  w.place(ai2, town, s.x0 + 6.5, s.y0 + 9.5);
   sv.add(ai2, 'lamp', 1);
-  assert.equal(sv.placeAt(ai2, 'lamp', s.x0 + 6, s.y0 + 7), 'placed');
+  assert.equal(sv.placeAt(ai2, 'lamp', s.x0 + 8, s.y0 + 9), 'placed');
   assert.equal(sv.wreck(other, 'lamp'), 'nothing here is mine to pull down');
   assert.equal(sv.wreck(ai2, 'lamp'), true);
-  for (let n = 0; n < 20 * 60 && tm.get(s.x0 + 6, s.y0 + 7) === tileId(w, 'lamp'); n++) w.step();
-  assert.notEqual(tm.get(s.x0 + 6, s.y0 + 7), tileId(w, 'lamp'), 'they took it down');
+  for (let n = 0; n < 20 * 60 && tm.get(s.x0 + 8, s.y0 + 9) === tileId(w, 'lamp'); n++) w.step();
+  assert.notEqual(tm.get(s.x0 + 8, s.y0 + 9), tileId(w, 'lamp'), 'they took it down');
   // Admin reset: every building goes, homes and camps are forgotten.
   sv.add(me, 'wood', 20); sv.add(me, 'stone', 10); sv.add(me, 'leather', 5);
-  w.place(me, town, s.x0 + 2.5, s.y0 + 7.5);
+  w.place(me, town, s.x0 + 3.5, s.y0 + 9.5);
   assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
   assert.ok(sv.campOf(town));
   const r = sv.resetBuildings();
@@ -235,11 +235,11 @@ test('doors open and close with the interact button: a closed door stops a playe
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
   w.step();
   const s = openSpot(w, town, 60, 60);
-  const me = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5); w.playerProfile(me, 'imad');
-  const other = w.spawnPlayer(town, s.x0 + 5.5, s.y0 + 7.5); w.playerProfile(other, 'lina');
+  const me = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 8.5); w.playerProfile(me, 'imad');
+  const other = w.spawnPlayer(town, s.x0 + 7.5, s.y0 + 9.5); w.playerProfile(other, 'lina');
   sv.add(me, 'wood', 20); sv.add(me, 'stone', 10); sv.add(me, 'leather', 5);
   assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
-  const dx = s.x0 + 2, dy = s.y0 + 4; // the south door
+  const dx = s.x0 + 3, dy = s.y0 + 6; // the south door
   w.place(me, town, dx + 0.5, dy + 1.5);
   assert.equal(tm.get(dx, dy), T.door, 'a new hut\'s door is shut');
   assert.equal(w.trustMove(me, dx + 0.5, dy + 0.6), false, 'a closed door stops me');
@@ -276,22 +276,22 @@ test('a player owns every hut they build (at most 2 a map), a closed door says s
   const pl = w.spawnPlayer(town, 60, 60); w.playerProfile(pl, 'imad');
   const give = () => { sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5); };
   const s1 = openSpot(w, town, 110, 110);
-  w.place(pl, town, s1.x0 + 2.5, s1.y0 + 7.5); give();
+  w.place(pl, town, s1.x0 + 3.5, s1.y0 + 9.5); give();
   assert.equal(sv.placeAt(pl, 'hut', s1.x0, s1.y0, 0), 'built');
   const s = openSpot(w, town, 70, 70);
-  w.place(pl, town, s.x0 + 2.5, s.y0 + 7.5); give();
+  w.place(pl, town, s.x0 + 3.5, s.y0 + 9.5); give();
   assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
-  const k2 = (s.y0 + 2) * tm.w + s.x0 + 2;
+  const k2 = (s.y0 + 3) * tm.w + s.x0 + 3;
   assert.equal(sv.homes.at(town, k2)!.owner, e.id(pl), 'the second hut is mine too (it used to stay free and go to another family)');
   for (let k = 0; k < 20 * 3600 / 30 * 3; k++) w.step(); // 3 game hours: free huts are handed out hourly
   assert.equal(sv.homes.at(town, k2)!.owner, e.id(pl), 'still mine');
   // A third on this map: refused.
   const s3 = openSpot(w, town, 150, 70);
-  w.place(pl, town, s3.x0 + 2.5, s3.y0 + 7.5); give();
+  w.place(pl, town, s3.x0 + 3.5, s3.y0 + 9.5); give();
   assert.equal(sv.placeAt(pl, 'hut', s3.x0, s3.y0, 0), 'hutLimit');
   assert.equal(sv.playerHut(pl), 'hutLimit');
   // My own closed door: blocked with "closed" (press A), never "not your home".
-  w.place(pl, town, s.x0 + 2.5, s.y0 + 5.5);
+  w.place(pl, town, s.x0 + 3.5, s.y0 + 7.5);
   e.flags[pl] = e.flags[pl]! & ~EFlag.Sleeping; // the hours above may have put me to sleep
   const why: string[] = [];
   w.listeners.push((x) => { if (x.kind === 'blocked') why.push(String(x.data.why)); });
@@ -300,7 +300,7 @@ test('a player owns every hut they build (at most 2 a map), a closed door says s
   assert.equal(moved, false, 'a closed door stops me');
   assert.ok(why.includes('closed') && !why.includes('door'), JSON.stringify(why));
   // Open: in. On a horse: not in.
-  assert.equal(sv.toggleDoor(pl, s.x0 + 2, s.y0 + 4), 'doorOpened');
+  assert.equal(sv.toggleDoor(pl, s.x0 + 3, s.y0 + 6), 'doorOpened');
   why.length = 0;
   const hs = w.horses.spawn(town, e.x[pl]! + 1, e.y[pl]!, { owner: e.id(pl), herd: -1 });
   assert.equal(w.horses.mount(pl, hs), 'mounted');
@@ -308,8 +308,8 @@ test('a player owns every hut they build (at most 2 a map), a closed door says s
   for (let k = 0; k < 20; k++) { moved = w.trustMove(pl, e.x[pl]!, e.y[pl]! - 0.3) || (moved && k < 6); w.step(); }
   assert.equal(moved, false, 'no riding into a hut');
   assert.ok(why.includes('horse'), 'horse ' + JSON.stringify(why) + ' ' + e.y[pl]);
-  assert.ok(Math.floor(e.y[pl]!) > s.y0 + 4, 'still outside');
+  assert.ok(Math.floor(e.y[pl]!) > s.y0 + 6, 'still outside');
   assert.equal(w.horses.dismount(pl), 'dismounted');
   for (let k = 0; k < 12; k++) w.trustMove(pl, e.x[pl]!, e.y[pl]! - 0.3);
-  assert.ok(Math.floor(e.y[pl]!) <= s.y0 + 3, 'on foot I walk in');
+  assert.ok(Math.floor(e.y[pl]!) <= s.y0 + 5, 'on foot I walk in');
 });

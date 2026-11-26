@@ -97,6 +97,8 @@ export class Quests {
     return (p.quests ??= { done: [] });
   }
   /** The next quest to take (none = all done or one in hand). */
+  /** Person i (an AI on the quest map, teachers standing) has a quest left to take: the camp plan's filler leaves them to it. */
+  wants(i: number): boolean { const e = this.w.e; return this.map >= 0 && this.npcs.size > 0 && e.map[i] === this.map && !!this.next(e.id(i)); }
   next(id: number): QuestDef | undefined { const s = this.state(id); return s.cur ? undefined : QUESTS.find((q) => !s.done.includes(q.id)); }
   rows(id: number): QuestRow[] {
     const s = this.state(id), nx = this.next(id);
@@ -157,7 +159,7 @@ export class Quests {
       p.traits.intelligence = Math.min(1, p.traits.intelligence + 0.005); // every lesson makes them a little wiser
     }
     for (const [k, n] of Object.entries(q.reward.items ?? {})) w.survival.add(i, k, n);
-    if (q.reward.food) e.carry[i] = Math.min(5, e.carry[i]! + q.reward.food);
+    if (q.reward.food) w.survival.addFood(i, q.reward.food);
     this.onLearn(id, `I finished the quest "${q.title.en}" for ${npcDef(q.npc)!.name}. I learned: ${q.lesson}`);
     w.emit('questDone', { id, quest: q.id, title: q.title.en, xp: q.reward.xp, done: s.done.length });
   }

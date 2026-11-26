@@ -54,7 +54,7 @@ function byId(tiles: { id: number; name: string; color: number; solid?: boolean 
   for (const t of tiles) { colors[t.id] = t.color; names[t.id] = t.name; solid[t.id] = !!t.solid; }
   return { colors, names, solid };
 }
-const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'lore', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests', 'chats', 'chatRead']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'lore', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'campPlan', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['weather', 'autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
@@ -285,6 +285,7 @@ export class App {
       if (a === 'compass') return e.map[player] === NO_MAP ? { ok: false, code: 'nothing' } : this.waypoints.compass(name, player); // the compass bar on top of the TV
       if (a === 'rideTo') { // on horseback, ride by yourself: '' = where to, else the road for this map's leg
         if (e.map[player] === NO_MAP) return { ok: false, code: 'nothing' };
+        if (!w.horses.riding[player]) return { ok: false, code: 'notRiding' }; // only on horseback (imad 2026-11-26: "only when I'm mounting it")
         const id = String(text ?? '');
         return id ? this.waypoints.route(name, player, id) : { ok: true, code: 'rideDests', dests: this.waypoints.dests(name, player) };
       }
@@ -310,6 +311,7 @@ export class App {
       const sv = w.survival;
       if (a === 'equip') return w.gear.equip(player, String(text ?? '')); // gear screen: "slot:item"
       if (a === 'upgrade') return w.gear.upgrade(player, String(text ?? '')); // "item:lv" | "item:q"
+      if (a === 'box' || ((a === 'take' || a === 'use') && /^box:\d+,\d+$/.test(String(text ?? '')))) return this.boxDo(player, String(text ?? '').replace(/^box:/, '')); // a fridge / chest
       if (a === 'medkit') { const r = sv.useMedkit(player); if (r.ok) w.gear.play(player, 'use'); return r; } // a first-aid kit from the bag
       if (a === 'aim') { // aim button held / let go: viewers see the bow drawn in my hands (imad 2026-11-25)
         const on = String(text ?? '') === '1' && (sv.inv(player).bow ?? 0) > 0;
@@ -450,6 +452,7 @@ export class App {
           const an = w.animals.nearest(m, x, y, 2.4);
           if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
         }
+        if (w.brain.nearestItem(player, 1.4) < 0) { const bk = sv.boxNear(player, '', 2.2); if (bk >= 0) { const W = w.maps[e.map[player]!]!.tiles.w; return this.boxDo(player, `${bk % W},${(bk / W) | 0}`); } } // A next to my fridge / chest opens it
         const r0 = w.brain.playerDo(player, 'use');
         if (r0.ok) return r0;
         // A tree, a rock or rubble next to me: chop / mine one piece (at most one a second).
@@ -662,6 +665,25 @@ export class App {
       if (along > 0.3 && along < bd && off <= side + along * 0.02) { bd = along; best = j; }
     }
     return best;
+  }
+  /**
+   * A fridge / chest (imad 2026-11-26): text "tx,ty" = open it (what it holds + what my bag can put in), "put:tx,ty:item:n" /
+   * "take:tx,ty:item:n" = move things; '' = the nearest one within 2.2 m. Code box (with kind, at, inv, bag, food, cap) or why not.
+   */
+  private boxDo(player: number, text: string): Record<string, unknown> {
+    const w = this.world, e = w.e, sv = w.survival, m = e.map[player]!, W = w.maps[m]!.tiles.w;
+    const mv = /^(put|take):(\d+),(\d+):([a-z]+):(\d+)$/.exec(text), at = mv ? [Number(mv[2]), Number(mv[3])] : /^(\d+),(\d+)$/.exec(text)?.slice(1).map(Number);
+    let k = at ? at[1]! * W + at[0]! : sv.boxNear(player, '', 2.2);
+    if (k < 0 || !sv.boxKind(m, k)) return { ok: false, code: 'noBox' };
+    if (Math.hypot((k % W) + 0.5 - e.x[player]!, ((k / W) | 0) + 0.5 - e.y[player]!) > 2.6) return { ok: false, code: 'tooFar' };
+    if (!sv.mayUseBox(player, m, k)) return { ok: false, code: 'notYours' };
+    let code = 'box', moved = 0;
+    if (mv) {
+      const r = mv[1] === 'put' ? sv.boxPut(player, k, mv[4]!, Number(mv[5])) : sv.boxTake(player, k, mv[4]!, Number(mv[5]));
+      if (typeof r === 'string') code = r; else { moved = r; code = mv[1] === 'put' ? 'boxPut' : 'boxTook'; }
+    }
+    const kind = sv.boxKind(m, k);
+    return { ok: code === 'box' || moved > 0, code, kind, at: [k % W, (k / W) | 0], inv: { ...sv.box(m, k) }, bag: { ...sv.inv(player) }, food: sv.foodOf(player), carry: e.carry[player], cap: 40, moved, item: mv?.[4] };
   }
   private hitAnimal(player: number, a: number, dmg: number): { ok: boolean; code: string; got?: Record<string, number>; item?: string } {
     const w = this.world, type = w.e.sub[a]!;
@@ -1350,6 +1372,12 @@ export class App {
           out.push({ id: e.id(i), player: true, name, online: this.net.online(name), alive: true, map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i], asleep: (e.flags[i]! & EFlag.Sleeping) !== 0 } as never);
         }
         return out;
+      }
+      case 'campPlan': { // the camps' / clans' collective plans (imad 2026-11-26): food, water, homes, beds, fridges, chests, stock
+        const w = this.world;
+        return { plans: w.maps.map((mp) => ({ ...w.plan.of(mp.index), name: mp.def.name, text: w.plan.text(mp.index),
+          boxes: w.survival.boxesOf(mp.index).map((b) => ({ kind: b.kind, at: [b.k % mp.tiles.w, (b.k / mp.tiles.w) | 0], inv: b.inv, owner: (() => { const h = w.survival.homes.at(mp.index, b.k); return h && h.owner >= 0 ? w.profiles.get(h.owner)?.name ?? '' : ''; })() })),
+          working: (() => { const out: Record<string, number> = {}; for (let i = 0; i < w.e.hi; i++) { if (w.e.map[i] !== mp.index) continue; const g = (w.profileOf(i)?.mind?.task as { goal?: string } | undefined)?.goal; if (g) { const k = g.split('@')[0]!; out[k] = (out[k] ?? 0) + 1; } } return out; })() })).filter((p) => p.people > 0) };
       }
       case 'clans': {
         const nm = (id: number) => this.nameOf(id);

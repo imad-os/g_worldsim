@@ -56,10 +56,15 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     ar: 'الأعشاب الطبية: 3 أعشاب + 1 جلد = حقيبة إسعاف. اقطفها من الشجيرات قرب الأشجار.' } },
   // ---------------------------------------------------------------- food
   food: { kind: 'food', text: {
-    en: 'Food (berries, cans, meat): eat it when hungry or nobody lasts; carry up to 5, keep extra in the camp\'s store.',
-    fr: 'Nourriture (baies, conserves, viande) : mangez quand vous avez faim ; portez-en 5 au plus, le reste dans la réserve du camp.',
-    es: 'Comida (bayas, latas, carne): come cuando tengas hambre; lleva hasta 5 y guarda el resto en el almacén del campamento.',
-    ar: 'الطعام (توت، معلبات، لحم): كُل عند الجوع؛ احمل حتى 5 وضع الباقي في مخزن المخيم.' } },
+    en: 'Food (berries, cans, meat): eat it when hungry or nobody lasts; 5 in the hands, more in the bag; keep a stock in your fridge or the camp\'s store.',
+    fr: 'Nourriture (baies, conserves, viande) : mangez quand vous avez faim ; 5 en main, le reste dans le sac ; gardez-en au frigo ou dans la réserve du camp.',
+    es: 'Comida (bayas, latas, carne): come cuando tengas hambre; 5 en las manos, más en la bolsa; guarda reservas en tu nevera o en el almacén.',
+    ar: 'الطعام (توت، معلبات، لحم): كُل عند الجوع؛ 5 في اليدين والباقي في الحقيبة؛ احتفظ بمخزون في ثلاجتك أو مخزن المخيم.' } },
+  water: { kind: 'food', text: {
+    en: 'Water bottles: drink when thirsty far from the water. Fill 3 at the water\'s edge (when not thirsty); keep some in your fridge.',
+    fr: 'Bouteilles d\'eau : buvez quand vous avez soif loin de l\'eau. Remplissez-en 3 au bord de l\'eau (sans soif) ; gardez-en au frigo.',
+    es: 'Botellas de agua: bebe cuando tengas sed lejos del agua. Llena 3 en la orilla (sin sed); guarda algunas en tu nevera.',
+    ar: 'قوارير الماء: اشرب عند العطش بعيداً عن الماء. املأ 3 عند حافة الماء (بلا عطش)؛ احتفظ ببعضها في ثلاجتك.' } },
   meat: { kind: 'food', text: {
     en: 'Meat: food from a hunted animal (it fills you well). Eat it or put it in the camp\'s store.',
     fr: 'Viande : de la nourriture d\'un animal chassé (elle cale bien). Mangez-la ou mettez-la dans la réserve.',
@@ -155,9 +160,19 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     fr: 'Feu de camp : à moins de 6 m le froid ne fait plus mal et les blessures guérissent plus vite ; zombies et bêtes l\'évitent et dormir près de lui repose 1,5 fois mieux. Brûle 10 h ; ajoutez du bois.',
     es: 'Fogata: a menos de 6 m el frío no hace daño y las heridas sanan más rápido; zombis y bestias se alejan y dormir cerca descansa 1,5 veces más. Arde 10 h; añade madera.',
     ar: 'نار المخيم: على بعد 6 م لا يؤذيك البرد وتلتئم الجروح أسرع؛ يبتعد عنها الزومبي والوحوش والنوم قربها يريح 1.5 مرة. تشتعل 10 ساعات؛ أضف الخشب.' } },
+  fridge: { kind: 'furniture', text: {
+    en: 'Fridge: keeps food and water for the days to come (40 of each). Build it inside your hut (3 scrap + 2 stone) and fill it.',
+    fr: 'Frigo : garde nourriture et eau pour les jours à venir (40 de chaque). À construire dans votre cabane (3 ferraille + 2 pierres) puis à remplir.',
+    es: 'Nevera: guarda comida y agua para los días que vienen (40 de cada). Constrúyela dentro de tu cabaña (3 chatarra + 2 piedra) y llénala.',
+    ar: 'الثلاجة: تحفظ الطعام والماء للأيام القادمة (40 من كل). ابنها داخل كوخك (3 خردة + 2 حجر) واملأها.' } },
+  chest: { kind: 'furniture', text: {
+    en: 'Chest: keeps materials, tools, weapons and clothes safe at home (40 of each). Build it inside your hut (4 wood + 1 scrap).',
+    fr: 'Coffre : garde matériaux, outils, armes et vêtements à la maison (40 de chaque). À construire dans votre cabane (4 bois + 1 ferraille).',
+    es: 'Cofre: guarda materiales, herramientas, armas y ropa en casa (40 de cada). Constrúyelo dentro de tu cabaña (4 madera + 1 chatarra).',
+    ar: 'الصندوق: يحفظ المواد والأدوات والأسلحة والملابس في البيت (40 من كل). ابنه داخل كوخك (4 خشب + 1 خردة).' } },
   // ---------------------------------------------------------------- buildings
   hut: { kind: 'building', text: {
-    en: 'Hut: a home with a roof and its own door, where your family sleeps safe; inside, the cold is 80 % weaker. 20 wood + 10 stone + 5 leather; build it next to the other huts of the camp (close together = easier to defend).',
+    en: 'Hut: a home with a roof and its own door (7 x 7, room for a fridge and a chest), where your family sleeps safe; inside, the cold is 80 % weaker. 20 wood + 10 stone + 5 leather; build it next to the other huts of the camp (close together = easier to defend).',
     fr: 'Cabane : une maison avec un toit et sa porte, où votre famille dort en sécurité ; dedans, le froid est 80 % plus faible. 20 bois + 10 pierres + 5 cuirs, à côté des autres cabanes du camp (serrées = plus faciles à défendre).',
     es: 'Cabaña: un hogar con techo y su propia puerta, donde tu familia duerme a salvo; dentro, el frío es un 80 % más débil. 20 madera + 10 piedra + 5 cuero, junto a las otras cabañas del campamento (juntas = más fáciles de defender).',
     ar: 'الكوخ: بيت بسقف وباب خاص تنام فيه عائلتك بأمان؛ في داخله يضعف البرد 80 %. 20 خشب + 10 حجر + 5 جلد؛ ابنه بجانب أكواخ المخيم الأخرى (المتقاربة أسهل في الدفاع).' } },
