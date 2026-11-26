@@ -2102,7 +2102,21 @@ function draw(now: number, dt: number): void {
   if (namesOn && !menu.open && !rp) names.draw(eachPerson, nameProject, fx, fy, 26); else names.hide();
   const cpOn = compassOn && how === 'play' && playing() && !menu.open && !meTransit && !rp;
   compass.show(cpOn);
-  if (cpOn) compass.draw(predX, predY, g3.view !== 'top' ? yaw - Math.PI / 2 : -Math.PI / 2, Math.min(innerWidth * 0.42, 900));
+  if (cpOn) compass.draw(predX, predY, g3.view !== 'top' ? yaw - Math.PI / 2 : -Math.PI / 2, compassFit(now));
+}
+/** The compass sits at the very top (imad 2026-11-26: top 10px) in the gap between the top bar and my card, so it never covers either. */
+let fitAt = 0, fitW = 0;
+function compassFit(now: number): number {
+  if (now - fitAt < 500 && fitW) return fitW;
+  fitAt = now;
+  const el = document.getElementById('compass'), top = document.getElementById('top'), card = document.getElementById('card');
+  if (!el) return fitW = Math.min(innerWidth * 0.38, 900);
+  const gap = innerWidth * 0.015, boxes = [top, card].filter((b) => b && !b.hidden).map((b) => b!.getBoundingClientRect()).filter((r) => r.width > 0 && r.top < 80);
+  let l = gap, r = innerWidth - gap;
+  for (const b of boxes) { if (b.left + b.width / 2 < innerWidth / 2) l = Math.max(l, b.right + gap); else r = Math.min(r, b.left - gap); }
+  const w = Math.max(innerWidth * 0.22, Math.min(900, r - l));
+  el.style.left = `${Math.round(l + (r - l - w) / 2)}px`; el.style.width = `${Math.round(w)}px`; el.style.transform = 'none';
+  return fitW = w;
 }
 /** Every person / player / teacher drawn this frame but me: (id, x, y, height of the name). */
 function eachPerson(fn: (id: number, x: number, y: number, h: number) => void): void {

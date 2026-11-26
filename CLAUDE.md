@@ -746,5 +746,5 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - `sim/campplan.ts` (`World.plan`): food / water kept per head, homes, beds, fridges, chests, wood, stone -> `Colony.stock()` goals + a
   daytime filler for half the free people (not lonely, not with a quest left). Chores of the plan give no company. Clothes only with a
   home or 6+ leather. `thingOf` knows fridge / chest (they were built as campfires). Admin `campPlan`; panel People > Camp plans.
-- TV: map zoom 7 levels + scale bar, "Ride here" on the map only when mounted (`pt:` route), compass pills in metres. Menu skips `h:` headers.
-- Proof `ADMIN_TOKEN=... node tools/storage-proof.mjs <server> <sdk.js> <outdir>`. ai.goap "colony ... huts" is dice-sensitive (leather).
+- TV: map zoom 7 levels + scale bar, "Ride here" on the map only when mounted (`pt:` route), compass pills in metres; compass + card at top 10px, the compass fits the gap between the top bar and the card (`compassFit`, app 0.14.1). Menu skips `h:` headers.
+- Proof `ADMIN_TOKEN=... node tools/storage-proof.mjs <server> <sdk.js> <outdir>`. A hut with no site in the circle goes within 18 tiles of the camp first (the wall follows it).

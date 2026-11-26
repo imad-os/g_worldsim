@@ -441,7 +441,9 @@ export class Survival {
       const hs = this.hutSite(m);
       if (hs) { x0 = hs.x0; y0 = hs.y0; dir = hs.dir; }
       else { // no room inside the wall: outside, as before (it will not be protected)
-        const s0 = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 30);
+        // Close first, so the wall that follows the huts (plannedRadius, up to 28) can still take it in; far only when nothing is near.
+        let s0 = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 18);
+        if (s0 < 0) s0 = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 30);
         if (s0 < 0) return 'I found no clear ground for a hut';
         x0 = s0 % W; y0 = (s0 / W) | 0;
       }
