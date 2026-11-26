@@ -8,6 +8,7 @@ import { People } from './people.js';
 import { Animals3D } from './animals.js';
 import { Horses3D } from './horses.js';
 import { gateMesh, type GateSpec } from './gate.js';
+import { Precip } from './weather.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -63,6 +64,11 @@ export class World3D {
   private tier: Tier;
   private m = new Matrix4();
   private shadowR = 30;
+  /** Rain and snow (gfx/weather.ts); `rainSnow` = the player's setting (Settings > Graphics). */
+  private precip: Precip;
+  rainSnow = true;
+  /** The sky (Notice 'weather'): kind, strength, temperature; eased into the light, fog and snow on the ground. */
+  private wx = { kind: 'clear', k: 0, t: 15, over: 0, fog: 1, cover: 0, flash: 0, nextFlash: 0 };
 
   constructor(canvas: HTMLCanvasElement, tier: Tier) {
     this.tier = tier;
@@ -109,6 +115,7 @@ export class World3D {
     this.cans = inst(new CylinderGeometry(0.09, 0.09, 0.17, 10).translate(0, 0.085, 0), 0xc4523f, 256);
     this.bushes = inst(new IcosahedronGeometry(0.52, 1).scale(1, 0.8, 1).translate(0, 0.38, 0), 0x3f7f37, 256);
     this.berries = inst(new IcosahedronGeometry(0.075, 0), 0xe0203a, 256 * 6);
+    this.precip = new Precip(this.scene, tier);
     this.crates = inst(new CylinderGeometry(0.2, 0.2, 0.3, 4).rotateY(Math.PI / 4).translate(0, 0.15, 0), 0x9a7448, 128);
   }
 
@@ -245,8 +252,33 @@ export class World3D {
   fogK = 1;
   private fogAt(near: number, far: number): void {
     if (!this.fogK) { this.fog.near = 1e5; this.fog.far = 1e6; return; }
-    this.fog.near = near * this.fogK; this.fog.far = far * this.fogK;
+    const f = this.wx.fog; // fog, rain and snow close the view in
+    this.fog.near = near * this.fogK * f * f; this.fog.far = far * this.fogK * f;
   }
+
+  /** The weather the server says (Notice 'weather'). snow = how white the ground starts (0..1) when we join in a snowy winter. */
+  setWeather(kind: string, k: number, t: number, snow = -1): void {
+    this.wx.kind = kind; this.wx.k = k; this.wx.t = t;
+    if (snow >= 0) this.wx.cover = Math.max(this.wx.cover, snow);
+  }
+  /** Ease the sky once a frame: clouds, fog, lightning, snow settling and melting, the rain and snow particles. */
+  tickWeather(dt: number, x: number, z: number): void {
+    const w = this.wx, kind = w.kind, k = w.k;
+    const over = kind === 'cloudy' ? 0.55 : kind === 'rain' ? 0.7 : kind === 'storm' ? 0.92 : kind === 'snow' ? 0.65 : kind === 'blizzard' ? 0.88 : kind === 'fog' ? 0.5 : 0;
+    const fog = kind === 'fog' ? 0.5 - 0.18 * k : kind === 'blizzard' ? 0.42 : kind === 'storm' ? 0.65 : kind === 'rain' || kind === 'snow' ? 0.8 : 1;
+    const e = 1 - Math.exp(-dt * 0.5);
+    w.over += (over - w.over) * e;
+    w.fog += (fog - w.fog) * e;
+    // Snow settles while it snows in the frost, melts above 2 °C.
+    if ((kind === 'snow' || kind === 'blizzard') && w.t < 1.5) w.cover = Math.min(1, w.cover + dt * (0.01 + 0.02 * k));
+    else if (w.t > 2) w.cover = Math.max(0, w.cover - dt * 0.004 * Math.min(5, w.t - 1));
+    // Lightning now and then in a storm.
+    w.flash = Math.max(0, w.flash - dt * 6);
+    if (kind === 'storm') { w.nextFlash -= dt; if (w.nextFlash <= 0) { w.flash = 1; w.nextFlash = 6 + Math.random() * 14; } }
+    const pk = kind === 'rain' ? 1 : kind === 'storm' ? 2 : kind === 'snow' ? 3 : kind === 'blizzard' ? 4 : 0;
+    this.precip.update(dt, this.rainSnow ? pk : 0, k, x, z, this.dark);
+  }
+  private dark = 0;
   /** Settings changed: the camera picks them up at the next frame. */
   settingsChanged(): void { this.viewSet = ''; }
 
@@ -319,6 +351,16 @@ export class World3D {
     this.hemi.color.setHex(0x30406a).lerp(this.c1.setHex(0xcfe3ff), day);
     this.hemi.groundColor.setHex(0x1c1a22).lerp(this.c1.setHex(0x5d4c3a), day);
     this.bg.setHex(0x0b1426).lerp(this.c1.setHex(0x9cc7e8), day).lerp(this.c2.setHex(0xe79a6a), warm * 0.6);
+    // The weather on top: clouds dim the sun and grey the sky, lightning flashes, snow lies white on the ground.
+    const w = this.wx, ov = w.over;
+    this.dark = 1 - day;
+    this.sun.intensity *= 1 - 0.7 * ov;
+    this.hemi.intensity *= 1 - 0.18 * ov;
+    this.bg.lerp(this.c1.setHex(day > 0.3 ? (w.kind === 'fog' ? 0xb4bcc4 : 0x8a939c) : 0x10151d), ov * 0.92);
+    if (w.cover > 0.01) this.bg.lerp(this.c1.setHex(day > 0.3 ? 0xc9d3dc : 0x1a2230), w.cover * 0.25);
+    if (w.flash > 0) { this.hemi.intensity += w.flash * 2.5; this.bg.lerp(this.c1.setHex(0xdfe8ff), w.flash * 0.6); }
+    this.groundMat.emissive.setRGB(0.42, 0.45, 0.5).multiplyScalar(w.cover * (0.25 + 0.75 * day));
+    this.fog.color.copy(this.bg); // the far distance fades into the sky's own colour (grey in rain, dark at night)
     this.lamp.intensity = (1 - day) * 9;
     this.poolMat.opacity = (1 - day) * 0.42; this.poolMat.visible = day < 0.98;
   }

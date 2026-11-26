@@ -404,6 +404,7 @@ export class Planner {
       ...(ownText(w, i) ? [ownText(w, i)] : []),
       w.horses.promptText(i),
       ...(this.placeText(i) ? [this.placeText(i)] : []),
+      w.weather.promptText(e.map[i]!),
       ...(w.lore.promptText(i) ? [w.lore.promptText(i)] : []),
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),

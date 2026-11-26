@@ -306,9 +306,11 @@ export class Colony {
     const fire = camp ? sv.fireNear(m, cx, cy, 15) : -1;
     const fuel = fire >= 0 ? sv.fuel(m, fire) : 0;
     const evening = hour >= 15 && hour < 23, day = hour >= 7 && hour < 18;
+    // The cold (sim/weather.ts): under 5 °C a fire keeps the people alive at night, so it burns day and night, well fed.
+    const chilly = w.weather.coldSoon(m, 10);
     // Warmth and light: a fire for the night, kept burning.
-    if (fire < 0 && (evening || (threat && (hour >= 19 || hour < 6)))) gs.push({ name: 'fire', text: 'make a campfire for the night', want: [{ '+fire': 1 }], value: 0.95, trait: 'intelligence', crew: 1 });
-    else if (fire >= 0 && fuel < 5) gs.push({ name: 'fuel', text: 'keep the fire going', want: [{ fuel: fuel + 4 }], value: 0.85 - fuel * 0.08, trait: 'empathy', crew: 1 });
+    if (fire < 0 && (evening || chilly || (threat && (hour >= 19 || hour < 6)))) gs.push({ name: 'fire', text: chilly ? 'make a campfire against the cold' : 'make a campfire for the night', want: [{ '+fire': 1 }], value: 0.95, trait: 'intelligence', crew: 1 });
+    else if (fire >= 0 && fuel < (chilly ? 9 : 5)) gs.push({ name: 'fuel', text: 'keep the fire going', want: [{ fuel: fuel + 4 }], value: (chilly ? 0.95 : 0.85) - fuel * 0.08, trait: 'empathy', crew: 1 });
     // Shelter: a home for every household (sim/homes.ts; a hut's door opens only for its family), at least one hut per two people.
     // Only as many as households without a home that no free hut can take (huts are dear: move into a free one first).
     const roofs = sv.huts[m]!.length, needRoofs = roofs + sv.homes.needed(m); void n;
@@ -352,7 +354,7 @@ export class Colony {
         if (!(v.bow ?? 0) && (v.leather ?? 0) >= 1 && (sv.homes.homeOf(w.e.id(i)) || (v.leather ?? 0) >= 6)) gs.push({ name: 'bow', text: 'make a bow', want: [{ bow: 1 }], value: 0.24, trait: 'speed', crew: 1, only: i });
         else if ((v.bow ?? 0) && (v.arrows ?? 0) < 5) gs.push({ name: 'arrows', text: 'make arrows', want: [{ arrows: (v.arrows ?? 0) + 5 }], value: 0.22, trait: 'intelligence', crew: 1, only: i });
       }
-      if ((v.leather ?? 0) >= 1 && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: 0.3, trait: 'intelligence', crew: 1, only: i });
+      if (((v.leather ?? 0) >= 1 || chilly) && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: chilly ? 'make warm clothes for the cold' : 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: chilly ? 0.62 : 0.3, trait: 'intelligence', crew: 1, only: i });
       if (fire >= 0 && (v.wood ?? 0) < 3) gs.push({ name: 'firewood', text: 'gather firewood', want: [{ wood: (v.wood ?? 0) + 4 }], value: 0.18, trait: 'strength', crew: 1, only: i });
     }
     // Offspring (instinct): a single adult looks for a partner among the single adults they know best (the rules of

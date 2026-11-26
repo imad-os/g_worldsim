@@ -93,15 +93,15 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     ar: 'السهام: يُستهلك سهم في كل رمية. 2 خشب + 1 حجر = 5 سهام.' } },
   // ---------------------------------------------------------------- wear
   clothes: { kind: 'wear', text: {
-    en: 'Leather clothes: bites and blows hurt 15 % less. Wear them (carried = worn).',
-    fr: 'Vêtements de cuir : morsures et coups font 15 % de moins. Portez-les.',
-    es: 'Ropa de cuero: mordiscos y golpes hacen un 15 % menos. Llévala puesta.',
-    ar: 'ملابس جلدية: العضّات والضربات تؤلم أقل بـ15 %. البسها.' } },
+    en: 'Leather clothes: keep 45 % of the cold off (under 5 °C standing still hurts) and bites and blows hurt 15 % less. Wear them (carried = worn).',
+    fr: 'Vêtements de cuir : protègent de 45 % du froid (sous 5 °C rester immobile fait mal) et morsures et coups font 15 % de moins. Portez-les.',
+    es: 'Ropa de cuero: quita el 45 % del frío (bajo 5 °C quedarse quieto hace daño) y mordiscos y golpes hacen un 15 % menos. Llévala puesta.',
+    ar: 'ملابس جلدية: تقي من 45 % من البرد (تحت 5 درجات يؤذيك الوقوف بلا حركة) والعضّات والضربات تؤلم أقل بـ15 %. البسها.' } },
   armor: { kind: 'wear', text: {
-    en: 'Armour: bites and blows hurt 35 % less, the best body protection. Wear it.',
-    fr: 'Armure : morsures et coups font 35 % de moins, la meilleure protection. Portez-la.',
-    es: 'Armadura: mordiscos y golpes hacen un 35 % menos, la mejor protección. Llévala puesta.',
-    ar: 'الدرع: العضّات والضربات تؤلم أقل بـ35 %، أفضل حماية للجسم. البسه.' } },
+    en: 'Armour: bites and blows hurt 35 % less, the best body protection; keeps 30 % of the cold off. Wear it.',
+    fr: 'Armure : morsures et coups font 35 % de moins, la meilleure protection ; protège de 30 % du froid. Portez-la.',
+    es: 'Armadura: mordiscos y golpes hacen un 35 % menos, la mejor protección; quita el 30 % del frío. Llévala puesta.',
+    ar: 'الدرع: العضّات والضربات تؤلم أقل بـ35 %، أفضل حماية للجسم؛ يقي من 30 % من البرد. البسه.' } },
   helmet: { kind: 'wear', text: {
     en: 'Helmet: 15 % less damage on top of clothes or armour. Wear it.',
     fr: 'Casque : 15 % de dégâts en moins, en plus des vêtements ou de l\'armure. Portez-le.',
@@ -151,16 +151,16 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     es: 'Lámpara: ilumina la noche y mantiene a los zombis a 3 m y a los animales lejos. En el campamento o junto a tu puerta.',
     ar: 'المصباح: يضيء الليل ويُبعد الزومبي 3 م والحيوانات. ضعه في المخيم أو قرب بابك.' } },
   campfire: { kind: 'furniture', text: {
-    en: 'Campfire: zombies and beasts keep away from it and sleep near it rests you 1.5x. Burns 10 h; add wood to keep it going.',
-    fr: 'Feu de camp : zombies et bêtes l\'évitent et dormir près de lui repose 1,5 fois mieux. Brûle 10 h ; ajoutez du bois.',
-    es: 'Fogata: zombis y bestias se alejan y dormir cerca descansa 1,5 veces más. Arde 10 h; añade madera.',
-    ar: 'نار المخيم: يبتعد عنها الزومبي والوحوش والنوم قربها يريح 1.5 مرة. تشتعل 10 ساعات؛ أضف الخشب.' } },
+    en: 'Campfire: within 6 m the cold cannot hurt you and wounds heal faster; zombies and beasts keep away and sleep near it rests you 1.5x. Burns 10 h; add wood to keep it going.',
+    fr: 'Feu de camp : à moins de 6 m le froid ne fait plus mal et les blessures guérissent plus vite ; zombies et bêtes l\'évitent et dormir près de lui repose 1,5 fois mieux. Brûle 10 h ; ajoutez du bois.',
+    es: 'Fogata: a menos de 6 m el frío no hace daño y las heridas sanan más rápido; zombis y bestias se alejan y dormir cerca descansa 1,5 veces más. Arde 10 h; añade madera.',
+    ar: 'نار المخيم: على بعد 6 م لا يؤذيك البرد وتلتئم الجروح أسرع؛ يبتعد عنها الزومبي والوحوش والنوم قربها يريح 1.5 مرة. تشتعل 10 ساعات؛ أضف الخشب.' } },
   // ---------------------------------------------------------------- buildings
   hut: { kind: 'building', text: {
-    en: 'Hut: a home with a roof and its own door, where your family sleeps safe. 20 wood + 10 stone + 5 leather; build it near the camp.',
-    fr: 'Cabane : une maison avec un toit et sa porte, où votre famille dort en sécurité. 20 bois + 10 pierres + 5 cuirs, près du camp.',
-    es: 'Cabaña: un hogar con techo y su propia puerta, donde tu familia duerme a salvo. 20 madera + 10 piedra + 5 cuero, cerca del campamento.',
-    ar: 'الكوخ: بيت بسقف وباب خاص تنام فيه عائلتك بأمان. 20 خشب + 10 حجر + 5 جلد؛ ابنه قرب المخيم.' } },
+    en: 'Hut: a home with a roof and its own door, where your family sleeps safe; inside, the cold is 80 % weaker. 20 wood + 10 stone + 5 leather; build it next to the other huts of the camp (close together = easier to defend).',
+    fr: 'Cabane : une maison avec un toit et sa porte, où votre famille dort en sécurité ; dedans, le froid est 80 % plus faible. 20 bois + 10 pierres + 5 cuirs, à côté des autres cabanes du camp (serrées = plus faciles à défendre).',
+    es: 'Cabaña: un hogar con techo y su propia puerta, donde tu familia duerme a salvo; dentro, el frío es un 80 % más débil. 20 madera + 10 piedra + 5 cuero, junto a las otras cabañas del campamento (juntas = más fáciles de defender).',
+    ar: 'الكوخ: بيت بسقف وباب خاص تنام فيه عائلتك بأمان؛ في داخله يضعف البرد 80 %. 20 خشب + 10 حجر + 5 جلد؛ ابنه بجانب أكواخ المخيم الأخرى (المتقاربة أسهل في الدفاع).' } },
   crate: { kind: 'building', text: {
     en: 'The camp\'s store: food, wood, stone and scrap kept for everyone. Put what you carry in it, take from it when in need.',
     fr: 'La réserve du camp : nourriture, bois, pierre et ferraille pour tous. Déposez-y ce que vous portez, prenez-y en cas de besoin.',

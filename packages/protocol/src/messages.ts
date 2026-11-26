@@ -53,6 +53,7 @@ export type AdminCmd =
   | { cmd: 'accounts' }
   | { cmd: 'speed'; speed: number }
   | { cmd: 'clockSpeed'; day?: number; night?: number; sleep?: number }
+  | { cmd: 'weather'; seasonDays?: number; season?: number; set?: import('./weather.js').WeatherKind; hours?: number; k?: number; cold?: boolean; clear?: boolean }
   | { cmd: 'pause'; paused: boolean }
   | { cmd: 'snapshot' }
   | { cmd: 'stats' }
@@ -250,6 +251,8 @@ export interface ServerStats {
   travelOpen?: boolean;
   /** Game clock speed by phase (x on `base` game seconds per simulated second); phase = what runs now, mul = its x. */
   clock?: { day: number; night: number; sleep: number; phase: 'day' | 'night' | 'sleep'; mul: number; base: number };
+  /** Season and weather (sim/weather.ts): season index, its length in game days, day of it, sky, strength, °C per map (map ids), the cold on, admin weather until (game s, 0 = none). */
+  weather?: { s: number; sd: number; day: number; w: string; k: number; temps: Record<string, number>; cold: boolean; forced: number; until: number; f: number };
   difficulty?: number;
   yearDays?: number;
   maxPopulation?: number;

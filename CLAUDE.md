@@ -709,3 +709,19 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - `sim/people.ts` pools = the old 24 + 24 and `F_AR` / `M_AR` (110 + 98 Arabic, Moroccan darija spellings, Amazigh). First names only
   (no family names in the sim). `uniqueName` (one dice draw): a name no living person has (any case) and, while the pool allows, none a
   rules slip away (`editDist`, moved here from rules.ts); full pool = "Name 2". Existing people keep their names. Test names.test.ts.
+
+## Weather, seasons, the cold, hut clusters (imad 2026-11-26, app 0.13.0)
+- `sim/weather.ts` (`World.weather`, own Rng, state in snapshots `weather`; calendar settings in meta `weather_cfg` { seasonDays 3, shift, cold }; a world from
+  before the weather starts late in spring on its first start via `startNow`). Temperature = season curve (10 + 11 cos, warmest mid-summer) + spell offset + day swing
+  (coldest 03:00) + wild maps -1.5. Spells 2-9 game h by season odds (clear cloudy rain storm fog; rain -> snow < 1 °C, storm -> blizzard). Protocol `weather.ts`
+  (SEASONS, WEATHERS, COLD_BELOW 5, WARMTH clothes .45 armor .3 helmet .1 x gearMul, `Gear.warmth`).
+- Cold: under 5 °C, standing still (not Moving, not Gather / Build / Fight) loses (5 - T) x 2 hp / game h x exposure = (1 - clothes) x hut 0.2 (bed 0.5 more) x fire 0
+  (FIRE_WARM 6 m). Drain > 2 halves healing. By a fire healing x2.5 (agents) / x2 (players). Players floored at 5 hp; agents can die (cause `cold`, lore lesson).
+  `Brain.chilled[i]`. AI: colony / ownPlans keep the camp fire lit and fed when `coldSoon`, warm clothes valued 0.62; sleep by the fire (`fireSpot`, 260 m) when the hut
+  would not be warm enough; `warmUp` (chilled > 4, hp < 85 %) walks to the fire / home; asleep and freezing = wake and go. Prompt line `weather.promptText`.
+- Camps = hut clusters: `hutSiteIn` adds `cluster()` (a hut 1-2 tiles from another +1.6, 3-4 +0.7, more neighbours a little more). Test weather.test.ts.
+- Admin `weather { seasonDays?, season? (jump), set? + hours? + k?, cold?, clear? }` (bare = read), stats `weather`; panel World > Weather and seasons. Notice `weather`
+  (WeatherInfo) per viewer on change / every 10 s; `me.cold` { drain, fire, hut, bed, clothes, t }. TV: `gfx/weather.ts Precip` (rain lines / snow points moved
+  only in the vertex shader; 450 / 1000 / 1800 drops by tier, point size capped 14 px), clouds dim sun + grey sky, fog closes in, lightning, snow lies (groundMat
+  emissive), fog colour follows the sky; top bar season + °C, card ❄ / 🔥 line, cold note, rain / wind loops, Settings > Rain and snow (`MyPC.save('rainsnow')`).
+  Strings `i18n9.ts`. Proof `ADMIN_TOKEN=... node tools/weather-proof.mjs <server> <sdk.js> <outdir>`; software-GL frame times low tier: 16.8 ms in every weather.

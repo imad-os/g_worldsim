@@ -27,6 +27,12 @@ export const world: Screen = {
       ${row('Game clock by night', `x <input type="number" id="wClkNight" min="0.25" step="0.25" style="width:80px"> <small class="dim">20:00-06:00</small>`)}
       ${row('While players sleep', `x <input type="number" id="wClkSleep" min="0.25" step="0.25" style="width:80px"> <small class="dim">every player in the game asleep</small>`)}
       <p class="dim" id="wClkNow"></p>`)}
+    ${card('Weather and seasons', `<div class="bigclock" id="wxNow">-</div>
+      <p class="dim" id="wxTemps"></p>
+      ${row('Season length', `<input type="number" id="wxDays" min="1" step="1" style="width:80px"> game days <small class="dim">a year = 4 seasons</small>`, help('seasons'))}
+      ${row('Go to season', `<div class="seg" id="wxSeason">${['Spring', 'Summer', 'Autumn', 'Winter'].map((v, k) => `<button data-s="${k}">${v}</button>`).join('')}</div>`)}
+      ${row('Set the weather', `<select id="wxSet">${['clear', 'cloudy', 'rain', 'storm', 'snow', 'blizzard', 'fog'].map((v) => `<option value="${v}">${v}</option>`).join('')}</select> for <input type="number" id="wxHours" min="0.25" step="0.5" value="6" style="width:70px"> game hours <button class="btn sm" id="wxGo">Set</button> <button class="btn sm ghost" id="wxFree">Let it change by itself</button>`, help('weatherSet'))}
+      ${row('The cold hurts', `<label class="switch"><input type="checkbox" id="wxCold"><i></i></label> <small class="dim">under 5 °C, standing still</small>`, help('cold'))}`)}
     ${card('Life', `${row('Difficulty <b id="wDiffV" class="tag"></b>', `<input type="range" id="wDiff" min="0.25" max="3" step="0.25"> <input type="number" id="wDiffN" step="0.05" style="width:80px" aria-label="Custom difficulty">`, help('difficulty'))}
       ${row('Ageing', `<select id="wYear"><option value="0.041666666666666664">1 game hour = 1 year</option><option value="0.25">6 game hours = 1 year</option><option value="1">1 game day = 1 year</option><option value="7">7 game days = 1 year</option><option value="365">365 days (real life)</option></select>`, help('ageing'))}
       ${row('Population limit', `<input type="number" id="wMax" min="1" style="width:80px"> people`, help('maxPop'))}`)}
@@ -45,6 +51,12 @@ export const world: Screen = {
     for (const [id, k] of [['wClkDay', 'day'], ['wClkNight', 'night'], ['wClkSleep', 'sleep']] as const) {
       on('#' + id, 'change', (el) => void cmd({ cmd: 'clockSpeed', [k]: Number((el as HTMLInputElement).value) }).then(() => toast(`Clock x${(el as HTMLInputElement).value} ${k === 'sleep' ? 'while players sleep' : 'by ' + k}`, 'ok'), err));
     }
+    const wxDone = (r: unknown) => { const w = r as ServerStats['weather']; if (stats && w) stats.weather = w; this.onStats?.(stats!); };
+    on('#wxDays', 'change', (el) => void cmd({ cmd: 'weather', seasonDays: Number((el as HTMLInputElement).value) }).then((r) => { wxDone(r); toast('Season length changed', 'ok'); }, err));
+    on('#wxSeason button', 'click', (b) => void cmd({ cmd: 'weather', season: Number(b.dataset.s) }).then((r) => { wxDone(r); toast(`${b.textContent} has come`, 'ok'); }, err));
+    on('#wxGo', 'click', () => void cmd({ cmd: 'weather', set: val('wxSet') as never, hours: Number(val('wxHours') || 6) }).then((r) => { wxDone(r); toast(`Weather: ${val('wxSet')}`, 'ok'); }, err));
+    on('#wxFree', 'click', () => void cmd({ cmd: 'weather', clear: true }).then((r) => { wxDone(r); toast('The weather changes by itself again', 'ok'); }, err));
+    on('#wxCold', 'change', (el) => void cmd({ cmd: 'weather', cold: (el as HTMLInputElement).checked }).then((r) => { wxDone(r); toast((el as HTMLInputElement).checked ? 'The cold hurts again' : 'The cold is off', 'ok'); }, err));
     on('#wDiff', 'input', (el) => { document.getElementById('wDiffV')!.textContent = (el as HTMLInputElement).value; });
     on('#wDiff', 'change', (el) => void cmd({ cmd: 'difficulty', value: Number((el as HTMLInputElement).value) }).then(() => toast('Difficulty changed', 'ok'), err));
     on('#wDiffN', 'change', (el) => void cmd({ cmd: 'difficulty', value: Number((el as HTMLInputElement).value) }).then(() => toast('Difficulty changed', 'ok'), err));
@@ -85,6 +97,16 @@ export const world: Screen = {
       setHtml('wClkNow', `Now: ${k.phase === 'sleep' ? 'everyone in the game is asleep' : k.phase === 'night' ? 'night' : 'day'}, clock x${Math.round(k.mul * 100) / 100} = ${perMin} game minutes per real minute.`);
     } else setHtml('wClkNow', 'This server is older and has no day / night / sleep clock speeds yet: update it.');
     setHtml('wSnapAt', s.lastSnapshotAt ? ago(s.lastSnapshotAt) : '-');
+    const w = s.weather;
+    if (w) {
+      const SE = ['Spring', 'Summer', 'Autumn', 'Winter'], ICON: Record<string, string> = { clear: '☀️', cloudy: '☁️', rain: '🌧️', storm: '⛈️', snow: '🌨️', blizzard: '❄️', fog: '🌫️' };
+      const t0 = Object.values(w.temps)[0] ?? 0;
+      setHtml('wxNow', `${ICON[w.w] ?? ''} ${esc(w.w)} · ${Math.round(t0)} °C<small>${SE[w.s]} · day ${w.day} of ${w.sd}${w.forced ? ' · set by hand' : ''}</small>`);
+      setHtml('wxTemps', Object.entries(w.temps).map(([m, t]) => `${esc(m)} ${t.toFixed(1)} °C${t < 5 && w.cold ? ' <b class="tag bad">cold</b>' : ''}`).join(' · '));
+      const d = document.getElementById('wxDays') as HTMLInputElement | null; if (d && document.activeElement !== d) d.value = String(w.sd);
+      const c = document.getElementById('wxCold') as HTMLInputElement | null; if (c) c.checked = w.cold;
+      for (const b of document.querySelectorAll<HTMLElement>('#wxSeason button')) b.classList.toggle('on', Number(b.dataset.s) === w.s);
+    } else setHtml('wxNow', 'This server is older and has no weather yet: update it.');
   },
 };
 

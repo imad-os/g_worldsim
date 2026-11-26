@@ -1,7 +1,7 @@
 import { animalKills } from './sim/kills.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, NPCS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, NPCS, WEATHERS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -55,7 +55,7 @@ function byId(tiles: { id: number; name: string; color: number; solid?: boolean 
 }
 const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'lore', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
-const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
+const READ_BARE = new Set<string>(['weather', 'autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give',
   'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm', 'destroy', 'reset', 'door']);
@@ -255,6 +255,16 @@ export class App {
       for (const k of ['day', 'night', 'sleep'] as const) { const v = saved[k]; if (typeof v === 'number' && v > 0 && v <= 1000) w.clockMul[k] = v; }
     } catch { /* keep x1 */ }
     w.updateClock(true);
+    // Seasons and weather (sim/weather.ts): the calendar's settings are the owner's (meta), the sky itself is in the snapshot.
+    // A world from before the weather starts its calendar late in spring (no sudden winter on the first start).
+    if (this.db.getMeta('weather_cfg') === undefined || this.db.getMeta('weather_cfg') === null) { w.weather.startNow(); this.db.setMeta('weather_cfg', JSON.stringify(w.weather.cfg)); }
+    try {
+      const v = JSON.parse(this.db.getMeta('weather_cfg') ?? '{}') as Record<string, unknown>, c = w.weather.cfg;
+      if (typeof v.seasonDays === 'number' && v.seasonDays > 0) c.seasonDays = v.seasonDays;
+      if (typeof v.shift === 'number' && Number.isFinite(v.shift)) c.shift = v.shift;
+      if (typeof v.cold === 'boolean') c.cold = v.cold;
+    } catch { /* defaults */ }
+    w.weather.onCfg = () => this.db.setMeta('weather_cfg', JSON.stringify(w.weather.cfg));
     this.net.clockInfo = () => this.clock();
     this.net.health = () => ({ ok: true, tick: w.tick, tps: Math.round(this.loop.ticksLastSec), paused: this.loop.paused, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000) });
     this.net.admin = (cmd, who, owner) => this.adminCmd(cmd, who, owner);
@@ -460,7 +470,9 @@ export class App {
     this.net.info = (id, seer) => this.personInfo(id, seer);
     this.net.minds = (m, x, y, r) => this.mindsAround(m, x, y, r);
     this.net.me = (i) => ({ hunger: Math.round(w.e.hunger[i]!), thirst: Math.round(w.e.thirst[i]!), tired: Math.round(w.e.tired[i]!), carry: w.e.carry[i], hp: Math.round(w.e.hp[i]!), asleep: (w.e.flags[i]! & EFlag.Sleeping) !== 0,
-      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], gear: { ...w.gear.state(i), use: { weapon: w.gear.equipped(i, 'weapon'), ranged: w.gear.equipped(i, 'ranged'), head: w.gear.equipped(i, 'head'), body: w.gear.equipped(i, 'body') } }, pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()), ride: w.horses.rideOf(i) });
+      inv: w.survival.inv(i), def: Math.round(w.survival.defence(i) * 100), weapon: w.survival.weapon(i)[0], gear: { ...w.gear.state(i), use: { weapon: w.gear.equipped(i, 'weapon'), ranged: w.gear.equipped(i, 'ranged'), head: w.gear.equipped(i, 'head'), body: w.gear.equipped(i, 'body') } }, pvp: this.pvp.has(w.survival.playerName(i).toLowerCase()), ride: w.horses.rideOf(i),
+      // The cold (sim/weather.ts): health it takes a game hour now (0 = fine), what keeps it off here, clothes' warmth %.
+      cold: (() => { const wm = w.weather.warmth(i); return { drain: Math.round((w.brain.chilled[i] ?? 0) * 10) / 10, fire: wm.fire, hut: wm.hut, bed: wm.bed, clothes: Math.round(wm.clothes * 100), t: Math.round(w.weather.temp(w.e.map[i]!) * 10) / 10 }; })() });
     this.net.horses = (m, x, y, r, me) => this.horsesAround(m, x, y, r, me);
     this.net.nameFor = (i) => { // over heads: a person's / player's name, a town teacher's
       if (w.e.kind[i] === Kind.Npc) { const k = w.quests.keyOf(w.e.id(i)); return k ? NPCS.find((n) => n.key === k)?.name ?? '' : ''; }
@@ -662,6 +674,13 @@ export class App {
     return { ...w.clockMul, phase: w.clockPhase, mul: w.opt.clockScale / w.clockBase, base: w.clockBase };
   }
 
+  /** Season, sky and the temperature on every map (stats + the weather command). */
+  weatherInfo(): NonNullable<ServerStats['weather']> {
+    const wx = this.world.weather, i = wx.info(0), temps: Record<string, number> = {};
+    for (const m of this.world.maps) temps[m.def.id] = Math.round(wx.temp(m.index) * 10) / 10;
+    return { s: i.s, sd: i.sd, day: i.day, w: i.w, k: i.k, temps, cold: wx.cfg.cold, forced: wx.forced, until: wx.until, f: i.f };
+  }
+
   clock(): ClockInfo {
     return { tick: this.world.tick, gameSec: this.world.gameSec, speed: this.loop?.speed ?? this.cfg.speed, paused: this.loop?.paused ?? false, clockScale: this.world.opt.clockScale, tickRate: this.cfg.tickRate };
   }
@@ -686,6 +705,7 @@ export class App {
       lastSnapshotAt: this.lastSnapshotAt, uptimeSec: Math.round((Date.now() - this.monitor.startedAt) / 1000),
       tunnel: this.tunnel?.status(), pairings: this.players.pending.size,
       clock: this.clockSpeeds(),
+      weather: this.weatherInfo(),
       travelOpen: w.travelOpen, difficulty: w.brain.life.difficulty, yearDays: w.brain.life.yearDays, maxPopulation: w.brain.life.maxPopulation,
       zombies: { now: w.zombies.count(), perNight: w.zombies.perNight },
       camps: w.maps.flatMap((m, mi) => { const c = w.survival.campOf(mi); return c ? [{ map: m.def.id, x: Math.round(c.x), y: Math.round(c.y), huts: w.survival.huts[mi]!.length, fires: [...w.survival.fires.keys()].filter((k) => k.startsWith(mi + ':')).length }] : []; }),
@@ -1105,6 +1125,25 @@ export class App {
         this.db.setMeta('clock_mul', JSON.stringify(m));
         w.updateClock(true);
         return this.clockSpeeds();
+      }
+      case 'weather': { // seasons and weather: { seasonDays?, season? (0-3 = jump there), set? (sky) + hours?, k?, cold? (on / off), clear? (end the admin's sky) }
+        const wx = w.weather;
+        if (c.seasonDays !== undefined) {
+          const f = wx.yearF(), sd = num(c.seasonDays, 1, 30, 'season length (game days)', [0.05, 1000]);
+          // Keep today's place in the year when the length changes.
+          wx.cfg.seasonDays = sd;
+          wx.cfg.shift = (f - wx.yearF()) * 4 * sd + wx.cfg.shift;
+        }
+        if (c.cold !== undefined) wx.cfg.cold = !!c.cold;
+        if (c.season !== undefined) wx.jumpTo(fixed(c.season, 0, 3, 'season'));
+        if (c.set !== undefined) {
+          if (!WEATHERS.includes(c.set)) throw new Error('bad weather (clear, cloudy, rain, storm, snow, blizzard, fog)');
+          wx.set(c.set, c.hours === undefined ? 6 : num(c.hours, 0.25, 72, 'hours', [0.01, 10000]), c.k === undefined ? undefined : fixed(c.k, 0, 1, 'strength'));
+        }
+        if (c.clear) { wx.forced = 0; wx.until = 0; }
+        this.db.setMeta('weather_cfg', JSON.stringify(wx.cfg));
+        w.weather.update();
+        return this.weatherInfo();
       }
       case 'pause': this.loop.paused = !!c.paused; return this.clock();
       case 'snapshot': this.snapshot(); return { at: this.lastSnapshotAt };

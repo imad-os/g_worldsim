@@ -127,6 +127,7 @@ export class Lore {
         const id = Number(d.id ?? -1), pr = w.profiles.get(id);
         if (!pr) return; // a horse or a stranger
         const cause = String(d.cause ?? 'died'), m = this.mapIdx(d.map);
+        if (cause === 'cold') { this.lesson('threat', `${pr.name} froze to death standing in the cold: in winter we sleep by the fire or in a hut, and wear clothes`); return; }
         if (cause === 'old age' || cause === 'hunger' || cause === 'thirst' || m < 0) return; // not a danger to keep away from
         const x = Number(d.x), y = Number(d.y);
         const by = d.by !== undefined ? Number(d.by) : -1;

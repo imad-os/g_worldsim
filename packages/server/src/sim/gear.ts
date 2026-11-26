@@ -1,4 +1,4 @@
-import {
+import { WARMTH,
   Act, Kind, SLOT_OF, SLOTS, UPGRADABLE, MAX_LEVEL, WEAPONS, DEFENCE, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear,
   type Anim, type GearState, type Slot,
 } from '@worldsim/protocol';
@@ -63,6 +63,16 @@ export class Gear {
     const b = this.equipped(i, 'body'), h = this.equipped(i, 'head');
     const v = (b && DEFENCE[b] ? this.power(i, b) : 0) + (h && DEFENCE[h] ? this.power(i, h) : 0);
     return Math.min(0.7, v);
+  }
+
+  /** How much of the cold worn things keep off (0..0.8; WARMTH x level / quality). */
+  warmth(i: number): number {
+    let v = 0;
+    for (const slot of ['body', 'head'] as const) {
+      const k = this.equipped(i, slot);
+      if (k && WARMTH[k]) { const [lv, q] = this.up(i, k); v += WARMTH[k]! * gearMul(lv, q); }
+    }
+    return Math.min(0.8, v);
   }
 
   /** A player picks what to use: "slot:item" ('' = the best carried, '-' = nothing). */

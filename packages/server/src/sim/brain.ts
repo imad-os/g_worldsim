@@ -1,4 +1,4 @@
-import { Act, ANIMAL_NAMES, EFlag, Kind } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, COLD_BELOW, EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { Pathfinder } from './pathfind.js';
 import { ACT_RULE } from './rules.js';
@@ -828,8 +828,12 @@ export class Brain {
         const near = this.company(i, 6);
         e.lonely[i] = near > 0 ? Math.max(0, e.lonely[i]! - (8 + 4 * Math.min(3, near)) * h) : Math.min(100, e.lonely[i]! + N.lonely * k * h);
       }
-      // Wounds (zombie bites) heal: 20 a game hour when fed and watered, twice that asleep.
-      if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 20 * h * (asleep ? 2 : 1));
+      // Wounds (zombie bites) heal: 20 a game hour when fed and watered, twice that asleep, twice again by a fire.
+      // Cold (sim/weather.ts): standing still under 5 °C costs health; while it takes more than 2 an hour, healing is halved.
+      const chill = w.weather.chill(i), byFire = w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!);
+      this.chilled[i] = chill;
+      if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 20 * h * (asleep ? 2 : 1) * (byFire ? 2 : 1) * (chill > 2 ? 0.5 : 1));
+      if (chill > 0) e.hp[i] = Math.max(5, e.hp[i]! - chill * h); // a player's character is hurt, never killed
     }
   }
 
@@ -920,6 +924,9 @@ export class Brain {
   private readonly homeTries: number[] = [];
   /** 1 = asleep in the open (not home, no roof, no fire): light, uneasy sleep. */
   private readonly outside: number[] = [];
+  /** Health the cold took a game hour at the last look (sim/weather.ts; 0 = warm enough). */
+  readonly chilled: number[] = [];
+  private readonly frozen: number[] = [];
   private shelterIds: Set<number> | null = null;
   /**
    * Sleeping here is safe (imad 2026-11-26: "make them feel it is risky to sleep outside their hut"): inside my own (family's) home,
@@ -938,6 +945,36 @@ export class Brain {
   mayStayOut(i: number, d: number): boolean {
     const e = this.w.e;
     return (e.tired[i]! >= 97 && d > 60) || (e.hp[i]! < this.w.sc.agents.hp * 0.25 && d > 30);
+  }
+  /**
+   * Freezing where they stand (sim/weather.ts): standing still in the cold and losing health = walk to the burning fire (anywhere on the
+   * map: walking keeps them warm), else home, and stay there a while. True = on the way.
+   */
+  private warmUp(i: number): boolean {
+    const w = this.w, e = w.e;
+    if ((this.chilled[i] ?? 0) <= 4 || this.walking(i) || e.hp[i]! > w.sc.agents.hp * 0.85 || w.family.dependent(i) || e.act[i] === Act.Fight) return false;
+    if (e.act[i] === Act.Sleep && e.hp[i]! > w.sc.agents.hp * 0.7) return false; // asleep: woken by continueAct when it gets bad
+    const W = w.maps[e.map[i]!]!.tiles.w, f = this.fireSpot(i, 260), t = f >= 0 ? f : this.homeSpot(i);
+    if (t < 0 || Math.hypot((t % W) + 0.5 - e.x[i]!, ((t / W) | 0) + 0.5 - e.y[i]!) < 2) return false;
+    if (e.act[i] === Act.Sleep) w.emit('wake', { id: e.id(i), why: 'cold' });
+    this.setAct(i, e.tired[i]! > 60 ? Act.Sleep : Act.Rest, e.tired[i]! > 60 ? 0 : 60 + w.rng.next() * 60);
+    if (e.act[i] === Act.Sleep) e.flags[i] = e.flags[i]! & ~EFlag.Sleeping;
+    if (!this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.setAct(i, Act.Idle); return false; }
+    if (e.act[i] === Act.Rest) e.goal[i] = -5;
+    this.schedule(i, 1);
+    return true;
+  }
+  /** A free tile 1.5-3.5 m from the nearest burning fire within r metres (warm all night), or -1. */
+  fireSpot(i: number, r: number): number {
+    const w = this.w, e = w.e, m = e.map[i]!, sv = w.survival, W = w.maps[m]!.tiles.w;
+    const camp = sv.campOf(m);
+    let f = camp ? sv.fireNear(m, camp.x, camp.y, 15) : -1;
+    if (f < 0 || Math.hypot((f % W) + 0.5 - e.x[i]!, ((f / W) | 0) + 0.5 - e.y[i]!) > r) f = sv.fireNear(m, e.x[i]!, e.y[i]!, r);
+    if (f < 0 || sv.fuel(m, f) < 2) return -1;
+    const a = ((e.id(i) * 2.399) % (2 * Math.PI)), d = 1.6 + ((e.id(i) * 7) % 5) * 0.4;
+    const s = w.freeSpot(m, (f % W) + 0.5 + Math.cos(a) * d, ((f / W) | 0) + 0.5 + Math.sin(a) * d, 3);
+    if (!s || !sv.warm(m, s.x, s.y)) return -1;
+    return Math.floor(s.y) * W + Math.floor(s.x);
   }
   /** A free tile inside my home's room (a bed first; spread by person so a family does not stack on one tile), or -1. */
   homeSpot(i: number): number {
@@ -968,12 +1005,16 @@ export class Brain {
     const warm = (asleep && w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!) ? 1.5 : 1) * (asleep && w.survival.onBed(e.map[i]!, e.x[i]!, e.y[i]!) ? 2 : 1); // by a fire, on a bed
     e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * warm * (this.outside[i] ? 0.6 : 1) * since) : Math.min(100, e.tired[i]! + N.tired * k * since);
     e.lonely[i] = Math.min(100, e.lonely[i]! + N.lonely * k * since);
-    // Health: starving or parched hurts; otherwise it heals slowly.
+    // Health: starving or parched hurts; otherwise it heals slowly (faster by a fire). Standing still in the cold hurts (sim/weather.ts).
+    const chill = w.weather.chill(i);
+    this.chilled[i] = chill;
     if (e.hunger[i]! >= 100 || e.thirst[i]! >= 100) e.hp[i]! -= 6 * since * k;
-    else if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 3 * since);
+    else if (e.hunger[i]! < 60 && e.thirst[i]! < 60) e.hp[i] = Math.min(w.sc.agents.hp, e.hp[i]! + 3 * since * (w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!) ? 2.5 : 1) * (chill > 2 ? 0.5 : 1));
+    if (chill > 0) { e.hp[i]! -= chill * since; if (e.hp[i]! <= 0) this.frozen[i] = 1; }
     if (e.hp[i]! <= 0 && w.charName(i)) e.hp[i] = 5; // a player's character on autopilot is hurt, never killed
     if (e.hp[i]! <= 0) {
-      const cause = e.thirst[i]! >= 100 ? 'thirst' : 'hunger';
+      const cause = this.frozen[i] && e.hunger[i]! < 100 && e.thirst[i]! < 100 ? 'cold' : e.thirst[i]! >= 100 ? 'thirst' : 'hunger';
+      this.frozen[i] = 0;
       w.emit('death', { id: e.id(i), cause, map: w.maps[e.map[i]!]!.def.id, x: e.x[i], y: e.y[i] });
       w.remove(i, cause);
       return;
@@ -984,6 +1025,7 @@ export class Brain {
     if (this.tendKids(i)) return;
     if (this.hunting(i)) return;
     if (this.obey(i)) return;
+    if (this.warmUp(i)) return;
     if (e.act[i] === Act.Go || ((e.act[i] === Act.Gather || e.act[i] === Act.Build) && this.ordKind[i] !== 6)) { this.stop(i); this.setAct(i, Act.Idle); } // the order ended
 
     // Stuck on the way (blocked by people or a door): replan, then give up after 3 tries.
@@ -1141,6 +1183,12 @@ export class Brain {
         // My own home (or my family's) first: people know where they live (imad 2026-11-25).
         const h = homes.homeOf(e.id(i));
         if (h && h.m === m && !this.mayStayOut(i, Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!))) t = this.homeSpot(i); // anywhere on the map: outside is risky (only worn out or badly hurt and far)
+        // A cold night (sim/weather.ts): where the cold would still bite (no hut, or a hut without a bed and no warm clothes), by a burning fire instead.
+        if (w.weather.coldSoon(m, 8)) {
+          const here = t >= 0 ? w.weather.warmthAt(i, m, (t % W) + 0.5, ((t / W) | 0) + 0.5) : w.weather.warmthAt(i, m, e.x[i]!, e.y[i]!);
+          const worst = { ...here, drain: (COLD_BELOW - Math.min(COLD_BELOW, w.weather.mean() - 6)) * 2 * here.exposure };
+          if (worst.drain > 3) { const f = this.fireSpot(i, 260); if (f >= 0) t = f; }
+        }
         if (t < 0 && camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
           t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3, mine);
           if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
@@ -1236,7 +1284,7 @@ export class Brain {
       case Act.Sleep: {
         if (!(e.flags[i]! & EFlag.Sleeping)) { // the walk ended: at home? (a blocked or cut-short walk is tried again, twice)
           const homes = w.survival.homes, h = homes.homeOf(e.id(i));
-          if (h && h.m === e.map[i] && !homes.inside(i, h) && this.guardian(i) < 0 && (this.homeTries[i] ?? 0) < 4 && !this.mayStayOut(i, Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!)) && e.tired[i]! > 3) {
+          if (h && h.m === e.map[i] && !homes.inside(i, h) && !(w.weather.coldSoon(e.map[i]!, 8) && w.survival.warm(e.map[i]!, e.x[i]!, e.y[i]!)) && this.guardian(i) < 0 && (this.homeTries[i] ?? 0) < 4 && !this.mayStayOut(i, Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!)) && e.tired[i]! > 3) {
             this.homeTries[i] = (this.homeTries[i] ?? 0) + 1;
             const t = this.homeSpot(i), W = w.maps[e.map[i]!]!.tiles.w;
             if (t >= 0 && this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.schedule(i, 1); return true; }
@@ -1252,6 +1300,13 @@ export class Brain {
           const g = this.guardian(i);
           if (g >= 0 && e.act[g] !== Act.Sleep && Math.hypot(e.x[g]! - e.x[i]!, e.y[g]! - e.y[i]!) > 10 && e.tired[i]! < 70) { // mum left: up and after her
             this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) }); this.choose(i, 0); return true;
+          }
+          if (this.chilled[i]! > 3 && e.hp[i]! < w.sc.agents.hp * 0.7 && this.guardian(i) < 0 && !w.family.dependent(i)) { // freezing in their sleep: up and to a fire (or home)
+            const W = w.maps[e.map[i]!]!.tiles.w, f = this.fireSpot(i, 260), t = f >= 0 ? f : this.homeSpot(i);
+            if (t >= 0 && Math.hypot((t % W) + 0.5 - e.x[i]!, ((t / W) | 0) + 0.5 - e.y[i]!) > 3) {
+              this.setAct(i, Act.Sleep); e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; w.emit('wake', { id: e.id(i), why: 'cold' });
+              if (this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.schedule(i, 1); return true; }
+            }
           }
           if (this.outside[i] && e.tired[i]! < 55 && this.guardian(i) < 0) { // rested a little in the open: up and home to sleep safe
             const h = w.survival.homes.homeOf(e.id(i));

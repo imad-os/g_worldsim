@@ -491,6 +491,19 @@ export class Survival {
       return inner ? this.buildable.has(t) : tm.cost[t]! > 0;
     };
     const R = p.r;
+    // The village is a cluster (imad 2026-11-26: "camps must be a collection of huts, so the strategy is to stay close for a better
+    // defence"): every hut that stands pulls the next one next to it, a one or two tile lane apart (a short wall, neighbours in call).
+    const rects: { x0: number; y0: number }[] = [];
+    this.huts[m]!.forEach((o, n) => { if (o < 0) return; const r = this.hutRect(m, o, this.hutDir[m]![n] ?? 0); if (r) rects.push(r); });
+    const cluster = (x0: number, y0: number) => {
+      let v = 0;
+      for (const r of rects) {
+        const gap = Math.max(Math.max(r.x0 - (x0 + 4), x0 - (r.x0 + 4)), Math.max(r.y0 - (y0 + 4), y0 - (r.y0 + 4))) - 1;
+        if (gap < 1) continue;
+        v += gap <= 2 ? (v ? 0.6 : 1.6) : gap <= 4 ? (v ? 0.2 : 0.7) : 0;
+      }
+      return v;
+    };
     for (let cy = Math.floor(p.y - R); cy <= p.y + R; cy++) for (let cx = Math.floor(p.x - R); cx <= p.x + R; cx++) {
       const d = Math.hypot(cx + 0.5 - (p.x + 0.5), cy + 0.5 - (p.y + 0.5));
       if (d + 3.6 > R - 1.2 || d < 4.5) continue;
@@ -510,7 +523,7 @@ export class Survival {
         const fx = cx + dx * 3, fy = cy + dy * 3;
         if (!ok(fx, fy, false) || !ok(fx + dx, fy + dy, false)) continue;
         const face = dx * ux + dy * uy; // 1 = the door looks at the camp
-        cands.push([face * 2 - d * 0.3, x0, y0, dir]);
+        cands.push([face * 2 - d * 0.3 + cluster(x0, y0), x0, y0, dir]);
       }
     }
     cands.sort((a2, b2) => b2[0] - a2[0]);
@@ -1732,8 +1745,9 @@ export class Survival {
       const camp = this.camp[mi], cx = camp?.x ?? sx / n, cy = camp?.y ?? sy / n;
       const evening = hour >= 16 && hour < 23;
       const fire = this.fireNear(mi, cx, cy, camp ? 15 : 30);
-      if (evening && fire < 0) { start(pick(), 'make a campfire for the night', [{ do: 'build', what: 'campfire' }]); continue; }
-      if (fire >= 0 && this.fuel(mi, fire) < 3 && free.length) {
+      const chilly = w.weather.coldSoon(mi, 10); // the cold (sim/weather.ts): a fire day and night
+      if ((evening || chilly) && fire < 0) { start(pick(), chilly ? 'make a campfire against the cold' : 'make a campfire for the night', [{ do: 'build', what: 'campfire' }]); continue; }
+      if (fire >= 0 && this.fuel(mi, fire) < (chilly ? 6 : 3) && free.length) {
         const k = free.findIndex((i) => (this.inv(i).wood ?? 0) > 0);
         const i = k >= 0 ? free.splice(k, 1)[0]! : pick();
         start(i, 'keep the fire going', [{ do: 'tend' }]);

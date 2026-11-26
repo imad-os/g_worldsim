@@ -24,6 +24,7 @@ import { Animals } from './animals.js';
 import { Horses } from './horses.js';
 import { Land } from './land.js';
 import { Quests } from './quests.js';
+import { Weather } from './weather.js';
 import type { TileMap } from './tilemap.js';
 
 export interface WMap {
@@ -113,6 +114,8 @@ export class World {
   readonly land: Land;
   /** The town's teachers (NPCs) and their quests (sim/quests.ts). */
   readonly quests: Quests;
+  /** Seasons, weather, temperature and the cold (sim/weather.ts). */
+  readonly weather: Weather;
   private doorTile = -1;
   private doorOpenTile = -1;
   /** Anyone (but slot `but`) standing on tile k of map m? */
@@ -162,6 +165,7 @@ export class World {
     trackKills(this);
     this.land = new Land(this);
     this.quests = new Quests(this);
+    this.weather = new Weather(this);
     this.doorTile = sc.tiles.find((t) => t.name === 'door')?.id ?? -1;
     this.doorOpenTile = sc.tiles.find((t) => t.name === 'dooropen')?.id ?? -1;
   }
@@ -520,7 +524,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
-    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); this.lore.update(); }
+    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); this.lore.update(); }
     this.zombies.update();
     this.animals.update();
     this.horses.update();

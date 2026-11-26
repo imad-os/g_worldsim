@@ -51,6 +51,9 @@ interface Session {
   q: Int32Array;     // slot -> last sent x, y, angle (quantized)
   g: Int32Array;     // slot -> last sent gear code
   horsesSent?: boolean;
+  /** The weather sent last (Notice 'weather') and seconds since. */
+  wxKey?: string;
+  wxN?: number;
   /** Names this viewer already has (entity id -> name): only new ones are sent (Notice `names`, for names over heads). */
   names?: Map<number, string>;
   list: Int32Array;  // slots known after the last frame
@@ -742,6 +745,10 @@ export class NetServer {
       if (s.avatar >= 0 && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
       if (s.view) { const hs = this.horses(s.view.map, s.view.x, s.view.y, s.view.r, s.avatar); if (hs.length || s.horsesSent) this.send(s, { t: Msg.Notice, kind: 'horses', data: hs }); s.horsesSent = hs.length > 0; }
       if (s.view) this.sendNames(s);
+      if (s.view) { // the season and the sky over the map I look at: when it changes, else every 10 s
+        const wx = this.world.weather.info(s.view.map), key = `${wx.s}|${wx.day}|${wx.w}|${Math.round(wx.t)}`;
+        if (key !== s.wxKey || (s.wxN = (s.wxN ?? 0) + 1) >= 10) { s.wxKey = key; s.wxN = 0; this.send(s, { t: Msg.Notice, kind: 'weather', data: wx }); }
+      }
       if (s.view && this.isSeer(s.name)) this.send(s, { t: Msg.Notice, kind: 'minds', data: this.minds(s.view.map, s.view.x, s.view.y, s.view.r) });
     }
   }

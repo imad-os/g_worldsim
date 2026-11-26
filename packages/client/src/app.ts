@@ -23,7 +23,7 @@ import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
 import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
 import { Compass, Names, AutoRide, type CompassRow } from './nav.js';
-import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind } from '@worldsim/protocol';
+import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind, type WeatherInfo } from '@worldsim/protocol';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
 const sound = new Sound();
@@ -169,7 +169,10 @@ let camView: CamView = 'top', yaw = 0;
 let seer = false, mindsAt = 0;
 /** Horses in view (Notice 'horses'): id -> [scale, quality, coat, tamed, mine, name]. */
 const horseInfo = new Map<number, [number, number, number, number, number, string]>();
-let meNeeds: { ride?: { name: string; walk: number; run: number; sta: number; q: number } | null; pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string; gear?: ReturnType<InvCtx['gear']> } | null = null;
+let meNeeds: { ride?: { name: string; walk: number; run: number; sta: number; q: number } | null; pvp?: boolean; hunger: number; thirst: number; tired: number; carry: number; asleep: boolean; hp?: number; inv?: Record<string, number>; def?: number; weapon?: string; gear?: ReturnType<InvCtx['gear']>; cold?: { drain: number; fire: boolean; hut: boolean; bed: boolean; clothes: number; t: number } } | null = null;
+/** The season and the sky over the map I look at (Notice 'weather', sim/weather.ts). */
+let wxInfo: WeatherInfo | null = null;
+let coldShown = 0;
 /** The craft screen: the category open and what is put in. */
 let craftCat = '';
 const pot: Record<string, number> = {};
@@ -320,6 +323,7 @@ function onMsg(m: ServerMsg): void {
       gameSec = m.clock.gameSec; tickAt = performance.now(); clockScale = m.clock.clockScale; simSpeed = m.clock.paused ? 0 : m.clock.speed;
       if (!g3) {
         try { g3 = new World3D(canvas, tier); } catch { show('nogl'); return; }
+        g3.rainSnow = MyPC.load('rainsnow', true) !== false;
         void loadItems();
         g3.horses.load(new URL('models/horse.glb', location.href).href).catch((err) => console.warn('horse model', err)); // CC0, docs/models/CREDITS.md
         resize(); applyGfx();
@@ -362,13 +366,21 @@ function onMsg(m: ServerMsg): void {
         const hp = (m.data as { hp?: number }).hp ?? 100;
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
         lastHp = hp;
-        meNeeds = m.data as typeof meNeeds; drawCard(); aimHud(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight' || menu.page === 'inv' || menu.page === 'gear')) menu.refresh(); }
+        meNeeds = m.data as typeof meNeeds; drawCard(); aimHud(); coldNote(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight' || menu.page === 'inv' || menu.page === 'gear')) menu.refresh(); }
       if (m.kind === 'blocked') { const why = (m.data as { why?: string } | null)?.why; note(t(why === 'door' ? 'dDoorShut' : why === 'closed' ? 'dDoorClosed' : why === 'horse' ? 'dHorseIn' : 'dBlocked'), why === 'closed' ? 2500 : 5000); }
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
       }
       if (m.kind === 'names') names.add(m.data as [number, string][]);
+      if (m.kind === 'weather') {
+        const d = m.data as WeatherInfo, first = !wxInfo;
+        if (wxInfo && wxInfo.s !== d.s) note(tf('seasonNews', t(`se${d.s}` as Key)), 6000);
+        wxInfo = d;
+        // Joining in a frozen winter: the ground is white already.
+        g3?.setWeather(d.w, d.k, d.t, first && d.s === 3 && d.t < 1 ? 0.8 : first && d.s === 3 ? 0.3 : -1);
+        hudText = '';
+      }
       if (m.kind === 'horses') { horseInfo.clear(); for (const r of m.data as [number, number, number, number, number, number, string][]) horseInfo.set(r[0], [r[1] / 100, r[2], r[3], r[4], r[5], r[6]]); }
       if (m.kind === 'minds') { seer = true; mindsAt = performance.now(); bubbles.set(m.data as unknown[], actName); }
       break;
@@ -531,7 +543,7 @@ function stepUnder(x: number, y: number): string { const t = tileUnder(x, y); re
 function ambience(now: number): void {
   if (now - ambAt < 1000) return;
   ambAt = now;
-  if (mode !== 'world' || rp) { for (const id of ['amb_day', 'amb_night', 'amb_woods', 'fire_loop']) sound.loop(id, 0); return; }
+  if (mode !== 'world' || rp) { for (const id of ['amb_day', 'amb_night', 'amb_woods', 'fire_loop', 'rain_loop', 'wind_loop']) sound.loop(id, 0); return; }
   const h = (((gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed) / 3600 + 8) % 24 + 24) % 24;
   const night = h < 5.5 || h >= 20.5, woods = /wood|forest/i.test(map);
   sound.loop('amb_night', night ? 0.8 : 0);
@@ -543,6 +555,10 @@ function ambience(now: number): void {
     for (let yy = cy - 9; yy <= cy + 9; yy++) for (let xx = cx - 9; xx <= cx + 9; xx++) if (tileUnder(xx + 0.5, yy + 0.5) === campfireTile) fd = Math.min(fd, Math.hypot(xx + 0.5 - focusX(), yy + 0.5 - focusY()));
   }
   sound.loop('fire_loop', fd < 9 ? Math.min(1, (1 - fd / 9) * 1.2) : 0);
+  // The weather: rain on the roofs and leaves, wind in storms and blizzards.
+  const wk = wxInfo?.w ?? 'clear', wkk = wxInfo?.k ?? 0;
+  sound.loop('rain_loop', wk === 'rain' || wk === 'storm' ? 0.45 + 0.45 * wkk : 0);
+  sound.loop('wind_loop', wk === 'storm' || wk === 'blizzard' ? 0.5 + 0.4 * wkk : wk === 'snow' ? 0.25 : 0);
 }
 function blocked(x: number, y: number): boolean {
   const r = body.radius * 0.9;
@@ -1442,6 +1458,7 @@ function drawCard(): void {
     if (how === 'play' && meNeeds) {
       html = `<div class="pn">${esc(profileName())}</div><div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}${meNeeds.hp !== undefined && meNeeds.hp < 100 ? bar(t('nHp'), 100 - meNeeds.hp) : ''}</div>`
         + `<div class="pa">${meNeeds.asleep ? actName(5) : ''}${meNeeds.carry ? (meNeeds.asleep ? ' · ' : '') + tf('carry', String(meNeeds.carry)) : ''}</div>`
+        + (meNeeds.cold && (meNeeds.cold.drain > 0 || meNeeds.cold.t < 5) ? `<div class="pa ${meNeeds.cold.drain > 0 ? 'cold' : ''}">${meNeeds.cold.drain > 0 ? '❄' : meNeeds.cold.fire ? '🔥' : '🌡'} ${Math.round(meNeeds.cold.t)} °C${meNeeds.cold.drain > 0 ? ` · −${meNeeds.cold.drain < 10 ? meNeeds.cold.drain.toFixed(1) : Math.round(meNeeds.cold.drain)} ${t('nHp')}/h` : ''}</div>` : '')
         + (meNeeds.ride ? `<div class="pa">🐎 ${esc(tf('hRide', meNeeds.ride.name, String(meNeeds.ride.sta)))}</div>` : (() => {
           const hs = horseNear(5), hi = hs >= 0 ? horseInfo.get(eid[hs]!) : undefined;
           return hi ? `<div class="pa">🐎 ${esc(tf('hNear', hi[5], t((['qCommon', 'qRare', 'qLegendary'] as const)[hi[1]] ?? 'qCommon'), t(hi[4] ? 'hYours' : hi[3] ? 'hOwned' : 'hWild')))}</div>` : '';
@@ -1640,7 +1657,7 @@ function buildPage(id: string): Page {
     case 'settings':
       if (seer) rows.push({ id: 'thoughts', label: t('sThoughts'), value: onOff(thoughtsOn) });
       if (how === 'play') rows.push({ id: 'cam', label: t('sCamera'), value: camName(camView) });
-      rows.push({ id: 'names', label: t('sNames'), value: onOff(namesOn) }, { id: 'compass', label: t('sCompass'), value: onOff(compassOn) });
+      rows.push({ id: 'names', label: t('sNames'), value: onOff(namesOn) }, { id: 'compass', label: t('sCompass'), value: onOff(compassOn) }, { id: 'rainsnow', label: t('sWeather'), value: onOff(g3?.rainSnow ?? true) });
       rows.push({ id: 'uisize', label: t('sUiSize'), value: `${Math.round(uiSize * 100)} %` }, { id: 'wheel', label: t('sWheel'), sub: true }, { id: 'gfx', label: t('gTitle'), sub: true }, { id: 'snd', label: t('sndTitle'), sub: true });
       rows.push({ id: 'zin', label: t('aZoomIn') }, { id: 'zout', label: t('aZoomOut') }, { id: 'server', label: t('sServer'), value: server }, { id: 'unpair', label: t('sUnpair') });
       return { id, title: t('mSettings'), rows, text: seer ? undefined : t('sThoughtsOnly') };
@@ -1779,6 +1796,7 @@ function pickRow(page: string, row: string): void {
     if (row === 'thoughts') { thoughtsOn = !thoughtsOn; MyPC.save('thoughts', thoughtsOn); if (!thoughtsOn) bubbles.hide(); menu.refresh(); }
     else if (row === 'cam') { nextCamera(); menu.refresh(); }
     else if (row === 'names') { namesOn = !namesOn; MyPC.save('names', namesOn); menu.refresh(); }
+    else if (row === 'rainsnow' && g3) { g3.rainSnow = !g3.rainSnow; MyPC.save('rainsnow', g3.rainSnow); menu.refresh(); }
     else if (row === 'compass') { compassOn = !compassOn; MyPC.save('compass', compassOn); compassAt = 0; menu.refresh(); }
     else if (row === 'uisize') { uiSize = UI_SIZES[(UI_SIZES.indexOf(uiSize) + 1) % UI_SIZES.length]!; MyPC.save('uiSize', uiSize); applyUiSize(); menu.refresh(); }
     else if (row === 'gfx' || row === 'snd') menu.push(row);
@@ -1936,6 +1954,7 @@ function draw(now: number, dt: number): void {
   g3.follow(fx, fy, dt, snapCam);
   snapCam = false;
   const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed;
+  g3.tickWeather(dt, fx, fy);
   g3.setHour(((gs / 3600 + 8) % 24 + 24) % 24, now / 1000);
   const a = Math.min(1.25, (now - frameAt) / frameGap);
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
@@ -2098,12 +2117,22 @@ function frame(ts: number): void {
 }
 
 let hudText = '';
+const WX_ICON: Record<string, string> = { clear: '☀', cloudy: '☁', rain: '🌧', storm: '⛈', snow: '🌨', blizzard: '❄', fog: '🌫' };
+/** Tell me once when the cold starts to hurt (and again every 2 minutes while it does), and when a fire warms me. */
+function coldNote(): void {
+  const c = meNeeds?.cold;
+  if (!c || how !== 'play') return;
+  const now = performance.now();
+  if (c.drain > 0.5) { if (now - coldShown > 120000) { coldShown = now; note(tf(c.hut ? 'coldHut' : 'coldNow', c.drain < 10 ? c.drain.toFixed(1) : String(Math.round(c.drain))), 7000); } }
+  else if (c.fire && c.t < 5 && coldShown > 0) { coldShown = 0; note(t('warmFire'), 4000); }
+}
 function updateHud(now: number): void {
   const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed;
   const day = Math.floor((gs / 3600 + 8) / 24) + 1, h = Math.floor((gs / 3600 + 8) % 24), mi = Math.floor((gs / 60) % 60);
   const fs = follow >= 0 ? slotOf.get(follow) : undefined;
   const who = how === 'play' ? profileName() : follow >= 0 ? `${t('following')} #${follow & 0xffff}${fs !== undefined ? ' · ' + actName(sub[fs]!) : ''}` : t('free');
-  const txt = `${mapName(map)} · ${t('day')} ${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')} · ${agentsTotal} ${t('agents')} · ${who}`;
+  const wx = wxInfo ? ` · ${WX_ICON[wxInfo.w] ?? ''} ${t(`se${wxInfo.s}` as Key)} ${Math.round(wxInfo.t)} °C` : '';
+  const txt = `${mapName(map)} · ${t('day')} ${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}${wx} · ${agentsTotal} ${t('agents')} · ${who}`;
   if (txt !== hudText) { hudText = txt; hudTop.textContent = txt; }
   if (meTransit && how === 'play') {
     const left = Math.max(0, Math.ceil((meArrive - gs) / Math.max(0.01, clockScale * simSpeed)));
