@@ -776,7 +776,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   (not the owner's), `Tasks.start` refuses all but owner / sky orders, rules / jobs / night watch skip her; `Brain.stayHome` = no talk / wander /
   travel, drink and eat from the home fridge or a bottle, rest at home; out only when `Family.urgentOut` (thirst > 80 / hunger > 85 and the fridge
   empty). `Family.provide()` (hourly): the father (else grown kin) gets "fill the fridge for X and the baby" (build fridge if none, food x3, water).
-  NOTE: with 1 game day a year the baby is ~7 by the end of the week. Test lyingin.test.ts.
+  Only with a home on her map (`lyingInHome`): a homeless mother works as usual. NOTE: 1 game day a year = the baby is ~7 by the end. Test lyingin.test.ts.
 - Beds: A next to a bed (1.8 m, `Survival.bedNear`) = lie in it (code `bedSleep`, hint `iaBed`; asleep = A wakes, hint `iaWake`, checked before boxes).
   TV eases people onto the bed (`lieK`, `bedPose` matches chunkmesh's bed turn): step up, lie back on top towards the pillow (`People.add` lie 0..1 + lift).
 - `client/src/gfx/anims.ts` (`World3D.anims`): fridge door / chest lid open on Notice `boxOpen` [tx, ty, secs] (`Survival.opened` from boxOut / boxPut,

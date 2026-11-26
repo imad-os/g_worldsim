@@ -212,7 +212,7 @@ export class Family {
     if (!p || p.player) return; // a player's character is played by hand: their own choice
     p.lyingIn = { until: w.gameSec + LYING_IN_DAYS * 86400, baby };
     const i = w.e.slot(mid);
-    if (i >= 0 && p.mind?.task && p.mind.task.from !== 'owner') w.tasks.stop(i); // the work waits: home with the baby
+    if (i >= 0 && this.lyingInHome(i) && p.mind?.task && p.mind.task.from !== 'owner') w.tasks.stop(i); // the work waits: home with the baby
     w.emit('lyingIn', { id: mid, baby, days: LYING_IN_DAYS });
   }
   /** Person (slot) i is a mother in her week at home with a newborn (AI-driven, the baby alive). */

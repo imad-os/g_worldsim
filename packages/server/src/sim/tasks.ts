@@ -183,7 +183,7 @@ export class Tasks {
   start(i: number, text: string, from: string, steps: Step[]): boolean {
     const w = this.w, p = w.profileOf(i);
     if (!p || !steps.length) return false;
-    if (from !== 'owner' && from !== 'the voice from the sky' && w.family.lyingIn(i)) return false; // a week at home with a newborn: no work, quests or errands (sim/family.ts)
+    if (from !== 'owner' && from !== 'the voice from the sky' && w.family.lyingInHome(i)) return false; // a week at home with a newborn (a mother with no home here works as usual): no work, quests or errands (sim/family.ts)
     p.mind ??= { notes: [], summary: '', mood: 'calm', rel: {}, lastPlan: 0 };
     w.survival.cancel(w.e.id(i));
     p.mind.task = { text: text.slice(0, 120), from, steps: steps.slice(0, 8), k: 0, started: w.gameSec };

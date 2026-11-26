@@ -1354,7 +1354,7 @@ export class Survival {
     const w = this.w, e = w.e, t = w.maps[j.m]!.tiles;
     const rn = JOB_RULE[j.kind] ?? j.kind, rule = w.rules.forbidden(i, rn, j.kind === 'heal' ? e.slot(j.who!) : -1);
     if (rule) return `I must not: "${rule}"`;
-    if (j.box === undefined && w.family.lyingIn(i)) return 'I stay home with my newborn this week'; // only the fridge / chest at home (sim/family.ts)
+    if (j.box === undefined && w.family.lyingInHome(i)) return 'I stay home with my newborn this week'; // only the fridge / chest at home (sim/family.ts)
     // Where to stand: next to the tile (a tree is solid); for a hut, outside the door.
     let sx = j.tx + 0.5, sy = j.ty + 0.5;
     if (j.kind === 'pick') { const it = e.slot(j.who!); if (it < 0) return 'it is gone'; sx = e.x[it]!; sy = e.y[it]!; }
@@ -1902,7 +1902,7 @@ export class Survival {
     let have = this.guards(m);
     if (have >= want) return;
     const lid = this.leader[m] ?? -1;
-    const fit = people.filter((i) => !this.jobs.has(e.id(i)) && !w.family.lyingIn(i) && !w.profileOf(i)?.mind?.task && !w.brain.orderOf(i).kind && e.hp[i]! > 60 && e.hunger[i]! < 60 && e.thirst[i]! < 60 && e.tired[i]! < 65 && !w.rules.forbidden(i, 'fight')
+    const fit = people.filter((i) => !this.jobs.has(e.id(i)) && !w.family.lyingInHome(i) && !w.profileOf(i)?.mind?.task && !w.brain.orderOf(i).kind && e.hp[i]! > 60 && e.hunger[i]! < 60 && e.thirst[i]! < 60 && e.tired[i]! < 65 && !w.rules.forbidden(i, 'fight')
       && (w.profileOf(i)?.traits.courage ?? 0.5) > 0.4)
       .sort((a, b) => this.guardScore(b, lid) - this.guardScore(a, lid));
     for (const i of fit) {
