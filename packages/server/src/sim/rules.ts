@@ -1,6 +1,6 @@
 import { Act, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
-import { ageOf } from './people.js';
+import { ageOf, editDist } from './people.js';
 import type { Step } from './tasks.js';
 import type { World } from './world.js';
 
@@ -151,16 +151,6 @@ export function stepsOfWords(text: string): Step[] {
   const t = ' ' + text.toLowerCase().replace(/[’']/g, "'") + ' ';
   for (const [re, f] of DO) if (re.test(t)) { const st = f(t); if (st.length) return st; }
   return [];
-}
-/** Small spelling slips in a name ("Miceal" for "Michael", "Traiq" for "Tariq"): edit distance, a swap of two letters = 1. */
-function editDist(a: string, b: string): number {
-  const d: number[][] = Array.from({ length: a.length + 1 }, (_, x) => Array.from({ length: b.length + 1 }, (_, y) => (x === 0 ? y : y === 0 ? x : 0)));
-  for (let x = 1; x <= a.length; x++) for (let y = 1; y <= b.length; y++) {
-    const c = a[x - 1] === b[y - 1] ? 0 : 1;
-    d[x]![y] = Math.min(d[x - 1]![y]! + 1, d[x]![y - 1]! + 1, d[x - 1]![y - 1]! + c);
-    if (x > 1 && y > 1 && a[x - 1] === b[y - 2] && a[x - 2] === b[y - 1]) d[x]![y] = Math.min(d[x]![y]!, d[x - 2]![y - 2]! + 1);
-  }
-  return d[a.length]![b.length]!;
 }
 /** Words after "to / with / from / à / avec / con / de / مع" that look like a name (capital letter): the person a rule is about. */
 const ABOUT = /\b(?:to|with|from|near|see|meet|à|a|avec|de|con|ver|par|para)\s+([\p{Lu}][\p{L}\d_-]{1,30})/gu;

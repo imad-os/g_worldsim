@@ -96,6 +96,29 @@ export const YEAR = 365 * 24 * 3600;
 
 const F = ['Amina', 'Sara', 'Lina', 'Nora', 'Yasmin', 'Hana', 'Maya', 'Leila', 'Ines', 'Zoe', 'Eva', 'Rita', 'Salma', 'Iris', 'Mira', 'Ada', 'Nadia', 'Rosa', 'Jade', 'Kenza', 'Tara', 'Lea', 'Asma', 'Vera'];
 const M = ['Omar', 'Adam', 'Yusuf', 'Karim', 'Leo', 'Sami', 'Idris', 'Noah', 'Rayan', 'Tariq', 'Elias', 'Malik', 'Hugo', 'Ilyas', 'Jonas', 'Nabil', 'Ravi', 'Theo', 'Anas', 'Milo', 'Zaid', 'Bilal', 'Ivan', 'Hamza'];
+/** Arabic, Moroccan (darija spellings) and Amazigh (Berber) names (imad 2026-11-26: "more names, more unique"). */
+const F_AR = [
+  'Fatima', 'Khadija', 'Aicha', 'Zineb', 'Meryem', 'Houda', 'Imane', 'Soukaina', 'Hajar', 'Ghizlane', 'Loubna', 'Siham', 'Najat', 'Latifa',
+  'Rachida', 'Naima', 'Saida', 'Hafsa', 'Btissam', 'Chaimae', 'Oumaima', 'Ikram', 'Wiam', 'Douaa', 'Rim', 'Safae', 'Nisrine', 'Hind',
+  'Samira', 'Jamila', 'Zahra', 'Bouchra', 'Nawal', 'Fadwa', 'Kawtar', 'Majda', 'Yousra', 'Rania', 'Dounia', 'Narjiss', 'Hiba', 'Farah',
+  'Nour', 'Ghita', 'Sabrina', 'Amal', 'Rokaya', 'Mouna', 'Houria', 'Habiba', 'Zakia', 'Halima', 'Rahma', 'Abir', 'Lamia', 'Hayat',
+  'Sakina', 'Aziza', 'Jihane', 'Ilham', 'Hanane', 'Nezha', 'Rkia', 'Itto', 'Tilelli', 'Tiziri', 'Tanirt', 'Tafsut', 'Tinhinan', 'Dihya',
+  'Lunja', 'Tudert', 'Tamlilt', 'Silya', 'Ziri', 'Thanina', 'Mennana', 'Yaqout', 'Ilef', 'Wissal', 'Insaf', 'Manal', 'Alae', 'Hiyam',
+  'Nassima', 'Souad', 'Yamna', 'Mbarka', 'Tamimount', 'Taous', 'Ouiza', 'Kahina', 'Massilia', 'Tassadit', 'Izza', 'Yaza', 'Tiliwa',
+  'Jannat', 'Rihab', 'Razane', 'Sirine', 'Sundus', 'Jumana', 'Lujain', 'Batoul', 'Afaf', 'Ghada', 'Nihal', 'Sahar', 'Tafat',
+];
+const M_AR = [
+  'Mohamed', 'Ahmed', 'Youssef', 'Hassan', 'Hussein', 'Abdellah', 'Abderrahim', 'Abdelkader', 'Mustapha', 'Driss', 'Brahim', 'Mehdi',
+  'Khalid', 'Hicham', 'Redouane', 'Zakaria', 'Ayoub', 'Othmane', 'Soufiane', 'Badr', 'Imad', 'Yassine', 'Ismail', 'Mourad', 'Nourdine',
+  'Hakim', 'Lahcen', 'Lhoussine', 'Larbi', 'Abdou', 'Hamid', 'Walid', 'Marouane', 'Achraf', 'Anouar', 'Jawad', 'Faycal', 'Younes', 'Salah',
+  'Mounir', 'Adil', 'Chakib', 'Saad', 'Ali', 'Bachir', 'Mokhtar', 'Abdessamad', 'Abdelaziz', 'Abdelhak', 'Ayman', 'Wassim', 'Jalil',
+  'Nizar', 'Reda', 'Ouail', 'Yahya', 'Haroun', 'Moussa', 'Issa', 'Suleiman', 'Dawoud', 'Talal', 'Majid', 'Qasim', 'Fares', 'Ammar',
+  'Bassam', 'Usama', 'Amjad', 'Firas', 'Nasser', 'Mazen', 'Tamer', 'Shadi', 'Massinissa', 'Yuba', 'Aksil', 'Koceila', 'Mazigh', 'Idir',
+  'Amnay', 'Anzar', 'Amayas', 'Yugurten', 'Menad', 'Siphax', 'Tarek', 'Ayur', 'Amastan', 'Izem', 'Aghilas', 'Yanis', 'Ameziane', 'Ouzzine',
+  'Itri', 'Aderfi', 'Asafu', 'Ugur',
+];
+const FEMALE = [...F, ...F_AR];
+const MALE = [...M, ...M_AR];
 const PERSONALITY = ['cautious', 'brave', 'kind', 'grumpy', 'curious', 'calm', 'stubborn', 'cheerful', 'shy', 'proud', 'loyal', 'sly',
   'generous', 'impatient', 'hard-working', 'dreamy'];
 
@@ -131,12 +154,36 @@ function pickPersonality(rng: Rng): string[] {
   return [a, b];
 }
 
-function uniqueName(rng: Rng, sex: 'f' | 'm', taken: Set<string>): string {
-  const list = sex === 'f' ? F : M;
-  for (let k = 0; k < 8; k++) { const n = list[rng.int(list.length)]!; if (!taken.has(n)) return n; }
+/** Small spelling slips in a name ("Miceal" for "Michael", "Traiq" for "Tariq"): edit distance, a swap of two letters = 1. */
+export function editDist(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, x) => Array.from({ length: b.length + 1 }, (_, y) => (x === 0 ? y : y === 0 ? x : 0)));
+  for (let x = 1; x <= a.length; x++) for (let y = 1; y <= b.length; y++) {
+    const c = a[x - 1] === b[y - 1] ? 0 : 1;
+    d[x]![y] = Math.min(d[x - 1]![y]! + 1, d[x]![y - 1]! + 1, d[x - 1]![y - 1]! + c);
+    if (x > 1 && y > 1 && a[x - 1] === b[y - 2] && a[x - 2] === b[y - 1]) d[x]![y] = Math.min(d[x]![y]!, d[x - 2]![y - 2]! + 1);
+  }
+  return d[a.length]![b.length]!;
+}
+/** Two names the rules would mix up (1 letter off, 2 for long names: the same slack as `compileRule`). */
+const nearName = (a: string, b: string) => editDist(a, b) <= (Math.min(a.length, b.length) >= 6 ? 2 : 1);
+
+/** A name nobody alive has (any case), and if the pool allows one no living name is a slip away from (rules and
+ * chats find people by name). One draw from the dice: a random start, then the first free name after it. */
+export function uniqueName(rng: Rng, sex: 'f' | 'm', taken: Set<string>): string {
+  const list = sex === 'f' ? FEMALE : MALE;
+  const low = [...taken].map((t) => t.toLowerCase());
+  const start = rng.int(list.length);
+  let free = '';
+  for (let k = 0; k < list.length; k++) {
+    const n = list[(start + k) % list.length]!, l = n.toLowerCase();
+    if (low.includes(l)) continue;
+    if (!low.some((t) => nearName(t, l))) return n;
+    if (!free) free = n;
+  }
+  if (free) return free;
+  const base = list[start]!;
   let n = 2;
-  const base = list[rng.int(list.length)]!;
-  while (taken.has(`${base} ${n}`)) n++;
+  while (low.includes(`${base} ${n}`.toLowerCase())) n++;
   return `${base} ${n}`;
 }
 

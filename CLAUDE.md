@@ -704,3 +704,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Names over heads** (`nav.ts Names`, `#names`): Notice `names` [[id, name]] sends each name once per session (`Session.names`, reset on reconnect;
   NPCs by their table name); nearest 14 within 26 m; Settings > Names over heads (`MyPC.save('names')`). Strings `i18n8.ts` (T8).
 - Proof `ADMIN_TOKEN=... node tools/ride-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.ride / dests / quick / names / do`).
+
+## Names (imad 2026-11-26: "more names, more unique, Arabic and Moroccan")
+- `sim/people.ts` pools = the old 24 + 24 and `F_AR` / `M_AR` (110 + 98 Arabic, Moroccan darija spellings, Amazigh). First names only
+  (no family names in the sim). `uniqueName` (one dice draw): a name no living person has (any case) and, while the pool allows, none a
+  rules slip away (`editDist`, moved here from rules.ts); full pool = "Name 2". Existing people keep their names. Test names.test.ts.
