@@ -428,6 +428,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   GOAP depth 64 / 5000 nodes. A homeless AI told to build moves into the nearest free hut instead (`Homes.moveIn`). Every prompt lists the
   map's huts and whose they are (`Homes.mapText`). `Homes.where(m?)` = admin `huts { map? }`, `mapTiles.huts`, player Do `huts` (code huts, list).
   Hunt steps with no game around search for up to 5 game hours (hunt steps may take 6 h). Leather is the bottleneck in town (4 animals max).
+- **Own huts, 2 a map, no horses indoors (imad 2026-11-26: "built a hut, slept, got out and it blocked me")**: the cause = a player's second hut
+  stayed ownerless (builder already had a home) and `homes.hourly` handed it to another family; also the closed-door block was reported as
+  "not your home". Now a PLAYER always owns what they builds (AI builders only when homeless); `HUTS_PER_MAP` = 2 per builder per map
+  (`Homes.builtBy`, code `hutLimit` / AI "I already built 2 huts here"; GOAP drops build:hut at the limit). Blocked notices say why: `door`
+  (not your home), `closed` (press A), `horse` (riding: players stopped at a hut's edge, AI riders get off). Animals (horses too) never step
+  into a hut's tiles. Strings dDoorClosed / dHorseIn / dHutLimit (i18nBuild). Note: `Survival.init()` runs on the first step and recounts huts
+  from walls: tests must step once before building. Test homes.test "a player owns every hut they build".
 - **Aimed building** (TV): picking a build row / Put down / Me > hut opens a see-through model (`World3D.ghost`, green / red) moved tile by tile
   with stick / arrows (camera-relative in third / first), X / Y / shoulders / Build / CH+- turn a hut's door, A / OK build, B / Back cancel.
   Do `build` "what#tx,ty,dir" -> `Survival.placeAt` / `canPlace` (reach 8 m, codes tooFar / someone / doorBlocked / noRoom); old "what@angle"

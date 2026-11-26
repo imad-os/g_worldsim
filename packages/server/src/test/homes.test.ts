@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Kind } from '@worldsim/protocol';
+import { Kind, EFlag } from '@worldsim/protocol';
 import { scenario } from './helpers.js';
 import { World } from '../sim/world.js';
 
@@ -265,4 +265,51 @@ test('doors open and close with the interact button: a closed door stops a playe
   const b = (w as unknown as { bodies: { setLinearVelocity(v: { x: number; y: number }): void }[] }).bodies[ai];
   for (let n = 0; n < 30 && Math.floor(e.y[ai]!) === dy; n++) { b?.setLinearVelocity({ x: 0, y: 3 }); w.step(); }
   if (Math.floor(e.y[ai]!) !== dy) assert.equal(tm.get(dx, dy), T.door, 'they shut it behind them');
+});
+
+test('a player owns every hut they build (at most 2 a map), a closed door says so, and no horse goes indoors', () => {
+  const w = mk('home-own2');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!, sv = w.survival, tm = w.maps[town]!.tiles;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
+  w.step();
+  const pl = w.spawnPlayer(town, 60, 60); w.playerProfile(pl, 'imad');
+  const give = () => { sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5); };
+  const s1 = openSpot(w, town, 110, 110);
+  w.place(pl, town, s1.x0 + 2.5, s1.y0 + 7.5); give();
+  assert.equal(sv.placeAt(pl, 'hut', s1.x0, s1.y0, 0), 'built');
+  const s = openSpot(w, town, 70, 70);
+  w.place(pl, town, s.x0 + 2.5, s.y0 + 7.5); give();
+  assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
+  const k2 = (s.y0 + 2) * tm.w + s.x0 + 2;
+  assert.equal(sv.homes.at(town, k2)!.owner, e.id(pl), 'the second hut is mine too (it used to stay free and go to another family)');
+  for (let k = 0; k < 20 * 3600 / 30 * 3; k++) w.step(); // 3 game hours: free huts are handed out hourly
+  assert.equal(sv.homes.at(town, k2)!.owner, e.id(pl), 'still mine');
+  // A third on this map: refused.
+  const s3 = openSpot(w, town, 150, 70);
+  w.place(pl, town, s3.x0 + 2.5, s3.y0 + 7.5); give();
+  assert.equal(sv.placeAt(pl, 'hut', s3.x0, s3.y0, 0), 'hutLimit');
+  assert.equal(sv.playerHut(pl), 'hutLimit');
+  // My own closed door: blocked with "closed" (press A), never "not your home".
+  w.place(pl, town, s.x0 + 2.5, s.y0 + 5.5);
+  e.flags[pl] = e.flags[pl]! & ~EFlag.Sleeping; // the hours above may have put me to sleep
+  const why: string[] = [];
+  w.listeners.push((x) => { if (x.kind === 'blocked') why.push(String(x.data.why)); });
+  let moved = true;
+  for (let k = 0; k < 20; k++) { moved = w.trustMove(pl, e.x[pl]!, e.y[pl]! - 0.3) || (moved && k < 6); w.step(); }
+  assert.equal(moved, false, 'a closed door stops me');
+  assert.ok(why.includes('closed') && !why.includes('door'), JSON.stringify(why));
+  // Open: in. On a horse: not in.
+  assert.equal(sv.toggleDoor(pl, s.x0 + 2, s.y0 + 4), 'doorOpened');
+  why.length = 0;
+  const hs = w.horses.spawn(town, e.x[pl]! + 1, e.y[pl]!, { owner: e.id(pl), herd: -1 });
+  assert.equal(w.horses.mount(pl, hs), 'mounted');
+  moved = true;
+  for (let k = 0; k < 20; k++) { moved = w.trustMove(pl, e.x[pl]!, e.y[pl]! - 0.3) || (moved && k < 6); w.step(); }
+  assert.equal(moved, false, 'no riding into a hut');
+  assert.ok(why.includes('horse'), 'horse ' + JSON.stringify(why) + ' ' + e.y[pl]);
+  assert.ok(Math.floor(e.y[pl]!) > s.y0 + 4, 'still outside');
+  assert.equal(w.horses.dismount(pl), 'dismounted');
+  for (let k = 0; k < 12; k++) w.trustMove(pl, e.x[pl]!, e.y[pl]! - 0.3);
+  assert.ok(Math.floor(e.y[pl]!) <= s.y0 + 3, 'on foot I walk in');
 });

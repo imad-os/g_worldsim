@@ -37,7 +37,7 @@ let tileName: string[] = [];
 const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', aHit: 'animal_hurt', aKilled: 'animal_die', chopped: 'chop', mined: 'mine', herbs: 'pickup', healed: 'reward', noMedkit: 'ui_error', fullHp: 'ui_error', drank: 'drink',
   ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
   doorOpened: 'door_open', doorClosed: 'door_close', doorLocked: 'ui_error', doorSomeone: 'ui_error',
-  noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
+  noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', hutLimit: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
 const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar'];
 
 /**
@@ -362,7 +362,7 @@ function onMsg(m: ServerMsg): void {
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
         lastHp = hp;
         meNeeds = m.data as typeof meNeeds; drawCard(); aimHud(); if (menu.open && (menu.page === 'bag' || menu.page === 'cat' || menu.page === 'guide' || menu.page === 'fight' || menu.page === 'inv' || menu.page === 'gear')) menu.refresh(); }
-      if (m.kind === 'blocked') note(t((m.data as { why?: string } | null)?.why === 'door' ? 'dDoorShut' : 'dBlocked'), 5000);
+      if (m.kind === 'blocked') { const why = (m.data as { why?: string } | null)?.why; note(t(why === 'door' ? 'dDoorShut' : why === 'closed' ? 'dDoorClosed' : why === 'horse' ? 'dHorseIn' : 'dBlocked'), why === 'closed' ? 2500 : 5000); }
       if (m.kind === 'info') {
         const d = m.data as PersonInfo | null;
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
@@ -785,7 +785,7 @@ function placeCheck(p: NonNullable<typeof placing>): string {
   if (p.what !== 'bed' && p.what !== 'campfire' && person(p.tx, p.ty)) return 'someone';
   return '';
 }
-const PLACE_CODE: Record<string, Key> = { tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait' };
+const PLACE_CODE: Record<string, Key> = { tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait', hutLimit: 'dHutLimit' };
 function placeNote(): void {
   if (!placing) return;
   if (placing.what === 'destroy') {
@@ -1353,7 +1353,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'maxLevel' || d.code === 'maxQuality' || d.code === 'notCarried') { note(t(d.code === 'maxLevel' ? 'dMaxLevel' : d.code === 'maxQuality' ? 'dMaxQuality' : 'dNotCarried'), 2500); return; }
   if (d.code === 'crafted') { invScreen.clear(); for (const k of Object.keys(pot)) delete pot[k]; note(tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
   if (d.code === 'placed') { note(tf('dPlaced', thing(d.item ?? '')), 2500); return; }
-  const more: Record<string, Key> = { noRecipe: 'dNoRecipe', noMat: 'dNoMat', noRoom: 'dNoRoom', noItem: 'dNoItem', tooThick: 'dTooThick' };
+  const more: Record<string, Key> = { noRecipe: 'dNoRecipe', noMat: 'dNoMat', noRoom: 'dNoRoom', noItem: 'dNoItem', tooThick: 'dTooThick', hutLimit: 'dHutLimit' };
   if (more[d.code]) { note(t(more[d.code]!), 2800); return; }
   if (d.code === 'wait') return;
   if (d.code === 'full' && d.a === 'craft') { note(t('dBagFull'), 2500); return; }

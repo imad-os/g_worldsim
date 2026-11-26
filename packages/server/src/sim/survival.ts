@@ -3,7 +3,7 @@ import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
 import { flood, hutAt, walkableNear } from './structures.js';
-import { Homes } from './homes.js';
+import { Homes, HUTS_PER_MAP } from './homes.js';
 
 /**
  * Milestone 8, part 2: living off the land. People carry materials (wood, stone, scrap) and tools (axe, spear) in
@@ -390,6 +390,7 @@ export class Survival {
     if (what !== 'campfire' && what !== 'hut') return this.buildThing(i, what);
     // Huts are dear (imad 2026-11-25): someone with no home moves into a free hut instead of building another.
     if (what === 'hut' && this.w.e.kind[i] === Kind.Agent) { const moved = this.homes.moveIn(this.w.e.id(i), this.w.e.map[i]!); if (moved) return moved; }
+    if (what === 'hut' && this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return `I already built ${HUTS_PER_MAP} huts here, that is the most`;
     if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
     const e = this.w.e, m = e.map[i]!;
     if (this.w.ai.siting && !this.camp[m] && x === undefined) { const cs = this.campSite(m, e.x[i]!, e.y[i]!); if (cs) this.setCamp(m, cs.x, cs.y); }
@@ -529,6 +530,7 @@ export class Survival {
   /** A player builds a hut (imad 2026-11-20: players can make everything the people make): right away, just ahead of them. */
   playerHut(i: number): string {
     if (!this.enabled) return 'nothing';
+    if (this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return 'hutLimit';
     if (!this.has(i, RECIPES.hut!)) return 'needHut';
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
     const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * 4, e.y[i]! + Math.sin(a) * 4, 5, 5, 12);
@@ -577,6 +579,7 @@ export class Survival {
   /** A player puts `what` exactly where they aimed (made from the bag's materials by the caller first). */
   placeAt(i: number, what: string, tx: number, ty: number, dir = 0): string {
     if (what === 'hut') {
+      if (this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return 'hutLimit';
       if (!this.has(i, RECIPES.hut!)) return 'needHut';
       const c = this.canPlace(i, what, tx, ty, dir);
       return c || this.hutAt(i, tx, ty, dir);

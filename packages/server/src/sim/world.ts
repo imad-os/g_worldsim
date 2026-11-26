@@ -361,8 +361,10 @@ export class World {
       const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
       if (!tm.inside(tx, ty) || tm.cost[tm.get(tx, ty)]! <= 0) return false;
       const from = Math.floor(e.y[i]! + dy) * tm.w + Math.floor(e.x[i]! + dx), to = ty * tm.w + tx;
-      if (from !== to && tm.tiles[to] === this.doorTile && Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!) !== to) return false; // a closed door: open it first (the interact button)
-      if (this.survival.homes.shut(i, m, from, to)) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' }); return false; }
+      const hm = this.survival.homes;
+      if (hm.shut(i, m, from, to)) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' }); return false; }
+      if (from !== to && tm.tiles[to] === this.doorTile && Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!) !== to) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'closed' }); return false; } // a closed door: open it first (the interact button)
+      if (from !== to && this.horses.riding[i] === 1 && hm.at(m, to) && !hm.at(m, from)) { if (this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'horse' }); return false; } // no horses indoors
     }
     const b = this.bodies[i];
     if (b) { this.pos.x = x; this.pos.y = y; b.setPosition(this.pos); }
@@ -555,7 +557,10 @@ export class World {
       if (!b) continue;
       const p = b.getPosition(), v = b.getLinearVelocity();
       // Doors let people through, never zombies or animals: they stay where they were (and claw at it).
-      if ((e.kind[i] === Kind.Threat || e.kind[i] === Kind.Animal) && this.doorTile >= 0 && this.maps[e.map[i]!]!.tiles.tiles[Math.floor(p.y) * this.maps[e.map[i]!]!.tiles.w + Math.floor(p.x)] === this.doorTile) {
+      const am = e.map[i]!, atm = this.maps[am]!.tiles, ak = Math.floor(p.y) * atm.w + Math.floor(p.x);
+      if ((e.kind[i] === Kind.Threat || e.kind[i] === Kind.Animal) && ((this.doorTile >= 0 && atm.tiles[ak] === this.doorTile)
+        // Animals (horses too) never go into a hut, even through an open door (imad 2026-11-25).
+        || (e.kind[i] === Kind.Animal && this.survival.homes.at(am, ak) && !this.survival.homes.at(am, Math.floor(e.y[i]!) * atm.w + Math.floor(e.x[i]!))))) {
         this.pos.x = e.x[i]!; this.pos.y = e.y[i]!; b.setPosition(this.pos); this.vel.x = 0; this.vel.y = 0; b.setLinearVelocity(this.vel);
         e.vx[i] = 0; e.vy[i] = 0;
         continue;
@@ -566,10 +571,14 @@ export class World {
         // A player walks into a closed door like a wall (they open it with the interact button); people open and close it as they pass.
         const closed = e.kind[i] === Kind.Player && k !== k0 && tm.tiles[k] === this.doorTile;
         if (e.kind[i] === Kind.Agent && k !== k0 && tm.tiles[k0] === this.doorOpenTile && !this.someoneOn(e.map[i]!, k0, i)) tm.set(k0 % tm.w, (k0 / tm.w) | 0, this.doorTile); // tidy: closed behind them
-        if (closed || this.survival.homes.shut(i, e.map[i]!, k0, k)) {
+        const shut = this.survival.homes.shut(i, e.map[i]!, k0, k);
+        let horse = !shut && !closed && k !== k0 && this.horses.riding[i] === 1 && !!this.survival.homes.at(e.map[i]!, k) && !this.survival.homes.at(e.map[i]!, k0);
+        if (horse && e.kind[i] === Kind.Agent) { this.horses.dismount(i); horse = false; } // people get off at the door and walk in
+        if (closed || shut || horse) {
           this.pos.x = e.x[i]!; this.pos.y = e.y[i]!; b.setPosition(this.pos); this.vel.x = 0; this.vel.y = 0; b.setLinearVelocity(this.vel);
           e.vx[i] = 0; e.vy[i] = 0;
-          if (e.kind[i] === Kind.Player && this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: 'door' });
+          // Say why: not your home (door), a closed door to open with A (closed), or still on a horse (horse).
+          if (e.kind[i] === Kind.Player && this.tick % 10 === 0) this.emit('blocked', { id: e.id(i), why: shut ? 'door' : horse ? 'horse' : 'closed' });
           continue;
         }
       }

@@ -14,6 +14,9 @@ import type { World } from './world.js';
  * else a grown child, else it is free again. The person keeps it in `Profile.home` and a memory note, the planner's
  * prompt says where it is, they sleep there and run there from zombies.
  */
+/** imad 2026-11-25: a person may build at most 2 huts on a map. */
+export const HUTS_PER_MAP = 2;
+
 export interface Home { m: number; out: number; dir: number; owner: number; by: number; since: number }
 
 export class Homes {
@@ -117,8 +120,14 @@ export class Homes {
     const h = this.list.find((x) => x.m === m && x.out === out);
     if (!h) return;
     h.by = builder;
-    if (builder >= 0 && !this.homeOf(builder) && this.adult(builder)) this.give(h, builder, 'I built it');
+    // A player always owns what they build (imad 2026-11-25: "I built a hut, slept, and was locked out": a second hut used to stay
+    // ownerless and was handed to another family). An AI builder owns it when homeless, else it is for a family without a home.
+    const pl = builder >= 0 && !!this.w.profiles.get(builder)?.player;
+    if (builder >= 0 && (pl || !this.homeOf(builder)) && this.adult(builder)) this.give(h, builder, 'I built it');
   }
+  /** How many huts person `id` built on map m (at most HUTS_PER_MAP, imad 2026-11-25). */
+  builtBy(id: number, m: number): number { this.sync(); return this.list.filter((h) => h.m === m && h.by === id).length; }
+
 
   private adult(id: number): boolean {
     const p = this.w.profiles.get(id);

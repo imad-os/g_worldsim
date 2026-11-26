@@ -2,6 +2,7 @@ import { Kind, RECIPES_ALL, PLACEABLE, WEAPONS, HUT_NEED } from '@worldsim/proto
 import { compress, plan, type Facts, type GAction } from './goap.js';
 import type { Step } from './tasks.js';
 import type { World } from './world.js';
+import { HUTS_PER_MAP } from './homes.js';
 import { ageOf } from './people.js';
 import { ADULT } from './life.js';
 import { ORE_CHANCE, ROCK_STONE } from './survival.js';
@@ -194,7 +195,7 @@ export class Colony {
     // Building at the camp.
     const toCamp = tr(dCamp);
     if (sv.enabled) {
-      add('build:hut', { use: { ...HUT_NEED }, add: { '+hut': 1 }, step: { do: 'build', what: 'hut' } }, () => WORK.hut + toCamp);
+      if (sv.homes.builtBy(e.id(i), m) < HUTS_PER_MAP) add('build:hut', { use: { ...HUT_NEED }, add: { '+hut': 1 }, step: { do: 'build', what: 'hut' } }, () => WORK.hut + toCamp);
       add('build:campfire', { use: { wood: 3, stone: 2 }, add: { fire: 1, fuel: 10, '+fire': 1 }, step: { do: 'build', what: 'campfire' } }, () => WORK.fire + toCamp);
       add('tend', { pre: { fire: 1 }, use: { wood: 1 }, add: { fuel: 4 }, step: { do: 'tend', unit: 'fuel' } }, () => WORK.tend + toCamp);
       add('repair', { use: { wood: 1, broken: 1 }, add: { '+repaired': 1 }, step: { do: 'repair' } }, () => WORK.repair + toCamp);
