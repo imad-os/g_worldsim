@@ -4,7 +4,7 @@ Autonomous agent world simulator for imad. Full spec: the first message of the p
 simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first version); 8 parts 1-3 (tasks, survival, zombies) + strict rules + animals / crafting, camera views, quick wheel done, app 0.9.0; horses app 0.12.0; next weather, polish. Population: births only, no newcomers (imad 2026-11-20).
 
 ## Owner rules
-- Push straight to `main` (no branches / PRs). Never say something works without a real run and proof (screenshot,
+- Push straight to `main` (no branches / PRs). **Panel screenshots: dark mode only** (imad 2026-11-26; proof scripts default to dark). Never say something works without a real run and proof (screenshot,
   test output). Ask imad before any decision the spec does not cover.
 - The **simulator is NOT a My PC app**: a standalone headless Node server on imad's PC, full physics.
   Only the **viewer client** is a My PC app (follow https://raw.githubusercontent.com/imad-os/g/main/sdk/GUIDE.md,

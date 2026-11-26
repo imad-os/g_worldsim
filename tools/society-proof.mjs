@@ -31,7 +31,7 @@ step(6 * 3600 / w.opt.clockScale);
 const port = app.net.http.address().port, server = `http://127.0.0.1:${port}`;
 const b = await chromium.launch();
 for (const [tag, vp] of [['desk', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]]) {
-  const ctx = await b.newContext({ viewport: vp, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: tag === 'desk' ? 1 : 2 });
+  const ctx = await b.newContext({ colorScheme: 'dark', viewport: vp, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: tag === 'desk' ? 1 : 2 });
   const page = await ctx.newPage();
   page.on('pageerror', (er) => console.log('pageerror', er.message));
   await page.goto(server + '/panel/');

@@ -9,7 +9,7 @@ const pageUrl = process.env.PANEL ? `${process.env.PANEL}?server=${encodeURIComp
 const b = await chromium.launch();
 const errors = [];
 for (const [tag, vp] of [['desk', { width: 1440, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]]) {
-  const ctx = await b.newContext({ colorScheme: process.env.DARK ? 'dark' : 'light', viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: 1 });
+  const ctx = await b.newContext({ colorScheme: process.env.LIGHT ? 'light' : 'dark', viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${tag} pageerror ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${tag} console ${m.text()}`); });
