@@ -192,6 +192,11 @@ export class World {
    * Players always can.
    */
   travelOpen = false;
+  /**
+   * A wild, dangerous map (imad 2026-11-26: "the forest is very dangerous, kids are not allowed, only adults"): generated as
+   * wilds, or `danger: true` in the scenario. Children never go there, adults keep a wider watch and leave before dark.
+   */
+  wild(m: number): boolean { const d = this.maps[m]?.def; return !!d && (d.danger ?? d.gen.type === 'wilds'); }
 
   /**
    * Bring the population to the owner's setting: keep at most `max` agents (those already on the start map first)
@@ -648,6 +653,7 @@ export class World {
       if (!this.travelOpen) { e.goal[i] = -1; continue; }
       const p = this.portals[g]!;
       if (p.from !== e.map[i]) { e.goal[i] = -1; continue; }
+      if (this.wild(p.dest) && e.flags[i]! & (EFlag.Child | EFlag.Small)) { e.goal[i] = -1; continue; } // a child at the road into the woods: turned back
       const r = p.r ?? 1.5;
       const dx = e.x[i]! - p.x, dy = e.y[i]! - p.y;
       if (dx * dx + dy * dy <= r * r) this.enterPortal(i, g);

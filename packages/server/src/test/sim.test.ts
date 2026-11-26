@@ -384,12 +384,13 @@ test('survival: a command "build a hut" gathers wood and stone, builds a real hu
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) assert.notEqual(w.maps[e.map[i]!]!.tiles.get(Math.floor(e.x[i]!), Math.floor(e.y[i]!)), T.woodwall);
 });
 
-test('survival: left alone for two game days, people make a camp, light a fire in the evening, build huts and tools; nobody dies', () => {
+// Three game days: since huts cost 20 wood + 10 stone + 5 leather (2026-11-25) the first hut often comes on day 3 (seeds s3 / surv-own had none in 48 h).
+test('survival: left alone for three game days, people make a camp, light a fire in the evening, build huts and tools; nobody dies', () => {
   const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'surv-own' });
   w.populate();
   const ev: Record<string, number> = {}, built: string[] = [];
   w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; if (x.kind === 'build') built.push(String(x.data.what)); });
-  for (let k = 0; k < (48 * 3600) / 30 * 20; k++) w.step();
+  for (let k = 0; k < (72 * 3600) / 30 * 20; k++) w.step();
   assert.equal(ev.death ?? 0, 0, `deaths ${JSON.stringify(ev)}`);
   assert.equal(ev.camp, 1, 'one camp');
   assert.ok(built.includes('campfire'), `fires ${built}`);

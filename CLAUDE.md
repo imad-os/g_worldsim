@@ -627,3 +627,16 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   the old lock-on assist + a gentle pull within 0.12 rad); my character turns to the aim. Top view keeps the ground line + ring.
 - `#hint` (the bottom button bar) is never shown (imad: not needed); the A context pill (`#iahint`) stays. `Menu.render` leaves a page's html
   alone when unchanged (the map's canvas stays put). Proof `ADMIN_TOKEN=... node tools/map-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.page / yaw / xhair / map`).
+
+## Fighting several at once, helping each other, the woods (imad 2026-11-26)
+- `sim/tactics.ts` (`Brain.tactics`), used in `Brain.danger` with the instinct flag: every zombie / attacking animal within 14 m counts
+  (`threats`), not only the nearest. Running: `escape` scores 16 ways by the time margin against ALL of them (walls cut a way short, a haven
+  or friends pull), keeps the way 3 s unless another is 1.5 m better, and no new path while the old one still points the same way (the
+  "a-b-a-b 5 m" bug with 5 zombies = the way was re-picked from whichever zombie was nearest twice a second). The fight-or-run choice is kept
+  5 s (`lockUntil`), and someone safe by a fire stays there (no going out to fight and back). Fighting: focus fire (`target`: the one friends
+  hit, else close / weak), kite (step back) when hemmed in from two sides, breakout (fight the one in the best way) when surrounded.
+  Event `tactic { plan fight | help | kite | flee | haven | breakout, n }` + a shouted line with 2+ attackers. 20 s after a threat the watch stays 14 m.
+- Help: `Tactics.victim` = a person (agent, child or player) within 18 m being bitten / gored -> neighbours fight it (odds x1.5, nerve +0.3).
+- Wild maps (`World.wild(m)`: gen type wilds or map `danger: true`): children (EFlag.Child / Small) are turned back at the gate
+  (`portalsAndTransit`) and a child in the woods goes home; adults go only 06-15 with hp >= 60 (`Brain.mayGoWild`) and leave from 16:00;
+  watch radius 14 m there (9 asleep); `Planner.placeText` in every prompt. Test tactics.test.ts (5 zombies: 0 deaths, was 10 of 35).

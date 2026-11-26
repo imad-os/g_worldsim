@@ -12,7 +12,8 @@ import type { World } from './world.js';
  */
 /** What zombies claw through to get at people. */
 const CLAW = new Set(['woodwall', 'wall', 'crate', 'palisade', 'spikes', 'stonewall', 'door', 'window', 'lamp', 'bed']);
-const FIRE_SAFE = 5, EVERY = 5;
+export const FIRE_SAFE = 5;
+const EVERY = 5;
 /** The owner's zombie numbers (panel, meta `zombie_cfg`): health, walking speed (m/s), bite damage, sight (chase) and smell (drift towards people) distance in metres. */
 export interface ZombieCfg { hp: number; speed: number; bite: number; sight: number; smell: number }
 export const ZOMBIE_DEFAULTS: ZombieCfg = { hp: 120, speed: 1.15, bite: 8, sight: 16, smell: 120 };

@@ -14,7 +14,7 @@
  */
 import { Convo, smallTalk } from './convo.js';
 import { kidTalk, kidVoice } from '../sim/family.js';
-import { Act, Kind, RECIPES_ALL, CONFIRM } from '@worldsim/protocol';
+import { Act, EFlag, Kind, RECIPES_ALL, CONFIRM } from '@worldsim/protocol';
 import type { Ai } from './llm.js';
 import { parseJsonReply } from './llm.js';
 import type { Logger } from '../log.js';
@@ -397,6 +397,7 @@ export class Planner {
       w.clans.promptText(i),
       ...(w.quests.promptText(i) ? [w.quests.promptText(i)] : []),
       `Has: ${this.invText(i)}.${this.campText(i)}`,
+      ...(this.placeText(i) ? [this.placeText(i)] : []),
       `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
       ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),
@@ -405,6 +406,19 @@ export class Planner {
       ...(w.ai.instinct ? [w.memory.story(i)].filter(Boolean) : []),
       `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,
     ].join('\n');
+  }
+
+  /**
+   * What everyone knows about the dangerous places (imad 2026-11-26: "the forest is very dangerous, kids are not allowed, they die a
+   * lot there"): the wild maps by name, and what to do when you are in one.
+   */
+  private placeText(i: number): string {
+    const w = this.w, m = w.e.map[i]!, wild = w.maps.filter((x) => w.wild(x.index)).map((x) => x.def.name);
+    if (!wild.length) return '';
+    const kid = (w.e.flags[i]! & EFlag.Child) !== 0;
+    if (w.wild(m)) return `DANGER: you are in ${w.maps[m]!.def.name}, a very dangerous wild place (wolves, bears, boars and zombies; many have died here).`
+      + (kid ? ' Children are not allowed here: go back to safety now.' : ' Stay close to the others, carry a weapon, help anyone attacked, never bring children, and leave before dark.');
+    return `${wild.join(', ')}: very dangerous wild place${wild.length > 1 ? 's' : ''} (wolves, bears, zombies; many die there). Only adults go, armed and together, by day; children are never allowed.`;
   }
 
   /** What a person knows about themselves: their strengths (0-10), level, what they are doing, how they are armed and dressed. */

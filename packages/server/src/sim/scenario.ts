@@ -24,6 +24,8 @@ export interface MapDef {
   w: number;
   h: number;
   gen: { type: string; [k: string]: unknown };
+  /** Dangerous for people (children never go); default: true for generated wilds. */
+  danger?: boolean;
 }
 
 export interface PortalDef {
