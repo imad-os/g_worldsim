@@ -182,3 +182,35 @@ waited for a moment with no task at all (the colony keeps people busy), and a sm
 turned the order into a "never". Failed tries were "I found no animals near here" (28) and "it got away" (3); each waits 2 game hours.
 On a live server (town only, travel closed, 4 animals at most in town) the same rule got 7 kills for 5 people in ~1.5 game days:
 hunting in town is limited by game, not by the rule.
+
+## E10. Siege: 20 people (8 children) against 20 zombies, a whole game day (2026-11-26)
+`node packages/server/dist/experiment-siege.js --seeds siege-a,... --hour 13,21 --where edge,camp --out <dir> [--days 2]`
+(post-apocalypse scenario, town, 6 couples + 8 children aged 0.3 / 0.6 / 1.4 / 2.2 / 5 / 7 / 9 / 12, the town lives from 08:00,
+20 zombies that do not crumble at dawn come in at 13:00 or 21:00 from the roads (edge) or 30-45 m round the camp; until 08:00
+the next day. Every event goes to `<seed>-<hour>-<where>-events.jsonl`, everyone's position / act / hp / carer each game minute
+to `-track.jsonl`.) 32 runs: seeds a-d x 13 / 21 x edge / camp, seeds e-l x 13 / 21 x camp.
+
+| | before | after |
+|---|---|---|
+| deaths (all 32 runs, 640 lives) | 29 | **18** |
+| children killed | 14 | **5** |
+| night attacks: deaths / children / bites on children | 18 / 9 / 187 | **7 / 1 / 27** |
+| day attacks: deaths / children | 11 / 5 | 11 / 4 |
+| 2 days after a night attack (4 seeds): deaths | – | 15 (thirst, at the fire) -> **0** |
+| food and water given by fathers (8 fresh seeds, one day) | 0 | 31 (mothers 115) |
+
+What the logs showed (every death was printed with its last 14 events and who was within 10 m):
+- almost everyone who died was alone and running, often caught against the map's edge (`Tactics.way` now treats the last
+  14 m before the edge as a dead end); nobody stood together because everyone counted only friends not running (friends on
+  their feet within 10 m count now);
+- a night guard kept fighting 4 zombies down to 20 hp: the 5 s fight-or-run lock now ends after 15 hp lost or more attackers;
+- a woman ran from a boar for 11 minutes, bitten 15 times: bitten 3 times in 6 s while running = turn and fight (`cornered`);
+- toddlers were left standing while their carer ran: a carer now runs to the little one and picks it up first.
+- Rally (`Tactics.muster`, `Brain.rally`): 3+ zombies within 70 m of the camp = everyone within 90 m goes to the camp's
+  burning fire (or lights its ashes again with one wood), the weak in the middle (inside 5 m: zombies cannot reach them
+  there), the fit hit what comes within 7 m, sleep there at night, and go out together for the nearest zombie when they
+  outnumber it and its neighbours 2.5 to 1. Thirsty / hungry people leave the group for water when nothing is close.
+  Tried and dropped: a rally with no fire (20 of 20 dead: a crowd of bare hands loses to 20 zombies; scattered they outrun
+  them) and a fire made new on the spot (not up in time: 8 and 13 dead).
+- Day attacks with no fire yet are not better: people still scatter and a few hurt ones are caught later. Next: weapons
+  before a planned attack (spears), huts with doors as a day shelter.

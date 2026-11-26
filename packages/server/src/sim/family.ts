@@ -41,7 +41,10 @@ export class Family {
   readonly carried: Int32Array;
   /** Family role requests waiting for an answer (player to player), memory only. */
   asks: KinAsk[] = [];
+  /** Food and water each grown-up gave children lately (entity id -> count, halved every game day): the parent who gave less goes next. */
+  readonly given = new Map<number, number>();
   private nextHour = 0;
+  private nextDay = 0;
 
   constructor(private w: World) {
     this.carer = new Int32Array(w.e.cap).fill(-1);
@@ -159,7 +162,8 @@ export class Family {
       if (j === i || e.kind[j] !== Kind.Agent || !this.awakeAdult(j, m) || this.dependent(j)) continue;
       const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
       if (d > 60) continue;
-      const s = (w.profileOf(j)?.traits.empathy ?? 0.5) * 2 - d / 60 + (w.profileOf(j)?.sex === 'f' ? 0.2 : 0);
+      const clan = this.parentsOf(id).some((p) => { const c = w.clans.clanOf(p); return !!c && c === w.clans.clanOf(e.id(j)); });
+      const s = (w.profileOf(j)?.traits.empathy ?? 0.5) * 2 - d / 60 + (w.profileOf(j)?.sex === 'f' ? 0.2 : 0) + (clan ? 0.6 : 0);
       if (s > bs) { bs = s; best = j; }
     }
     return best;
@@ -181,12 +185,64 @@ export class Family {
       // A player-parent picks up and puts down by hand (Do care carry); the AI does it by itself.
       if (this.byHand(c)) continue;
       const moving = (e.flags[c]! & EFlag.Moving) !== 0 || e.act[c] === Act.Flee || e.act[c] === Act.Fight;
-      const danger = w.zombies.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 12) >= 0;
+      const danger = w.zombies.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 12) >= 0 || (e.kind[c] === Kind.Agent && w.brain.tactics.alert(c));
       if (!held && d <= 1.8 && (age < BABY || moving || danger)) this.pickUp(i, c);
       else if (held && age >= BABY && !moving && !danger && e.act[c] !== Act.Sleep) this.putDown(i);
     }
     if (this.nextHour === 0) this.nextHour = w.gameSec + 3600;
     if (w.gameSec >= this.nextHour) { this.nextHour = w.gameSec + 3600; this.hourly(); }
+    if (this.nextDay === 0) this.nextDay = w.gameSec + 86400;
+    if (w.gameSec >= this.nextDay) { this.nextDay = w.gameSec + 86400; for (const [k, v] of this.given) if (v < 1) this.given.delete(k); else this.given.set(k, v / 2); }
+  }
+
+  // ------------------------------------------------------------------ both parents provide (imad 2026-11-26: "both parents must be responsible")
+  private gave(c: number): void { const id = this.w.e.id(c); this.given.set(id, (this.given.get(id) ?? 0) + 1); }
+  /** A parent free to see to a child now: grown, awake, on their feet, not in a fight, on the map within 60 m, driven by the AI. */
+  private free(j: number, k: number): boolean {
+    const e = this.w.e;
+    if (j < 0 || !this.awakeAdult(j, e.map[k]!) || this.byHand(j) || e.kind[j] !== Kind.Agent) return false;
+    if (e.flags[j]! & EFlag.Sleeping || e.act[j] === Act.Fight || e.act[j] === Act.Flee || e.act[j] === Act.Sleep) return false;
+    if (e.thirst[j]! > 85 || e.hunger[j]! > 90) return false;
+    return Math.hypot(e.x[j]! - e.x[k]!, e.y[j]! - e.y[k]!) < 60;
+  }
+  /** Whose turn it is to feed / water child k: of the free parents, the one who gave less (the one already with it on a tie); -1 = nobody free. */
+  provider(k: number): number {
+    const e = this.w.e, near = this.carer[k]!;
+    let best = -1, bs = Infinity;
+    for (const pid of this.parentsOf(e.id(k))) {
+      const j = e.slot(pid);
+      if (!this.free(j, k)) continue;
+      const s = (this.given.get(pid) ?? 0) - (j === near ? 0.5 : 0) + Math.hypot(e.x[j]! - e.x[k]!, e.y[j]! - e.y[k]!) / 200;
+      if (s < bs) { bs = s; best = j; }
+    }
+    return best;
+  }
+  /** Older children (3-13) of c on this map within 50 m who are hungry, when c has food to bring them; also a clan member's child
+   *  whose parents are not around, for a kind person. The hungriest, or -1. */
+  hungryKid(c: number): number {
+    const w = this.w, e = w.e;
+    if (e.carry[c]! <= 0) return -1;
+    const me = e.id(c), mine = new Set(this.childrenOf(me)), clan = w.clans.clanOf(me), kind = (w.profileOf(c)?.traits.empathy ?? 0.5) > 0.6;
+    let best = -1, top = 60;
+    for (let k = 0; k < e.hi; k++) {
+      if (e.kind[k] !== Kind.Agent || e.map[k] !== e.map[c] || this.dependent(k) || e.hunger[k]! <= top || e.carry[k]! > 0) continue;
+      const age = this.ageOf(k);
+      if (age < TODDLER || age >= 14 || Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) > 50) continue;
+      const id = e.id(k);
+      if (mine.has(id)) { if (this.provider(k) !== c) continue; }
+      else if (!(kind && clan && e.hunger[k]! > 75 && this.parentsOf(id).some((p) => w.clans.clanOf(p) === clan) && this.provider(k) < 0)) continue;
+      top = e.hunger[k]!; best = k;
+    }
+    return best;
+  }
+  /** Hand one food to child k (within 2.5 m). */
+  bring(c: number, k: number): boolean {
+    const e = this.w.e;
+    if (e.carry[c]! <= 0 || Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) > 2.5) return false;
+    e.carry[c]!--; e.carry[k]!++;
+    this.gave(c);
+    this.w.emit('care', { id: e.id(c), kid: e.id(k), what: 'food', brought: true });
+    return true;
   }
   pickUp(i: number, c: number): void {
     const w = this.w, e = w.e;
@@ -219,7 +275,7 @@ export class Family {
   /** The carer just drank: the little ones with them drink too. */
   drank(c: number): void {
     const e = this.w.e;
-    for (const k of this.kidsOf(c)) if (Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) < 3) { e.thirst[k] = 0; this.w.emit('care', { id: e.id(c), kid: e.id(k), what: 'water' }); }
+    for (const k of this.kidsOf(c)) if (Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) < 3) { if (e.thirst[k]! > 20) this.gave(c); e.thirst[k] = 0; this.w.emit('care', { id: e.id(c), kid: e.id(k), what: 'water' }); }
   }
   /** The carer has food and a hungry little one close: feed it. True = fed one. */
   feed(c: number): boolean {
@@ -227,26 +283,45 @@ export class Family {
     for (const k of this.kidsOf(c)) {
       if (e.hunger[k]! < NEED || e.carry[c]! <= 0 || Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) > 3) continue;
       e.carry[c]!--; e.hunger[k] = Math.max(0, e.hunger[k]! - 50);
+      this.gave(c);
       this.w.emit('care', { id: e.id(c), kid: e.id(k), what: 'food' });
       return true;
     }
     return false;
   }
   /** What the carer should see to first for their little ones: 'water' | 'food' | 'fetch' (go to them) | ''. */
-  duty(c: number): { what: '' | 'water' | 'food' | 'fetch'; kid: number } {
+  duty(c: number): { what: '' | 'water' | 'food' | 'fetch' | 'bring'; kid: number } {
     const e = this.w.e;
-    let what: '' | 'water' | 'food' | 'fetch' = '', kid = -1, top = NEED;
+    // My child in need and it is my turn (the other parent gave more): I take it over from them.
+    if (e.kind[c] === Kind.Agent) for (const cid of this.childrenOf(e.id(c))) {
+      const k = e.slot(cid);
+      if (k < 0 || this.carer[k] === c || !this.dependent(k) || Math.max(e.hunger[k]!, e.thirst[k]!) <= NEED || this.provider(k) !== c) continue;
+      const old = this.carer[k]!;
+      if (old >= 0 && e.kind[old] === Kind.Agent && this.free(old, k) && (this.given.get(e.id(old)) ?? 0) <= (this.given.get(e.id(c)) ?? 0)) continue;
+      if (this.carried[k]! >= 0) this.putDown(k);
+      this.carer[k] = c;
+      this.w.emit('care', { id: e.id(c), kid: cid, what: 'turn', from: old >= 0 ? e.id(old) : -1 });
+    }
+    let what: '' | 'water' | 'food' | 'fetch' | 'bring' = '', kid = -1, top = NEED;
     for (const k of this.kidsOf(c)) {
       const d = Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!);
       if (this.carried[k]! < 0 && d > (this.ageOf(k) < BABY ? 1.5 : 5)) { if (what !== 'fetch' || d > top) { what = 'fetch'; kid = k; top = 1e9; } continue; }
       if (what === 'fetch') continue;
+      const pv = this.provider(k);
+      if (pv >= 0 && pv !== c && this.parentsOf(e.id(k)).includes(e.id(c))) continue; // the other parent's turn: they come and take it
       if (e.thirst[k]! > top) { what = 'water'; kid = k; top = e.thirst[k]!; }
       if (e.hunger[k]! > top) { what = 'food'; kid = k; top = e.hunger[k]!; }
     }
+    if (!what) { const k = this.hungryKid(c); if (k >= 0) return { what: 'bring', kid: k }; }
     return { what, kid };
   }
   /** Needs a carer has to meet for someone else: they keep found food instead of eating it. */
-  wantsFood(c: number): boolean { const e = this.w.e; return this.kidsOf(c).some((k) => e.hunger[k]! > NEED - 15); }
+  wantsFood(c: number): boolean {
+    const e = this.w.e;
+    if (this.kidsOf(c).some((k) => e.hunger[k]! > NEED - 15)) return true;
+    // Older children of mine who are hungry, when it is my turn to provide.
+    return this.childrenOf(e.id(c)).some((cid) => { const k = e.slot(cid); return k >= 0 && e.map[k] === e.map[c] && !this.dependent(k) && this.ageOf(k) < 14 && e.hunger[k]! > 55 && this.provider(k) === c; });
+  }
 
   /** A player-parent cares by hand (Do care "what:id"): feed, water (near water), carry / put down, bed. */
   care(c: number, what: string, kid: number): { ok: boolean; code: string } {
@@ -283,6 +358,32 @@ export class Family {
       if (z >= 0) return z;
       const a = w.animals.attacker(k);
       if (a >= 0) return a;
+    }
+    return -1;
+  }
+
+  /**
+   * A child (under 14) of someone in my clan is in danger near me (25 m): the zombie / beast, or -1. Not like a parent: only people
+   * kind or brave enough care (empathy x 0.6 + courage x 0.4 > 0.45), and only against a few: up to 1-4 attackers by the same
+   * traits, never 5 or more (imad 2026-11-26: "clan members feel responsible too, by empathy and courage, but can't face 10
+   * zombies to save someone else's kids").
+   */
+  threatToClanKid(c: number): number {
+    const w = this.w, e = w.e, m = e.map[c]!, me = e.id(c), clan = w.clans.clanOf(me);
+    if (!clan || this.ageOf(c) < 16) return -1;
+    const t = w.profileOf(c)?.traits, care = (t?.empathy ?? 0.5) * 0.6 + (t?.courage ?? 0.5) * 0.4;
+    if (care <= 0.45) return -1;
+    const most = Math.min(4, 1 + Math.floor((care - 0.45) * 8));
+    const mine = this.childrenOf(me);
+    for (let k = 0; k < e.hi; k++) {
+      if (e.kind[k] !== Kind.Agent || e.map[k] !== m || this.ageOf(k) >= 14 || Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) > 25) continue;
+      const kid = e.id(k);
+      if (mine.includes(kid) || !this.parentsOf(kid).some((p) => w.clans.clanOf(p) === clan)) continue;
+      const z = w.zombies.nearest(m, e.x[k]!, e.y[k]!, 7);
+      const a = z >= 0 ? z : w.animals.attacker(k);
+      if (a < 0) continue;
+      if (w.brain.tactics.threats(m, e.x[k]!, e.y[k]!, 8).length > most) continue; // too many: not for someone else's child
+      return a;
     }
     return -1;
   }

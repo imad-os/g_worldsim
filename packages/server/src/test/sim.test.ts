@@ -541,9 +541,11 @@ test('families: a child under 14 stays near a parent; at 14 they are on their ow
   let far = 0, n = 0;
   for (let k = 0; k < 86400 / 30 * 20; k++) {
     w.step();
-    if (k % 100 === 0 && e.hunger[c]! < 70 && e.thirst[c]! < 70) { n++; if (Math.hypot(e.x[c]! - e.x[im]!, e.y[c]! - e.y[im]!) > 25) far++; }
+    // Near mum, or near home while she works far off (imad 2026-11-26: "they move for their needs but not far from home").
+    const home = w.brain.kidHome(c);
+    if (k % 100 === 0 && e.hunger[c]! < 70 && e.thirst[c]! < 70) { n++; if (Math.hypot(e.x[c]! - e.x[im]!, e.y[c]! - e.y[im]!) > 25 && (!home || Math.hypot(e.x[c]! - home.x, e.y[c]! - home.y) > 45)) far++; }
   }
-  assert.ok(n > 50 && far / n < 0.12, `the child stayed near mum (${far}/${n} samples far)`);
+  assert.ok(n > 50 && far / n < 0.12, `the child stayed near mum or home (${far}/${n} samples far)`);
   assert.equal(w.brain.guardian(c), im);
   kid.born = w.gameSec - 14.2 * w.life.yearSec;
   assert.equal(w.brain.guardian(c), -1, 'at 14: free');

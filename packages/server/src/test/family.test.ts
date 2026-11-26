@@ -126,3 +126,67 @@ test('children talk like children', () => {
   assert.equal(kidTalk(9, 'We need wood.', fine, pick), 'We need wood.');
   assert.equal(stageOf(0.5), 'baby'); assert.equal(stageOf(2), 'toddler'); assert.equal(stageOf(10), 'child');
 });
+
+test('both parents provide: the one who gave less takes the little one over and feeds it (imad 2026-11-26)', () => {
+  const { w, e, im, c, mumId, dadId, kidId } = withBaby('share1', 1.5);
+  const id = e.slot(dadId);
+  w.place(id, e.map[im]!, e.x[im]! + 2, e.y[im]!);
+  for (const j of [im, id]) { w.brain.stop(j); e.act[j] = Act.Idle; e.flags[j] = e.flags[j]! & ~EFlag.Sleeping; e.thirst[j] = e.hunger[j] = 0; }
+  w.step();
+  w.family.given.set(mumId, 4); w.family.given.set(dadId, 0); // she did it all morning
+  e.hunger[c] = 70; e.carry[id] = 2;
+  assert.equal(w.family.provider(c), id, "the father's turn");
+  const fed: number[] = [];
+  w.listeners.push((ev) => { if (ev.kind === 'care' && ev.data.kid === kidId && ev.data.what === 'food') fed.push(Number(ev.data.id)); });
+  for (let k = 0; k < 20 * 60 && !fed.length; k++) w.step();
+  assert.deepEqual(fed.slice(0, 1), [dadId], 'the father fed the child');
+  assert.equal(w.family.carer[c], id, 'and has it with him now');
+  // An older child: the parent whose turn it is brings food over.
+  const { w: w2, e: e2, im: m2, c: c2, kidId: k2 } = withBaby('share2', 8);
+  e2.flags[c2] = (e2.flags[c2]! | EFlag.Child) & ~EFlag.Small;
+  w2.step();
+  e2.hunger[c2] = 75; e2.carry[c2] = 0; e2.carry[m2] = 2; e2.hunger[m2] = e2.thirst[m2] = 0;
+  w2.place(c2, e2.map[m2]!, e2.x[m2]! + 10, e2.y[m2]!);
+  let brought = false;
+  w2.listeners.push((ev) => { if (ev.kind === 'care' && ev.data.kid === k2 && ev.data.brought) brought = true; });
+  for (let k = 0; k < 20 * 60 && !brought; k++) { w2.step(); e2.hunger[c2] = Math.max(e2.hunger[c2]!, 75); if (e2.carry[c2]! > 0 && !brought) break; }
+  assert.ok(brought, 'food brought to the 8-year-old');
+});
+
+test('children (3-13) see to their needs but stay near home; with a parent they may go further', () => {
+  const { w, e, im, c } = withBaby('leash1', 8);
+  e.flags[c] = (e.flags[c]! | EFlag.Child) & ~EFlag.Small;
+  const m = e.map[c]!;
+  w.survival.camp[m] = { x: e.x[c]!, y: e.y[c]! };
+  w.place(im, m, e.x[c]! + 30, e.y[c]! + 30); // mum away
+  const far = w.freeSpot(m, e.x[c]! + 70, e.y[c]!, 30)!, near = w.freeSpot(m, e.x[c]! + 15, e.y[c]!, 10)!;
+  e.thirst[c] = e.hunger[c] = 0;
+  assert.equal(w.brain.goTo(c, far.x, far.y), false, 'not 70 m away on their own');
+  assert.equal(w.brain.goTo(c, near.x, near.y), true, 'around home is fine');
+  e.thirst[c] = 80;
+  assert.equal(w.brain.goTo(c, far.x, far.y), true, 'parched: may go for water');
+  e.thirst[c] = 0;
+  w.place(im, m, e.x[c]! + 1, e.y[c]!);
+  const f2 = w.freeSpot(m, e.x[im]! + 70, e.y[im]!, 30)!;
+  w.place(im, m, f2.x - 4, f2.y); w.place(c, m, f2.x - 5, f2.y); // out together with mum
+  assert.equal(w.brain.goTo(c, f2.x, f2.y), true, 'with mum next to them');
+});
+
+test('clan members guard a clan child by their own empathy and courage, never against a horde', () => {
+  const { w, e, im, c, mumId, dadId } = withBaby('clan1', 6);
+  e.flags[c] = (e.flags[c]! | EFlag.Child) & ~EFlag.Small;
+  const m = e.map[c]!, ids = [...w.profiles.keys()].filter((x) => x !== mumId && x !== dadId && x !== e.id(c));
+  const kind = e.slot(ids[0]!), cold = e.slot(ids[1]!);
+  for (const j of [kind, cold]) { w.profileOf(j)!.born = w.gameSec - 30 * w.life.yearSec; e.flags[j] = e.flags[j]! & ~(EFlag.Child | EFlag.Small); }
+  w.clans.found(m, mumId, [ids[0]!, ids[1]!]);
+  Object.assign(w.profileOf(kind)!.traits, { empathy: 0.9, courage: 0.8 });
+  Object.assign(w.profileOf(cold)!.traits, { empathy: 0.2, courage: 0.3 });
+  w.place(im, w.mapIndex.get('woods') ?? m, 50, 50);
+  w.place(kind, m, e.x[c]! + 10, e.y[c]!); w.place(cold, m, e.x[c]! - 10, e.y[c]!);
+  const z = w.zombies.spawn(m, e.x[c]! + 3, e.y[c]! + 1, true);
+  assert.ok(z >= 0);
+  assert.equal(w.family.threatToClanKid(kind), z, 'the kind, brave one sees it as theirs to stop');
+  assert.equal(w.family.threatToClanKid(cold), -1, 'the cold, timid one does not');
+  for (let q = 0; q < 6; q++) w.zombies.spawn(m, e.x[c]! + 3 + (q % 3), e.y[c]! + 2 + q / 3, true);
+  assert.equal(w.family.threatToClanKid(kind), -1, 'not against seven of them');
+});

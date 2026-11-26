@@ -666,3 +666,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   (one vertex-coloured mesh per gate + the sign's canvas text): the road goes on past the map's edge (paved, then a dirt track) through thick woods
   that close across it further out, two big trees frame the opening, a wooden signpost names the map it leads to (both faces). `Land.tracks()` wears
   a 3-wide dirt track on grass from each gate to the edge and 8 tiles in (every start). Proof `ADMIN_TOKEN=... node tools/gates-proof.mjs <server> <sdk.js> <outdir>`.
+
+
+## Zombie sieges, both parents, kids near home, clan kids (imad 2026-11-26)
+- Experiment `experiment-siege.ts` (E10, research/EXPERIMENTS.md): 20 people (6 couples, 8 kids) vs 20 zombies, a whole game day, full event /
+  track logs; test siege.test.ts (one night attack, ~35 s). Night deaths 18 -> 7 and children 9 -> 1 over 16 runs; day attacks unchanged.
+- `Tactics.muster(m)` (3+ zombies within 70 m of the camp; at its burning fire, or its ashes relit with 1 wood via `Survival.relight`; never
+  with no fire) + `Brain.rally`: go there round the zombies, weak inside 4 m of the fire, fit fight within 7 m, sleep there, `sally` out together
+  (2.5 to 1), thirsty / hungry leave when nothing is close. Also: map edge = dead end when running, friends on their feet count in the odds,
+  the fight lock ends after 15 hp lost / more attackers, `Tactics.cornered` (bitten 3x in 6 s while running = fight back), carers grab little ones.
+- Both parents provide: `Family.given` (food / water given, halved daily), `provider(k)` = the free parent who gave less; their `duty` takes the
+  little one over (event care `turn`); older children (3-13) get food brought (`hungryKid` / `bring`, duty 'bring'). Kids 3-13: `Brain.kidHome`
+  (home, a parent's home, else camp), `leashed()` in `goTo` (no walk past `KID_RANGE` 35 m from home alone unless thirst > 75 / hunger > 85).
+- Clan kids (imad): `Family.threatToClanKid` = only empathy x .6 + courage x .4 > .45, against 1-4 attackers by those traits, never 5+;
+  clan members are preferred as stand-in carers and kind ones bring food to a clan child whose parents are away.

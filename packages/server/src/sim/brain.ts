@@ -20,6 +20,8 @@ import type { World } from './world.js';
 export const THINK_EVERY = [2, 10, 40, 120];
 const PMAX = 64;
 const HOUR = 3600;
+/** How far from home a child (3-13) goes on their own (imad 2026-11-26: "they move for their needs, but not far from home"). */
+export const KID_RANGE = 35;
 
 export interface NeedsDef { hunger: number; thirst: number; tired: number; lonely: number; sleepRecover: number }
 export interface ItemDef { id: number; name: string; food: number; spawn: { maps: string[]; on?: string[]; near?: string; max: number; perHour: number } }
@@ -148,6 +150,7 @@ export class Brain {
   /** Path to (x, y). False when there is no way. */
   goTo(i: number, x: number, y: number, run = false): boolean {
     const w = this.w, e = w.e, pf = this.paths[e.map[i]!]!;
+    if (!run && this.leashed(i, x, y)) return false; // a child does not go far from home on their own
     this.searches++;
     const r = pf.find(e.x[i]!, e.y[i]!, x, y);
     if (r === 'none') { this.pN[i] = 0; return false; }
@@ -376,6 +379,10 @@ export class Brain {
     // A parent sees a zombie or a beast near their child (under 14): they go for it, even timid ones (imad 2026-11-25: "parents protect their kids").
     let protect = false;
     if (z < 0 && !fleeing) { z = w.family.threatToMine(i); protect = z >= 0; }
+    // A clan member's child in danger (imad 2026-11-26: "clan members too feel responsible, by empathy and courage, but nobody faces 10
+    // zombies for someone else's kid"): only the kind / brave, and only against a few.
+    let clanKid = false;
+    if (z < 0 && !fleeing && !asleep && w.ai.instinct) { z = w.family.threatToClanKid(i); clanKid = protect = z >= 0; }
     // Someone near is being bitten or gored: go and fight it with them (imad 2026-11-26: "if one is attacked and the other is near, both attack").
     let help = -1;
     if (z < 0 && !asleep && w.ai.instinct) { const v = T.victim(i); if (v) { z = v.z; help = v.v; } }
@@ -387,6 +394,12 @@ export class Brain {
         if (a.until > w.gameSec && s >= 0 && e.map[s] === m && (e.kind[s] === Kind.Threat || e.kind[s] === Kind.Animal) && Math.hypot(e.x[s]! - e.x[i]!, e.y[s]! - e.y[i]!) < 35) { z = s; rally = true; }
         else this.alarm.delete(id);
       }
+    }
+    if (z < 0 && w.ai.instinct && !(e.flags[i]! & EFlag.Small)) { // the camp is under attack: everyone within 90 m comes to the rally point
+      const mu = T.muster(m);
+      if (mu && Math.hypot(mu.x - e.x[i]!, mu.y - e.y[i]!) < 90) z = w.zombies.nearest(m, mu.x, mu.y, 90);
+      // Asleep by the fire with nothing close: sleep on (the fire keeps them off).
+      if (z >= 0 && asleep && mu?.fire && Math.hypot(mu.x - e.x[i]!, mu.y - e.y[i]!) < 5.5 && w.zombies.nearest(m, e.x[i]!, e.y[i]!, 8) < 0) { this.schedule(i, 3); return true; }
     }
     if (z < 0) {
       if ((fighting && this.huntId[i]! < 0) || fleeing) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; }
@@ -404,7 +417,23 @@ export class Brain {
     // person with some nerve, joins in. Only the very timid, the hurt and children run.
     let allies = 0;
     for (let j = 0; j < e.hi && allies < 2; j++) if (j !== i && e.kind[j] === Kind.Agent && e.act[j] === Act.Fight && e.target[j] === e.id(z) && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 14) allies++;
-    const holding = w.family.kidsOf(i).some((k) => w.family.carried[k] === i); // a baby in arms: run with it, never fight
+    let holding = w.family.kidsOf(i).some((k) => w.family.carried[k] === i); // a baby in arms: run with it, never fight
+    // My little one on the ground: get to it and pick it up first (toddlers were left standing while their carer ran).
+    if (!holding && e.kind[i] === Kind.Agent) {
+      const near = Math.hypot(e.x[z]! - e.x[i]!, e.y[z]! - e.y[i]!);
+      for (const k of w.family.kidsOf(i)) {
+        if (w.family.carried[k]! >= 0) continue;
+        const dk = Math.hypot(e.x[k]! - e.x[i]!, e.y[k]! - e.y[i]!);
+        if (dk <= 1.8) { w.family.pickUp(k, i); holding = true; w.emit('care', { id: e.id(i), kid: e.id(k), what: 'grab' }); break; }
+        if (dk < 25 && (near > 2.5 || dk < 4)) {
+          if (asleep) this.setAct(i, Act.Idle);
+          if (!this.walking(i) || Math.hypot(this.gx[i]! - e.x[k]!, this.gy[i]! - e.y[k]!) > 1.2) this.goTo(i, e.x[k]!, e.y[k]!, true);
+          this.setAct(i, Act.Flee); e.target[i] = e.id(z); this.tactic(i, 'haven', th.length);
+          this.schedule(i, 0, 3);
+          return true;
+        }
+      }
+    }
     const nerve = (p?.traits.courage ?? 0.5) + (p?.traits.strength ?? 0.5) * 0.4 + (armed ? 0.25 : 0) + allies * 0.15 + (protect ? 0.45 : 0) + (help >= 0 ? 0.3 : 0);
     // Safe by a fire (zombies and beasts keep off it): stay there, unless someone of ours outside needs us.
     const safe = w.ai.instinct && w.survival.fireNear(m, e.x[i]!, e.y[i]!, FIRE_SAFE - 0.5) >= 0;
@@ -414,12 +443,26 @@ export class Brain {
       this.schedule(i, 0, 10);
       return true;
     }
-    let brave = !holding && (w.ai.instinct ? this.fightOrFlight(i, z, fighting, help >= 0, fleeing)
+    // A camp under attack: rally at the fire / the camp and fight there together (sim/tactics.ts muster).
+    const mu = w.ai.instinct && !protect && help < 0 ? T.muster(m) : null;
+    const ral = mu ? this.rally(i, z, th, mu, holding) : false;
+    if (ral === null) { if (e.act[i] === Act.Flee || e.act[i] === Act.Fight) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; } return false; } // safe enough to see to thirst / hunger first
+    if (ral) return true;
+    let brave = !holding && (w.ai.instinct ? this.fightOrFlight(i, z, fighting, help >= 0, fleeing, protect ? (clanKid ? 1.2 : 1.8) : 1)
       : (nerve > 0.62 || fighting) && e.hp[i]! > (fighting ? 30 : protect ? 25 : 45) && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight'));
     // A choice is kept for 5 s (no going out to fight and back to the fire every other second), unless badly hurt.
     if (w.ai.instinct) {
-      if (T.lockUntil[i]! > w.tick && e.hp[i]! >= 25 && !holding) brave = T.lockBrave[i] === 1 && !w.rules.forbidden(i, 'fight');
-      else { T.lockBrave[i] = brave ? 1 : 0; T.lockUntil[i] = w.tick + Math.round(5 / w.dt); }
+      // ... but hurt by 15+ since, or more of them come: choose again now (a guard kept fighting 4 zombies down to 20 hp, then died running).
+      if (T.lockUntil[i]! > w.tick && e.hp[i]! >= 25 && !holding && T.lockHp[i]! - e.hp[i]! < 15 && th.length <= T.lockN[i]!) brave = T.lockBrave[i] === 1 && !w.rules.forbidden(i, 'fight');
+      else { T.lockBrave[i] = brave ? 1 : 0; T.lockUntil[i] = w.tick + Math.round(5 / w.dt); T.lockHp[i] = e.hp[i]!; T.lockN[i] = Math.max(1, th.length); }
+      // Running does not help when it keeps biting me (a boar, a zombie at my heels): turn and fight that one (a woman ran from a boar for 11 minutes and died).
+      const cz = brave ? -1 : T.cornered(i);
+      if (cz >= 0 && e.hp[i]! > 6 && !w.rules.forbidden(i, 'fight') && th.filter((j) => Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 3).length <= 2) {
+        if (e.act[i] !== Act.Fight) w.emit('fight', { id: e.id(i), zombie: e.id(cz), cornered: true });
+        this.setAct(i, Act.Fight); e.target[i] = e.id(cz); this.stop(i); e.angle[i] = Math.atan2(e.y[cz]! - e.y[i]!, e.x[cz]! - e.x[i]!);
+        this.tactic(i, 'breakout', th.length); this.schedule(i, 0, 5);
+        return true;
+      }
     }
     if ((protect || help >= 0) && !brave) return false; // too weak to help: the danger is not at their own side
     const zx = e.x[z]!, zy = e.y[z]!, d = Math.hypot(zx - e.x[i]!, zy - e.y[i]!);
@@ -511,6 +554,117 @@ export class Brain {
     return true;
   }
 
+  /**
+   * The camp is under attack (T.muster): go to the rally point, running round the zombies; there, children, the hurt and those holding
+   * a baby stay in the middle, the others fight what comes within reach of the group (at a fire: only what comes close, the fire keeps
+   * the rest off). False = not for me (far away, a zombie right on me: the usual fight-or-run decides).
+   */
+  private rally(i: number, z: number, th: number[], mu: { x: number; y: number; fire: boolean; ash: number }, holding: boolean): boolean | null {
+    const w = this.w, e = w.e, m = e.map[i]!, T = this.tactics;
+    const dm = Math.hypot(mu.x - e.x[i]!, mu.y - e.y[i]!);
+    if (dm > 90) return false;
+    // Thirsty or hungry and nothing within 20 m, or parched / starving and nothing right on me: go and see to it (a boy died of
+    // thirst by the fire waiting out the night; on a second day 6 and 9 of 20 did, zombies hovering round the fire).
+    const pressing = e.thirst[i]! > 82 || e.hunger[i]! > 88;
+    if ((e.thirst[i]! > 70 || e.hunger[i]! > 80) && w.zombies.nearest(m, e.x[i]!, e.y[i]!, pressing ? 4 : 20) < 0) return null;
+    if (pressing) return false; // one on me: the usual fight-or-run
+    const weak = holding || (e.flags[i]! & EFlag.Child) !== 0 || e.hp[i]! < 35 || w.rules.forbidden(i, 'fight');
+    const R = mu.fire ? 3.6 : 4; // arrived: within R + 1 (by a fire: only within 5 m are they out of the zombies' reach)
+    if (dm > R + 1 && !weak && e.act[i] === Act.Fight && e.hp[i]! >= 45) { // out with the group after one: see it through
+      const t = e.slot(e.target[i]!);
+      if (t >= 0 && e.kind[t] === Kind.Threat && e.map[t] === m && Math.hypot(e.x[t]! - mu.x, e.y[t]! - mu.y) < 74) return this.engage(i, t, th.length);
+    }
+    if (dm > R + 1) {
+      const dz = Math.hypot(e.x[z]! - e.x[i]!, e.y[z]! - e.y[i]!);
+      if (dz < 1.6 && !weak) return false; // one on me: deal with it first
+      // A zombie between me and the group: go round it (the way out that leans most towards the rally point).
+      const ang = Math.atan2(mu.y - e.y[i]!, mu.x - e.x[i]!);
+      let gx = mu.x, gy = mu.y;
+      const blocked = th.some((j) => { const a = Math.atan2(e.y[j]! - e.y[i]!, e.x[j]! - e.x[i]!), d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!); return d < Math.min(dm, 8) && Math.cos(a - ang) > 0.8; });
+      if (blocked) { const out = T.escape(i, th, mu, w.sc.agents.run * 0.9); if (out.margin > -Infinity) { gx = e.x[i]! + Math.cos(out.a) * out.len; gy = e.y[i]! + Math.sin(out.a) * out.len; } }
+      if (!this.walking(i) || Math.hypot(this.gx[i]! - gx, this.gy[i]! - gy) > 2.5) {
+        const s = blocked ? w.freeSpot(m, gx, gy, 6) : this.spotBy(m, mu, mu.fire ? 4.4 : 4);
+        if (!s || !this.goTo(i, s.x, s.y, true)) return false;
+      }
+      if (e.act[i] !== Act.Flee) w.emit('flee', { id: e.id(i), zombie: e.id(z), rally: true });
+      this.setAct(i, Act.Flee); e.target[i] = e.id(z); this.tactic(i, 'haven', th.length);
+      this.schedule(i, 0, 5);
+      return true;
+    }
+    // At the rally point. One biting me: hit back (a man stood in the crowd and was bitten 13 times).
+    const on = th.find((j) => Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 1.6);
+    if (on !== undefined && e.hp[i]! >= 25 && !holding && !(e.flags[i]! & EFlag.Child) && !w.rules.forbidden(i, 'fight')) return this.engage(i, on, th.length);
+    // The weak (children, the hurt, a baby in arms) into the middle, inside the fire's reach.
+    if (weak && mu.fire && dm > 4) {
+      if (!this.walking(i) || Math.hypot(this.gx[i]! - mu.x, this.gy[i]! - mu.y) > 4) {
+        const s = this.spotBy(m, mu, 3.5);
+        if (s) this.goTo(i, s.x, s.y, true);
+      }
+      this.setAct(i, Act.Flee); e.target[i] = e.id(z); this.schedule(i, 0, 4);
+      return true;
+    }
+    // The fire is out: light it again (a piece of wood from my bag or the store).
+    if (!mu.fire && dm < 2.6 && mu.ash >= 0 && w.survival.relight(i, m, mu.ash)) w.speak(i, 'Fire! Stay by the fire!');
+    const reach = mu.fire ? 7 : 6;
+    let t = -1, td = Infinity;
+    if (!weak) for (const j of th) { const d = Math.hypot(e.x[j]! - mu.x, e.y[j]! - mu.y); if (d < reach && d < td) { td = d; t = j; } }
+    if (t >= 0) {
+      t = T.target(i, t);
+      if (Math.hypot(e.x[t]! - mu.x, e.y[t]! - mu.y) > reach + 1) t = -1;
+    }
+    if (t < 0 && !weak && e.hp[i]! >= 50) t = this.sally(i, mu);
+    if (t < 0) { // hold: stand in the group; by a fire with nothing close, sleep there
+      this.stop(i);
+      if (mu.fire && e.tired[i]! > (this.hour() >= 21 || this.hour() < 6 ? 20 : 60) && !th.some((j) => Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 9)) {
+        this.setAct(i, Act.Sleep); w.emit('sleep', { id: e.id(i), fire: true }); this.schedule(i, 3); return true;
+      }
+      this.setAct(i, Act.Flee); e.target[i] = e.id(z); this.tactic(i, 'haven', th.length);
+      this.schedule(i, 0, 5);
+      return true;
+    }
+    return this.engage(i, t, th.length);
+  }
+  /** A free spot within r metres of point c (round a fire: inside its reach), or null. */
+  private spotBy(m: number, c: { x: number; y: number }, r: number): { x: number; y: number } | null {
+    const w = this.w;
+    for (let k = 0; k < 10; k++) {
+      const a = w.rng.next() * Math.PI * 2, d = 1.2 + w.rng.next() * (r - 1.2);
+      const s = w.freeSpot(m, c.x + Math.cos(a) * d, c.y + Math.sin(a) * d, 1.5);
+      if (s && Math.hypot(s.x - c.x, s.y - c.y) <= r) return s;
+    }
+    return w.freeSpot(m, c.x, c.y, r);
+  }
+  private engage(i: number, t: number, n: number): boolean {
+    const w = this.w, e = w.e;
+    if (e.act[i] !== Act.Fight) w.emit('fight', { id: e.id(i), zombie: e.id(t), rally: true });
+    this.setAct(i, Act.Fight); e.target[i] = e.id(t); this.tactic(i, 'fight', n);
+    const tx = e.x[t]!, ty = e.y[t]!, d = Math.hypot(tx - e.x[i]!, ty - e.y[i]!);
+    if (d > 1.2) { if (!this.walking(i) || Math.hypot(this.gx[i]! - tx, this.gy[i]! - ty) > 1.5) this.goTo(i, tx, ty, true); }
+    else { this.stop(i); e.angle[i] = Math.atan2(ty - e.y[i]!, tx - e.x[i]!); }
+    this.schedule(i, 0, 5);
+    return true;
+  }
+
+  /**
+   * From the rally point, the group goes out together for the zombie nearest to it (within 70 m) when it is outnumbered three to
+   * one by the fit grown-ups there (so the camp is cleared one by one, not by people alone). The zombie (slot), or -1.
+   */
+  private sally(i: number, mu: { x: number; y: number }): number {
+    const w = this.w, e = w.e, m = e.map[i]!;
+    let z = -1, zd = 70;
+    for (let j = 0; j < e.hi; j++) if (e.kind[j] === Kind.Threat && e.map[j] === m) { const d = Math.hypot(e.x[j]! - mu.x, e.y[j]! - mu.y); if (d < zd) { zd = d; z = j; } }
+    if (z < 0) return -1;
+    let near = 0, group = 0;
+    for (let j = 0; j < e.hi; j++) {
+      if (e.map[j] !== m) continue;
+      if (e.kind[j] === Kind.Threat) { if (Math.hypot(e.x[j]! - e.x[z]!, e.y[j]! - e.y[z]!) < 8) near++; continue; }
+      if (e.kind[j] !== Kind.Agent || e.flags[j]! & (EFlag.Child | EFlag.Sleeping) || e.hp[j]! < 50) continue;
+      const d = Math.hypot(e.x[j]! - mu.x, e.y[j]! - mu.y);
+      if (d < 7 || (e.act[j] === Act.Fight && e.target[j] === e.id(z))) group++;
+    }
+    return group >= 3 && group >= near * 2.5 ? z : -1;
+  }
+
   /** Say what we do against a group (once per plan change, at most every 40 game seconds) and log it (event `tactic`). */
   private tactic(i: number, plan: 'fight' | 'help' | 'kite' | 'flee' | 'haven' | 'breakout', n: number): void {
     const w = this.w, id = this.w.e.id(i);
@@ -565,7 +719,7 @@ export class Brain {
    * Courage shifts the bar; kin in danger (a child, a partner, a parent next to the threat) makes people stand and fight.
    * One zombie or a wolf: fight. Two zombies alone: run, with two friends: fight. A bear bare-handed alone: run.
    */
-  fightOrFlight(i: number, z: number, fighting: boolean, helping = false, fleeing = false): boolean {
+  fightOrFlight(i: number, z: number, fighting: boolean, helping = false, fleeing = false, protect = 1): boolean {
     const w = this.w, e = w.e, m = e.map[i]!;
     if ((e.flags[i]! & EFlag.Child) || w.rules.forbidden(i, 'fight')) return false;
     if (e.hp[i]! < (fighting ? 25 : 40)) return false;
@@ -581,7 +735,9 @@ export class Brain {
       if (j === i || e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
       if (Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) > 14 || (e.flags[j]! & (EFlag.Child | EFlag.Sleeping))) continue;
       if (e.kind[j] === Kind.Player && w.away.has(e.id(j))) continue;
-      const k = e.act[j] === Act.Fight && e.target[j] === zid ? 1 : e.act[j] === Act.Flee || e.hp[j]! < 45 ? 0 : 0.6;
+      // Friends on their feet count even while running: they stand together if together they win (else all ran because all ran).
+      const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
+      const k = e.act[j] === Act.Fight && e.target[j] === zid ? 1 : e.hp[j]! < 45 ? 0 : e.act[j] === Act.Flee ? (d < 10 ? 0.5 : 0) : 0.6;
       oHp += e.hp[j]! * k; oDps += w.zombies.damageOf(j) * k;
     }
     const odds = (oHp / Math.max(0.1, tDps)) / (tHp / Math.max(0.1, oDps)); // > 1: we outlast them
@@ -590,7 +746,7 @@ export class Brain {
     const kindName = e.kind[z] === Kind.Threat ? 'zombie' : (ANIMAL_NAMES[e.sub[z]!] ?? '');
     const nerve = (0.55 + courage * 0.9 + (w.survival.weapon(i)[1] > 0 ? 0.1 : 0)) * (1 - Math.min(0.3, w.lore.fearOf(i, kindName) / 30));
     // Kin next to it, or a neighbour being bitten right now, make people stand; once running they keep running unless it turns (hysteresis).
-    return odds * nerve * (this.kinNear(i, zx, zy) ? 1.6 : 1) * (helping ? 1.5 : 1) * (fighting ? 1.4 : fleeing ? 0.8 : 1) >= 1;
+    return odds * nerve * (this.kinNear(i, zx, zy) ? 1.6 : 1) * (helping ? 1.5 : 1) * protect * (fighting ? 1.4 : fleeing ? 0.8 : 1) >= 1;
   }
 
   /** A child, partner or parent of person i within 10 m of (x, y). */
@@ -832,9 +988,14 @@ export class Brain {
     if (guard >= 0 && e.thirst[i]! < 70 && e.hunger[i]! < 80) {
       const d = Math.hypot(e.x[guard]! - e.x[i]!, e.y[guard]! - e.y[i]!);
       if (e.act[guard] === Act.Sleep && e.tired[i]! > 25 && d < 4) { this.start(i, Act.Sleep); return; }
-      if (d > 7) {
+      const home = this.kidHome(i);
+      if (d > 7 && (!home || Math.hypot(e.x[guard]! - home.x, e.y[guard]! - home.y) < KID_RANGE)) { // with mum while she is near home
         const s = w.freeSpot(e.map[i]!, e.x[guard]! + w.rng.range(-2.5, 2.5), e.y[guard]! + w.rng.range(-2.5, 2.5), 5);
         if (s && this.goTo(i, s.x, s.y, d > 25)) { this.setAct(i, Act.Wander); this.schedule(i, 1); return; }
+      }
+      if (home && d > 7 && Math.hypot(e.x[i]! - home.x, e.y[i]! - home.y) > KID_RANGE * 0.7) { // she is off working far: back home
+        const s = w.freeSpot(e.map[i]!, home.x + w.rng.range(-5, 5), home.y + w.rng.range(-5, 5), 8);
+        if (s && this.goTo(i, s.x, s.y)) { this.setAct(i, Act.Wander); this.schedule(i, 1); return; }
       }
     }
     const curve = (v: number, from: number, p: number) => (v <= from ? 0 : Math.pow((v - from) / (100 - from), p));
@@ -1134,6 +1295,13 @@ export class Brain {
     const d = fam.duty(i);
     if (!d.what) return false;
     const k = d.kid;
+    if (d.what === 'bring') { // food for an older child of mine (or of the clan): walk over and hand it
+      if (fam.bring(i, k)) { this.stop(i); this.schedule(i, 2); return true; }
+      if (this.walking(i) && e.act[i] === Act.Go && e.target[i] === e.id(k) && Math.hypot(this.gx[i]! - e.x[k]!, this.gy[i]! - e.y[k]!) < 2.5) { this.schedule(i, 1); return true; }
+      const s = w.freeSpot(e.map[i]!, e.x[k]!, e.y[k]!, 4);
+      if (!s || !this.goTo(i, s.x, s.y)) return false;
+      this.setAct(i, Act.Go); e.target[i] = e.id(k); this.schedule(i, 1); return true;
+    }
     if (d.what === 'fetch') {
       if (this.walking(i) && e.act[i] === Act.Go && e.target[i] === e.id(k) && Math.hypot(this.gx[i]! - e.x[k]!, this.gy[i]! - e.y[k]!) < 2) { this.schedule(i, 1); return true; }
       const s = w.freeSpot(e.map[i]!, e.x[k]! + w.rng.range(-0.6, 0.6), e.y[k]! + w.rng.range(-0.6, 0.6), 6);
@@ -1151,6 +1319,24 @@ export class Brain {
   }
 
   // ------------------------------------------------------------------ helpers
+  /** Children 3-13 see to their own needs, but near home (imad 2026-11-26): their home, a parent's home, else the camp. */
+  kidHome(i: number): { x: number; y: number } | null {
+    const w = this.w, e = w.e, p = w.profileOf(i), m = e.map[i]!;
+    if (!p || p.player || !(e.flags[i]! & EFlag.Child) || ageOf(p, w.gameSec, w.life.yearSec) >= INDEPENDENT || w.family.dependent(i)) return null;
+    const homes = w.survival.homes, W = w.maps[m]!.tiles.w;
+    for (const id of [e.id(i), ...p.parents]) { const h = homes.homeOf(id); if (h && h.m === m) return { x: (h.out % W) + 0.5, y: Math.floor(h.out / W) + 0.5 }; }
+    return w.survival.campOf(m);
+  }
+  /** Would walking to (x, y) take child i more than KID_RANGE from home with no parent at their side? (Pressing thirst / hunger may.) */
+  leashed(i: number, x: number, y: number): boolean {
+    const e = this.w.e;
+    if (!(e.flags[i]! & EFlag.Child) || e.kind[i] !== Kind.Agent) return false;
+    const h = this.kidHome(i);
+    if (!h || Math.hypot(x - h.x, y - h.y) <= KID_RANGE || Math.hypot(x - h.x, y - h.y) <= Math.hypot(e.x[i]! - h.x, e.y[i]! - h.y)) return false;
+    if (e.thirst[i]! > 75 || e.hunger[i]! > 85) return false;
+    const p = this.w.profileOf(i)!;
+    return !p.parents.some((pid) => { const j = e.slot(pid); return j >= 0 && e.map[j] === e.map[i] && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) < 8 && Math.hypot(e.x[j]! - x, e.y[j]! - y) < 12; });
+  }
   /** The parent looking after a child under 14 on the same map (mother first), or -1. */
   guardian(i: number): number {
     const w = this.w, e = w.e, p = w.profileOf(i);

@@ -1374,6 +1374,30 @@ export class Survival {
   }
   /** Sleeping by a fire is warmer (the brain recovers faster). */
   warm(m: number, x: number, y: number): boolean { return this.fires.size > 0 && this.fireNear(m, x, y, FIRE_WARM) >= 0; }
+  /** The camp's burnt-out fire (ashes) within 20 m of the camp: tile index, or -1. */
+  campAshes(m: number): number {
+    const c = this.camp[m], tm = this.w.maps[m]!.tiles;
+    if (!c || this.T.ashes < 0) return -1;
+    let best = -1, bd = 20;
+    for (let y = Math.max(0, Math.floor(c.y - 20)); y <= Math.min(tm.h - 1, c.y + 20); y++) for (let x = Math.max(0, Math.floor(c.x - 20)); x <= Math.min(tm.w - 1, c.x + 20); x++) {
+      if (tm.tiles[y * tm.w + x] !== this.T.ashes) continue;
+      const d = Math.hypot(x + 0.5 - c.x, y + 0.5 - c.y);
+      if (d < bd) { bd = d; best = y * tm.w + x; }
+    }
+    return best;
+  }
+  /** Light the camp's old fire again in a hurry (zombies at the camp): 1 wood from the bag or the camp's store. True = burning. */
+  relight(i: number, m: number, t: number): boolean {
+    const w = this.w, tm = w.maps[m]!.tiles, st = this.stash[m];
+    if (tm.tiles[t] !== this.T.ashes) return false;
+    if ((this.inv(i).wood ?? 0) >= 1) this.add(i, 'wood', -1);
+    else if (st && st.wood >= 1) st.wood--;
+    else return false;
+    tm.set(t % tm.w, (t / tm.w) | 0, this.T.campfire);
+    this.fires.set(`${m}:${t}`, w.gameSec + FIRE_ADD);
+    w.emit('tend', { id: w.e.id(i), map: w.maps[m]!.def.id, relit: true });
+    return true;
+  }
   /** Hours of fuel left in a fire (0 = none). */
   fuel(m: number, t: number): number { const u = this.fires.get(`${m}:${t}`); return u ? Math.max(0, (u - this.w.gameSec) / HOUR) : 0; }
 

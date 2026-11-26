@@ -14,6 +14,8 @@ import type { World } from './world.js';
  * The plan (fight / kite / flee / haven / breakout) is kept per person with its reason so the panel and replays can show it.
  */
 export const DIRS = 16;
+/** Metres from the map's edge that count as a dead end when running. */
+const EDGE = 14;
 export type Plan = 'fight' | 'kite' | 'flee' | 'haven' | 'breakout';
 
 export class Tactics {
@@ -27,15 +29,70 @@ export class Tactics {
   readonly lockBrave: Uint8Array;
   /** Tick a threat was last in sight: for 20 s after, people keep a wide watch (no going back to work with zombies 17 m away). */
   readonly seen: Float64Array;
+  /** The health when the fight-or-run choice was made: losing 15+ since then makes them choose again at once. */
+  readonly lockHp: Float32Array;
+  readonly lockN: Uint8Array;
+  /** Bites taken lately (count since tick `bitFrom`, by whom): bitten again and again while running = cornered, fight back. */
+  readonly bitN: Uint8Array;
+  readonly bitFrom: Float64Array;
+  readonly bitBy: Int32Array;
   private readonly buf: number[] = [];
   static readonly PLANS: Plan[] = ['fight', 'fight', 'kite', 'flee', 'haven', 'breakout'];
 
   constructor(private readonly w: World, cap: number) {
     this.ang = new Float32Array(cap); this.until = new Float64Array(cap); this.plan = new Uint8Array(cap); this.focus = new Int32Array(cap).fill(-1);
     this.lockUntil = new Float64Array(cap); this.lockBrave = new Uint8Array(cap); this.seen = new Float64Array(cap);
+    this.lockHp = new Float32Array(cap); this.lockN = new Uint8Array(cap);
+    this.bitN = new Uint8Array(cap); this.bitFrom = new Float64Array(cap); this.bitBy = new Int32Array(cap).fill(-1);
+    w.listeners.push((ev) => {
+      if (ev.kind !== 'bitten') return;
+      const i = w.e.slot(Number(ev.data.id));
+      if (i < 0) return;
+      if (w.tick - this.bitFrom[i]! > 6 / w.dt) { this.bitFrom[i] = w.tick; this.bitN[i] = 0; }
+      this.bitN[i] = Math.min(255, this.bitN[i]! + 1); this.bitBy[i] = Number(ev.data.by);
+    });
+  }
+  private musterAt: { tick: number; p: { x: number; y: number; fire: boolean; n: number; ash: number } | null }[] = [];
+  /**
+   * Stand together (imad 2026-11-26: "20 people attacked by 20 zombies must survive it easily"; the logs showed everyone who died was
+   * alone, running, often into the map's edge): while 3+ zombies are within 70 m of a map's camp, everyone near rallies at the
+   * camp's burning fire (zombies keep off it), else at the camp itself, and fights there as one group. The point, or null.
+   */
+  muster(m: number): { x: number; y: number; fire: boolean; n: number; ash: number } | null {
+    const w = this.w, e = w.e, c = this.musterAt[m];
+    if (c && w.tick - c.tick < 20) return c.p;
+    const camp = w.survival.campOf(m);
+    let p: { x: number; y: number; fire: boolean; n: number; ash: number } | null = null;
+    if (camp) {
+      let n = 0;
+      for (let j = 0; j < e.hi; j++) if (e.kind[j] === Kind.Threat && e.map[j] === m && Math.hypot(e.x[j]! - camp.x, e.y[j]! - camp.y) < 70) n++;
+      if (n >= 3) {
+        const f = w.survival.fireNear(m, camp.x, camp.y, 20), W = w.maps[m]!.tiles.w;
+        if (f >= 0) p = { x: (f % W) + 0.5, y: ((f / W) | 0) + 0.5, fire: true, n, ash: -1 };
+        else {
+          // No fire burning (by day): rally only if the old one can be lit again with a piece of wood (bag or store). Without a fire a crowd
+          // of bare hands against 20 zombies loses (tried: 20 of 20 dead); scattered, people outrun them.
+          const a = w.survival.campAshes(m);
+          let wood = (w.survival.stash[m]?.wood ?? 0) > 0;
+          for (let j = 0; j < e.hi && !wood && a >= 0; j++) if (e.kind[j] === Kind.Agent && e.map[j] === m && (w.survival.inv(j).wood ?? 0) > 0 && Math.hypot(e.x[j]! - camp.x, e.y[j]! - camp.y) < 90) wood = true;
+          // (A fire made new on the spot was tried too: it is not up in time and the crowd dies round it, 8 and 13 of 20.)
+          if (a >= 0 && wood) p = { x: (a % W) + 0.5, y: ((a / W) | 0) + 0.5, fire: false, n, ash: a };
+        }
+        if (p && !c?.p) w.emit('muster', { map: w.maps[m]!.def.id, x: Math.round(p.x), y: Math.round(p.y), fire: p.fire, zombies: n });
+      }
+    }
+    this.musterAt[m] = { tick: w.tick, p };
+    return p;
   }
 
-  reset(i: number): void { this.until[i] = 0; this.plan[i] = 0; this.focus[i] = -1; this.lockUntil[i] = 0; }
+  /** Bitten 3+ times in the last 6 s (running does not shake it off): the one doing it (slot), else -1. */
+  cornered(i: number): number {
+    if (this.bitN[i]! < 3 || this.w.tick - this.bitFrom[i]! > 6 / this.w.dt) return -1;
+    const z = this.w.e.slot(this.bitBy[i]!);
+    return z >= 0 && this.hostile(z) && Math.hypot(this.w.e.x[z]! - this.w.e.x[i]!, this.w.e.y[z]! - this.w.e.y[i]!) < 3 ? z : -1;
+  }
+
+  reset(i: number): void { this.until[i] = 0; this.plan[i] = 0; this.focus[i] = -1; this.lockUntil[i] = 0; this.bitN[i] = 0; }
   /** Saw a threat within the last 20 s. */
   alert(i: number): boolean { return this.seen[i]! > 0 && this.w.tick - this.seen[i]! < 20 / this.w.dt; }
   planOf(i: number): Plan | '' { return this.plan[i] ? Tactics.PLANS[this.plan[i]!]! : ''; }
@@ -116,6 +173,9 @@ export class Tactics {
     for (let s = 2; s <= R; s += 2) {
       const px = x0 + cx * s, py = y0 + cy * s;
       if (t.isSolidAt(px, py) || t.isSolidAt(px - cx * 1, py - cy * 1)) break;
+      // The map's edge is a dead end (most people who died running were caught against it): no running towards it.
+      const edge = Math.min(px, py, t.w - px, t.h - py);
+      if (edge < EDGE && edge < Math.min(x0, y0, t.w - x0, t.h - y0)) break;
       len = s;
       for (const j of th) {
         const vz = e.kind[j] === Kind.Threat ? w.zombies.cfg.speed : 4.5; // animals on the attack are fast
