@@ -640,3 +640,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Wild maps (`World.wild(m)`: gen type wilds or map `danger: true`): children (EFlag.Child / Small) are turned back at the gate
   (`portalsAndTransit`) and a child in the woods goes home; adults go only 06-15 with hp >= 60 (`Brain.mayGoWild`) and leave from 16:00;
   watch radius 14 m there (9 asleep); `Planner.placeText` in every prompt. Test tactics.test.ts (5 zombies: 0 deaths, was 10 of 35).
+- **Community memory = lore (imad 2026-11-26: "community memory for places, persons and animals, learning from previous generations", "a panel screen")**:
+  `sim/lore.ts` (`World.lore`, snapshot `lore`), fed by events: deaths (not old age / hunger) mark a 24 m place cell (+4), the threat kind (+3) and the map
+  (+2); bites +0.5 place / +0.25 kind (bites alone stop at 3); kills of that kind -0.2; a killer +6 fear, duels / PvP a little; heal / help = trust.
+  Fades x0.997 a game hour (half in ~10 days). `knows(i)` by age: 0 under 3, taught 3-12, all from 13: lore outlives its witnesses. Acts: wander /
+  forage avoid cells with fear 3+ (neighbours half), hunters skip feared beasts unless armed 30+, nerve -up to 30 %, no chats started with a distrusted
+  person, a wild map with dread 5+ = armed adults only, 9+ = nobody (`mayGoWild`); `promptText` in every prompt; lessons list (80). Admin `lore`,
+  panel page Society (`panel/src/society.ts`). Test lore.test.ts; proof `node tools/society-proof.mjs <outdir>`.

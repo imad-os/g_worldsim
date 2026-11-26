@@ -16,6 +16,7 @@ import { Survival } from './survival.js';
 import { Gear } from './gear.js';
 import { Colony } from './colony.js';
 import { Memory } from './memory.js';
+import { Lore } from './lore.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
@@ -91,6 +92,8 @@ export class World {
   readonly colony: Colony;
   /** What each person remembers of their life and the places they know (sim/memory.ts, flag instinct). */
   readonly memory: Memory;
+  /** What the community learned and passes on to the next generations (sim/lore.ts). */
+  readonly lore: Lore;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
   /** Families: who is family, little ones and who looks after them (sim/family.ts). */
@@ -148,6 +151,7 @@ export class World {
     this.gear = new Gear(this);
     this.colony = new Colony(this);
     this.memory = new Memory(this);
+    this.lore = new Lore(this);
     this.clans = new Clans(this);
     this.family = new Family(this);
     this.zombies = new Zombies(this);
@@ -516,7 +520,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
-    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); }
+    if (this.tick % 20 === 0) { this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); this.lore.update(); }
     this.zombies.update();
     this.animals.update();
     this.horses.update();

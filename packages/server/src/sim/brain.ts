@@ -1,4 +1,4 @@
-import { Act, EFlag, Kind } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { Pathfinder } from './pathfind.js';
 import { ACT_RULE } from './rules.js';
@@ -556,7 +556,9 @@ export class Brain {
     }
     const odds = (oHp / Math.max(0.1, tDps)) / (tHp / Math.max(0.1, oDps)); // > 1: we outlast them
     const courage = w.profileOf(i)?.traits.courage ?? 0.5;
-    const nerve = 0.55 + courage * 0.9 + (w.survival.weapon(i)[1] > 0 ? 0.1 : 0);
+    // What the people learned of this kind of threat (deaths of those before) takes some nerve away.
+    const kindName = e.kind[z] === Kind.Threat ? 'zombie' : (ANIMAL_NAMES[e.sub[z]!] ?? '');
+    const nerve = (0.55 + courage * 0.9 + (w.survival.weapon(i)[1] > 0 ? 0.1 : 0)) * (1 - Math.min(0.3, w.lore.fearOf(i, kindName) / 30));
     // Kin next to it, or a neighbour being bitten right now, make people stand; once running they keep running unless it turns (hysteresis).
     return odds * nerve * (this.kinNear(i, zx, zy) ? 1.6 : 1) * (helping ? 1.5 : 1) * (fighting ? 1.4 : fleeing ? 0.8 : 1) >= 1;
   }
@@ -852,7 +854,10 @@ export class Brain {
     if (e.kind[i] === Kind.Player) return true;
     if (e.flags[i]! & (EFlag.Child | EFlag.Small)) return false;
     const h = this.hour();
-    return h >= 6 && h < 15 && e.hp[i]! >= 60;
+    if (!(h >= 6 && h < 15 && e.hp[i]! >= 60)) return false;
+    // A wild map the people learned to dread (many died there): only the well armed go, and none when the dread is at its worst.
+    let worst = 0; for (const p of w.portals) if (p.from === e.map[i] && w.wild(p.dest)) worst = Math.max(worst, w.lore.mapFear(i, p.dest));
+    return worst < 5 || (worst < 9 && w.survival.weapon(i)[1] >= 20);
   }
   /** A gate from person i's map to a map that is not wild (-1 none). */
   private safeGate(i: number): number {
@@ -1134,7 +1139,7 @@ export class Brain {
     if (this.guardian(i) >= 0) r = Math.min(r, 6); // small children don't go far
     for (let k = 0; k < 4; k++) {
       const s = w.freeSpot(m, e.x[i]! + w.rng.range(-r, r), e.y[i]! + w.rng.range(-r, r), 6);
-      if (s && k < 3 && w.ai.instinct && w.memory.feared(e.id(i), m, s.x, s.y)) continue; // not where something bit them lately
+      if (s && k < 3 && w.ai.instinct && (w.memory.feared(e.id(i), m, s.x, s.y) || w.lore.feared(i, m, s.x, s.y))) continue; // not where something bit them lately, nor where the people lost someone
       if (s && this.goTo(i, s.x, s.y)) return true;
     }
     return false;
@@ -1158,7 +1163,9 @@ export class Brain {
     let best = -1, bd = r * r;
     for (let j = 0; j < e.hi; j++) {
       if (e.kind[j] !== Kind.Item || e.map[j] !== m) continue;
-      const dx = e.x[j]! - e.x[i]!, dy = e.y[j]! - e.y[i]!, d = dx * dx + dy * dy;
+      const dx = e.x[j]! - e.x[i]!, dy = e.y[j]! - e.y[i]!;
+      let d = dx * dx + dy * dy;
+      if (d < bd && this.w.ai.instinct && this.w.lore.feared(i, m, e.x[j]!, e.y[j]!)) d *= 9; // food in a feared place: only when nothing else is near
       if (d < bd) { bd = d; best = j; }
     }
     return best;
@@ -1171,6 +1178,7 @@ export class Brain {
     for (let j = 0; j < e.hi; j++) {
       if (j === i || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.map[j] !== m || e.act[j] === Act.Sleep) continue;
       if (rule && this.w.rules.between(i, j, rule)) continue;
+      if (rule === 'talk' && this.w.ai.instinct && this.w.lore.distrusts(i, e.id(j))) continue; // someone the people fear
       const dx = e.x[j]! - e.x[i]!, dy = e.y[j]! - e.y[i]!, d = dx * dx + dy * dy;
       if (d < bd) { bd = d; best = j; }
     }

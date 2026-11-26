@@ -1,4 +1,4 @@
-import { Act, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, Kind, HUT_NEED, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
@@ -380,6 +380,9 @@ export class Survival {
     if (a < 0 && far > 90) a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, far, type);
     if (a < 0 && far > 90 && type >= 0) a = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, far);
     if (a < 0) return 'I found no animals near here';
+    if (w.ai.instinct && type < 0 && e.sub[a] !== 0 && e.sub[a] !== 1 && w.lore.fearOf(i, ANIMAL_NAMES[e.sub[a]!] ?? '') >= 5 && this.weapon(i)[1] < 30) { // a beast the people fear: smaller game
+      const b = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, far, w.rng.chance(0.5) ? 0 : 1); if (b >= 0) a = b;
+    }
     if (e.sub[a] === 4 && this.weapon(i)[1] < 30 && type !== 4) { const b = w.animals.nearest(e.map[i]!, e.x[i]!, e.y[i]!, 90, w.rng.chance(0.5) ? 0 : 1); if (b >= 0) a = b; } // not a bear with bare hands
     return w.brain.hunt(i, e.id(a)) ? true : 'I cannot get to it';
   }

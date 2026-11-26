@@ -29,6 +29,7 @@ export function serialize(w: World, withTiles = true): Uint8Array {
     survival: w.survival.save(),
     clans: w.clans.save(),
     horses: w.horses.save(),
+    lore: w.lore.save(),
     zombies: w.zombies.perNight,
     land: w.land.done,
     maps: !withTiles ? [] : w.maps.map((m) => ({ id: m.def.id, w: m.tiles.w, h: m.tiles.h, tiles: m.tiles.tiles, hp: m.tiles.hp, ver: new Uint8Array(m.tiles.chunkVer.buffer.slice(0)) })),
@@ -42,6 +43,7 @@ interface SnapData {
   survival?: unknown;
   clans?: unknown;
   horses?: unknown;
+  lore?: unknown;
   zombies?: number;
   land?: number;
   maps: { id: string; w: number; h: number; tiles: Uint8Array; hp: Uint8Array; ver: Uint8Array }[];
@@ -87,6 +89,7 @@ export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => v
   w.survival.load(s.survival);
   w.clans.load(s.clans);
   w.horses.load(s.horses);
+  w.lore.load(s.lore);
   if (typeof s.zombies === 'number') w.zombies.perNight = s.zombies;
   w.land.done = s.land ?? 0;
   // Worlds from before profiles: give every agent one.
