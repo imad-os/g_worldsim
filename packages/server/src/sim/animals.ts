@@ -165,7 +165,7 @@ export class Animals {
       w.survival.gain(by, d);
       this.kills.set(e.id(by), [w.gameSec, type]);
     }
-    w.emit('hunt', { id: by >= 0 ? e.id(by) : -1, animal: ANIMAL_NAMES[type] ?? 'horse', map: w.maps[e.map[a]!]!.def.id, ...d });
+    w.emit('hunt', { id: by >= 0 ? e.id(by) : -1, animal: ANIMAL_NAMES[type] ?? 'horse', map: w.maps[e.map[a]!]!.def.id, aid: id, prey: e.act[a] === Act.Fight ? e.target[a] : -1, near: e.act[a] === Act.Fight && e.slot(e.target[a]!) >= 0 ? Math.hypot(e.x[e.slot(e.target[a]!)]! - e.x[a]!, e.y[e.slot(e.target[a]!)]! - e.y[a]!) : 99, ...d });
     this.cool.delete(id); this.wander.delete(id); this.angry.delete(id);
     w.fell.set(id, w.tick); // viewers show it fall
     w.remove(a, 'hunted');

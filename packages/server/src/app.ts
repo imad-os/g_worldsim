@@ -1,4 +1,5 @@
 import { animalKills } from './sim/kills.js';
+import { CALL_MIN } from './sim/influence.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, NPCS, WEATHERS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
@@ -1020,7 +1021,7 @@ export class App {
     const left = p.chose ? Math.max(0, (p.sexAt ?? 0) + SEX_WEEK_MS - Date.now()) : 0;
     return {
       name: p.name, sex: p.sex, skin: p.skin ?? 1, chose: !!p.chose, sexDays: Math.ceil(left / 86400_000), auto: !!p.auto,
-      rules: (p.rules ?? []).map((r) => r.text), max: MAX_RULES, xp: p.xp ?? 0, level: levelOf(p.xp), goal: w.tasks.progress(id),
+      rules: (p.rules ?? []).map((r) => r.text), max: MAX_RULES, xp: p.xp ?? 0, level: levelOf(p.xp), influence: w.influence.of(id), influenceLog: w.influence.log(id).slice(0, 5), goal: w.tasks.progress(id),
       goals: (p.goals ?? []).slice(-5).reverse(), partner, children, family, asks, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1,
       traits: Object.fromEntries(TRAIT_KEYS.filter((k) => k !== 'metabolism').map((k) => [k, Math.round(p.traits[k] * 100)])),
       hp: Math.round(e.hp[i]!),
@@ -1078,7 +1079,7 @@ export class App {
       id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec, w.yearSec)) : 0,
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
-      task: w.tasks.describe(id) || null, kills: killsOf(p),
+      task: w.tasks.describe(id) || null, kills: killsOf(p), influence: w.influence.of(id), influenceLog: w.influence.log(id),
       goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       player: p?.player ?? null, auto: !!p?.auto, manual: e.kind[i] === Kind.Player, online: p?.player ? this.net.online(p.player) : false,
@@ -1356,7 +1357,7 @@ export class App {
           founder: c.founder !== undefined ? nm(c.founder) : '', approval: w.clans.approval(c), order: c.order ?? '', lastVote: c.lastVote ?? c.at,
           vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => nm(k)), votes: c.vote.ballots.length } : null,
           result: c.result ? { at: c.result.at, winner: nm(c.result.winner), old: nm(c.result.old), tally: c.result.tally.map(([k, n]) => [nm(k), n]) } : null,
-          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10 })), rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
+          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10, influence: w.influence.of(id) })), callMin: CALL_MIN, rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
       }
       case 'clanVote': { // the owner calls an election in a clan
         const cl = w.clans.byId(fixed(c.id, 0, 1e6, 'id'));
@@ -1518,7 +1519,7 @@ export class App {
           const i = w.e.slot(id), alive = i >= 0 && p.died === undefined && (w.e.kind[i] === Kind.Agent || w.e.kind[i] === Kind.Player);
           out.push({ id, name: p.name, sex: p.sex, age: Math.floor(ageOf(p, p.died ?? w.gameSec, w.yearSec)), alive, died: p.died ?? null, cause: p.cause ?? null, generation: p.generation,
             parents: p.parents.map((x) => this.nameOf(x)), partner: p.partner >= 0 ? this.nameOf(p.partner) : null, children: [...w.profiles].filter(([, q]) => q.parents.includes(id)).length,
-            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0, player: p.player ?? null, kills: killsOf(p) });
+            personality: p.personality, mood: p.mind?.mood ?? null, rules: p.rules?.length ?? 0, player: p.player ?? null, kills: killsOf(p), influence: p.died === undefined ? w.influence.of(id) : null });
         }
         return out;
       }

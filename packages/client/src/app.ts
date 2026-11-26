@@ -181,7 +181,7 @@ let roster: [number, string, string][] | null = null;
 /** Past events (recorded zombie attacks): the list (null = asked), the one playing, the map to go back to. */
 let past: ReplaySummary[] | null = null;
 /** My character as a person (the "Me" page): look, family, autopilot, rules, level. */
-interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number;
+interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number; influence?: number; influenceLog?: { d: number; why: string }[];
   goal: { text: string; from: string; k: number; n: number; pct: number } | null; goals: { text: string; ok: boolean; xp: number }[];
   partner: { id: number; name: string } | null; children: Kid[]; expecting: number; traits: Record<string, number>; hp: number;
   horses?: { name: string; quality: string; speed: number; stamina: number; intel: number }[]; tame?: number; tamePower?: number;
@@ -1597,6 +1597,7 @@ function buildPage(id: string): Page {
       const tr = c.traits;
       const html = `<div class="pm"><b>${esc(c.name)}</b> · ${esc(t(c.sex === 'f' ? 'lookWoman' : 'lookMan'))} · ${esc(tf('meHp', String(c.hp)))}</div>`
         + `<div class="pm">${tf('pLevel', String(c.level), String(c.xp))}</div><div class="bp"><i style="width:${Math.max(4, Math.min(100, ((c.xp - 50 * c.level * c.level) / Math.max(1, 50 * (c.level + 1) ** 2 - 50 * c.level * c.level)) * 100))}%"></i></div>`
+        + (c.influence !== undefined ? `<div class="pm">${tf('pInf', String(c.influence))}</div><div class="bp"><i style="width:${Math.max(2, c.influence)}%"></i></div>${(c.influenceLog ?? []).filter((x) => x.d > 0).length ? `<div class="pm dim">${esc(tf('pInfWhy', [...new Set((c.influenceLog ?? []).filter((x) => x.d > 0).map((x) => x.why))].slice(0, 3).join(', ')))}</div>` : ''}` : '')
         + (c.goal ? `<div class="pm">${t('pGoal')}: <b>${esc(c.goal.text)}</b> · ${Math.min(c.goal.k + 1, c.goal.n)}/${c.goal.n}</div><div class="bp${c.goal.from !== 'myself' ? ' ord' : ''}"><i style="width:${Math.max(6, c.goal.pct)}%"></i></div>` : '')
         + `<div class="pm">${t('mePartner')}: <b>${esc(c.partner?.name ?? t('meNone'))}</b></div>`
         + `<div class="pm">${t('meChildren')}: <b>${c.children.length ? c.children.map((k) => `${esc(k.name)} (${k.age})`).join(', ') : esc(t('meNone'))}</b></div>`

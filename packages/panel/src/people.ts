@@ -21,7 +21,7 @@ function listHtml(): string {
       `<tr class="link" data-id="${p.id}"><td>${avatar(p.name, p.sex, 'sm')} <b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</td><td>${p.age}</td><td>${p.generation}</td><td>${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td>${p.children}</td><td><small>${esc(killsText(p.kills) || '-')}</small></td><td>${p.died !== null ? `${gameTime(p.died)}<br><small>${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`;
   }
   let list = S.people.filter((p) => !p.player && (mapF === 'all' || p.map === mapF) && (!q || p.name.toLowerCase().includes(q)));
-  const key: Record<string, (p: Person) => number | string> = { name: (p) => p.name, age: (p) => -p.age, hp: (p) => p.hp, hunger: (p) => -p.hunger, thirst: (p) => -p.thirst, act: (p) => p.act, kills: (p) => -((p.kills?.animals ?? 0) + (p.kills?.zombies ?? 0) * 3 + (p.kills?.people ?? 0) * 10) };
+  const key: Record<string, (p: Person) => number | string> = { name: (p) => p.name, age: (p) => -p.age, hp: (p) => p.hp, hunger: (p) => -p.hunger, thirst: (p) => -p.thirst, act: (p) => p.act, influence: (p) => -(p.influence ?? 0), kills: (p) => -((p.kills?.animals ?? 0) + (p.kills?.zombies ?? 0) * 3 + (p.kills?.people ?? 0) * 10) };
   const k = key[sort] ?? key.name!;
   list = list.sort((a, b) => { const x = k(a), y = k(b); return x < y ? -1 : x > y ? 1 : 0; });
   const players = S.people.filter((p) => p.player && (!q || p.name.toLowerCase().includes(q)));
@@ -29,7 +29,7 @@ function listHtml(): string {
       <div class="pc-h">${avatar(p.name, p.sex)}<div><b>${esc(p.name)}</b><small>${p.sex === 'f' ? 'Woman' : 'Man'}, ${p.age}${p.child ? ' · child' : ''}${p.pregnant ? ' · expecting' : ''}</small></div></div>
       <div class="pc-a"><i class="dotc" style="background:${ACT_COLORS[p.act] ?? '#888'}"></i>${esc(ACTS[p.act] ?? '')}${p.talkingTo ? ' with ' + esc(p.talkingTo) : ''}${!p.goal && p.order ? `<br><small>Told to ${esc(p.order)}</small>` : ''}</div>${p.goal ? goalHtml(p.goal, esc) : ''}
       <div class="pc-m"><span>Food</span>${meter(p.hunger)}<span>Water</span>${meter(p.thirst)}<span>Rest</span>${meter(p.tired)}<span>Health</span>${meter(p.hp, false)}</div>
-      <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}${killsText(p.kills) ? `<br><small>Killed ${esc(killsText(p.kills))}</small>` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
+      <div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}${p.influence !== undefined ? ` · ${icon('star')} influence ${p.influence}` : ''}${killsText(p.kills) ? `<br><small>Killed ${esc(killsText(p.kills))}</small>` : ''}</div></a>`).join('')}</div>` : '<div class="empty">Nobody matches.</div>')
     + (players.length ? `<h4 class="sub">Players' characters</h4><div class="pgrid">${players.map((p) => `<a class="pcard player" href="#/person/${p.id}"><div class="pc-h">${avatar(p.name)}<div><b>${esc(p.name)}</b><small>player · ${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away (asleep)'}</small></div></div><div class="pc-f">${icon('map')} ${esc(mapName(p.map))} (${Math.round(p.x)}, ${Math.round(p.y)})</div></a>`).join('')}</div>` : '');
 }
 
@@ -40,7 +40,7 @@ export const peopleScreen: Screen = {
         <div class="seg" id="pTabs">${[['alive', 'Alive'], ['dead', 'Dead'], ['all', 'Everyone ever']].map(([k, l]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
         <label class="search">${icon('search')}<input id="pQ" placeholder="Search a name" value="${esc(q)}"></label>
         <select id="pMapF" aria-label="Map"><option value="all">Every map</option></select>
-        <select id="pSort" aria-label="Sort"><option value="name">Sort: name</option><option value="age">Sort: oldest</option><option value="hp">Sort: weakest</option><option value="hunger">Sort: hungriest</option><option value="thirst">Sort: thirstiest</option><option value="act">Sort: activity</option><option value="kills">Sort: most kills</option></select>
+        <select id="pSort" aria-label="Sort"><option value="name">Sort: name</option><option value="age">Sort: oldest</option><option value="hp">Sort: weakest</option><option value="hunger">Sort: hungriest</option><option value="thirst">Sort: thirstiest</option><option value="act">Sort: activity</option><option value="influence">Sort: most influence</option><option value="kills">Sort: most kills</option></select>
         <button class="btn" id="pAdd">${icon('plus')} Add a person</button>
       </div><div id="pClans"></div><div id="pList"><div class="skel tall"></div></div>`;
   },
@@ -64,7 +64,7 @@ export const peopleScreen: Screen = {
 };
 type ClanRow = { id: number; name: string; map: string; leader: string; leaderId: number; home: number[]; founder: string; approval: number; order: string; lastVote: number;
   vote: { end: number; why: string; cands: string[]; votes: number } | null; result: { at: number; winner: string; old: string; tally: [string, number][] } | null;
-  members: { id: number; name: string; loyalty: number; respect: number }[]; rivals: { name: string; tension: number }[] };
+  members: { id: number; name: string; loyalty: number; respect: number; influence?: number }[]; rivals: { name: string; tension: number }[] };
 type QuestsInfo = { npcs: { key: string; name: string; x: number; y: number; map: string }[]; quests: { id: string; title: string; npc: string; lesson: string; xp: number }[];
   people: { id: number; name: string; player: boolean; done: number; cur: string; n: number; need: number; ready: boolean }[] };
 /**
@@ -76,7 +76,7 @@ async function loadClans(): Promise<void> {
   try {
     const [r, q] = await Promise.all([cmd<{ clans: ClanRow[]; now: number }>({ cmd: 'clans' }), cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null)]);
     const clans = r.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
-      <div class="chips">${c.members.map((m) => `<a class="chip" href="#/person/${m.id}" title="respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.loyalty}% · ★${m.respect}</small></a>`).join('')}</div>
+      <div class="chips">${c.members.slice().sort((a, b) => (b.influence ?? 0) - (a.influence ?? 0)).map((m) => `<a class="chip" href="#/person/${m.id}" title="influence ${m.influence ?? '?'}, respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.influence !== undefined ? `influence ${m.influence} · ` : ''}loyal ${m.loyalty}%</small></a>`).join('')}</div>
       ${c.vote ? `<small><b>Election on</b>: ${esc(c.vote.cands.join(' / '))} (${esc(c.vote.why)}), ${c.vote.votes} votes so far, closes ${gameTime(c.vote.end)}</small><br>` : c.result ? `<small class="dim">Last vote ${gameTime(c.result.at)}: ${esc(c.result.winner)} won${c.result.winner !== c.result.old ? ' (was ' + esc(c.result.old) + ')' : ''} · ${c.result.tally.map(([n, v]) => `${esc(n)} ${v}`).join(', ')}</small><br>` : ''}
       ${c.order ? `<small class="dim">Leader's order: “${esc(c.order)}”</small><br>` : ''}
       ${c.rivals.length ? `<small class="dim">Rivals: ${c.rivals.map((x) => `${esc(x.name)} (tension ${x.tension}/10)`).join(', ')}</small><br>` : ''}
@@ -130,6 +130,7 @@ function personHtml(d: Detail): string {
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
     ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
     ${((q) => q ? card('Quests', `<p>${q.done} of ${q.all} done${q.cur ? ` · now <b>${esc(q.cur)}</b> ${q.ready ? '(done: hand it in)' : `${q.n}/${q.need}`}` : ''}</p>`) : '')((d as { quests?: { done: number; all: number; cur: string; n: number; need: number; ready: boolean } }).quests)}
+    ${card('Influence', influenceHtml(d.influence, d.influenceLog), { help: help('influence') })}
     ${card('Kills and fights', killsHtml(p.kills), { help: help('kills') })}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
     ${card('Traits', `<div class="traits">${Object.entries(p.traits).map(([k, v]) => k === 'lifespan' ? `<span>Lifespan</span><span></span><b>${Math.round(v)} years</b>` : `<span>${esc(k)}</span><div class="meter good"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></div><b>${Math.round(v * 100)}%</b>`).join('')}</div>`)}
@@ -276,6 +277,11 @@ export const personScreen: Screen = {
 };
 
 /** The person page's kill counts: animals by kind, zombies, people killed, duels won. */
+function influenceHtml(v: number | undefined, log: { t: number; d: number; why: string }[] | undefined): string {
+  if (v === undefined) return '<p class="dim">Unknown (the server is older).</p>';
+  const rows = (log ?? []).map((x) => `<div class="ev"><span class="tag ${x.d > 0 ? 'ok' : 'bad'}">${x.d > 0 ? '+' : ''}${x.d}</span> <span>${esc(x.why)}</span></div>`).join('');
+  return `<p><b>${v}</b> / 100 ${v >= 40 ? '<span class="tag ok">can call a clan election</span>' : '<small class="dim">(40 needed to call a clan election)</small>'}</p><div class="meter good"><i style="width:${v}%"></i></div>${rows ? `<div class="feed">${rows}</div>` : '<p class="dim">Nothing done yet that changed it.</p>'}`;
+}
 function killsHtml(k: { animals: Record<string, number>; zombies: number; people: number; beaten: number } | undefined): string {
   const animals = Object.entries(k?.animals ?? {}).sort((a, b) => b[1] - a[1]);
   const total = animals.reduce((s, [, n]) => s + n, 0);

@@ -725,3 +725,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   only in the vertex shader; 450 / 1000 / 1800 drops by tier, point size capped 14 px), clouds dim sun + grey sky, fog closes in, lightning, snow lies (groundMat
   emissive), fog colour follows the sky; top bar season + °C, card ❄ / 🔥 line, cold note, rain / wind loops, Settings > Rain and snow (`MyPC.save('rainsnow')`).
   Strings `i18n9.ts`. Proof `ADMIN_TOKEN=... node tools/weather-proof.mjs <server> <sdk.js> <outdir>`; software-GL frame times low tier: 16.8 ms in every weather.
+
+## Influence and fairer clan elections (imad 2026-11-26, hybrid chosen on the decision card, app 0.13.1)
+- `sim/influence.ts` (`World.influence`, `Profile.influence` { d, log 12 } kept with the profile): score 0-100 = 10 + deeds + level x 4. Deeds from events:
+  saved child +8 / person +5 (killing a threat that bit someone else within 20 s, or was going for them within 3 m: zombie / hunt events carry `prey`, `near`,
+  hunt `aid`; event `influence`), treated someone +2, zombie +2, boar / wolf / bear +2, game +0.5, task done +0.8 / failed -0.8, ordered +0.7, quest +2,
+  rule kept +1.5 / failed -2, duel won +1 / lost -1, kid care +0.15 and help in a fight +0.5 (once an hour), killed a person -15, lost a child -3. Gains
+  x max(0.2, 1 - score/110); deeds fade x0.9952 a game hour (half in 6 days). `promptText` in `selfText`.
+- Clans: `CALL_MIN` 40 to call a vote (players code `clanLowInfluence`; AI challengers need 40 and +10 over the leader; scheduled / low-approval / panel
+  votes unchanged); candidates = leader + 2 most influential (+ caller); AI ballot = `voteScore` 0.6 x influence/100 + 0.4 x feelings / family / loyalty;
+  ties keep the leader, else the most influential; a leader gone = the most influential; respect = feelings + influence / 20; split rebels by influence.
+- Shown: panel person card Influence (log, help `influence`), People cards + Sort: most influence, Clans card chips; TV Me page + Clan page (members by influence).
+  Test influence.test.ts; proof `node tools/influence-proof.mjs <outdir>`.

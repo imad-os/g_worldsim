@@ -9,6 +9,7 @@
  * - Players never take part unless their PvP switch is on (App.pvpOn).
  */
 import { Act, Kind } from '@worldsim/protocol';
+import { CALL_MIN } from './influence.js';
 import type { World } from './world.js';
 import { NO_MAP } from './entities.js';
 
@@ -34,6 +35,11 @@ interface Duel { a: number; b: number; start: number; hitAt: number; hurt: [numb
 
 const NAMES = ['Ashfall', 'Redhand', 'Ironwood', 'Northgate', 'Stonefield', 'Emberline', 'Greywolves', 'Blackthorn', 'Riverside', 'Highwall', 'Dustwalkers', 'Oakheart', 'Sunrise', 'Nightwatch'];
 const HOUR = 3600, DAY = 24 * HOUR;
+/** An AI ballot for a candidate: 60 % influence (0..100), 40 % feelings (-5..5) + family + loyalty to a sitting leader (0..1). */
+export function voteScore(influence: number, feel: number, kin: boolean, loyal: number): number {
+  const heart = Math.max(0, Math.min(1, (feel + (kin ? 1.5 : 0) + (loyal - 0.5) * 2 + 5) / 11));
+  return 0.6 * (influence / 100) + 0.4 * heart;
+}
 /** Elections: every 3 game days, sooner when the leader is not liked (approval under 35 %, a day at least), 2 game hours to vote. */
 const VOTE_EVERY = 3 * DAY, VOTE_LOW = 35, VOTE_OPEN = 2 * HOUR;
 /** A clan leader (AI) gives the clan an order of the day at most every 6 game hours. */
@@ -99,8 +105,12 @@ export class Clans {
   respect(id: number, c: Clan): number {
     const others = c.members.filter((x) => x !== id);
     const feel = others.length ? others.reduce((a, x) => a + this.rel(x, id), 0) / others.length : 0;
-    return feel + this.lead(id) * 1.2;
+    return feel + this.inf(id) / 20; // influence 0..100 -> 0..5, like the feelings (imad 2026-11-26)
   }
+  /** Influence 0..100 (sim/influence.ts): what they did for the people. */
+  inf(id: number): number { return this.w.influence.of(id); }
+  /** The most influential first (respect breaks ties). */
+  private byInfluence(ids: number[], c: Clan): number[] { return ids.slice().sort((a, b) => this.inf(b) - this.inf(a) || this.respect(b, c) - this.respect(a, c)); }
   /** How the members feel about the leader, 0..100. */
   approval(c: Clan): number {
     const m = c.members.filter((x) => x !== c.leader);
@@ -152,7 +162,7 @@ export class Clans {
     // Forget the dead and the gone; a clan with no leader picks the most respected member; a clan of nobody is no clan.
     for (const c of this.clans) {
       c.members = c.members.filter((id) => { const i = e.slot(id); return i >= 0 && this.member(i); });
-      if (!c.members.includes(c.leader) && c.members.length) { const old = c.leader; c.leader = c.members.slice().sort((a, b) => this.respect(b, c) - this.respect(a, c))[0]!; c.vote = undefined; w.emit('clanLeader', { clan: c.name, id: c.leader, old, why: 'the leader is gone' }); }
+      if (!c.members.includes(c.leader) && c.members.length) { const old = c.leader; c.leader = this.byInfluence(c.members, c)[0]!; c.vote = undefined; w.emit('clanLeader', { clan: c.name, id: c.leader, old, why: 'the leader is gone' }); }
     }
     for (const c of this.clans.filter((x) => x.members.length < 1 || (x.members.length < 2 && w.gameSec - x.at > DAY))) { for (const id of c.members) this.of.delete(id); w.emit('clanEnd', { clan: c.name }); }
     this.clans = this.clans.filter((x) => x.members.length >= 2 || (x.members.length >= 1 && w.gameSec - x.at <= DAY));
@@ -221,15 +231,15 @@ export class Clans {
     if (since < 12 * HOUR) return;
     for (const id of c.members) {
       if (id === c.leader || !this.auto(e.slot(id))) continue;
-      if (this.lead(id) > this.lead(c.leader) * 1.05 && this.rel(id, c.leader) < 0 && w.rng.chance(0.05)) { this.callVote(c, `${this.name(id)} challenges the leader`, id); return; }
+      if (this.inf(id) >= CALL_MIN && this.inf(id) > this.inf(c.leader) + 10 && this.rel(id, c.leader) < 1 && w.rng.chance(0.05)) { this.callVote(c, `${this.name(id)} challenges the leader`, id); return; }
     }
   }
-  /** Open an election: the leader and the 2 most respected members stand (and whoever called it). */
+  /** Open an election: the leader and the 2 most influential members stand (and whoever called it). */
   callVote(c: Clan, why: string, by = -1): boolean {
     const w = this.w, e = w.e;
     if (c.vote || c.members.length < 2) return false;
-    const ranked = c.members.filter((x) => x !== c.leader && e.slot(x) >= 0 && this.member(e.slot(x))).sort((a, b) => this.respect(b, c) - this.respect(a, c));
-    const cands = [c.leader, ...ranked.slice(0, 2)];
+    const ranked = c.members.filter((x) => x !== c.leader && e.slot(x) >= 0 && this.member(e.slot(x)));
+    const cands = [c.leader, ...this.byInfluence(ranked, c).slice(0, 2)];
     if (by >= 0 && !cands.includes(by) && c.members.includes(by)) cands.push(by);
     c.vote = { start: w.gameSec, end: w.gameSec + VOTE_OPEN, cands, ballots: [], why };
     w.emit('clanVoteStart', { clan: c.name, why, cands, by });
@@ -245,12 +255,14 @@ export class Clans {
     c.vote.ballots.push([voter, cand]);
     return true;
   }
-  /** Who an AI person votes for: the one they like and respect most (themselves a little, if proud). */
+  /** Who an AI person votes for (hybrid, imad 2026-11-26): 60 % the candidate's influence, 40 % feelings, family and loyalty
+   *  (themselves a little more, if proud). */
   private choose(voter: number, c: Clan): number {
     const p = this.w.profiles.get(voter), proud = !!p?.personality.some((x) => x === 'proud' || x === 'stubborn');
     let best = c.vote!.cands[0]!, bs = -Infinity;
     for (const k of c.vote!.cands) {
-      const v = (k === voter ? (proud ? 1.2 : 0.4) + this.lead(k) : this.rel(voter, k) + this.lead(k) * 1.5 + (this.kin(voter, k) ? 1.5 : 0)) + (k === c.leader ? (this.loyal.get(voter) ?? 0.5) - 0.5 : 0) + this.w.rng.next() * 0.3;
+      const v = voteScore(this.inf(k), k === voter ? (proud ? 3 : 1) : this.rel(voter, k), k !== voter && this.kin(voter, k), k === c.leader ? (this.loyal.get(voter) ?? 0.5) : 0.5)
+        + this.w.rng.next() * 0.05;
       if (v > bs) { bs = v; best = k; }
     }
     return best;
@@ -265,7 +277,7 @@ export class Clans {
     const top = Math.max(...tally.values());
     const tied = [...tally].filter(([, n]) => n === top).map(([k]) => k).filter((k) => c.members.includes(k));
     const old = c.leader;
-    const winner = tied.includes(old) ? old : tied.sort((a, b) => this.respect(b, c) - this.respect(a, c))[0] ?? old;
+    const winner = tied.includes(old) ? old : this.byInfluence(tied, c)[0] ?? old;
     c.leader = winner; c.lastVote = w.gameSec; c.vote = undefined;
     c.result = { at: w.gameSec, winner, old, tally: [...tally] };
     for (const [x, k] of v.ballots) { if (k === winner && x !== winner) { this.feel(x, winner, 0.3); this.loyal.set(x, Math.min(1, (this.loyal.get(x) ?? 0.5) + 0.1)); } else if (x !== k) this.feel(x, winner, -0.2); }
@@ -344,7 +356,7 @@ export class Clans {
     if (c.vote) { c.vote.cands = c.vote.cands.filter((x) => x !== id); c.vote.ballots = c.vote.ballots.filter(([v, k]) => v !== id && k !== id); }
     this.w.emit('clanLeave', { clan: c.name, id, why });
     if (c.leader !== id) this.feel(id, c.leader, -0.5);
-    else if (c.members.length) { c.leader = c.members.slice().sort((a, b) => this.respect(b, c) - this.respect(a, c))[0]!; c.vote = undefined; this.w.emit('clanLeader', { clan: c.name, id: c.leader, old: id, why: 'the leader left' }); }
+    else if (c.members.length) { c.leader = this.byInfluence(c.members, c)[0]!; c.vote = undefined; this.w.emit('clanLeader', { clan: c.name, id: c.leader, old: id, why: 'the leader left' }); }
   }
   /** Does the leader of c take `id` in? Players leading take everyone; an AI leader not someone they dislike. */
   accepts(c: Clan, id: number): boolean {
@@ -356,9 +368,9 @@ export class Clans {
   /** A strong member who does not like the leader goes to found a rival clan, with friends. */
   private maybeSplit(c: Clan): void {
     const w = this.w, e = w.e;
-    const cands = c.members.filter((id) => id !== c.leader && this.auto(e.slot(id)) && this.rel(id, c.leader) <= 0 && this.lead(id) >= this.lead(c.leader) * 0.85 && (this.loyal.get(id) ?? 0.5) < 0.5 && !this.pending.has(id));
+    const cands = c.members.filter((id) => id !== c.leader && this.auto(e.slot(id)) && this.rel(id, c.leader) <= 0 && this.inf(id) >= this.inf(c.leader) * 0.85 && (this.loyal.get(id) ?? 0.5) < 0.5 && !this.pending.has(id));
     if (!cands.length || !w.rng.chance(0.15)) return;
-    const rebel = cands.sort((a, b) => this.lead(b) - this.lead(a))[0]!;
+    const rebel = cands.sort((a, b) => this.inf(b) - this.inf(a))[0]!;
     const friends = c.members.filter((id) => id !== rebel && id !== c.leader && this.auto(e.slot(id)) && (this.kin(id, rebel) || this.rel(id, rebel) > this.rel(id, c.leader) + 0.5)).slice(0, Math.floor(c.members.length / 2) - 1);
     if (!friends.length) return;
     const R = e.slot(rebel);
@@ -409,7 +421,7 @@ export class Clans {
       case 'vote': case 'call': {
         const c = this.clanOf(id);
         if (!c) return 'I am in no clan';
-        if (verb === 'call') return this.callVote(c, `${this.name(id)} asked for a vote`, id) || 'a vote is already on';
+        if (verb === 'call') return this.inf(id) < CALL_MIN ? `my influence is only ${this.inf(id)}, ${CALL_MIN} is needed to call a vote` : this.callVote(c, `${this.name(id)} asked for a vote`, id) || 'a vote is already on';
         if (!c.vote) return 'there is no vote now';
         const cand = s.who !== undefined && c.vote.cands.includes(s.who) ? s.who : this.choose(id, c);
         this.ballot(c, id, cand);
@@ -466,6 +478,7 @@ export class Clans {
     }
     if (verb === 'call') {
       if (w.gameSec - (mine.lastVote ?? mine.at) < 6 * HOUR) return { ok: false, code: 'clanTooSoon' };
+      if (this.inf(id) < CALL_MIN) return { ok: false, code: 'clanLowInfluence', n: this.inf(id), need: CALL_MIN };
       return this.callVote(mine, `${this.name(id)} asked for a vote`, id) ? { ok: true, code: 'clanVoteOn', clan: this.info(i) } : { ok: false, code: 'clanVoteOn' };
     }
     if (verb === 'order') {
@@ -486,7 +499,8 @@ export class Clans {
     return {
       mine: {
         id: c.id, name: c.name, leader: c.leader, leaderName: this.name(c.leader), me: id, lead: c.leader === id, approval: this.approval(c), loyalty: Math.round(this.loyalty(id) * 100),
-        members: c.members.map((x) => ({ id: x, name: this.name(x), respect: Math.round(this.respect(x, c) * 10) / 10 })).sort((a, b) => b.respect - a.respect),
+        members: c.members.map((x) => ({ id: x, name: this.name(x), respect: Math.round(this.respect(x, c) * 10) / 10, influence: this.inf(x) })).sort((a, b) => b.influence - a.influence || b.respect - a.respect),
+        influence: this.inf(id), callMin: CALL_MIN,
         vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => ({ id: k, name: this.name(k) })), my: c.vote.ballots.find(([v]) => v === id)?.[1] ?? -1 } : null,
         result: c.result ? { winner: this.name(c.result.winner), old: this.name(c.result.old), tally: c.result.tally.map(([k, n]) => [this.name(k), n]) } : null,
         order: c.order ?? '', rivals: this.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension) })), now: w.gameSec,

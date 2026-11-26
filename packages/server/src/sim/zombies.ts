@@ -158,7 +158,7 @@ export class Zombies {
     if (e.kind[z] !== Kind.Threat) return false;
     e.hp[z]! -= dmg;
     if (e.hp[z]! > 0) return false;
-    w.emit('zombie', { id: e.id(z), map: w.maps[e.map[z]!]!.def.id, how: 'killed', by: by >= 0 ? e.id(by) : -1 });
+    w.emit('zombie', { id: e.id(z), map: w.maps[e.map[z]!]!.def.id, how: 'killed', by: by >= 0 ? e.id(by) : -1, prey: e.act[z] === Act.Fight ? e.target[z] : -1, near: e.act[z] === Act.Fight && e.slot(e.target[z]!) >= 0 ? Math.hypot(e.x[e.slot(e.target[z]!)]! - e.x[z]!, e.y[e.slot(e.target[z]!)]! - e.y[z]!) : 99 });
     this.cool.delete(e.id(z)); this.wander.delete(e.id(z));
     w.remove(z, 'killed');
     return true;

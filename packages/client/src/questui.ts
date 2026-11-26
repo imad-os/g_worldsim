@@ -14,42 +14,42 @@ const S = {
     done: 'done', active: 'in hand', ready: 'done: hand it in', next: 'next', locked: 'locked', from: 'from {0}', goSee: 'Go and see {0}.', handIn: 'Hand it in to {0}.',
     taken: 'Quest taken: {0}', handed: 'Quest done: {0} (+{1} points)', progress: '{0}: {1} / {2}', readyNote: '{0}: done! Go back to {1}.', noNpc: 'No one to talk to here.',
     allDone: 'You finished every quest. Well done!', reward: 'Reward: {0}', close: 'OK', npcClan: 'Clans', found: 'Found a clan', foundLabel: 'Name of your clan',
-    noClan: 'You are in no clan.', leader: 'Leader', approval: 'Approval {0} %', loyalty: 'Your loyalty {0} %', members: 'Members (by respect)', join: 'Join a clan', quit: 'Quit my clan',
+    noClan: 'You are in no clan.', leader: 'Leader', approval: 'Approval {0} %', loyalty: 'Your loyalty {0} %', members: 'Members (by influence)', myInf: 'Your influence {0} / 100 ({1} needed to ask for a vote)', lowInf: 'Your influence is {0}: you need {1} to ask for a vote. Save people, fight off zombies, finish tasks and keep the rules to gain it.', join: 'Join a clan', quit: 'Quit my clan',
     callVote: 'Ask for a vote', vote: 'Vote for the leader', voteOn: 'Election: {0}. Closes in {1} min.', voted: 'You voted for {0}.', order: 'Give my clan an order', orderLabel: 'Your order to the clan',
     lastVote: 'Last vote: {0} won', ordered: 'Your order went to {0} members.', joined: 'You joined {0}.', left: 'You left {0}.', founded: 'You founded {0}.',
     refused: '{0} would not take you.', atReg: 'Clans are founded with Odile, the registrar in town: talk to her.', leadAlready: 'You already lead a clan.', noVote: 'There is no vote now.',
     tooSoon: 'There was a vote a short while ago.', notLeader: 'Only the leader gives the clan orders.', clanNone: 'No such clan.', others: 'Other clans here', none: 'none',
-    clanHelp: 'Members vote for their leader (by respect and how they feel). The leader gives orders; loyal members follow them. You can change clan at any time.', order0: 'Leader\'s order: {0}', rivals: 'Rivals: {0}' },
+    clanHelp: 'Members vote for their leader: mostly by influence (what each one did for the people), partly by how they feel. The leader gives orders; loyal members follow them. You can change clan at any time.', order0: 'Leader\'s order: {0}', rivals: 'Rivals: {0}' },
   fr: { quests: 'Quêtes', again: 'Reparle-moi pour la quête suivante.', clan: 'Clan', qHelp: 'Parle aux maîtres de la ville (Parler à côté d\'eux) : ils donnent les quêtes dans l\'ordre, et tu rends chacune à celui qui l\'a donnée.',
     done: 'faite', active: 'en cours', ready: 'faite : à rendre', next: 'suivante', locked: 'verrouillée', from: 'de {0}', goSee: 'Va voir {0}.', handIn: 'Rends-la à {0}.',
     taken: 'Quête prise : {0}', handed: 'Quête finie : {0} (+{1} points)', progress: '{0} : {1} / {2}', readyNote: '{0} : fait ! Retourne voir {1}.', noNpc: 'Personne à qui parler ici.',
     allDone: 'Tu as fini toutes les quêtes. Bravo !', reward: 'Récompense : {0}', close: 'OK', npcClan: 'Clans', found: 'Fonder un clan', foundLabel: 'Nom de ton clan',
-    noClan: 'Tu n\'es dans aucun clan.', leader: 'Chef', approval: 'Approbation {0} %', loyalty: 'Ta loyauté {0} %', members: 'Membres (par respect)', join: 'Rejoindre un clan', quit: 'Quitter mon clan',
+    noClan: 'Tu n\'es dans aucun clan.', leader: 'Chef', approval: 'Approbation {0} %', loyalty: 'Ta loyauté {0} %', members: 'Membres (par influence)', myInf: 'Ton influence {0} / 100 ({1} pour demander un vote)', lowInf: 'Ton influence est de {0} : il faut {1} pour demander un vote. Sauve des gens, repousse les zombies, finis tes tâches et respecte les règles pour la gagner.', join: 'Rejoindre un clan', quit: 'Quitter mon clan',
     callVote: 'Demander un vote', vote: 'Voter pour le chef', voteOn: 'Élection : {0}. Fin dans {1} min.', voted: 'Tu as voté pour {0}.', order: 'Donner un ordre au clan', orderLabel: 'Ton ordre au clan',
     lastVote: 'Dernier vote : {0} a gagné', ordered: 'Ton ordre est allé à {0} membres.', joined: 'Tu as rejoint {0}.', left: 'Tu as quitté {0}.', founded: 'Tu as fondé {0}.',
     refused: '{0} ne veut pas de toi.', atReg: 'Les clans se fondent avec Odile, en ville : parle-lui.', leadAlready: 'Tu diriges déjà un clan.', noVote: 'Pas de vote en ce moment.',
     tooSoon: 'Un vote a eu lieu il y a peu.', notLeader: 'Seul le chef donne des ordres au clan.', clanNone: 'Ce clan n\'existe pas.', others: 'Autres clans ici', none: 'aucun',
-    clanHelp: 'Les membres élisent leur chef (respect et sentiments). Le chef donne des ordres ; les membres loyaux les suivent. Tu peux changer de clan à tout moment.', order0: 'Ordre du chef : {0}', rivals: 'Rivaux : {0}' },
+    clanHelp: 'Les membres élisent leur chef : surtout par influence (ce que chacun a fait pour les siens), en partie par sentiments. Le chef donne des ordres ; les membres loyaux les suivent. Tu peux changer de clan à tout moment.', order0: 'Ordre du chef : {0}', rivals: 'Rivaux : {0}' },
   es: { quests: 'Misiones', again: 'Háblame otra vez para la siguiente misión.', clan: 'Clan', qHelp: 'Habla con los maestros del pueblo (Hablar a su lado): dan las misiones en orden y entregas cada una a quien te la dio.',
     done: 'hecha', active: 'en curso', ready: 'hecha: entrégala', next: 'siguiente', locked: 'bloqueada', from: 'de {0}', goSee: 'Ve a ver a {0}.', handIn: 'Entrégala a {0}.',
     taken: 'Misión aceptada: {0}', handed: 'Misión cumplida: {0} (+{1} puntos)', progress: '{0}: {1} / {2}', readyNote: '{0}: ¡hecho! Vuelve con {1}.', noNpc: 'No hay nadie con quien hablar aquí.',
     allDone: 'Terminaste todas las misiones. ¡Bien hecho!', reward: 'Recompensa: {0}', close: 'OK', npcClan: 'Clanes', found: 'Fundar un clan', foundLabel: 'Nombre de tu clan',
-    noClan: 'No estás en ningún clan.', leader: 'Líder', approval: 'Aprobación {0} %', loyalty: 'Tu lealtad {0} %', members: 'Miembros (por respeto)', join: 'Unirme a un clan', quit: 'Dejar mi clan',
+    noClan: 'No estás en ningún clan.', leader: 'Líder', approval: 'Aprobación {0} %', loyalty: 'Tu lealtad {0} %', members: 'Miembros (por influencia)', myInf: 'Tu influencia {0} / 100 ({1} para pedir una votación)', lowInf: 'Tu influencia es {0}: necesitas {1} para pedir una votación. Salva a gente, lucha contra zombis, termina tareas y cumple las reglas para ganarla.', join: 'Unirme a un clan', quit: 'Dejar mi clan',
     callVote: 'Pedir una votación', vote: 'Votar al líder', voteOn: 'Elección: {0}. Cierra en {1} min.', voted: 'Votaste por {0}.', order: 'Dar una orden al clan', orderLabel: 'Tu orden al clan',
     lastVote: 'Última votación: ganó {0}', ordered: 'Tu orden llegó a {0} miembros.', joined: 'Te uniste a {0}.', left: 'Dejaste {0}.', founded: 'Fundaste {0}.',
     refused: '{0} no te acepta.', atReg: 'Los clanes se fundan con Odile, en el pueblo: habla con ella.', leadAlready: 'Ya diriges un clan.', noVote: 'No hay votación ahora.',
     tooSoon: 'Hubo una votación hace poco.', notLeader: 'Solo el líder da órdenes al clan.', clanNone: 'Ese clan no existe.', others: 'Otros clanes aquí', none: 'ninguno',
-    clanHelp: 'Los miembros eligen a su líder (respeto y sentimientos). El líder da órdenes; los leales las siguen. Puedes cambiar de clan cuando quieras.', order0: 'Orden del líder: {0}', rivals: 'Rivales: {0}' },
+    clanHelp: 'Los miembros eligen a su líder: sobre todo por influencia (lo que cada uno hizo por los suyos), en parte por sentimientos. El líder da órdenes; los leales las siguen. Puedes cambiar de clan cuando quieras.', order0: 'Orden del líder: {0}', rivals: 'Rivales: {0}' },
   ar: { quests: 'المهام', again: 'تحدث معي مرة أخرى للمهمة التالية.', clan: 'العشيرة', qHelp: 'تحدث مع معلمي البلدة (تحدث بجانبهم): يعطون المهام بالترتيب، وتسلّم كل مهمة لمن أعطاك إياها.',
     done: 'منجزة', active: 'قيد التنفيذ', ready: 'منجزة: سلّمها', next: 'التالية', locked: 'مقفلة', from: 'من {0}', goSee: 'اذهب إلى {0}.', handIn: 'سلّمها إلى {0}.',
     taken: 'مهمة جديدة: {0}', handed: 'أنجزت المهمة: {0} (+{1} نقطة)', progress: '{0}: {1} / {2}', readyNote: '{0}: تم! عد إلى {1}.', noNpc: 'لا أحد للتحدث معه هنا.',
     allDone: 'أنهيت كل المهام. أحسنت!', reward: 'المكافأة: {0}', close: 'حسنًا', npcClan: 'العشائر', found: 'تأسيس عشيرة', foundLabel: 'اسم عشيرتك',
-    noClan: 'لست في أي عشيرة.', leader: 'القائد', approval: 'الرضا {0} %', loyalty: 'ولاؤك {0} %', members: 'الأعضاء (حسب الاحترام)', join: 'الانضمام إلى عشيرة', quit: 'مغادرة عشيرتي',
+    noClan: 'لست في أي عشيرة.', leader: 'القائد', approval: 'الرضا {0} %', loyalty: 'ولاؤك {0} %', members: 'الأعضاء (حسب النفوذ)', myInf: 'نفوذك {0} / 100 (يلزم {1} لطلب تصويت)', lowInf: 'نفوذك {0}: يلزمك {1} لطلب تصويت. أنقذ الناس، واصدّ الزومبي، وأنهِ المهام، والتزم بالقواعد لتكسبه.', join: 'الانضمام إلى عشيرة', quit: 'مغادرة عشيرتي',
     callVote: 'طلب تصويت', vote: 'التصويت للقائد', voteOn: 'انتخاب: {0}. ينتهي بعد {1} دقيقة.', voted: 'صوّتت لـ {0}.', order: 'إعطاء أمر للعشيرة', orderLabel: 'أمرك للعشيرة',
     lastVote: 'آخر تصويت: فاز {0}', ordered: 'وصل أمرك إلى {0} أعضاء.', joined: 'انضممت إلى {0}.', left: 'غادرت {0}.', founded: 'أسست {0}.',
     refused: '{0} لا يقبلك.', atReg: 'تُؤسَّس العشائر عند أوديل في البلدة: تحدث معها.', leadAlready: 'أنت تقود عشيرة بالفعل.', noVote: 'لا يوجد تصويت الآن.',
     tooSoon: 'جرى تصويت قبل قليل.', notLeader: 'القائد وحده يعطي الأوامر للعشيرة.', clanNone: 'هذه العشيرة غير موجودة.', others: 'عشائر أخرى هنا', none: 'لا شيء',
-    clanHelp: 'ينتخب الأعضاء قائدهم (بالاحترام والمشاعر). القائد يعطي الأوامر ويتبعها الأوفياء. يمكنك تغيير عشيرتك متى شئت.', order0: 'أمر القائد: {0}', rivals: 'الخصوم: {0}' },
+    clanHelp: 'ينتخب الأعضاء قائدهم: بالنفوذ أساسًا (ما قدّمه كل واحد لقومه)، وبالمشاعر جزئيًا. القائد يعطي الأوامر ويتبعها الأوفياء. يمكنك تغيير عشيرتك متى شئت.', order0: 'أمر القائد: {0}', rivals: 'الخصوم: {0}' },
 } as const;
 type K = keyof typeof S.en;
 const lang = (): Lang => (['en', 'fr', 'es', 'ar'].includes(getLang()) ? getLang() : 'en') as Lang;
@@ -59,8 +59,8 @@ const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const npcName = (k: string) => npcDef(k)?.name ?? k;
 
 interface NpcTalk { npc: string; name: string; say: L; quest?: string; state?: string; n?: number; need?: number; next?: string; reward?: { xp: number; items?: Record<string, number>; food?: number } }
-interface Member { id: number; name: string; respect: number }
-interface MyClan { id: number; name: string; leader: number; leaderName: string; me: number; lead: boolean; approval: number; loyalty: number; members: Member[]; vote: { end: number; why: string; cands: { id: number; name: string }[]; my: number } | null; result: { winner: string } | null; order: string; rivals: { name: string; tension: number }[]; now: number }
+interface Member { id: number; name: string; respect: number; influence?: number }
+interface MyClan { id: number; name: string; leader: number; leaderName: string; me: number; lead: boolean; approval: number; loyalty: number; members: Member[]; influence?: number; callMin?: number; vote: { end: number; why: string; cands: { id: number; name: string }[]; my: number } | null; result: { winner: string } | null; order: string; rivals: { name: string; tension: number }[]; now: number }
 interface ClanInfo { mine: MyClan | null; others: { id: number; name: string; leader: string; n: number; approval: number }[]; nearReg: boolean }
 
 export interface QuestCtx {
@@ -125,7 +125,8 @@ export class QuestUi {
           html = `<p><b>${esc(m.name)}</b> · ${esc(s('leader'))}: <b>${esc(m.leaderName)}</b> · ${esc(s('approval', String(m.approval)))} · ${esc(s('loyalty', String(m.loyalty)))}</p>`
             + (m.vote ? `<p><b>${esc(s('voteOn', m.vote.cands.map((x) => x.name).join(' / '), String(Math.max(0, Math.round((m.vote.end - m.now) / 60)))))}</b></p>` : '')
             + (m.order ? `<p>${esc(s('order0', m.order))}</p>` : '')
-            + `<p class="dim">${esc(s('members'))}: ${m.members.map((x) => `${esc(x.name)} (${x.respect})`).join(', ')}</p>`
+            + `<p class="dim">${esc(s('members'))}: ${m.members.map((x) => `${esc(x.name)} (${x.influence ?? x.respect})`).join(', ')}</p>`
+            + (m.influence !== undefined ? `<p class="dim">${esc(s('myInf', String(m.influence), String(m.callMin ?? 40)))}</p>` : '')
             + (m.result ? `<p class="dim">${esc(s('lastVote', m.result.winner))}</p>` : '')
             + (m.rivals.length ? `<p class="dim">${esc(s('rivals', m.rivals.map((r) => `${r.name} ${r.tension}/10`).join(', ')))}</p>` : '');
           if (m.vote) rows.push({ id: 'vote', label: s('vote'), sub: true, value: m.vote.my >= 0 ? m.vote.cands.find((x) => x.id === m.vote!.my)?.name ?? '' : '' });
@@ -194,7 +195,7 @@ export class QuestUi {
     const name = String(d.name ?? '');
     const msg: Partial<Record<string, string>> = {
       clanJoined: s('joined', name), clanLeft: s('left', name), clanFounded: s('founded', name), clanVoted: s('voted', name), clanOrdered: s('ordered', String(d.n ?? 0)),
-      clanRefused: s('refused', name), clanAtRegistrar: s('atReg'), clanLeadAlready: s('leadAlready'), clanNoVote: s('noVote'), clanTooSoon: s('tooSoon'), clanNotLeader: s('notLeader'),
+      clanRefused: s('refused', name), clanAtRegistrar: s('atReg'), clanLeadAlready: s('leadAlready'), clanNoVote: s('noVote'), clanTooSoon: s('tooSoon'), clanNotLeader: s('notLeader'), clanLowInfluence: s('lowInf', String(d.n ?? 0), String(d.need ?? 40)),
       clanNone: s('clanNone'), clanVoteOn: s('voteOn', this.clan?.mine?.vote?.cands.map((x) => x.name).join(' / ') ?? '', '120'),
     };
     if (msg[d.code]) c.note(msg[d.code]!, 3500);
