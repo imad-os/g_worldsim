@@ -7,6 +7,7 @@ import {
 import { People } from './people.js';
 import { Animals3D } from './animals.js';
 import { Horses3D } from './horses.js';
+import { gateMesh, type GateSpec } from './gate.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -31,6 +32,7 @@ export class World3D {
   private water: Mesh;
   private under: Mesh;
   private portals = new Group();
+  private gateMat = new MeshLambertMaterial({ vertexColors: true });
   private shots: InstancedMesh;
   private nShots = 0;
   // Items: canned food (1), berry bush (2), anything else = a small crate.
@@ -185,11 +187,11 @@ export class World3D {
   }
 
   /** A new map: water covers it, old chunks and portals go. */
-  setMap(w: number, h: number, portals: { x: number; y: number }[]): void {
+  setMap(w: number, h: number, portals: GateSpec[]): void {
     this.clearChunks();
     this.water.scale.set(w, 1, h); this.water.position.set(w / 2, -0.14, h / 2);
     for (const c of this.portals.children.slice()) { this.portals.remove(c); dispose(c as Mesh); }
-    for (const p of portals) this.portals.add(portalMesh(p.x, p.y));
+    for (const p of portals) this.portals.add(gateMesh(p, w, h, this.gateMat));
   }
 
   addChunk(ground: BufferGeometry, props: BufferGeometry | null, glow: BufferGeometry | null = null, pool: BufferGeometry | null = null): Group {
@@ -319,9 +321,6 @@ export class World3D {
     this.bg.setHex(0x0b1426).lerp(this.c1.setHex(0x9cc7e8), day).lerp(this.c2.setHex(0xe79a6a), warm * 0.6);
     this.lamp.intensity = (1 - day) * 9;
     this.poolMat.opacity = (1 - day) * 0.42; this.poolMat.visible = day < 0.98;
-    // Portals breathe.
-    const s = 1 + Math.sin(t * 2.5) * 0.06;
-    for (const p of this.portals.children) { p.children[0]!.rotation.y = t * 0.8; p.children[1]!.scale.set(s, 1, s); }
   }
 
   render(): void { this.renderer.render(this.scene, this.camera); }
@@ -332,18 +331,6 @@ export class World3D {
   }
 }
 
-function portalMesh(x: number, y: number): Group {
-  const g = new Group();
-  g.position.set(x, 0, y);
-  const ring = new Mesh(new TorusGeometry(1.3, 0.11, 8, 32), new MeshBasicMaterial({ color: 0x8ff0ff }));
-  ring.position.y = 1.4;
-  const glow = new Mesh(new CircleGeometry(2, 32).rotateX(-Math.PI / 2),
-    new MeshBasicMaterial({ color: 0x4fd8ff, transparent: true, opacity: 0.45, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }));
-  glow.position.y = 0.05;
-  g.add(ring, glow);
-  return g;
-}
-
 function dispose(o: Mesh | Group): void {
-  o.traverse((c) => { const m = c as Mesh; if (m.geometry) m.geometry.dispose(); });
+  o.traverse((c) => { const m = c as Mesh; if (m.geometry) m.geometry.dispose(); const mb = m.material as MeshLambertMaterial | undefined; if (mb && mb.map) { mb.map.dispose(); mb.dispose(); } });
 }

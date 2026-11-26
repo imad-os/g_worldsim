@@ -662,3 +662,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   4-day runs with travel open: 3-5 people own a horse, 16-34 rides; closed: none (by design).
 - **Bows**: `Brain.bowShot` = a hunter with bow + arrows shoots from 3.5-16 m (1.5 s, uses an arrow, hit by intelligence and range, damage as for
   players, never with a person near the line; event `shot`). Colony goals `bow` (quick + brave, only with a home or 6+ leather: huts need 5) / `arrows`.
+- **Gates are openings between trees (imad 2026-11-26: "portals look silly, not a wizard RPG")**: no ring / glow. `client/src/gfx/gate.ts` `gateMesh`
+  (one vertex-coloured mesh per gate + the sign's canvas text): the road goes on past the map's edge (paved, then a dirt track) through thick woods
+  that close across it further out, two big trees frame the opening, a wooden signpost names the map it leads to (both faces). `Land.tracks()` wears
+  a 3-wide dirt track on grass from each gate to the edge and 8 tiles in (every start). Proof `ADMIN_TOKEN=... node tools/gates-proof.mjs <server> <sdk.js> <outdir>`.

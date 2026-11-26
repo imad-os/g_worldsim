@@ -472,7 +472,7 @@ function setMap(id: string): void {
   map = mm.id; mapW = mm.w; mapH = mm.h;
   camX = mm.w / 2; camY = mm.h / 2;
   tilesOf.clear(); meshOf.clear(); buildQ.length = 0;
-  g3?.setMap(mm.w, mm.h, welcome.portals.filter((p) => p.map === map));
+  g3?.setMap(mm.w, mm.h, welcome.portals.filter((p) => p.map === map).map((p) => ({ x: p.x, y: p.y, label: welcome!.maps.find((q) => q.id === p.to)?.name ?? p.to })));
   clearEntities();
   predOk = false; snapCam = true;
   MyPC.save('map', map);

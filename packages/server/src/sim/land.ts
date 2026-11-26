@@ -55,7 +55,28 @@ export class Land {
         }
       }
     }
+    this.tracks();
     this.block(!w.travelOpen);
+  }
+
+  /**
+   * A worn dirt track from every gate out to the map's edge and a few metres in (imad 2026-11-26: a gate is an opening between the
+   * trees, not a magic door), so a way out that has no road of its own still reads as a path. Only grass is worn (every start, idempotent).
+   */
+  private tracks(): void {
+    const w = this.w, grass = this.T.grass, dirt = this.T.dirt;
+    if (grass === undefined || dirt === undefined) return;
+    for (const p of w.portals) {
+      const tm = w.maps[p.from]!.tiles, x = Math.floor(p.x), y = Math.floor(p.y);
+      const toEdge = [y, tm.w - 1 - x, tm.h - 1 - y, x];
+      let side = 0; for (let k = 1; k < 4; k++) if (toEdge[k]! < toEdge[side]!) side = k;
+      if (toEdge[side]! > 12) continue;
+      const [ox, oy] = ([[0, -1], [1, 0], [0, 1], [-1, 0]] as const)[side]!;
+      for (let d = -8; d <= toEdge[side]!; d++) for (let l = -1; l <= 1; l++) {
+        const tx = x + ox * d - oy * l, ty = y + oy * d + ox * l;
+        if (tm.inside(tx, ty) && tm.get(tx, ty) === grass) tm.set(tx, ty, dirt);
+      }
+    }
   }
 
   /** In the town's ring of trees (they are too thick to cut: the ring stays). */
