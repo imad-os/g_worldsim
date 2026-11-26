@@ -27,7 +27,7 @@ test('aimed building: a player puts a hut exactly where aimed (door facing the c
   const s = openSpot(w, town, 60, 60);
   const pl = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5);
   w.playerProfile(pl, 'imad');
-  sv.add(pl, 'wood', 14); sv.add(pl, 'stone', 4);
+  sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5);
   assert.equal(sv.canPlace(pl, 'hut', s.x0 + 30, s.y0, 0), 'tooFar', 'out of reach');
   assert.equal(sv.canPlace(pl, 'hut', s.x0, s.y0, 0), '', 'open ground in reach');
   assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
@@ -43,7 +43,7 @@ test('aimed building: a player puts a hut exactly where aimed (door facing the c
   assert.equal(tm.get(s.x0 + 5, s.y0 + 6), tileId(w, 'lamp'));
   assert.equal(sv.placeAt(pl, 'lamp', s.x0 + 5, s.y0 + 6), 'noRoom');
   // Facing east this time: the door is on the east wall.
-  sv.add(pl, 'wood', 14); sv.add(pl, 'stone', 4);
+  sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5);
   w.place(pl, town, s.x0 + 2.5, s.y0 + 7.5);
   const s2 = openSpot(w, town, s.x0 + 2, s.y0 + 12);
   w.place(pl, town, s2.x0 - 1.5, s2.y0 + 2.5);
@@ -60,7 +60,7 @@ test('a hut\'s door opens only for its owner and their family; strangers stay ou
   const s = openSpot(w, town, 60, 60);
   const owner = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5);
   w.playerProfile(owner, 'imad');
-  sv.add(owner, 'wood', 14); sv.add(owner, 'stone', 4);
+  sv.add(owner, 'wood', 20); sv.add(owner, 'stone', 10); sv.add(owner, 'leather', 5);
   assert.equal(sv.placeAt(owner, 'hut', s.x0, s.y0, 0), 'built');
   w.place(owner, town, s.x0 + 2.5, s.y0 + 5.5);
   assert.equal(sv.toggleDoor(owner, s.x0 + 2, s.y0 + 4), 'doorOpened', 'left open: still only for the family');
@@ -98,7 +98,7 @@ test('homes: free huts go to families without one, a dead owner leaves it to the
   const s = openSpot(w, town, 60, 60);
   const pl = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5);
   w.playerProfile(pl, 'builder');
-  sv.add(pl, 'wood', 14); sv.add(pl, 'stone', 4);
+  sv.add(pl, 'wood', 20); sv.add(pl, 'stone', 10); sv.add(pl, 'leather', 5);
   assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
   let h = sv.homes.list[0]!;
   h.owner = -1;
@@ -181,7 +181,7 @@ test('pulling down: only your own building, or one whose owner is dead; an admin
   const s = openSpot(w, town, 60, 60);
   const me = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 7.5); w.playerProfile(me, 'imad');
   const other = w.spawnPlayer(town, s.x0 + 3.5, s.y0 + 7.5); w.playerProfile(other, 'lina');
-  sv.add(me, 'wood', 14); sv.add(me, 'stone', 4); sv.add(me, 'lamp', 1);
+  sv.add(me, 'wood', 20); sv.add(me, 'stone', 10); sv.add(me, 'leather', 5); sv.add(me, 'lamp', 1);
   assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
   assert.equal(sv.placeAt(me, 'lamp', s.x0 + 5, s.y0 + 6), 'placed');
   // Someone else may not; the map's own ground is not a building.
@@ -197,11 +197,11 @@ test('pulling down: only your own building, or one whose owner is dead; an admin
   assert.equal(sv.huts[town]!.length, 0); assert.equal(sv.homes.homeOf(e.id(me)), undefined);
   assert.equal(w.profileOf(me)!.home, undefined);
   for (let yy = 0; yy < 5; yy++) for (let xx = 0; xx < 5; xx++) assert.ok(!sv.builtTile(tm.get(s.x0 + xx, s.y0 + yy)), 'all its tiles are ground again');
-  assert.equal(sv.inv(me).wood, 7); assert.equal(sv.inv(me).stone, 2);
+  assert.equal(sv.inv(me).wood, 10); assert.equal(sv.inv(me).stone, 5); assert.equal(sv.inv(me).leather, 2);
   // An AI person's hut: nobody else may, until the owner is dead.
   const ai = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent)!;
   w.place(ai, town, s.x0 + 2.5, s.y0 + 7.5);
-  sv.add(ai, 'wood', 14); sv.add(ai, 'stone', 4);
+  sv.add(ai, 'wood', 20); sv.add(ai, 'stone', 10); sv.add(ai, 'leather', 5);
   assert.equal(sv.placeAt(ai, 'hut', s.x0, s.y0, 0), 'built');
   w.place(other, town, s.x0 + 3.5, s.y0 + 7.5);
   assert.equal(sv.destroyAt(other, s.x0 + 2, s.y0 + 4), 'notYours');
@@ -217,7 +217,7 @@ test('pulling down: only your own building, or one whose owner is dead; an admin
   for (let n = 0; n < 20 * 60 && tm.get(s.x0 + 6, s.y0 + 7) === tileId(w, 'lamp'); n++) w.step();
   assert.notEqual(tm.get(s.x0 + 6, s.y0 + 7), tileId(w, 'lamp'), 'they took it down');
   // Admin reset: every building goes, homes and camps are forgotten.
-  sv.add(me, 'wood', 14); sv.add(me, 'stone', 4);
+  sv.add(me, 'wood', 20); sv.add(me, 'stone', 10); sv.add(me, 'leather', 5);
   w.place(me, town, s.x0 + 2.5, s.y0 + 7.5);
   assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
   assert.ok(sv.campOf(town));
@@ -237,7 +237,7 @@ test('doors open and close with the interact button: a closed door stops a playe
   const s = openSpot(w, town, 60, 60);
   const me = w.spawnPlayer(town, s.x0 + 2.5, s.y0 + 6.5); w.playerProfile(me, 'imad');
   const other = w.spawnPlayer(town, s.x0 + 5.5, s.y0 + 7.5); w.playerProfile(other, 'lina');
-  sv.add(me, 'wood', 14); sv.add(me, 'stone', 4);
+  sv.add(me, 'wood', 20); sv.add(me, 'stone', 10); sv.add(me, 'leather', 5);
   assert.equal(sv.placeAt(me, 'hut', s.x0, s.y0, 0), 'built');
   const dx = s.x0 + 2, dy = s.y0 + 4; // the south door
   w.place(me, town, dx + 0.5, dy + 1.5);

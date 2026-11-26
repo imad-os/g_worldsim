@@ -1,4 +1,4 @@
-import { Kind, RECIPES_ALL, PLACEABLE, WEAPONS } from '@worldsim/protocol';
+import { Kind, RECIPES_ALL, PLACEABLE, WEAPONS, HUT_NEED } from '@worldsim/protocol';
 import { compress, plan, type Facts, type GAction } from './goap.js';
 import type { Step } from './tasks.js';
 import type { World } from './world.js';
@@ -36,6 +36,8 @@ export interface Goal {
   text: string;
   /** Alternatives: any one of these fact sets reached is enough. */
   want: Facts[];
+  /** A long project (a hut: 20 wood, 10 stone, 5 leather): the many repeats of one action don't each count as a new risk, and the hours weigh less. */
+  long?: boolean;
   /** How much it matters now, 0..1. */
   value: number;
   /** Which trait suits it (fit = 0.7 + 0.6 x trait). */
@@ -192,7 +194,7 @@ export class Colony {
     // Building at the camp.
     const toCamp = tr(dCamp);
     if (sv.enabled) {
-      add('build:hut', { use: { wood: 12, stone: 4 }, add: { '+hut': 1 }, step: { do: 'build', what: 'hut' } }, () => WORK.hut + toCamp);
+      add('build:hut', { use: { ...HUT_NEED }, add: { '+hut': 1 }, step: { do: 'build', what: 'hut' } }, () => WORK.hut + toCamp);
       add('build:campfire', { use: { wood: 3, stone: 2 }, add: { fire: 1, fuel: 10, '+fire': 1 }, step: { do: 'build', what: 'campfire' } }, () => WORK.fire + toCamp);
       add('tend', { pre: { fire: 1 }, use: { wood: 1 }, add: { fuel: 4 }, step: { do: 'tend', unit: 'fuel' } }, () => WORK.tend + toCamp);
       add('repair', { use: { wood: 1, broken: 1 }, add: { '+repaired': 1 }, step: { do: 'repair' } }, () => WORK.repair + toCamp);
@@ -225,7 +227,7 @@ export class Colony {
       // Goals are relative for the camp's new things (+hut...), absolute for what one carries.
       const want: Facts = {};
       for (const [k, n] of Object.entries(want0)) want[k] = n;
-      const p = plan(s, want, acts, { maxNodes: 2500, maxDepth: 30 });
+      const p = plan(s, want, acts, { maxNodes: 5000, maxDepth: 64 }) // a hut is 20 wood + 10 stone + 5 leather: 40+ steps;
       this.stats.nodes += p?.expanded ?? 0;
       if (!p || !p.actions.length) continue;
       if (best && p.cost >= best.cost) continue;
@@ -307,8 +309,9 @@ export class Colony {
     if (fire < 0 && (evening || (threat && (hour >= 19 || hour < 6)))) gs.push({ name: 'fire', text: 'make a campfire for the night', want: [{ '+fire': 1 }], value: 0.95, trait: 'intelligence', crew: 1 });
     else if (fire >= 0 && fuel < 5) gs.push({ name: 'fuel', text: 'keep the fire going', want: [{ fuel: fuel + 4 }], value: 0.85 - fuel * 0.08, trait: 'empathy', crew: 1 });
     // Shelter: a home for every household (sim/homes.ts; a hut's door opens only for its family), at least one hut per two people.
-    const roofs = sv.huts[m]!.length, needRoofs = Math.max(roofs + sv.homes.needed(m), Math.ceil(n / 2));
-    if (roofs < needRoofs && day) gs.push({ name: 'hut', text: 'build a hut to sleep in', want: [{ '+hut': 1 }], value: 0.45 + 0.4 * ((needRoofs - roofs) / needRoofs), trait: 'strength', crew: needRoofs - roofs });
+    // Only as many as households without a home that no free hut can take (huts are dear: move into a free one first).
+    const roofs = sv.huts[m]!.length, needRoofs = roofs + sv.homes.needed(m); void n;
+    if (roofs < needRoofs && day) gs.push({ name: 'hut', text: 'build a hut to sleep in', want: [{ '+hut': 1 }], long: true, value: 0.45 + 0.4 * ((needRoofs - roofs) / needRoofs), trait: 'strength', crew: needRoofs - roofs });
     if (camp && sv.damaged(m) >= 0) gs.push({ name: 'repair', text: 'repair the huts', want: [{ '+repaired': 1 }], value: 0.7, trait: 'strength', crew: 1 });
     if (camp && roofs) {
       // Safety: doors in the doorways and gates, a wall round the camp, spikes outside it.
@@ -392,7 +395,8 @@ export class Colony {
           if (budget-- <= 0) break;
           const p = this.planFor(i, g);
           if (!p) continue;
-          const net = g.value * fit(i) * p.p - (p.cost / HOUR) * 0.04 + w.rng.next() * 0.02;
+          const pr = g.long ? [...new Set(p.steps.map((s) => s.key ?? ''))].reduce((a, k) => a * this.chance(i, k), 1) : p.p;
+          const net = g.value * fit(i) * pr - (p.cost / HOUR) * (g.long ? 0.008 : 0.04) + w.rng.next() * 0.02;
           if (net > bn) { bn = net; bi = i; bp = p; }
         }
         if (bi < 0 || !bp) break;

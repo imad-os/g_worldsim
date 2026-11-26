@@ -52,7 +52,7 @@ function byId(tiles: { id: number; name: string; color: number; solid?: boolean 
   for (const t of tiles) { colors[t.id] = t.color; names[t.id] = t.name; solid[t.id] = !!t.solid; }
   return { colors, names, solid };
 }
-const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests', 'chats', 'chatRead']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant',
@@ -407,6 +407,11 @@ export class App {
         }
         const pc = put();
         return { ok: pc === 'placed', code: pc, item: what };
+      }
+      if (a === 'huts') { // every hut on my map (or text = a map id): for the TV's map (imad 2026-11-25: "each hut marked on the map")
+        const mi = text ? w.maps.findIndex((mp) => mp.def.id === text) : e.map[player]!;
+        const me = e.id(player);
+        return { ok: true, code: 'huts', list: mi < 0 ? [] : sv.homes.where(mi).map((h) => ({ ...h, mine: h.owner === me || (h.owner >= 0 && sv.homes.family(me, h.owner)) })) };
       }
       if (a === 'door' || ((a === 'take' || a === 'use') && /^door:\d+,\d+$/.test(String(text ?? '')))) {
         // The interact button on a door (imad 2026-11-25): open / close it, if this person may.
@@ -1429,9 +1434,10 @@ export class App {
       case 'overview': return this.overview();
       case 'history': return this.hist;
       case 'replays': return this.replayList();
+      case 'huts': return { huts: w.survival.homes.where(c.map ? mapOf(c.map) : undefined) };
       case 'mapTiles': {
         const m = mapOf(c.map), mp = w.maps[m]!;
-        return { id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, tiles: mp.tiles.tiles, ...byId(w.sc.tiles) }; // indexed by tile id (ids start at 1: by position they were one off)
+        return { id: mp.def.id, name: mp.def.name, w: mp.tiles.w, h: mp.tiles.h, tiles: mp.tiles.tiles, ...byId(w.sc.tiles), huts: w.survival.homes.where(m) }; // indexed by tile id (ids start at 1: by position they were one off)
       }
       case 'live': { // what moves on one map, for the panel's live map (small arrays, asked every few seconds)
         const m = mapOf(c.map), e = w.e, r1 = (v: number) => Math.round(v * 10) / 10;

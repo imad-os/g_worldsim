@@ -48,7 +48,7 @@ for (let r = 0; r < 120 && !spot; r++) for (let y = 128 - r; y <= 128 + r && !sp
 console.log('open patch at', spot);
 const huts = [[0, 0, 0], [8, 0, 1], [0, 8, 2], [8, 8, 3]]; // x, y offset, door south / east / north / west
 for (const [ox, oy, dir] of huts) {
-  await adm({ cmd: 'agentSet', id: me, set: { inv: { wood: 14, stone: 4, bed: 1 } } });
+  await adm({ cmd: 'agentSet', id: me, set: { inv: { wood: 20, stone: 10, leather: 5, bed: 1 } } });
   const x0 = spot[0] + ox, y0 = spot[1] + oy;
   const [sx, sy] = [[2.5, 7.5], [7.5, 2.5], [2.5, -2.5], [-2.5, 2.5]][dir];
   await adm({ cmd: 'agentMove', id: me, map: 'town', x: x0 + sx, y: y0 + sy });

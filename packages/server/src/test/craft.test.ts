@@ -142,7 +142,7 @@ test('a leader hands out the work: doors on the huts and a wall round the camp w
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === town) people.push(i);
   // A hut (and so a camp) built by the first person; everyone has wood and stone; zombies are expected tonight.
   const a = people[0]!;
-  w.survival.inv(a).wood = 20; w.survival.inv(a).stone = 10;
+  w.survival.inv(a).wood = 26; w.survival.inv(a).stone = 16; w.survival.inv(a).leather = 5;
   e.angle[a] = 0;
   assert.equal(w.survival.playerHut(a), 'built');
   for (const i of people) { w.survival.inv(i).wood = 20; w.survival.inv(i).ore = 4; }
@@ -201,7 +201,7 @@ test('a door needs a doorway or a gate: never a door alone in the open', () => {
   w.populate(); w.land.setup();
   const e = w.e, town = w.mapIndex.get('town')!;
   const a = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent && e.map[i] === town)!;
-  w.survival.inv(a).wood = 20; w.survival.inv(a).stone = 10;
+  w.survival.inv(a).wood = 26; w.survival.inv(a).stone = 16; w.survival.inv(a).leather = 5;
   assert.equal(w.survival.doorSite(town), -1, 'no hut yet: no doorway');
   assert.equal(w.survival.gateSite(town), -1, 'no wall yet: no gate');
 });
@@ -212,7 +212,7 @@ test('night watch: with a camp, the bravest stand guard at night and a timid per
   const e = w.e, town = w.mapIndex.get('town')!;
   const people = [...Array(e.hi).keys()].filter((i) => e.kind[i] === Kind.Agent && e.map[i] === town);
   const a = people[0]!;
-  w.survival.inv(a).wood = 20; w.survival.inv(a).stone = 10; e.angle[a] = 0;
+  w.survival.inv(a).wood = 26; w.survival.inv(a).stone = 16; w.survival.inv(a).leather = 5; e.angle[a] = 0;
   assert.equal(w.survival.playerHut(a), 'built');
   const brave = people[1]!, timid = people[2]!;
   w.profileOf(brave)!.traits.courage = 1; w.profileOf(timid)!.traits.courage = 0.1;

@@ -58,7 +58,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
   if (/weapon|arme|arma|سلاح/.test(q)) return 'spear';
   return kind === 'craft' ? 'axe' : 'campfire';
 }
-export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean; p0?: number; n1?: number }
+export interface Step { key?: string; units?: number; do: string; who?: number; what?: string; times?: number; minutes?: number; text?: string; t0?: number; phase?: number; n0?: number; got?: boolean; fails?: number; planned?: boolean; p0?: number; n1?: number; wait?: number }
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
@@ -169,7 +169,7 @@ export class Tasks {
         s.p0 = pr ? this.didCount(e.id(i), pr[0]) : 0;
         if (s.do === 'forage') s.n0 = this.didCount(e.id(i), 'eat');
       }
-      else if (w.gameSec - s.t0 > MAX_STEP_SEC) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
+      else if (w.gameSec - s.t0 > (s.do === 'hunt' ? 2 * MAX_STEP_SEC : MAX_STEP_SEC)) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
       let r = this.run(i, s, t);
       // Done only with proof: a hunt that killed nothing, a build with no new building, a drink never drunk is not done.
       if (r === true && !this.proved(i, s)) r = `I did not manage to ${s.do === 'bring' ? 'bring it' : s.do + (s.what ? ' ' + String(s.what).trim().slice(0, 40) : '')}`;
@@ -406,7 +406,15 @@ export class Tasks {
         }
         s.n1 = this.didCount(id, 'hunt');
         const r = w.survival.hunt(i, s.what ?? '');
+        if (r === 'I found no animals near here') {
+          // Game is scarce (5 leather for a hut, imad 2026-11-25): search for it for a few game hours before giving up.
+          s.wait ??= w.gameSec;
+          if (w.gameSec - s.wait > 5 * 3600) return 'I searched for hours and found no animals to hunt';
+          if (!b.walking(i)) { const a = w.rng.next() * Math.PI * 2, d = 25 + w.rng.next() * 35; b.goTo(i, e.x[i]! + Math.cos(a) * d, e.y[i]! + Math.sin(a) * d); }
+          return false;
+        }
         if (r !== true) return r;
+        s.wait = undefined;
         s.got = true;
         return false;
       }

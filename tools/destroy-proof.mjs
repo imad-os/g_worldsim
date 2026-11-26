@@ -180,7 +180,7 @@ await page.waitForTimeout(2000);
 console.log('7 pulled:', JSON.stringify(pulls().at(-1)), '| home', JSON.stringify((await adm({ cmd: 'agent', id: me }))?.data?.home ?? null), '| bag', JSON.stringify(await bagOf()));
 await page.screenshot({ path: `${out}/9-hut-gone.png` });
 // 8. The panel's Start over card; a new hut, then Reset all buildings (backup first).
-await adm({ cmd: 'agentSet', id: me, set: { inv: { wood: 14, stone: 4 } } });
+await adm({ cmd: 'agentSet', id: me, set: { inv: { wood: 20, stone: 10, leather: 5 } } });
 await page.waitForTimeout(1000);
 await page.evaluate(([a, b]) => { window.__dev.place('hut'); window.__dev.place(undefined, a, b, 0, true); }, good ?? [0, 0]);
 await page.waitForTimeout(2000);

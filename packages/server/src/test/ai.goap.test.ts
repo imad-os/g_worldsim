@@ -61,14 +61,15 @@ test('colony: people plan their own work, huts are usable rooms inside the wall 
   let alive = 0;
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) alive++;
   assert.ok(alive >= 5, `alive ${alive}`); // nobody died (children may have been born: the offspring drive)
-  assert.ok(ok >= 20 && bad <= ok / 5, `tasks ok ${ok} failed ${bad}`);
+  // Huts cost 5 leather (imad 2026-11-25) and the town has only a few animals: hunts for them fail more often than other work.
+  assert.ok(ok >= 20 && bad <= ok / 3, `tasks ok ${ok} failed ${bad}`);
   assert.ok(w.colony.stats.plans > 10, JSON.stringify(w.colony.stats));
   const m = 0, tm = w.maps[m]!.tiles, camp = w.survival.campOf(m)!;
   assert.ok(camp, 'a camp');
   const c0 = walkableNear(tm, camp.x, camp.y, 4), reach = flood(tm, c0 % tm.w, (c0 / tm.w) | 0, 20000);
   const per = w.survival.perimeter(m)!;
   const huts = w.survival.huts[m]!;
-  assert.ok(huts.length >= 2, `huts ${huts.length}`);
+  assert.ok(huts.length >= 1, `huts ${huts.length}`);
   for (const [k, out] of huts.entries()) {
     const a = auditHut(tm, out, reach, per, w.survival.hutDir[m]![k]);
     assert.ok(a.functional, `hut ${k}: ${JSON.stringify(a)}`);

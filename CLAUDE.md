@@ -422,7 +422,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   **Rest at home (imad 2026-11-25)**: `Brain.homeSpot` (bed, else an inside tile); sleep goes home from anywhere on the map unless exhausted
   (tired >= 92 and > 40 m), rest walks home (goal -5) within 90 m or at night; 2 tries then sleep where they are. 4-day run: ~97 % of sleep, ~94 % of rest at home.
   Clan orders replace a member's own task (not owner / player / rule ones). Colony / ownPlans build huts until every household has one (`homes.needed`).
-- **Huts come with their own door** (agents and players), cost `HUT_NEED` = 14 wood + 4 stone (protocol craft.ts).
+- **Huts come with their own door** (agents and players), cost `HUT_NEED` = 20 wood + 10 stone + 5 leather (protocol craft.ts; imad 2026-11-25:
+  "more expensive so people use the ones they built"). Pulling one down gives half back. Colony builds a hut only for a household with no home
+  that no free hut can take (`homes.needed`, the old "one per 2 people" is gone); goal `long` (unique-key success chance, hours x 0.008);
+  GOAP depth 64 / 5000 nodes. A homeless AI told to build moves into the nearest free hut instead (`Homes.moveIn`). Every prompt lists the
+  map's huts and whose they are (`Homes.mapText`). `Homes.where(m?)` = admin `huts { map? }`, `mapTiles.huts`, player Do `huts` (code huts, list).
+  Hunt steps with no game around search for up to 5 game hours (hunt steps may take 6 h). Leather is the bottleneck in town (4 animals max).
 - **Aimed building** (TV): picking a build row / Put down / Me > hut opens a see-through model (`World3D.ghost`, green / red) moved tile by tile
   with stick / arrows (camera-relative in third / first), X / Y / shoulders / Build / CH+- turn a hut's door, A / OK build, B / Back cancel.
   Do `build` "what#tx,ty,dir" -> `Survival.placeAt` / `canPlace` (reach 8 m, codes tooFar / someone / doorBlocked / noRoom); old "what@angle"

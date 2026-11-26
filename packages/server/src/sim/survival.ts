@@ -388,6 +388,8 @@ export class Survival {
   build(i: number, what: string, x?: number, y?: number): true | string {
     if (!this.enabled) return 'this world has no buildings';
     if (what !== 'campfire' && what !== 'hut') return this.buildThing(i, what);
+    // Huts are dear (imad 2026-11-25): someone with no home moves into a free hut instead of building another.
+    if (what === 'hut' && this.w.e.kind[i] === Kind.Agent) { const moved = this.homes.moveIn(this.w.e.id(i), this.w.e.map[i]!); if (moved) return moved; }
     if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
     const e = this.w.e, m = e.map[i]!;
     if (this.w.ai.siting && !this.camp[m] && x === undefined) { const cs = this.campSite(m, e.x[i]!, e.y[i]!); if (cs) this.setCamp(m, cs.x, cs.y); }
@@ -726,7 +728,7 @@ export class Survival {
       if (p) delete p.home;
       h.owner = -1;
       this.homes.sync();
-      this.add(i, 'wood', Math.floor((HUT_NEED.wood ?? 0) / 2)); this.add(i, 'stone', Math.floor((HUT_NEED.stone ?? 0) / 2));
+      this.add(i, 'wood', Math.floor((HUT_NEED.wood ?? 0) / 2)); this.add(i, 'stone', Math.floor((HUT_NEED.stone ?? 0) / 2)); this.add(i, 'leather', Math.floor((HUT_NEED.leather ?? 0) / 2));
     } else if (what !== 'campfire' && what !== 'field' && this.placeTile.has(what)) this.add(i, what, 1);
     w.brain.resetShelters(m);
     w.emit('destroy', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx: k % W, ty: (k / W) | 0 });
@@ -1602,7 +1604,7 @@ export class Survival {
     const { all, free: ready } = this.freeOf(m);
     const n = w.colony.allocate(m, free.filter((i) => ready.includes(i)), all, hour, by);
     const ls = lid >= 0 ? e.slot(lid) : -1;
-    if (n >= 2 && ls >= 0 && e.map[ls] === m && (this.toldAt[m] ?? -1e9) < w.gameSec - 6 * HOUR) {
+    if (n >= 1 && ls >= 0 && e.map[ls] === m && (this.toldAt[m] ?? -1e9) < w.gameSec - 6 * HOUR) {
       this.toldAt[m] = w.gameSec;
       const threat = w.zombies.perNight > 0 || w.zombies.count(m) > 0;
       w.speak(ls, threat ? 'Zombies are coming. Everyone: doors, walls and weapons!' : 'Everyone has work today: let us make this camp a home.');
@@ -1686,7 +1688,7 @@ export class Survival {
         start(i, 'keep the fire going', [{ do: 'tend' }]);
       }
       if (!free.length || hour < 7 || hour >= 18) continue;
-      if ((this.homes.needed(mi) > 0 || this.huts[mi]!.length < Math.ceil(n / 2)) && w.rng.chance(0.6)) { start(best((x) => tr(x).strength), 'build a hut to sleep in', [{ do: 'build', what: 'hut' }]); continue; }
+      if (this.homes.needed(mi) > 0 && w.rng.chance(0.6)) { start(best((x) => tr(x).strength), 'build a hut to sleep in', [{ do: 'build', what: 'hut' }]); continue; }
       if (!free.length) continue;
       // Walls zombies broke are mended; a store of food for bad days; a field near the camp; ruins searched; spears.
       if (camp && this.damaged(mi) >= 0) { start(best((x) => tr(x).strength), 'repair the huts', [{ do: 'repair' }]); if (!free.length) continue; }

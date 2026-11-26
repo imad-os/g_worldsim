@@ -181,6 +181,34 @@ export class Homes {
   }
   private ownsOne(id: number): boolean { return this.list.some((h) => h.owner === id); }
 
+  /** Someone with no home takes a free hut on map m (nearest first). The why for the task, or '' when they have a home / none is free. */
+  moveIn(id: number, m: number): string {
+    if (this.homeOf(id) || !this.adult(id)) return '';
+    const s = this.w.e.slot(id), x = s >= 0 ? this.w.e.x[s]! : 0, y = s >= 0 ? this.w.e.y[s]! : 0;
+    const h = this.free(m).sort((a, b) => { const ca = this.middle(a), cb = this.middle(b); return Math.hypot(ca.x - x, ca.y - y) - Math.hypot(cb.x - x, cb.y - y); })[0];
+    if (!h) return '';
+    this.give(h, id, 'it stood empty');
+    const c = this.middle(h);
+    return `no need: the free hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}) is my home now`;
+  }
+  /** Every hut of a map (or all maps) with where it is, its door side and who lives there: for prompts, the panel and the TV map. */
+  where(m?: number): { map: string; x: number; y: number; dir: number; door: [number, number]; owner: number; ownerName: string; free: boolean; by: number }[] {
+    const w = this.w;
+    this.sync();
+    return this.list.filter((h) => m === undefined || h.m === m).map((h) => {
+      const c = this.middle(h), tm = w.maps[h.m]!.tiles, d = this.doorOf(h);
+      return { map: w.maps[h.m]!.def.id, x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10, dir: h.dir, door: [d % tm.w, (d / tm.w) | 0], owner: h.owner,
+        ownerName: h.owner >= 0 ? w.profiles.get(h.owner)?.name ?? '' : '', free: h.owner < 0, by: h.by };
+    });
+  }
+  /** For prompts: the huts on this map and whose they are (people know where every hut stands). */
+  mapText(m: number, id: number): string {
+    const all = this.where(m);
+    if (!all.length) return 'Huts on this map: none yet.';
+    const fam = (o: number) => o !== id && o >= 0 && this.family(id, o);
+    const rows = all.slice(0, 14).map((h) => `(${Math.floor(h.x)}, ${Math.floor(h.y)}) ${h.owner === id ? 'yours' : h.free ? 'FREE: anyone without a home can move in' : `${h.ownerName}'s${fam(h.owner) ? ' (your family)' : ''}`}`);
+    return `Huts on this map (${all.length}; huts are dear to build, so move into a free one before building): ${rows.join('; ')}${all.length > 14 ? '; ...' : ''}.`;
+  }
   /** How many more huts map m needs so every household has a home. */
   needed(m: number): number { return Math.max(0, this.homeless(m).length - this.free(m).length); }
   /** For the panel and prompts: who owns what. */

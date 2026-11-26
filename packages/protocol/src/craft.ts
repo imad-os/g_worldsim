@@ -33,7 +33,8 @@ export const RECIPES_ALL: Recipe[] = [
 export const MEDKIT_HEAL = 45;
 /** Things that are put down on the ground (a tile of the same name). */
 /** A hut (5 x 5 wooden walls, a floor and its own wooden door, imad 2026-11-25: "the huts need to be with doors"). */
-export const HUT_NEED: Readonly<Record<string, number>> = { wood: 14, stone: 4 };
+// imad 2026-11-25: dear, so people live in the huts they have instead of leaving abandoned ones everywhere.
+export const HUT_NEED: Readonly<Record<string, number>> = { wood: 20, stone: 10, leather: 5 };
 export const PLACEABLE = ['palisade', 'spikes', 'stonewall', 'door', 'window', 'bed', 'lamp', 'campfire'] as const;
 /** Weapons by strength (the best one carried is used), with damage. */
 export const WEAPONS: Record<string, number> = { sword: 34, spear: 30, axe: 22 };

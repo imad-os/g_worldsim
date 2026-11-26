@@ -337,6 +337,7 @@ test('survival: a command "build a hut" gathers wood and stone, builds a real hu
   const ev: Record<string, number> = {};
   const builds: { what: string; tx: number; ty: number }[] = [];
   w.listeners.push((x) => { ev[x.kind] = (ev[x.kind] ?? 0) + 1; if (x.kind === 'build') builds.push(x.data as never); });
+  s.add(a, 'leather', 5); // huts need 5 leather (imad 2026-11-25); this test world has no animals to hunt
   assert.ok(w.tasks.start(a, 'build a hut', 'imad', [{ do: 'build', what: 'hut' }]));
   const t = w.profileOf(a)!.mind!.task!;
   for (let k = 0; k < 20 * 3600 && w.profileOf(a)!.mind?.task; k++) { calm(); w.step(); if (k === 200) assert.ok(t.steps.length >= 2, 'materials to gather were added before building'); }
@@ -567,10 +568,10 @@ test('players as people: profile, partner + child with a person, own bag on auto
   assert.equal(c, true, `expecting (${c})`);
   assert.ok(her.pregnant);
   // The bag is the player's (by name) whoever drives.
-  w.survival.add(pl, 'wood', 14); w.survival.add(pl, 'stone', 4);
+  w.survival.add(pl, 'wood', 20); w.survival.add(pl, 'stone', 10); w.survival.add(pl, 'leather', 5);
   p.auto = true; w.toAgent(pl);
   assert.equal(e.kind[pl], Kind.Agent);
-  assert.equal(w.survival.inv(pl).wood, 14, 'same bag on autopilot');
+  assert.equal(w.survival.inv(pl).wood, 20, 'same bag on autopilot');
   e.hunger[pl] = 100; e.thirst[pl] = 100; e.hp[pl] = 1;
   for (let k = 0; k < 600; k++) w.step();
   assert.ok(e.alive(pl) && e.hp[pl]! >= 1, 'a player character is never killed');
