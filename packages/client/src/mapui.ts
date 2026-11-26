@@ -12,7 +12,7 @@ import type { Grid } from './ui.js';
 
 export interface MapPlaces {
   camp: [number, number] | null; fires: [number, number][]; home: [number, number] | null; huts: [number, number, number, string][];
-  store: [number, number] | null; portals: [number, number, string][]; npcs: [number, number, string][]; horses: [number, number, string][];
+  store: [number, number] | null; portals: [number, number, string][]; npcs: [number, number, string][]; horses: [number, number, string][]; wild?: [number, number, number][];
   people: [number, number][]; players: [number, number, string][];
 }
 export interface MapData { map: { id: string; name: string; w: number; h: number; tiles?: Uint8Array }; maps: [string, string][]; me: [number, number, number] | null; places: MapPlaces; marks: MapMark[] }
@@ -100,7 +100,7 @@ export class MapScreen implements Grid {
   html(): string {
     const d = this.data;
     const tabs = d ? d.maps.map(([id, name]) => `<span class="mtab${id === this.mapId ? ' cur' : ''}">${esc(name)}</span>`).join('') : '';
-    const legend = [['me', '▲', t('mapYou')], ['home', '🏠', t('mapHome')], ['hut', '▪', t('mapHut')], ['camp', '🔥', t('mapCamp')], ['gate', '⇆', t('mapGate').replace(/\s*\{0\}/, '')], ['npc', NPC_ICON, 'NPC'], ['mark', '⭐', t('markEdit')]]
+    const legend = [['me', '▲', t('mapYou')], ['home', '🏠', t('mapHome')], ['hut', '▪', t('mapHut')], ['camp', '🔥', t('mapCamp')], ['gate', '⇆', t('mapGate').replace(/\s*\{0\}/, '')], ['npc', NPC_ICON, 'NPC'], ['horse', '🐎', t('mapHorses')], ['mark', '⭐', t('markEdit')]]
       .map(([k, i, l]) => `<span class="lg lg-${k}"><b>${i}</b>${esc(l!)}</span>`).join('');
     return `<div class="mapv"><div class="mtabs">${tabs}</div><div id="mapbox">${d ? '' : `<div class="mapwait">${esc(t('mapLoading'))}</div>`}</div>
 <div class="minfo" id="mapinfo"></div><div class="mlegend">${legend}</div><div class="nv">${esc(t(this.c.remote() ? 'mapHelpRemote' : 'mapHelp'))}</div></div>`;
@@ -211,7 +211,8 @@ export class MapScreen implements Grid {
     for (const [x, y, key] of p.npcs) icon(x, y, NPC_ICON, fs * 0.85, k >= 7 ? this.c.npcName(key) : '', '#9ff3ff');
     for (const [x, y] of p.people) dot(x, y, 3.2, '#f1efe6');
     for (const [x, y, n] of p.players) { dot(x, y, 4.2, '#6fb7ff', '#0d2a44'); if (k >= 2) icon(x, y - 0.2, '', fs, n, '#cfe6ff'); }
-    for (const [x, y, n] of p.horses) icon(x, y, '🐎', fs * 0.9, k >= 4 ? n : '');
+    for (const [x, y, q] of p.wild ?? []) { dot(x, y, 3.6, q === 2 ? '#ffcf4a' : q === 1 ? '#8fc8ff' : '#a8784a'); if (k >= 7) icon(x, y - 1.2, '🐎', fs * 0.6); } // wild horses (gold = legendary, blue = rare)
+    for (const [x, y, n] of p.horses) { g.beginPath(); g.arc(X(x), Y(y), fs * 0.62, 0, Math.PI * 2); g.fillStyle = 'rgba(20, 16, 10, 0.7)'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#ffd166'; g.stroke(); icon(x, y, '🐎', fs * 0.8, n, '#ffe7a3'); } // my horses, always named
     // My marks.
     let hover = -1, hd = 18;
     for (const m of this.marks) {
@@ -255,6 +256,7 @@ export class MapScreen implements Grid {
       else if (n) what = NPC_ICON + ' ' + this.c.npcName(n[2]);
       else if (pl) what = pl[2];
       else if (hr) what = '🐎 ' + tf('mapHorse', hr[2]);
+      else if ((p.wild ?? []).some(([x, y]) => near(x, y))) what = '🐎 ' + t('mapWild');
     }
     const here = me[3] === d.map.id;
     const dist = here ? Math.round(Math.hypot(me[0] - this.cx, me[1] - this.cy)) : -1;

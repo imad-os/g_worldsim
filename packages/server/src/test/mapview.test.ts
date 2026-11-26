@@ -30,6 +30,8 @@ test('the TV map: tiles once, places (my home, every hut, gates, teachers), and 
   w.playerProfile(pl, 'imad');
   for (const [k, n] of Object.entries(HUT_NEED)) sv.add(pl, k as never, (n ?? 0) + 2);
   assert.equal(sv.placeAt(pl, 'hut', s.x0, s.y0, 0), 'built');
+  const mine = w.horses.spawn(town, s.x0 + 12, s.y0 + 3, { owner: w.e.id(pl) }), wildH = w.horses.spawn(town, s.x0 + 20, s.y0 + 3);
+  assert.ok(mine >= 0 && wildH >= 0);
   const mv = new MapView(w, db);
   mv.planner = () => [['imad', pl]];
   const v = mv.view('imad', pl, '') as { map: { id: string; w: number; h: number; tiles?: Uint8Array }; places: { home: number[] | null; huts: number[][]; portals: unknown[]; npcs: unknown[] }; me: number[] | null };
@@ -38,6 +40,10 @@ test('the TV map: tiles once, places (my home, every hut, gates, teachers), and 
   assert.ok(v.places.home, 'my hut is my home on the map');
   assert.ok(v.places.huts.some((h) => h[2] === 1), 'every hut is listed, mine marked as mine');
   assert.ok(v.places.portals.length > 0 && v.places.npcs.length > 0);
+  const pl2 = v.places as unknown as { horses: [number, number, string][]; wild: [number, number, number][] };
+  assert.equal(pl2.horses.length, 1, 'my horse is on the map, with its name');
+  assert.ok(pl2.horses[0]![2] && Math.abs(pl2.horses[0]![0] - w.e.x[mine]!) < 0.2);
+  assert.ok(pl2.wild.some(([x]) => Math.abs(x - w.e.x[wildH]!) < 0.2), 'wild horses too');
   assert.ok(v.me && Math.abs(v.me[0]! - (s.x0 + 2.5)) < 0.2);
   const live = mv.view('imad', pl, 'town:live') as { map: { tiles?: unknown } };
   assert.equal(live.map.tiles, undefined, 'live = places only');

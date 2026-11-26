@@ -80,6 +80,9 @@ export class MapView {
     }
     for (const n of NPCS) { const s = w.quests.npcSlot(n.key); if (s >= 0 && e.map[s] === m) npcs.push([r1(e.x[s]!), r1(e.y[s]!), n.key]); }
     for (const s of w.horses.mine(player)) if (e.map[s] === m) horses.push([r1(e.x[s]!), r1(e.y[s]!), w.horses.of(s)?.name ?? '']);
+    // Wild horses too (imad 2026-11-26: "horses should be on the map"): where to go and tame one. Others' tamed horses are left out.
+    const wild: [number, number, number][] = [];
+    for (let i = 0; i < e.hi; i++) { if (!e.alive(i) || e.map[i] !== m) continue; const h = w.horses.of(i); if (h && h.owner < 0) wild.push([r1(e.x[i]!), r1(e.y[i]!), h.q]); }
     const fires = [...w.survival.fires.keys()].filter((k) => k.startsWith(m + ':')).map((k) => at(Number(k.slice(String(m).length + 1))));
     const camp = w.survival.campOf(m), stash = w.survival.stash[m];
     const home = w.survival.homes.homeOf(me);
@@ -94,7 +97,7 @@ export class MapView {
       places: {
         camp: camp ? [r1(camp.x), r1(camp.y)] : null, fires, home: homeAt ? [r1(homeAt.x), r1(homeAt.y)] : null, huts,
         store: stash ? at(stash.t) : null,
-        portals, npcs, horses, people, players,
+        portals, npcs, horses, wild, people, players,
       },
       marks: this.marks(name),
     };

@@ -611,6 +611,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Marks** (`protocol/marks.ts` MARK_KINDS home mine hunt wood water farm danger camp star, MAX_MARKS 60): Do `mark` "add:map:x:y:kind[:label]" /
   "del:id" / "name:id:label" / "kind:id:kind", kept by character name in meta `marks:<name>` (mergePlayer moves them, playerDelete forgets them).
   Do text limit 210 for `mark`. Test mapview.test.ts.
+- Horses on the map (imad 2026-11-26): `places.horses` = mine [x, y, name] (gold ring + name), `places.wild` = untamed [x, y, q] (dots: brown common,
+  blue rare, gold legendary; 🐎 from zoom 7). Others' tamed horses are left out.
 - **Quick wheel settings**: Settings > Quick action wheel (pages wheelset / wheelitem): `WHEEL_ALL` (map, use, horse, eat, drink, sleep, heal, build,
   place, bag, camera, attackPerson, gear, me, talk, attack, pickup, thoughts), 2-12 in order, `MyPC.save('wheel')`.
 - **Bow in third / first person**: aiming = where the camera looks (`aimAng = yaw - π/2`), turns slower, left stick sideways turns finely; the camera
