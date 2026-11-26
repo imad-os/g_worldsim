@@ -1,7 +1,7 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Color, Fog, Mesh, Group,
   PlaneGeometry, MeshLambertMaterial, MeshPhongMaterial, MeshBasicMaterial, TorusGeometry, CircleGeometry, SphereGeometry,
-  InstancedMesh, Matrix4, Vector3, BoxGeometry, ConeGeometry, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
+  InstancedMesh, Matrix4, Vector3, Frustum, BoxGeometry, ConeGeometry, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
   type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
@@ -9,8 +9,19 @@ import { Animals3D } from './animals.js';
 import { Horses3D } from './horses.js';
 import { gateMesh, type GateSpec } from './gate.js';
 import { Precip } from './weather.js';
+import { patchShadows } from './shadows.js';
+import type { ChunkGeo } from './chunkmesh.js';
+import { CHUNK_TILES } from '@worldsim/protocol';
 
 export type Tier = 'low' | 'mid' | 'high';
+
+/** One chunk on screen: its meshes and which level of detail shows (World3D.lodChunk). */
+export interface ChunkView { g: Group; ground: Mesh; groundLo: Mesh; props: Mesh | null; near: Mesh | null; far: Mesh | null; x0: number; z0: number; lo: boolean; detail: boolean; shown: boolean }
+const CHUNK = CHUNK_TILES;
+/** Level-of-detail distances (m, x the view distance setting): near = grass, flowers, round crowns; ground = the fine ground grid; people = full people. */
+const LOD: Record<Tier, { near: number; ground: number; people: number }> = {
+  low: { near: 16, ground: 26, people: 18 }, mid: { near: 24, ground: 36, people: 26 }, high: { near: 36, ground: 52, people: 40 },
+};
 
 /**
  * The 3D view: renderer, tilted camera (about 58 degrees down, looking north, like a classic top-down adventure),
@@ -24,6 +35,11 @@ export class World3D {
   readonly scene = new Scene();
   readonly camera = new PerspectiveCamera(30, 16 / 9, 1, 400);
   readonly people: People;
+  /** People far from the eye (third / first person): simpler, no shadow cast (`nearPeople` m, x view distance). */
+  readonly peopleFar: People;
+  /** The camera's view volume this frame (after follow()): off-screen horses skip their skeleton. */
+  readonly frustum = new Frustum();
+  private pm = new Matrix4();
   private hemi = new HemisphereLight(0xcfe3ff, 0x5d4c3a, 1.1);
   private sun = new DirectionalLight(0xfff1d6, 2.4);
   private lamp = new PointLight(0xffc27a, 0, 14, 1.6);
@@ -72,6 +88,7 @@ export class World3D {
 
   constructor(canvas: HTMLCanvasElement, tier: Tier) {
     this.tier = tier;
+    patchShadows();
     this.renderer = new WebGLRenderer({ canvas, antialias: tier === 'high', powerPreference: 'high-performance', stencil: false });
     this.renderer.setPixelRatio(1);
     this.renderer.toneMapping = NeutralToneMapping;
@@ -94,6 +111,7 @@ export class World3D {
     // Beyond the map edge: dark forest floor instead of empty sky.
     this.under = new Mesh(new PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2), new MeshLambertMaterial({ color: 0x2e4a2a }));
     this.under.position.y = -0.8;
+    this.under.renderOrder = 1; // after the ground: hidden pixels are skipped by the depth test instead of shaded twice
     this.scene.add(this.under);
     this.water = new Mesh(new PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
       new MeshPhongMaterial({ color: 0x2f86b0, transparent: true, opacity: 0.72, shininess: 90, specular: 0x9fd4f0 }));
@@ -101,8 +119,10 @@ export class World3D {
     this.water.receiveShadow = shadows;
     this.scene.add(this.water);
     this.people = new People(this.scene, 512, shadows);
+    this.peopleFar = new People(this.scene, 256, false, true);
     this.animals = new Animals3D(this.scene, 128, shadows);
     this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
+    this.horses.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
     this.shots = new InstancedMesh(new BoxGeometry(0.04, 0.04, 0.9), new MeshBasicMaterial({ color: 0xfff1a0 }), 256); // an arrow streak along its flight
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
@@ -201,26 +221,66 @@ export class World3D {
     for (const p of portals) this.portals.add(gateMesh(p, w, h, this.gateMat));
   }
 
-  addChunk(ground: BufferGeometry, props: BufferGeometry | null, glow: BufferGeometry | null = null, pool: BufferGeometry | null = null): Group {
-    const g = new Group();
-    const gm = new Mesh(ground, this.groundMat);
-    gm.receiveShadow = this.tier !== 'low';
-    g.add(gm);
-    if (props) {
-      const pm = new Mesh(props, this.propMat);
-      pm.castShadow = pm.receiveShadow = this.tier !== 'low';
-      g.add(pm);
-    }
-    if (glow) g.add(new Mesh(glow, this.glowMat));
-    if (pool) { const pm = new Mesh(pool, this.poolMat); pm.renderOrder = 2; g.add(pm); }
+  /** Every chunk drawn now, with its levels of detail (gfx/chunkmesh.ts ChunkGeo). */
+  private list: ChunkView[] = [];
+  addChunk(geo: ChunkGeo, cx: number, cy: number): ChunkView {
+    const g = new Group(), sh = this.tier !== 'low';
+    const mesh = (b: BufferGeometry | null, mat: MeshLambertMaterial | MeshBasicMaterial, cast: boolean, recv: boolean) => {
+      if (!b) return null;
+      const m = new Mesh(b, mat);
+      m.castShadow = cast && sh; m.receiveShadow = recv && sh;
+      g.add(m); return m;
+    };
+    const ground = mesh(geo.ground, this.groundMat, false, true)!, groundLo = mesh(geo.groundLo, this.groundMat, false, true)!;
+    groundLo.visible = false;
+    const cv: ChunkView = {
+      g, ground, groundLo, props: mesh(geo.props, this.propMat, true, true), near: mesh(geo.near, this.propMat, true, true), far: mesh(geo.far, this.propMat, true, true),
+      x0: cx * CHUNK, z0: cy * CHUNK, lo: false, detail: true, shown: true,
+    };
+    if (cv.far) cv.far.visible = false;
+    mesh(geo.glow, this.glowMat, false, false);
+    const pool = mesh(geo.pool, this.poolMat, false, false);
+    if (pool) pool.renderOrder = 2;
     this.chunks.add(g);
-    return g;
+    this.list.push(cv);
+    this.lodChunk(cv);
+    return cv;
   }
-  removeChunk(g: Group): void {
-    this.chunks.remove(g);
-    for (const c of g.children) (c as Mesh).geometry.dispose();
+  removeChunk(cv: ChunkView): void {
+    this.chunks.remove(cv.g);
+    for (const c of cv.g.children) (c as Mesh).geometry.dispose();
+    const i = this.list.indexOf(cv);
+    if (i >= 0) { this.list[i] = this.list[this.list.length - 1]!; this.list.pop(); }
   }
-  clearChunks(): void { for (const g of this.chunks.children.slice()) this.removeChunk(g as Group); }
+  clearChunks(): void { for (const cv of this.list.slice()) this.removeChunk(cv); }
+
+  /**
+   * Levels of detail, once a frame before drawing (imad 2026-11-26: "full detail near, less and less far away, then not drawn").
+   * Seen from above everything on screen is close, so the top view keeps full detail. Behind / through the eyes, by the distance
+   * from the camera to the nearest point of each chunk: grass, flowers and round crowns only near, the ground grid at a quarter of
+   * its triangles further out, and nothing past the fog (it would be drawn the fog's own colour). 3 m of slack stops flicker.
+   */
+  private lodRef = { x: 0, y: 0, z: 0, top: true, near: 0, ground: 0, hide: 0 };
+  private lodChunk(cv: ChunkView): void {
+    const r = this.lodRef, dx = Math.max(cv.x0 - r.x, 0, r.x - cv.x0 - CHUNK), dz = Math.max(cv.z0 - r.z, 0, r.z - cv.z0 - CHUNK);
+    const d = Math.hypot(dx, dz), d3 = Math.hypot(d, r.y);
+    const shown = d3 < r.hide + (cv.shown ? 3 : 0);
+    if (shown !== cv.shown) { cv.shown = shown; cv.g.visible = shown; }
+    if (!shown) return;
+    const detail = r.top || d < r.near + (cv.detail ? 3 : 0), lo = !r.top && d > r.ground + (cv.lo ? -3 : 0);
+    if (detail !== cv.detail) { cv.detail = detail; if (cv.near) cv.near.visible = detail; if (cv.far) cv.far.visible = !detail; }
+    if (lo !== cv.lo) { cv.lo = lo; cv.ground.visible = !lo; cv.groundLo.visible = lo; }
+  }
+  private lodPass(): void {
+    const r = this.lodRef, cam = this.camera, L = LOD[this.tier];
+    r.top = this.view === 'top';
+    r.x = cam.position.x; r.y = cam.position.y; r.z = cam.position.z;
+    r.near = L.near * this.distK; r.ground = L.ground * this.distK;
+    // A point the fog has fully covered: its depth >= distance x cos(the widest angle in view).
+    const half = Math.atan(Math.tan((cam.fov * Math.PI) / 360) * Math.hypot(1, cam.aspect));
+    r.hide = Math.min(cam.far, this.fogK ? this.fog.far : 1e9) / Math.max(0.3, Math.cos(half));
+    for (let i = 0; i < this.list.length; i++) this.lodChunk(this.list[i]!);
+  }
 
   beginShots(): void { this.nShots = 0; }
   shot(x: number, z: number, vx = 0, vz = 0): void {
@@ -330,6 +390,17 @@ export class World3D {
     this.sun.target.position.set(sx, 0, sz);
     this.sun.position.set(sx + this.sunDir.x * 50, this.sunDir.y * 50, sz + this.sunDir.z * 50);
     this.lamp.position.set(x, 2.2, z);
+    this.camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
+    if (this.horses.view) this.horses.view.shadowD = this.shadowR * 1.2;
+  }
+
+  /** People this far from the camera or more are drawn by the simpler set (top view: nobody, everything on screen is close). */
+  get nearPeople(): number { return this.view === 'top' ? 1e9 : LOD[this.tier].people * this.distK; }
+  /** Which set draws someone at (x, z). */
+  peopleFor(x: number, z: number): People {
+    const c = this.camera.position;
+    return Math.hypot(x - c.x, z - c.z) > this.nearPeople ? this.peopleFar : this.people;
   }
 
   private sunDir = new Vector3(0.4, 0.8, 0.45).normalize();
@@ -365,7 +436,26 @@ export class World3D {
     this.poolMat.opacity = (1 - day) * 0.42; this.poolMat.visible = day < 0.98;
   }
 
-  render(): void { this.renderer.render(this.scene, this.camera); }
+  /** Last frame: draw calls and triangles (shadow pass included), CPU ms spent in render(). */
+  readonly stats = { calls: 0, tris: 0, ms: 0 };
+  render(): void {
+    const t0 = performance.now();
+    this.lodPass();
+    this.renderer.render(this.scene, this.camera);
+    const i = this.renderer.info.render;
+    this.stats.calls = i.calls; this.stats.tris = i.triangles; this.stats.ms = performance.now() - t0;
+  }
+  /** Proof / tuning: render the current view n times, waiting for the GPU each time (gl.finish), average ms per frame. */
+  bench(n = 20): { ms: number; calls: number; tris: number } {
+    const gl = this.renderer.getContext(), px = new Uint8Array(4);
+    const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // waits for the GPU (finish() does not everywhere)
+    this.render(); sync();
+    const t0 = performance.now();
+    for (let k = 0; k < n; k++) { this.renderer.render(this.scene, this.camera); sync(); }
+    const ms = (performance.now() - t0) / n;
+    this.render();
+    return { ms, calls: this.stats.calls, tris: this.stats.tris };
+  }
 
   dispose(): void {
     this.clearChunks();

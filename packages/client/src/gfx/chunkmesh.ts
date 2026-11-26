@@ -1,5 +1,5 @@
 import {
-  BufferGeometry, Float32BufferAttribute, Uint16BufferAttribute, Color, Matrix4, Matrix3, Vector3, Quaternion, Euler,
+  BufferGeometry, BufferAttribute, Float32BufferAttribute, Uint16BufferAttribute, Color, Matrix4, Matrix3, Vector3, Quaternion, Euler,
   IcosahedronGeometry, CylinderGeometry, ConeGeometry, BoxGeometry, CircleGeometry,
 } from 'three';
 import { CHUNK_TILES } from '@worldsim/protocol';
@@ -47,30 +47,42 @@ function templates() {
   return T;
 }
 
+/** Vertices of one mesh being built: position, normal, colour, in growing typed arrays (no JS number lists: 3-4x faster on TVs). */
 class Out {
-  pos: number[] = []; nor: number[] = []; col: number[] = [];
-  geometry(): BufferGeometry | null {
-    if (!this.pos.length) return null;
-    const g = new BufferGeometry();
-    g.setAttribute('position', new Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('normal', new Float32BufferAttribute(this.nor, 3));
-    g.setAttribute('color', new Float32BufferAttribute(this.col, 3));
-    g.computeBoundingSphere();
-    return g;
+  p = new Float32Array(3 * 1024); n = new Float32Array(3 * 1024); c = new Float32Array(3 * 1024); k = 0;
+  private grow(add: number): void {
+    const need = this.k + add * 3;
+    if (need <= this.p.length) return;
+    const size = Math.max(need, this.p.length * 2), g = (a: Float32Array) => { const b = new Float32Array(size); b.set(a.subarray(0, this.k)); return b; };
+    this.p = g(this.p); this.n = g(this.n); this.c = g(this.c);
+  }
+  /** Room for `count` more vertices (call before v()). */
+  room(count: number): void { this.grow(count); }
+  v(px: number, py: number, pz: number, nx: number, ny: number, nz: number, r: number, g: number, b: number): void {
+    const k = this.k, P = this.p, N = this.n, C = this.c;
+    P[k] = px; P[k + 1] = py; P[k + 2] = pz; N[k] = nx; N[k + 1] = ny; N[k + 2] = nz; C[k] = r; C[k + 1] = g; C[k + 2] = b;
+    this.k = k + 3;
+  }
+  data(): MeshData | null {
+    if (!this.k) return null;
+    return { pos: this.p.slice(0, this.k), nor: this.n.slice(0, this.k), col: this.c.slice(0, this.k) };
   }
 }
 
-const vA = new Vector3(), vN = new Vector3(), m4 = new Matrix4(), m3 = new Matrix3(), q = new Quaternion(), eu = new Euler(), sc = new Vector3(), tr = new Vector3();
-const cTmp = new Color();
+const m4 = new Matrix4(), m3 = new Matrix3(), q = new Quaternion(), eu = new Euler(), sc = new Vector3(), tr = new Vector3();
 
 function addTpl(o: Out, t: Tpl, m: Matrix4, c: Color, ao: number): void {
   m3.getNormalMatrix(m);
-  const p = t.pos, n = t.nor, span = t.maxY - t.minY || 1;
+  const p = t.pos, n = t.nor, span = t.maxY - t.minY || 1, e = m.elements, f = m3.elements;
+  const cr = c.r, cg = c.g, cb = c.b, k0 = 1 - ao, minY = t.minY;
+  o.room(p.length / 3);
   for (let i = 0; i < p.length; i += 3) {
-    const k = ao + (1 - ao) * ((p[i + 1]! - t.minY) / span);
-    vA.set(p[i]!, p[i + 1]!, p[i + 2]!).applyMatrix4(m);
-    vN.set(n[i]!, n[i + 1]!, n[i + 2]!).applyMatrix3(m3).normalize();
-    o.pos.push(vA.x, vA.y, vA.z); o.nor.push(vN.x, vN.y, vN.z); o.col.push(c.r * k, c.g * k, c.b * k);
+    const x = p[i]!, y = p[i + 1]!, z = p[i + 2]!, a = n[i]!, b = n[i + 1]!, d = n[i + 2]!;
+    const k = ao + k0 * ((y - minY) / span);
+    let nx = f[0]! * a + f[3]! * b + f[6]! * d, ny = f[1]! * a + f[4]! * b + f[7]! * d, nz = f[2]! * a + f[5]! * b + f[8]! * d;
+    const l = 1 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1); nx *= l; ny *= l; nz *= l;
+    o.v(e[0]! * x + e[4]! * y + e[8]! * z + e[12]!, e[1]! * x + e[5]! * y + e[9]! * z + e[13]!, e[2]! * x + e[6]! * y + e[10]! * z + e[14]!,
+      nx, ny, nz, cr * k, cg * k, cb * k);
   }
 }
 
@@ -83,7 +95,8 @@ function addPool(o: Out, x: number, z: number, r: number, c: Color): void {
       const a0 = (s / POOL_SEG) * Math.PI * 2, a1 = ((s + 1) / POOL_SEG) * Math.PI * 2;
       const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
       const quad: [number, number, number][] = [[r0 * c0, r0 * s0, k0], [r1 * c1, r1 * s1, k1], [r1 * c0, r1 * s0, k1], [r0 * c0, r0 * s0, k0], [r0 * c1, r0 * s1, k0], [r1 * c1, r1 * s1, k1]];
-      for (const [dx, dz, k] of quad) { o.pos.push(x + dx, 0.05, z + dz); o.nor.push(0, 1, 0); o.col.push(c.r * k, c.g * k, c.b * k); }
+      o.room(6);
+      for (const [dx, dz, k] of quad) o.v(x + dx, 0.05, z + dz, 0, 1, 0, c.r * k, c.g * k, c.b * k);
     }
   }
 }
@@ -97,10 +110,8 @@ function quad(o: Out, ax: number, ay: number, az: number, bx: number, by: number
   dx: number, dy: number, dz: number, nx: number, ny: number, nz: number, c: Color, kab: number, kcd: number): void {
   const P = [ax, ay, az, bx, by, bz, cx, cy, cz, ax, ay, az, cx, cy, cz, dx, dy, dz];
   const K = [kab, kab, kcd, kab, kcd, kcd];
-  for (let i = 0; i < 6; i++) {
-    o.pos.push(P[i * 3]!, P[i * 3 + 1]!, P[i * 3 + 2]!); o.nor.push(nx, ny, nz);
-    o.col.push(c.r * K[i]!, c.g * K[i]!, c.b * K[i]!);
-  }
+  o.room(6);
+  for (let i = 0; i < 6; i++) o.v(P[i * 3]!, P[i * 3 + 1]!, P[i * 3 + 2]!, nx, ny, nz, c.r * K[i]!, c.g * K[i]!, c.b * K[i]!);
 }
 
 export function wallHeight(look: Look, wx: number, wy: number): number {
@@ -112,9 +123,81 @@ const DRY = new Color(0xb2b268), WARM = new Color();
 
 /** glow = unlit parts (flames), drawn with their own colours day and night. */
 /** pool = pools of lamp light on the ground (drawn added on at night). */
-export interface ChunkGeo { ground: BufferGeometry; props: BufferGeometry | null; glow: BufferGeometry | null; pool: BufferGeometry | null }
+/**
+ * Levels of detail (imad 2026-11-26: "full detail near, less far away, like GTA"): ground = half-tile grid, groundLo = one vertex per
+ * tile corner (a quarter of the triangles) for far chunks; props = drawn at every distance, near = only close to the eye (grass,
+ * flowers, small stones; the round tree crowns on mid / high), far = what stands in for `near` further away (simple crowns).
+ */
+export interface ChunkGeo { ground: BufferGeometry; groundLo: BufferGeometry; props: BufferGeometry | null; near: BufferGeometry | null; far: BufferGeometry | null; glow: BufferGeometry | null; pool: BufferGeometry | null }
 
-export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hiDetail: boolean): ChunkGeo {
+/**
+ * The ground grid from the full (V x V) vertex arrays, every `step`-th vertex, with a skirt hanging 1 m down round the edge: where a
+ * near chunk (fine grid) meets a far one (coarse grid) their edges differ by a few centimetres, and the skirts close the gap.
+ */
+function gridGeo(pos: Float32Array, col: Float32Array, V: number, step: number): MeshData {
+  const n = (V - 1) / step, W = n + 1, top = W * W, edge = n * 4;
+  const P = new Float32Array((top + edge) * 3), C = new Float32Array((top + edge) * 3);
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+    const s = (j * step * V + i * step) * 3, d = (j * W + i) * 3;
+    P[d] = pos[s]!; P[d + 1] = pos[s + 1]!; P[d + 2] = pos[s + 2]!;
+    C[d] = col[s]!; C[d + 1] = col[s + 1]!; C[d + 2] = col[s + 2]!;
+  }
+  const idx = new Uint16Array(n * n * 6 + edge * 6);
+  let p = 0;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const a = j * W + i, b = a + 1, d = a + W, e = d + 1;
+    if ((i + j) & 1) { idx[p++] = a; idx[p++] = d; idx[p++] = b; idx[p++] = b; idx[p++] = d; idx[p++] = e; }
+    else { idx[p++] = a; idx[p++] = d; idx[p++] = e; idx[p++] = a; idx[p++] = e; idx[p++] = b; }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(P, 3));
+  g.setIndex(new Uint16BufferAttribute(idx.subarray(0, p), 1));
+  g.computeVertexNormals();
+  // The rim, walked round counter-clockwise seen from above: each top vertex gets a twin 1 m below with its colour and normal.
+  const ring: number[] = [];
+  for (let i = 0; i < n; i++) ring.push(i); // north edge (z small), west -> east
+  for (let j = 0; j < n; j++) ring.push(j * W + n); // east edge
+  for (let i = n; i > 0; i--) ring.push(n * W + i); // south edge
+  for (let j = n; j > 0; j--) ring.push(j * W); // west edge
+  const N0 = g.getAttribute('normal').array as Float32Array, NOR = new Float32Array((top + edge) * 3);
+  NOR.set(N0);
+  for (let k = 0; k < edge; k++) {
+    const v = ring[k]!, d = (top + k) * 3;
+    P[d] = P[v * 3]!; P[d + 1] = P[v * 3 + 1]! - 1; P[d + 2] = P[v * 3 + 2]!;
+    for (let c = 0; c < 3; c++) { C[d + c] = C[v * 3 + c]! * 0.8; NOR[d + c] = NOR[v * 3 + c]!; }
+  }
+  for (let k = 0; k < edge; k++) { // two triangles per rim segment, facing out (the gap is seen from the neighbour's side)
+    const a = ring[k]!, b = ring[(k + 1) % edge]!, a2 = top + k, b2 = top + ((k + 1) % edge);
+    idx[p++] = a; idx[p++] = b; idx[p++] = a2; idx[p++] = b; idx[p++] = b2; idx[p++] = a2;
+  }
+  return { pos: P, nor: NOR, col: C, idx: idx.slice(0, p) };
+}
+
+/** The raw arrays of one mesh (built in a worker, sent over without copying). idx = triangle list, else every 3 vertices. */
+export interface MeshData { pos: Float32Array; nor: Float32Array; col: Float32Array; idx?: Uint16Array }
+export interface ChunkData { ground: MeshData; groundLo: MeshData; props: MeshData | null; near: MeshData | null; far: MeshData | null; glow: MeshData | null; pool: MeshData | null }
+/** Every array of a chunk (to hand over to the main thread without a copy). */
+export function chunkBuffers(d: ChunkData): ArrayBuffer[] {
+  const out: ArrayBuffer[] = [];
+  for (const m of [d.ground, d.groundLo, d.props, d.near, d.far, d.glow, d.pool]) if (m) { out.push(m.pos.buffer as ArrayBuffer, m.nor.buffer as ArrayBuffer, m.col.buffer as ArrayBuffer); if (m.idx) out.push(m.idx.buffer as ArrayBuffer); }
+  return out;
+}
+function geo(m: MeshData | null): BufferGeometry | null {
+  if (!m) return null;
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(m.pos, 3)); // the arrays as they are (no copy)
+  g.setAttribute('normal', new BufferAttribute(m.nor, 3));
+  g.setAttribute('color', new BufferAttribute(m.col, 3));
+  if (m.idx) g.setIndex(new BufferAttribute(m.idx, 1));
+  g.computeBoundingSphere();
+  return g;
+}
+/** The meshes three.js draws, from the arrays (main thread, quick). */
+export function chunkGeo(d: ChunkData): ChunkGeo {
+  return { ground: geo(d.ground)!, groundLo: geo(d.groundLo)!, props: geo(d.props), near: geo(d.near), far: geo(d.far), glow: geo(d.glow), pool: geo(d.pool) };
+}
+
+export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hiDetail: boolean): ChunkData {
   const ox = cx * CHUNK_TILES, oy = cy * CHUNK_TILES;
   // ---------------------------------------------------------------- ground
   const V = N + 1;
@@ -149,24 +232,12 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
     pos[o] = wx; pos[o + 2] = wy;
     pos[o + 1] = h / n + (flat ? 0 : (noise2(wx, wy, 2.5) - 0.5) * 0.14);
   }
-  const idx = new Uint16Array(N * N * 6);
-  let p = 0;
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const a = j * V + i, b = a + 1, d = a + V, e = d + 1;
-    if ((i + j) & 1) { idx[p++] = a; idx[p++] = d; idx[p++] = b; idx[p++] = b; idx[p++] = d; idx[p++] = e; }
-    else { idx[p++] = a; idx[p++] = d; idx[p++] = e; idx[p++] = a; idx[p++] = e; idx[p++] = b; }
-  }
-  const ground = new BufferGeometry();
-  ground.setAttribute('position', new Float32BufferAttribute(pos, 3));
-  ground.setAttribute('color', new Float32BufferAttribute(col, 3));
-  ground.setIndex(new Uint16BufferAttribute(idx, 1));
-  ground.computeVertexNormals();
-  ground.computeBoundingSphere();
+  const ground = gridGeo(pos, col, V, 1), groundLo = gridGeo(pos, col, V, 2);
 
   // ---------------------------------------------------------------- props
   const t = templates();
-  const o = new Out(), og = new Out(), op = new Out();
-  const leaf = hiDetail ? t.leaf : t.leafLo;
+  // o = drawn at every distance; on = only near the eye (grass, flowers, small stones, round tree crowns); of = only far (simple crowns).
+  const o = new Out(), og = new Out(), op = new Out(), on = new Out(), of = new Out();
   for (let ly = 0; ly < CHUNK_TILES; ly++) for (let lx = 0; lx < CHUNK_TILES; lx++) {
     const id = at(lx, ly), L = looks[id]!, wx = ox + lx, wy = oy + ly;
     const r1 = hash2(wx, wy), r2 = hash2(wy + 17, wx - 3), r3 = hash2(wx * 3 + 7, wy * 5 + 1);
@@ -196,16 +267,20 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       colOf(L.top, c);
       WARM.setHex(r2 < 0.5 ? 0x6aa84a : 0x3c7a38);
       c.lerp(WARM, r3 * 0.7).multiplyScalar(0.92 + r1 * 0.16);
-      addTpl(o, leaf, place(px, th + 0.5 * s, pz, r2, r1 * 6, r3, 0.95 * s, 0.8 * s, 0.95 * s), c, 0.62);
-      c.multiplyScalar(1.08);
-      addTpl(o, leaf, place(px + (r2 - 0.5) * 0.5 * s, th + 1.05 * s, pz + (r3 - 0.5) * 0.4 * s, r3, r2 * 6, r1, 0.62 * s, 0.55 * s, 0.62 * s), c, 0.75);
+      const m1 = place(px, th + 0.5 * s, pz, r2, r1 * 6, r3, 0.95 * s, 0.8 * s, 0.95 * s).clone();
+      const c1 = c.clone(); c.multiplyScalar(1.08);
+      const m2 = place(px + (r2 - 0.5) * 0.5 * s, th + 1.05 * s, pz + (r3 - 0.5) * 0.4 * s, r3, r2 * 6, r1, 0.62 * s, 0.55 * s, 0.62 * s);
+      if (hiDetail) { // round crowns near the eye, the simple ones further away
+        addTpl(on, t.leaf, m1, c1, 0.62); addTpl(of, t.leafLo, m1, c1, 0.62);
+        addTpl(on, t.leaf, m2, c, 0.75); addTpl(of, t.leafLo, m2, c, 0.75);
+      } else { addTpl(o, t.leafLo, m1, c1, 0.62); addTpl(o, t.leafLo, m2, c, 0.75); }
     } else if (L.shape === Shape.Fire || L.shape === Shape.Ashes) {
       // A ring of stones, crossed logs and (burning) a flame of three cones.
       const px = wx + 0.5, pz = wy + 0.5, lit = L.shape === Shape.Fire;
       for (let k = 0; k < 7; k++) {
         const a = (k / 7) * Math.PI * 2 + r1, sz = 0.1 + hash2(wx + k, wy - k) * 0.05;
         colOf(L.top, c).multiplyScalar(0.8 + hash2(wx * 3 + k, wy) * 0.3);
-        addTpl(o, t.rock, place(px + Math.cos(a) * 0.34, sz * 0.4, pz + Math.sin(a) * 0.34, a, a * 2, 0, sz, sz * 0.7, sz), c, 0.65);
+        addTpl(on, t.rock, place(px + Math.cos(a) * 0.34, sz * 0.4, pz + Math.sin(a) * 0.34, a, a * 2, 0, sz, sz * 0.7, sz), c, 0.65);
       }
       colOf(L.side, c);
       for (let k = 0; k < 3; k++) addTpl(o, t.log, place(px, 0.07 + k * 0.03, pz, 0, r2 * 3 + k * 1.05, lit ? 0.25 : 0.05, 1, 1, 1), c, 0.6);
@@ -360,18 +435,18 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
         colOf(L.top, c).multiplyScalar(0.85 + ((r2 + k * 0.17) % 1) * 0.3);
         addTpl(o, t.leafLo, place(px, sz * 0.7, pz, a, a * 2, 0, sz * 1.2, sz, sz * 1.2), c, 0.7);
         colOf(k % 2 ? L.side : 0xf2efe6, c);
-        addTpl(o, t.rock, place(px + 0.03, sz * 1.5, pz - 0.02, a, 0, 0, 0.07, 0.06, 0.07), c, 1);
+        addTpl(on, t.rock, place(px + 0.03, sz * 1.5, pz - 0.02, a, 0, 0, 0.07, 0.06, 0.07), c, 1);
       }
     } else if (L.shape === Shape.Ground && L.ground === 0x76a955 && r1 < 0.2) {
       // Grass tuft (3 blades), sometimes with a flower.
       const px = wx + 0.2 + r2 * 0.6, pz = wy + 0.2 + r3 * 0.6;
       colOf(0x5f9a45, c).multiplyScalar(0.85 + r2 * 0.3);
-      for (let k = 0; k < 3; k++) addTpl(o, t.blade, place(px + (k - 1) * 0.06, 0, pz + ((k * 7) % 3 - 1) * 0.05, (r3 - 0.5) * 0.5, k * 2.1, (k - 1) * 0.35, 1, 0.7 + r1 * 1.5, 1), c, 0.6);
+      for (let k = 0; k < 3; k++) addTpl(on, t.blade, place(px + (k - 1) * 0.06, 0, pz + ((k * 7) % 3 - 1) * 0.05, (r3 - 0.5) * 0.5, k * 2.1, (k - 1) * 0.35, 1, 0.7 + r1 * 1.5, 1), c, 0.6);
       if (r1 < 0.05) {
         colOf(r2 < 0.33 ? 0xf2efe6 : r2 < 0.66 ? 0xf3c94a : 0xd9564a, c);
-        addTpl(o, t.rock, place(px, 0.28, pz, r1, r2, r3, 0.06, 0.05, 0.06), c, 1);
+        addTpl(on, t.rock, place(px, 0.28, pz, r1, r2, r3, 0.06, 0.05, 0.06), c, 1);
       }
     }
   }
-  return { ground, props: o.geometry(), glow: og.geometry(), pool: op.geometry() };
+  return { ground, groundLo, props: o.data(), near: on.data(), far: of.data(), glow: og.data(), pool: op.data() };
 }

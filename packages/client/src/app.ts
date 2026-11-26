@@ -2,11 +2,12 @@ import {
   Msg, PROTOCOL_VERSION, CHUNK_TILES, ENT_REC, POS_Q, ANG_Q, EFlag, Kind, KIND_RIDING, encode, decode, unpackI32, chunkKey,
   type ServerMsg, type Welcome,
 } from '@worldsim/protocol';
-import { Color, type Group } from 'three';
+import { Color } from 'three';
 import { t, tf, setLang, type Key } from './i18n.js';
 import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, boxHolds, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
-import { World3D, type Tier } from './gfx/world3d.js';
-import { buildChunk } from './gfx/chunkmesh.js';
+import { World3D, type Tier, type ChunkView } from './gfx/world3d.js';
+import { DynRes } from './gfx/dynres.js';
+import { buildChunk, chunkGeo, type ChunkData } from './gfx/chunkmesh.js';
 import { looksFor, hash2, type Look } from './gfx/look.js';
 import type { PersonLook } from './gfx/people.js';
 import { RideScene } from './gfx/ride.js';
@@ -83,8 +84,11 @@ let mapW = 256, mapH = 256;
 let camX = 128, camY = 128;
 let tier: Tier = 'mid';
 /** Graphics settings (imad 2026-11-20), saved per My PC profile: quality (auto = My PC's), fog, view distance, fps counter. */
-interface Gfx { q: 'auto' | Tier; fog: number; dist: number; fps: boolean }
-let gfx: Gfx = { q: 'auto', fog: 2, dist: 1, fps: false };
+interface Gfx { q: 'auto' | Tier; fog: number; dist: number; fps: boolean; res: boolean }
+let gfx: Gfx = { q: 'auto', fog: 2, dist: 1, fps: false, res: true };
+/** Adaptive resolution (gfx/dynres.ts): the 3D view's size follows the frame rate; `gfx.res` false = the tier's fixed size. */
+let dyn: DynRes | null = null;
+const tierScale = () => (tier === 'low' ? 0.6 : tier === 'mid' ? 0.8 : 1);
 const FOG_K = [0, 1.6, 1, 0.6], DIST_K = [0.7, 1, 1.4];
 function applyGfx(): void {
   if (!g3) return;
@@ -102,7 +106,7 @@ let g3: World3D | null = null;
 let looks: Look[] = [];
 const solid = new Uint8Array(256);
 const tilesOf = new Map<number, Uint8Array>();
-const meshOf = new Map<number, Group>();
+const meshOf = new Map<number, ChunkView>();
 const buildQ: number[] = [];
 let gameSec = 0, tickAt = 0, clockScale = 10, simSpeed = 1;
 let agentsTotal = 0;
@@ -313,6 +317,7 @@ function onMsg(m: ServerMsg): void {
       welcome = m;
       seer = !!m.seer;
       looks = looksFor(m.tiles);
+      chunkWorker()?.postMessage({ looks });
       solid.fill(0);
       for (const x of m.tiles) if (x.solid) solid[x.id] = 1;
       doorTileId = m.tiles.find((x) => x.name === 'door')?.id ?? -1; doorOpenId = m.tiles.find((x) => x.name === 'dooropen')?.id ?? -1;
@@ -326,6 +331,8 @@ function onMsg(m: ServerMsg): void {
         g3.rainSnow = MyPC.load('rainsnow', true) !== false;
         void loadItems();
         g3.horses.load(new URL('models/horse.glb', location.href).href).catch((err) => console.warn('horse model', err)); // CC0, docs/models/CREDITS.md
+        const s0 = tierScale();
+        dyn = new DynRes(s0, tier === 'high' ? 0.6 : 0.5, Math.min(1, s0 * 1.15));
         resize(); applyGfx();
       }
       if (!map || !m.maps.some((x) => x.id === map)) setMap(String(MyPC.load('map', m.maps[0]!.id)));
@@ -452,6 +459,7 @@ const mapName = (id: string) => welcome?.maps.find((x) => x.id === id)?.name ?? 
 
 // ------------------------------------------------------------ chunks
 function queueBuild(k: number): void {
+  chunkVer.set(k, (chunkVer.get(k) ?? 0) + 1);
   if (!buildQ.includes(k)) buildQ.push(k);
 }
 /** Tile at a position local to chunk k (reads the neighbour chunk past the edges; -1 = not here yet). */
@@ -463,9 +471,51 @@ function tileAt(k: number, lx: number, ly: number): number {
   const t = tilesOf.get(chunkKey(cx, cy));
   return t ? t[ly * CHUNK_TILES + lx]! : -1;
 }
-/** Build the nearest waiting chunk (one per frame keeps frames smooth). */
+/**
+ * Chunk meshes are built in a worker (chunkworker.ts, imad 2026-11-26: a forest chunk held the game 80 ms on a fast PC, far more on
+ * a TV): the nearest waiting chunk goes out (2 at a time), its arrays come back and only the GPU upload happens here. A chunk whose
+ * tiles changed meanwhile, or another map, throws the old answer away. No worker (blocked, failed) = built here, one per frame.
+ */
+let worker: Worker | null | undefined, jobId = 0, mapGen = 0;
+const jobs = new Map<number, { k: number; ver: number; gen: number }>();
+const chunkVer = new Map<number, number>();
+const BORDER = 3; // tiles round the chunk the builder looks at (walls, wrecks, doors look at their neighbours)
+/** Main-thread ms spent on chunks (proof: total and the longest single build). */
+const chunkMs = { total: 0, max: 0, n: 0 };
+function chunkWorker(): Worker | null {
+  if (worker !== undefined) return worker;
+  if (location.search.includes('noworker')) return (worker = null);
+  try {
+    const here = new URL(import.meta.url);
+    worker = new Worker(new URL('chunks.js' + here.search, here));
+    worker.onmessage = (e: MessageEvent) => chunkDone(e.data as { id: number; data?: ChunkData; error?: string });
+    worker.onerror = (e) => { console.warn('chunk worker', e.message); worker?.terminate(); worker = null; for (const j of jobs.values()) queueBuild(j.k); jobs.clear(); };
+    if (looks.length) worker.postMessage({ looks });
+  } catch (err) { console.warn('no chunk worker', err); worker = null; }
+  return worker;
+}
+function chunkDone(m: { id: number; data?: ChunkData; error?: string }): void {
+  const j = jobs.get(m.id);
+  jobs.delete(m.id);
+  if (!j || !g3 || !m.data) { if (m.error) console.warn('chunk', m.error); return; }
+  if (j.gen !== mapGen || chunkVer.get(j.k) !== j.ver || !tilesOf.has(j.k)) return; // stale: the newer build is on its way
+  const t0 = performance.now();
+  const old = meshOf.get(j.k);
+  if (old) g3.removeChunk(old);
+  meshOf.set(j.k, g3.addChunk(chunkGeo(m.data), j.k & 0xffff, j.k >>> 16));
+  noteChunkMs(performance.now() - t0);
+}
+function noteChunkMs(ms: number): void { chunkMs.total += ms; chunkMs.n++; if (ms > chunkMs.max) chunkMs.max = ms; }
+/** The chunk's tiles with a border from its neighbours (-1 where none has arrived). */
+function tileWindow(k: number): Int16Array {
+  const W = CHUNK_TILES + BORDER * 2, win = new Int16Array(W * W);
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) win[y * W + x] = tileAt(k, x - BORDER, y - BORDER);
+  return win;
+}
 function buildOne(): void {
   if (!buildQ.length || !g3) return;
+  const w = chunkWorker();
+  if (w && jobs.size >= 2) return;
   let best = 0, bd = Infinity;
   const fx = focusX() / CHUNK_TILES - 0.5, fy = focusY() / CHUNK_TILES - 0.5;
   for (let i = 0; i < buildQ.length; i++) {
@@ -474,10 +524,18 @@ function buildOne(): void {
   }
   const k = buildQ.splice(best, 1)[0]!;
   if (!tilesOf.has(k)) return;
+  const hi = tier !== 'low';
+  if (w) {
+    const id = ++jobId, win = tileWindow(k);
+    jobs.set(id, { k, ver: chunkVer.get(k) ?? 0, gen: mapGen });
+    w.postMessage({ id, cx: k & 0xffff, cy: k >>> 16, win, b: BORDER, hi }, [win.buffer]);
+    return;
+  }
+  const t0 = performance.now();
   const old = meshOf.get(k);
   if (old) g3.removeChunk(old);
-  const geo = buildChunk(k & 0xffff, k >>> 16, (lx, ly) => tileAt(k, lx, ly), looks, tier === 'high');
-  meshOf.set(k, g3.addChunk(geo.ground, geo.props, geo.glow, geo.pool));
+  meshOf.set(k, g3.addChunk(chunkGeo(buildChunk(k & 0xffff, k >>> 16, (lx, ly) => tileAt(k, lx, ly), looks, hi)), k & 0xffff, k >>> 16));
+  noteChunkMs(performance.now() - t0);
 }
 
 function setMap(id: string): void {
@@ -485,7 +543,7 @@ function setMap(id: string): void {
   const mm = welcome.maps.find((x) => x.id === id) ?? welcome.maps[0]!;
   map = mm.id; mapW = mm.w; mapH = mm.h;
   camX = mm.w / 2; camY = mm.h / 2;
-  tilesOf.clear(); meshOf.clear(); buildQ.length = 0;
+  tilesOf.clear(); meshOf.clear(); buildQ.length = 0; mapGen++; jobs.clear(); chunkVer.clear();
   g3?.setMap(mm.w, mm.h, welcome.portals.filter((p) => p.map === map).map((p) => ({ x: p.x, y: p.y, label: welcome!.maps.find((q) => q.id === p.to)?.name ?? p.to })));
   clearEntities();
   predOk = false; snapCam = true;
@@ -1720,6 +1778,7 @@ function buildPage(id: string): Page {
       rows.push({ id: 'q', label: t('gQuality'), value: t(gfx.q === 'auto' ? 'gAuto' : gfx.q === 'low' ? 'gLow' : gfx.q === 'mid' ? 'gMid' : 'gHigh') + (gfx.q !== 'auto' && gfx.q !== tier ? ' *' : '') },
         { id: 'fog', label: t('gFog'), value: t((['gOff', 'gLight', 'gNormal', 'gThick'] as const)[gfx.fog] ?? 'gNormal') },
         { id: 'dist', label: t('gDist'), value: t((['gNear', 'gNormal', 'gFar'] as const)[gfx.dist] ?? 'gNormal') },
+        { id: 'res', label: t('gRes'), value: t(gfx.res ? 'gResAuto' : 'gResFull') },
         { id: 'fps', label: t('gFps'), value: onOff(gfx.fps) });
       if (gfx.q !== 'auto' && gfx.q !== tier) rows.push({ id: 'restart', label: t('gRestart') });
       return { id, title: t('gTitle'), rows, text: t('gHelp') };
@@ -1873,6 +1932,7 @@ function pickRow(page: string, row: string): void {
     if (row === 'q') { const o: Gfx['q'][] = ['auto', 'low', 'mid', 'high']; gfx.q = o[(o.indexOf(gfx.q) + 1) % o.length]!; }
     else if (row === 'fog') gfx.fog = (gfx.fog + 1) % 4;
     else if (row === 'dist') gfx.dist = (gfx.dist + 1) % 3;
+    else if (row === 'res') { gfx.res = !gfx.res; if (dyn) dyn.scale = dyn.start; resize(); }
     else if (row === 'fps') { gfx.fps = !gfx.fps; fpsN = 0; fpsAt = performance.now(); fpsEl.textContent = ''; }
     else if (row === 'restart') { MyPC.save('gfx', gfx); location.reload(); return; }
     MyPC.save('gfx', gfx); applyGfx(); menu.refresh();
@@ -2021,11 +2081,11 @@ function draw(now: number, dt: number): void {
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
   const r = g3.view === 'top' ? (g3.dist * 1.6 + 8) * g3.distK : g3.sight + 4, eyes = g3.view === 'first';
   frameNo++;
-  P.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin(); g3.horses.begin();
+  P.begin(); g3.peopleFar.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin(); g3.horses.begin();
   if (rp) { // a past event: only the recorded people and zombies
     rp.draw(P, dt, actName);
     g3.dist += (Math.max(16, Math.min(42, rp.span * 1.1 + 10)) - g3.dist) * Math.min(1, dt * 2);
-  P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
+  P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
     return;
   }
   for (let i = 0; i < CAP; i++) {
@@ -2076,17 +2136,18 @@ function draw(now: number, dt: number): void {
     const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
     const seat = riding[i] ? riderSeat(x, y) : 0;
     if (i === me) { myLook = look; myGear = gearOf[i]!; }
-    P.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat);
-    if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) P.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
-    else if (kind[i] === Kind.Npc) P.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
-    else if (eid[i] === follow) P.marker(x, y, tsec, GOLD);
+    const PP = i === me ? P : g3.peopleFor(x, y); // far away: the simpler set
+    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat);
+    if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) PP.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
+    else if (kind[i] === Kind.Npc) PP.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
+    else if (eid[i] === follow) PP.marker(x, y, tsec, GOLD);
   }
   for (let k = corpses.length - 1; k >= 0; k--) { // animals just killed: falling over, then sinking
     const c = corpses[k]!, age = (now - c.at) / 1000;
     if (age > DEATH_SECS) { corpses.splice(k, 1); continue; }
     g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
   }
-  P.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
+  P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
   if (aimOn && me >= 0) {
     const lk = aimLock >= 0 && eid[aimLock] !== -1 ? aimLock : -1;
     const ang = lk >= 0 ? Math.atan2(ny[lk]! - predY, nx[lk]! - predX) : aimAng;
@@ -2175,8 +2236,16 @@ function frame(ts: number): void {
     if (menu.page === 'map' && MyPC.gamepad) { mapScreen.stick(MyPC.gamepad.axis(0), MyPC.gamepad.axis(1), dt); mapScreen.zoomStick(MyPC.gamepad.axis(3), ts); }
     mapScreen.draw(ts);
   } else mapScreen.stop();
-  if (!menu.open || ts - drawAt > 100) { draw(ts, ts - drawAt > 200 ? dt : Math.min(0.1, (ts - drawAt) / 1000)); drawAt = ts; fpsN++; }
-  if (gfx.fps && ts - fpsAt > 500) { fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms`; fpsN = 0; fpsAt = ts; }
+  if (!menu.open || ts - drawAt > 100) {
+    draw(ts, ts - drawAt > 200 ? dt : Math.min(0.1, (ts - drawAt) / 1000)); drawAt = ts; fpsN++;
+    // The view's size follows the frame rate (not while a menu draws it 10 times a second, nor while chunks are still being built).
+    if (dyn && gfx.res && dyn.frame(ts, !menu.open && mode === 'world' && !document.hidden && buildQ.length < 3 && !meTransit)) resize();
+  }
+  if (gfx.fps && ts - fpsAt > 500) {
+    const st = g3?.stats;
+    fpsEl.textContent = `${Math.round(fpsN * 1000 / (ts - fpsAt))} fps · ${Math.round(rtt)} ms` + (st ? ` · ${Math.round((g3!.renderer.domElement.width / Math.max(1, innerWidth)) * 100)} % · ${st.calls} dc · ${Math.round(st.tris / 1000)}k` : '');
+    fpsN = 0; fpsAt = ts;
+  }
   if (ts - viewAt > 250) { viewAt = ts; sendView(); }
   if (ts - pingAt > 3000) { pingAt = ts; send({ t: Msg.Ping, c: ts }); }
   if (how === 'play' && mode === 'world' && playing() && !meTransit) {
@@ -2217,7 +2286,7 @@ function updateHud(now: number): void {
 }
 
 function resize(): void {
-  const s = Math.min(1, Math.min(1920 / innerWidth, 1080 / innerHeight, window.devicePixelRatio || 1)) * (tier === 'low' ? 0.6 : tier === 'mid' ? 0.8 : 1);
+  const s = Math.min(1, Math.min(1920 / innerWidth, 1080 / innerHeight, window.devicePixelRatio || 1)) * (gfx.res && dyn ? dyn.scale : tierScale());
   g3?.resize(Math.round(innerWidth * s), Math.round(innerHeight * s));
 }
 
@@ -2375,7 +2444,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }) };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null };
     MyPC.ready();
   },
   onStart() {

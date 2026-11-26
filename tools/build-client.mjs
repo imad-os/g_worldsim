@@ -5,6 +5,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const common = { bundle: true, format: 'esm', target: 'chrome108', minify: true, logLevel: 'warning' };
 const version = JSON.parse(readFileSync('docs/mypc-app.json', 'utf8')).version;
 await build({ ...common, entryPoints: ['packages/client/src/app.ts'], outfile: 'docs/game.js', define: { __VERSION__: JSON.stringify(version) } });
+// The chunk builder runs in a worker (a classic script: every Chromium the TVs have runs it).
+await build({ ...common, format: 'iife', entryPoints: ['packages/client/src/chunkworker.ts'], outfile: 'docs/chunks.js' });
 // Same ?v= everywhere (My PC loads index.html?mypc_v=<version>; the ?v= skips caches for the rest).
 const html = readFileSync('docs/index.html', 'utf8').replace(/game\.js\?v=[^"]+/, `game.js?v=${version}`);
 writeFileSync('docs/index.html', html);

@@ -748,3 +748,25 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   home or 6+ leather. `thingOf` knows fridge / chest (they were built as campfires). Admin `campPlan`; panel People > Camp plans.
 - TV: map zoom 7 levels + scale bar, "Ride here" on the map only when mounted (`pt:` route), compass pills in metres; compass + card at top 10px, the compass fits the gap between the top bar and the card (`compassFit`, app 0.14.1). Menu skips `h:` headers.
 - Proof `ADMIN_TOKEN=... node tools/storage-proof.mjs <server> <sdk.js> <outdir>`. A hut with no site in the circle goes within 18 tiles of the camp first (the wall follows it).
+
+## 60 fps on low-end devices (imad 2026-11-26)
+- Measure first: `ADMIN_TOKEN=... node tools/perf-proof.mjs <server> <sdk.js> <outdir> [tier] [label]` renders the same 5 views (town / woods,
+  top / third / first) 15 times with a GPU sync each (`World3D.bench`, `__dev.bench`), plus draw calls, triangles, fps and screenshots
+  (adaptive resolution off: `__dev.res(false)`). Software GL in the cloud = fill-rate heavy proxy; real fps belongs on imad's PC / TV.
+  Settings > Graphics > Show fps now also shows the render size %, draw calls and triangles (`World3D.stats`).
+- Shadows (`gfx/shadows.ts patchShadows`): three 0.170's PCF read the packed shadow map 17x per pixel (the biggest cost); now a 2 x 2
+  bilinear filter (4 reads, same softness) + a fade over the last 8 % of the shadow box (no hard edge). PCF soft (high tier) unchanged.
+- Levels of detail (`ChunkGeo` in chunkmesh.ts, `World3D.lodPass` every frame, `LOD` table per tier x view distance): `props` always,
+  `near` (grass, flowers, fire stones, herb flowers, round crowns on mid / high) only close, `far` (simple crowns) further, `groundLo`
+  (tile-corner grid, 1/4 triangles) past `ground` m; skirts hang 1 m under every chunk edge so fine / coarse neighbours never show a
+  gap; chunks past the fog are hidden. The top view keeps full detail (everything on screen is close). People past `people` m use
+  `World3D.peopleFar` (half the sides, no cast shadow, a round blob instead, no gear); horses off screen skip skeleton + drawing,
+  past 30 m animate every other frame, no shadow outside the shadow box.
+- Chunk building runs in a worker (`chunkworker.ts` -> `docs/chunks.js`, classic script, built by build-client.mjs): a woods chunk
+  took 80 ms on the main thread (a stutter per chunk while walking), the builder is now typed-array based (15 ms) and off the main
+  thread (main thread ~1-3 ms per chunk: the GPU upload). Jobs carry the chunk's tiles + 3-tile border, 2 in flight, stale answers
+  (tiles changed, map changed) are dropped by `chunkVer` / `mapGen`. `?noworker` or a failing worker = built on the main thread.
+- Adaptive resolution (`gfx/dynres.ts DynRes`, Settings > Graphics > Resolution: Automatic / Fixed, `gfx.res`): 5 % steps between
+  0.5 (high 0.6) and 1.15 x the tier's size (max 1), down after 2 slow seconds (fps < screen rate - 5), up after 8 smooth ones;
+  a step up that fails is blocked 30 s doubling to 5 min; the screen rate is learnt (50-60 Hz). Not judged while a menu is open,
+  chunks are loading or riding through a gate.

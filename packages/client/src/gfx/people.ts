@@ -40,8 +40,12 @@ export class People {
   private cap: number; private gcap: number;
   private tmpC = new Color();
 
-  constructor(private scene: Scene, cap: number, private shadows: boolean) {
-    this.cap = cap; this.gcap = Math.min(cap, 160);
+  /**
+   * lo = the far set (imad 2026-11-26, 60 fps: "the further away, the less detail"): fewer sides on every part, no shadow cast
+   * (a soft round one on the ground instead), no held or worn models.
+   */
+  constructor(private scene: Scene, cap: number, private shadows: boolean, private lo = false) {
+    this.cap = cap; this.gcap = lo ? 0 : Math.min(cap, 160);
     const lam = () => new MeshLambertMaterial({ color: 0xffffff });
     const mk = (g: BufferGeometry, mat: Material, count: number, cast: boolean) => {
       const im = new InstancedMesh(g, mat, count);
@@ -50,15 +54,18 @@ export class People {
       scene.add(im);
       return im;
     };
-    this.body = mk(new CylinderGeometry(0.17, 0.24, 0.6, 10).translate(0, 0.8, 0), lam(), cap, true);
-    this.head = mk(new SphereGeometry(0.17, 14, 10).translate(0, 1.3, 0), lam(), cap, true);
-    this.hair = mk(new SphereGeometry(0.182, 14, 6, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 1.33, -0.015), lam(), cap, true);
-    this.legs = mk(new CylinderGeometry(0.075, 0.065, 0.5, 6).translate(0, -0.25, 0), lam(), cap * 2, true);
-    this.arms = mk(new CylinderGeometry(0.06, 0.05, 0.44, 6).translate(0, -0.22, 0), lam(), cap * 2, true);
-    this.blob = shadows ? null : mk(new CircleGeometry(0.38, 16).rotateX(-Math.PI / 2),
+    const r = lo ? 0.5 : 1; // sides of each part (far: half)
+    this.body = mk(new CylinderGeometry(0.17, 0.24, 0.6, Math.round(10 * r)).translate(0, 0.8, 0), lam(), cap, true);
+    this.head = mk(new SphereGeometry(0.17, Math.round(14 * r), Math.round(10 * r)).translate(0, 1.3, 0), lam(), cap, true);
+    this.hair = mk(new SphereGeometry(0.182, Math.round(14 * r), lo ? 4 : 6, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 1.33, -0.015), lam(), cap, true);
+    this.legs = mk(new CylinderGeometry(0.075, 0.065, 0.5, lo ? 4 : 6).translate(0, -0.25, 0), lam(), cap * 2, true);
+    this.arms = mk(new CylinderGeometry(0.06, 0.05, 0.44, lo ? 4 : 6).translate(0, -0.22, 0), lam(), cap * 2, true);
+    if (lo) this.shadows = false;
+    for (const im of [this.body, this.head, this.hair, this.legs, this.arms]) im.castShadow = this.shadows;
+    this.blob = this.shadows ? null : mk(new CircleGeometry(0.38, lo ? 10 : 16).rotateX(-Math.PI / 2),
       new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false }), cap, false);
     this.mark = mk(new OctahedronGeometry(0.12, 0).scale(1, 1.6, 1), new MeshBasicMaterial({ color: 0xffffff }), 64, false);
-    this.glow = mk(new IcosahedronGeometry(1, 1), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, blending: AdditiveBlending, depthWrite: false }), this.gcap, false);
+    this.glow = mk(new IcosahedronGeometry(1, 1), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, blending: AdditiveBlending, depthWrite: false }), Math.max(1, this.gcap), false);
     for (const im of [this.body, this.head, this.hair, this.legs, this.arms, this.mark, this.glow]) im.setColorAt(0, new Color());
   }
 
@@ -66,7 +73,7 @@ export class People {
   private model(k: Model): InstancedMesh | null {
     const have = this.gear[k];
     if (have) return have;
-    if (!itemsReady) return null;
+    if (!itemsReady || this.lo) return null;
     const g = itemGeo(k);
     if (!g) return null;
     const im = new InstancedMesh(g, new MeshLambertMaterial({ vertexColors: true }), this.gcap);

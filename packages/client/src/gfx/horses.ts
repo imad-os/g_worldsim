@@ -1,6 +1,6 @@
 import {
   AnimationMixer, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial,
-  Object3D, AdditiveBlending, Points, PointsMaterial, Float32BufferAttribute, PlaneGeometry, SkinnedMesh, BoxGeometry, Vector3,
+  Object3D, AdditiveBlending, Points, PointsMaterial, Float32BufferAttribute, PlaneGeometry, SkinnedMesh, BoxGeometry, Vector3, Sphere, type Frustum,
   type AnimationAction, type AnimationClip, type Scene,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -33,6 +33,8 @@ const H = 2.5; // height to the ears, metres (people are drawn 1.25 x life size 
 interface Inst {
   root: Group; mesh: SkinnedMesh; mixer: AnimationMixer; acts: Record<string, AnimationAction>; cur: string;
   mat: MeshLambertMaterial; coat: number; q: number; saddle: Mesh; ring: Mesh; sparks: Points | null; seen: number; idleAlt: number;
+  /** Seconds of animation not yet played (skipped frames). */
+  lag: number;
 }
 
 export class Horses3D {
@@ -44,6 +46,12 @@ export class Horses3D {
   private yaw = 0; // turn so the model's nose points +z
   private readonly live = new Map<number, Inst>();
   private frame = 0;
+  /**
+   * The camera this frame (World3D sets it; the gate ride leaves it null = draw everything): a horse off screen is not drawn and
+   * its skeleton not moved; far away its animation steps every other frame and casts no shadow (imad 2026-11-26, 60 fps).
+   */
+  view: { frustum: Frustum; eye: Vector3; shadowD: number } | null = null;
+  private sphere = new Sphere();
   private ringTex: CanvasTexture;
   private sparkTex: CanvasTexture;
   private readonly saddleGeo = new BoxGeometry(0.5, 0.12, 0.62);
@@ -121,6 +129,16 @@ export class Horses3D {
     let h = this.live.get(id);
     if (!h) { if (this.live.size >= this.cap) return; h = this.make(); this.live.set(id, h); }
     h.seen = this.frame;
+    const v = this.view;
+    let far = false;
+    if (v) {
+      this.sphere.center.set(x, 1.1 * scale, z); this.sphere.radius = 1.8 * scale;
+      if (!v.frustum.intersectsSphere(this.sphere)) { h.root.visible = false; h.lag += dt; return; }
+      const d = Math.hypot(x - v.eye.x, z - v.eye.z);
+      far = d > 30;
+      const cast = this.shadows && d < v.shadowD;
+      if (h.mesh.castShadow !== cast) { h.mesh.castShadow = cast; h.saddle.castShadow = cast; }
+    }
     const gc = (q === 2 ? COATS.length : 0) + (coat & 7);
     if (h.coat !== gc) { h.mesh.geometry = this.geos[gc]!; h.coat = gc; }
     if (h.q !== q) {
@@ -147,7 +165,8 @@ export class Horses3D {
     }
     const a = h.acts[h.cur];
     if (a) a.timeScale = h.cur === 'Gallop' ? Math.max(0.6, speed / 7.5) : h.cur === 'Walk' ? Math.max(0.5, Math.min(2.4, speed / 1.5)) : 1;
-    h.mixer.update(dt);
+    h.lag += dt;
+    if (!far || ((this.frame + id) & 1) === 0) { h.mixer.update(Math.min(0.5, h.lag)); h.lag = 0; }
     // Quality effects: sparks rise and fade round a legendary horse.
     if (h.sparks && q === 2) {
       const pos = h.sparks.geometry.getAttribute('position') as BufferAttribute, n = pos.count;
@@ -190,7 +209,7 @@ export class Horses3D {
     ring.position.y = 0.04; ring.visible = false; ring.renderOrder = 2;
     root.add(ring);
     this.scene.add(root);
-    return { root, mesh: m, mixer, acts, cur: 'Idle', mat, coat: -1, q: -1, saddle, ring, sparks: null, seen: this.frame, idleAlt: Math.random() };
+    return { root, mesh: m, mixer, acts, cur: 'Idle', mat, coat: -1, q: -1, saddle, ring, sparks: null, seen: this.frame, idleAlt: Math.random(), lag: 0 };
   }
 
   private makeSparks(root: Group): Points {
