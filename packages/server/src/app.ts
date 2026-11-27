@@ -429,7 +429,9 @@ export class App {
         const an0 = ang(raw.includes('@') ? raw : '');
         if (Number.isFinite(an0)) e.angle[player] = an0;
         const put = (): string => at ? sv.placeAt(player, what, Number(at[1]), Number(at[2]), Number(at[3] ?? 0)) : what === 'hut' || what === 'house' ? sv.playerHut(player, what) : sv.placeFront(player, what);
-        if (what === 'hut' || what === 'house') { const c = put(); return { ok: c === 'built', code: c, item: what }; }
+        // Built where I stood: step out of the wall and tell my TV where I am now (its own prediction would keep me inside).
+        const stepAside = () => { if (sv.clearSpot(player)) this.net.noticeTo(player, 'did', { a: 'tp', ok: true, code: 'tp', name: '', x: e.x[player], y: e.y[player], map: w.maps[e.map[player]!]!.def.id }); };
+        if (what === 'hut' || what === 'house') { const c = put(); if (c === 'built') stepAside(); return { ok: c === 'built', code: c, item: what }; }
         if ((sv.inv(player)[what] ?? 0) < 1) {
           const r = RECIPES_ALL.find((q) => q.what === what && (PLACEABLE as readonly string[]).includes(q.what));
           if (!r) return { ok: false, code: 'nothing', item: what };
@@ -438,9 +440,11 @@ export class App {
           if (!c.ok) return { ok: false, code: c.code === 'noMat' ? 'buildNeed' : c.code, item: what, need: r.need };
           const pc = put();
           if (pc !== 'placed') return { ok: false, code: pc, item: what, kept: true }; // made, kept in the bag
+          stepAside();
           return { ok: true, code: 'placed', item: what };
         }
         const pc = put();
+        if (pc === 'placed') stepAside();
         return { ok: pc === 'placed', code: pc, item: what };
       }
       if (a === 'huts') { // every hut on my map (or text = a map id): for the TV's map (imad 2026-11-25: "each hut marked on the map")

@@ -1106,6 +1106,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   read as 80 % see-through: at 0.8 opacity you can't see yourself; say so if he wants it the other way). Third person indoors: the camera comes
   under the ceiling and stays inside the room (`World3D.follow`, `camB` / `camH` eased); first person sees the ceiling. Test house.test.ts;
   proof `ADMIN_TOKEN=... node tools/roof-proof.mjs <server> <sdk.js> <outdir>`.
+- **Where building is allowed (imad 2026-11-27)**: never on a road (tile 3), a tree or a rock (`Survival.groundBad`: codes onRoad / onTree / onRock, TV
+  `groundBad` + strings cOnRoad / cOnTree / cOnRock: "cut it down / break it first"). The tile I stand on is fine (`occupied(.., except)`, TV ignores
+  my own slot): after a player's build `Survival.clearSpot` steps them out of the wall to the nearest open tile and the TV gets Notice did `tp`.
+  Tests that built on a road were moved (server / territory / weather). Proof `ADMIN_TOKEN=... node tools/buildspot-proof.mjs <server> <sdk.js> <outdir>`.
 
 ## One button for things and people, PvP a switch (imad 2026-11-27, binds v3, app 0.14.27)
 - Talk has no button of its own: the interact button (A / OK) talks to the person / teacher / player (= trade) right next to me (< 1.3 m, or

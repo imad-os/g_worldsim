@@ -718,9 +718,10 @@ export class Survival {
         const X = tx + xx, Y = ty + yy;
         if (!tm.inside(X, Y) || w.land.inRing(m, X, Y)) return 'noRoom';
         const t = tm.get(X, Y);
-        if (!this.buildable.has(t) && t !== 3 /* road */) return 'noRoom';
+        const bad = this.groundBad(t);
+        if (bad) return bad;
         const edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
-        if (edge && Y * tm.w + X !== door && this.occupied(m, X, Y)) return 'someone';
+        if (edge && Y * tm.w + X !== door && this.occupied(m, X, Y, i)) return 'someone'; // where I stand is fine: I step aside (clearSpot)
       }
       // The ground in front of the door must be open (a way in).
       const ox = tx + H + dx * (H + 1), oy = ty + H + dy * (H + 1);
@@ -737,11 +738,47 @@ export class Survival {
     }
     if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) > PLACE_REACH) return 'tooFar';
     const t = tm.get(tx, ty), wallish = t === this.T.woodwall || t === this.placeTile.get('palisade') || t === this.placeTile.get('stonewall') || t === this.T.floor;
-    const ok = this.buildable.has(t) || t === this.T.floor || t === 3 /* road */ || ((what === 'door' || what === 'window') && wallish);
-    if (!ok) return 'noRoom';
-    if ((tm.solid[tile] || what === 'door') && this.occupied(m, tx, ty)) return 'someone';
+    const ok = this.buildable.has(t) || t === this.T.floor || ((what === 'door' || what === 'window') && wallish);
+    if (!ok) return this.groundBad(t) || 'noRoom';
+    if ((tm.solid[tile] || what === 'door') && this.occupied(m, tx, ty, i)) return 'someone';
     if (near(tx, ty, 4)) return 'noRoom';
     return '';
+  }
+  /**
+   * Why a building can't go on ground tile t (imad 2026-11-27: "not on the town's roads, not on trees or rocks: cut / mine them first"):
+   * onRoad, onTree, onRock, else noRoom; '' = open ground.
+   */
+  private groundBad(t: number): string {
+    if (this.buildable.has(t)) return '';
+    if (t === 3 /* road */) return 'onRoad';
+    if (t === this.T.tree) return 'onTree';
+    if (t === this.T.rock) return 'onRock';
+    return 'noRoom';
+  }
+  /**
+   * After a player built where they stood (imad 2026-11-27: "it should be accepted to build where I stand"): standing in a wall now,
+   * they step to the nearest open tile (into the room if it is a hut's wall and the room is nearer). True = moved.
+   */
+  clearSpot(i: number): boolean {
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, x = e.x[i]!, y = e.y[i]!;
+    const fx = Math.floor(x), fy = Math.floor(y);
+    const free = (X: number, Y: number) => tm.inside(X, Y) && !tm.solid[tm.get(X, Y)];
+    // My body (0.3 m) touches the tiles round me: only the tile I stand on counts, plus a wall within 0.3 m.
+    let stuck = !free(fx, fy);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const near = dx > 0 ? fx + 1 - x : dx < 0 ? x - fx : dy > 0 ? fy + 1 - y : y - fy;
+      if (near < 0.3 && !free(fx + dx, fy + dy)) stuck = true;
+    }
+    if (!stuck) return false;
+    let best: [number, number] | null = null, bd = Infinity;
+    for (let r = 0; r <= 4 && !best; r++) for (let Y = fy - r; Y <= fy + r; Y++) for (let X = fx - r; X <= fx + r; X++) {
+      if (!free(X, Y) || !free(X + 1, Y) && !free(X - 1, Y) && !free(X, Y + 1) && !free(X, Y - 1)) continue;
+      const d = Math.hypot(X + 0.5 - x, Y + 0.5 - y);
+      if (d < bd) { bd = d; best = [X, Y]; }
+    }
+    if (!best) return false;
+    w.place(i, m, best[0] + 0.5, best[1] + 0.5);
+    return true;
   }
   /** A player puts `what` exactly where they aimed (made from the bag's materials by the caller first). */
   placeAt(i: number, what: string, tx: number, ty: number, dir = 0): string {
@@ -765,7 +802,7 @@ export class Survival {
     const S = DWELLINGS[what]!.size, H = (S - 1) >> 1, [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (y0 + H + dy * H) * tm.w + x0 + H + dx * H;
     for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
       const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
-      if (edge && k !== door && this.occupied(m, x0 + xx, y0 + yy)) return 'someone';
+      if (edge && k !== door && this.occupied(m, x0 + xx, y0 + yy, i)) return 'someone';
     }
     this.use(i, RECIPES[what]!);
     for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
@@ -1746,10 +1783,10 @@ export class Survival {
 
   // ------------------------------------------------------------------ where
   /** Someone (or something) is standing on that tile. */
-  private occupied(m: number, tx: number, ty: number): boolean {
+  private occupied(m: number, tx: number, ty: number, except = -1): boolean {
     const e = this.w.e;
     for (let j = 0; j < e.hi; j++) {
-      if (e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
+      if (j === except || e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
       if (Math.abs(e.x[j]! - tx - 0.5) < 0.9 && Math.abs(e.y[j]! - ty - 0.5) < 0.9) return true;
     }
     return false;

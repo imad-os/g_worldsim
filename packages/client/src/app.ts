@@ -1062,7 +1062,9 @@ let placing: { what: string; tx: number; ty: number; dir: number; moveAt: number
 const PLACE_REACH = 8;
 /** Door directions as the server numbers them: south, east, north, west (outwards). */
 const PDIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]] as const;
-const BUILD_ON = new Set(['grass', 'dirt', 'sand', 'ashes', 'road']);
+const BUILD_ON = new Set(['grass', 'dirt', 'sand', 'ashes']);
+/** Why not on this ground (imad 2026-11-27: never on the town's roads, nor on a tree or a rock: cut / mine it first). */
+const groundBad = (n: string) => (BUILD_ON.has(n) ? '' : n === 'road' ? 'onRoad' : n === 'tree' ? 'onTree' : n === 'rock' ? 'onRock' : 'noRoom');
 const WALLISH = new Set(['woodwall', 'palisade', 'stonewall', 'floor']);
 /** How tall each thing's model is (0 = flat). */
 const GHOST_H: Record<string, number> = { palisade: 1.3, spikes: 0.5, stonewall: 1.3, door: 1.5, window: 1.2, bed: 0.35, lamp: 1.6, campfire: 0.3, fridge: 1.7, chest: 0.6 };
@@ -1104,7 +1106,8 @@ function placeCheck(p: NonNullable<typeof placing>): string {
     return destroyInfo && destroyInfo.tx === p.tx && destroyInfo.ty === p.ty ? destroyInfo.code : 'wait';
   }
   const person = (tx: number, ty: number) => {
-    for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && (kind[i] === Kind.Agent || kind[i] === Kind.Player) && Math.abs(nx[i]! - tx - 0.5) < 0.9 && Math.abs(ny[i]! - ty - 0.5) < 0.9) return true;
+    const mine = meSlot(); // where I stand is fine (imad 2026-11-27): the server steps me out of the wall
+    for (let i = 0; i < CAP; i++) if (i !== mine && eid[i] !== -1 && (kind[i] === Kind.Agent || kind[i] === Kind.Player) && Math.abs(nx[i]! - tx - 0.5) < 0.9 && Math.abs(ny[i]! - ty - 0.5) < 0.9) return true;
     return false;
   };
   if (isDwelling(p.what)) {
@@ -1115,7 +1118,8 @@ function placeCheck(p: NonNullable<typeof placing>): string {
     for (let yy = 0; yy < HS; yy++) for (let xx = 0; xx < HS; xx++) {
       const t0 = tileUnder(p.tx + xx + 0.5, p.ty + yy + 0.5);
       if (t0 < 0) return 'unknown';
-      if (!BUILD_ON.has(tileName[t0] ?? '')) return 'noRoom';
+      const bad = groundBad(tileName[t0] ?? '');
+      if (bad) return bad;
       const edge = xx === 0 || yy === 0 || xx === HS - 1 || yy === HS - 1;
       if (edge && !(p.tx + xx === dX && p.ty + yy === dY) && person(p.tx + xx, p.ty + yy)) return 'someone';
     }
@@ -1128,11 +1132,11 @@ function placeCheck(p: NonNullable<typeof placing>): string {
   if (t0 < 0) return 'unknown';
   const n = tileName[t0] ?? '';
   if (INSIDE_ONLY.includes(p.what) && n !== 'floor') return 'insideHut'; // a fridge / chest: on a hut's floor only (imad 2026-11-26)
-  if (!BUILD_ON.has(n) && n !== 'floor' && !((p.what === 'door' || p.what === 'window') && WALLISH.has(n))) return 'noRoom';
+  if (!BUILD_ON.has(n) && n !== 'floor' && !((p.what === 'door' || p.what === 'window') && WALLISH.has(n))) return groundBad(n) || 'noRoom';
   if (p.what !== 'bed' && p.what !== 'campfire' && person(p.tx, p.ty)) return 'someone';
   return '';
 }
-const PLACE_CODE: Record<string, Key> = { insideHut: 'cInsideHut', tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait', hutLimit: 'dHutLimit' };
+const PLACE_CODE: Record<string, Key> = { insideHut: 'cInsideHut', tooFar: 'cTooFar', someone: 'cSomeone', doorBlocked: 'cDoorBlocked', noRoom: 'cNoRoom', unknown: 'cUnknown', nothing: 'dsNothing', notYours: 'dsNotYours', wait: 'dsWait', hutLimit: 'dHutLimit', onRoad: 'cOnRoad', onTree: 'cOnTree', onRock: 'cOnRock' };
 function placeNote(): void {
   if (!placing) return;
   if (placing.what === 'destroy') {
@@ -1678,7 +1682,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     else { placing.sent = false; setTimeout(placeNote, 3200); }
   }
   if (d.a === 'build') {
-    const why: Record<string, Key> = { tooFar: 'dTooFar', someone: 'dSomeone', doorBlocked: 'dDoorBlocked' };
+    const why: Record<string, Key> = { tooFar: 'dTooFar', someone: 'dSomeone', doorBlocked: 'dDoorBlocked', onRoad: 'cOnRoad', onTree: 'cOnTree', onRock: 'cOnRock' };
     if (why[d.code]) { sound.play('ui_error'); note(t(why[d.code]!), 3000); return; }
     if (d.code === 'needHut') { sound.play('ui_error'); note(tf('needHut2', needText(HUT_NEED)), 3500); return; }
     if (d.code === 'needHouse') { sound.play('ui_error'); note(tf('needHouse', needText(HOUSE_NEED)), 3500); return; }

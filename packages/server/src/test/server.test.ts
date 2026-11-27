@@ -551,7 +551,7 @@ test('player buttons: attack hits what is in front, the bow shoots along the aim
     assert.equal(app.net.onDo('tester', p, 'build', 'palisade@0').code, 'buildNeed');
     sv.inv(p).wood = 2;
     const b = app.net.onDo('tester', p, 'build', 'palisade@' + String(-Math.PI / 2));
-    assert.ok(b.code === 'placed' || (b.code === 'noRoom' && b.kept), `built: ${JSON.stringify(b)}`);
+    assert.ok(b.code === 'placed' || ((b.code === 'noRoom' || b.code === 'onRoad' || b.code === 'onTree' || b.code === 'onRock') && b.kept), `built: ${JSON.stringify(b)}`); // never on a road (imad 2026-11-27)
     assert.equal(sv.inv(p).wood ?? 0, 0, 'the wood was used');
     await app.stop();
     // PvP: a switch, off by default; small damage. Off = Attack never touches a person; on = the same Attack (and the bow) hits people.

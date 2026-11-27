@@ -81,3 +81,34 @@ test('an AI person asked for a big house builds a 9 x 9 one', () => {
   assert.equal(tm.get(b.tx - 4, b.ty - 4), T.woodwall);
   assert.equal(tm.get(b.tx + 3, b.ty + 3), T.floor);
 });
+
+test('no building on roads, trees or rocks; building where I stand steps me out of the wall', () => {
+  const w = mk('storage-1');
+  w.populate(); w.land.setup();
+  const e = w.e, town = w.mapIndex.get('town')!, sv = w.survival, T = sv.T, tm = w.maps[town]!.tiles, S = HOUSE_SIZE, H = (S - 1) >> 1;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) w.place(i, town, 20, 20);
+  w.step();
+  const s = openSpot(w, town, 60, 60, S);
+  const pl = w.spawnPlayer(town, s.x0 + 0.5, s.y0 + 0.5); // on the north-west corner of the house to be
+  w.playerProfile(pl, 'imad');
+  for (const [k, n] of Object.entries(HOUSE_NEED)) sv.add(pl, k, n);
+  // A tree / rock / road under the square: refused with the reason.
+  const k0 = (s.y0 + 2) * tm.w + s.x0 + 3, was = tm.tiles[k0]!;
+  for (const [t, code] of [[T.tree, 'onTree'], [T.rock, 'onRock'], [3, 'onRoad']] as const) {
+    tm.set(s.x0 + 3, s.y0 + 2, t);
+    assert.equal(sv.canPlace(pl, 'house', s.x0, s.y0, 0), code);
+  }
+  tm.set(s.x0 + 3, s.y0 + 2, was);
+  assert.equal(sv.canPlace(pl, 'house', s.x0, s.y0, 0), '', 'my own spot is fine');
+  assert.equal(sv.placeAt(pl, 'house', s.x0, s.y0, 0), 'built');
+  assert.equal(tm.get(s.x0, s.y0), T.woodwall);
+  assert.ok(sv.clearSpot(pl), 'moved');
+  assert.ok(!tm.solid[tm.get(Math.floor(e.x[pl]!), Math.floor(e.y[pl]!))], 'out of the wall');
+  assert.ok(Math.hypot(e.x[pl]! - s.x0 - 0.5, e.y[pl]! - s.y0 - 0.5) < 2, 'next to where I stood');
+  // A palisade on my own tile.
+  sv.add(pl, 'palisade', 1);
+  w.place(pl, town, s.x0 + H + 0.5, s.y0 + S + 3.5);
+  assert.equal(sv.placeAt(pl, 'palisade', s.x0 + H, s.y0 + S + 3), 'placed');
+  assert.ok(sv.clearSpot(pl));
+  assert.ok(!tm.solid[tm.get(Math.floor(e.x[pl]!), Math.floor(e.y[pl]!))]);
+});

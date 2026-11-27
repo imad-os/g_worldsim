@@ -103,8 +103,8 @@ test('territory: a camp is a small town whose edge takes in its people\'s huts; 
   // A hut 24-30 m out from B's centre, built by a B member.
   sv.add(b, 'wood', 40); sv.add(b, 'stone', 20); sv.add(b, 'leather', 10);
   let built = '';
-  for (let a = 0; a < 16 && built !== 'built'; a++) {
-    const x0 = Math.floor(other.x + Math.cos(a * 0.4) * 26) - 3, y0 = Math.floor(other.y + Math.sin(a * 0.4) * 26) - 3;
+  for (let a = 0; a < 64 && built !== 'built'; a++) { // never on a road (imad 2026-11-27): more places tried
+    const rr = 24 + (a % 4) * 2, x0 = Math.floor(other.x + Math.cos(a * 0.4) * rr) - 3, y0 = Math.floor(other.y + Math.sin(a * 0.4) * rr) - 3;
     w.place(b, town, x0 + 3.5, y0 + 9.5);
     built = sv.placeAt(b, 'hut', x0, y0, 0);
   }
