@@ -809,7 +809,26 @@ let doorTileId = -1, doorOpenId = -1;
 const iaEl = document.getElementById('iahint')!;
 let iaAt = 0, iaShown = '';
 /** What the interact button does right now, in the server's own order for "take" (sim/brain.ts playerDo + app.ts). */
-let iaNow: { key: Key; door?: [number, number] } | null = null;
+let iaNow: IaHint | null = null;
+interface IaHint { key: Key; door?: [number, number]; talk?: boolean; text?: string }
+/** Who the interact button would talk to: the nearest town teacher, person or other player within 3.5 m (`faced` = in front of me). */
+function talkTarget(): { k: 'npc' | 'person' | 'player'; id: number; d: number; faced: boolean } | null {
+  const x = focusX(), y = focusY(), a = myAng();
+  let best = -1, bd = 3.5;
+  for (let i = 0; i < CAP; i++) {
+    const k = kind[i];
+    if (eid[i] === -1 || (k !== Kind.Npc && k !== Kind.Agent && k !== Kind.Player) || eid[i] === meId) continue;
+    const d = Math.hypot(nx[i]! - x, ny[i]! - y) - (k === Kind.Npc ? 0.01 : 0); // a teacher wins a tie
+    if (d < bd) { bd = d; best = i; }
+  }
+  if (best < 0) return null;
+  const k = kind[best] === Kind.Npc ? 'npc' : kind[best] === Kind.Player ? 'player' : 'person';
+  return { k, id: eid[best]!, d: bd, faced: Math.cos(Math.atan2(ny[best]! - y, nx[best]! - x) - a) > 0.5 };
+}
+function talkHint(w: NonNullable<ReturnType<typeof talkTarget>>): IaHint {
+  const n = names.names.get(w.id);
+  return { key: w.k === 'player' ? 'iaTrade' : 'iaTalk', talk: true, text: n ? tf(w.k === 'player' ? 'iaTradeTo' : 'iaTalkTo', n) : undefined };
+}
 /** The door within reach I face most (x, y, open?), or null. */
 function nearDoor(): [number, number, boolean] | null {
   if (doorTileId < 0) return null;
@@ -826,11 +845,14 @@ function nearDoor(): [number, number, boolean] | null {
   }
   return best;
 }
-function interactHint(): { key: Key; door?: [number, number] } | null {
+function interactHint(): IaHint | null {
   if (how !== 'play' || !playing() || !meNeeds) return null;
   const x = focusX(), y = focusY();
   if (meNeeds.ride) return { key: 'iaOff' };
   if (meNeeds.asleep) return { key: 'iaWake' };
+  // Someone right next to me or close in front: the same button talks to them (imad 2026-11-27); else things first, people after.
+  const who = talkTarget();
+  if (who && (who.d < 1.3 || (who.d < 2.2 && who.faced))) return talkHint(who);
   let bk = '', bxd = 2.2; // my fridge / chest (imad 2026-11-26)
   for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
     const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
@@ -867,7 +889,7 @@ function interactHint(): { key: Key; door?: [number, number] } | null {
     if (h[4] && d < 3.5) return { key: 'iaMount' };
     if (!h[3] && d < 3.4) return { key: 'iaTame' };
   }
-  return null;
+  return who ? talkHint(who) : null;
 }
 /** Five times a second: the chip "A  Open the door" over the hints. */
 function updateInteract(now: number): void {
@@ -875,7 +897,7 @@ function updateInteract(now: number): void {
   iaAt = now;
   iaNow = mode === 'world' && !menu.open && !placing && !aimOn && !wheel.open ? interactHint() : null;
   const k = keyName('use');
-  const txt = iaNow && k ? `<b>${esc(k)}</b><span>${esc(t(iaNow.key))}</span>` : '';
+  const txt = iaNow && k ? `<b>${esc(k)}</b><span>${esc(iaNow.text ?? t(iaNow.key))}</span>` : '';
   if (txt === iaShown) return;
   iaShown = txt;
   iaEl.innerHTML = txt;
@@ -925,15 +947,15 @@ const VSTICK: [number, number] = [0, 0];
 // ------------------------------------------------------------ quick action wheel
 const wheel = new Wheel(document.getElementById('wheel')!);
 /** Everything the wheel can hold; the player picks which and in what order (Settings > Quick action wheel, `MyPC.save('wheel')`). */
-const WHEEL_ALL = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson', 'gear', 'me', 'talk', 'attack', 'pickup', 'thoughts', 'destroy'] as const;
-const WHEEL_DEFAULT: string[] = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson'];
+const WHEEL_ALL = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'pvp', 'gear', 'me', 'talk', 'attack', 'pickup', 'thoughts', 'destroy'] as const;
+const WHEEL_DEFAULT: string[] = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'pvp'];
 const WHEEL_MAX = 12;
 let wheelIds: string[] = [...WHEEL_DEFAULT];
-const WHEEL_ICON: Record<string, string> = { map: '🗺', horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️', heal: '✚', gear: '🛡', me: '🙂', talk: '💬', attack: '🗡', pickup: '👐', thoughts: '💭', destroy: '⛏' };
-const WHEEL_KEY: Record<string, Key> = { map: 'qMap', horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson', heal: 'qHeal', gear: 'qGear', me: 'qMe', talk: 'qTalk', attack: 'qAttack', pickup: 'qPickup', thoughts: 'qThoughts', destroy: 'qDestroy' };
+const WHEEL_ICON: Record<string, string> = { map: '🗺', horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', pvp: '⚔️', heal: '✚', gear: '🛡', me: '🙂', talk: '💬', attack: '🗡', pickup: '👐', thoughts: '💭', destroy: '⛏' };
+const WHEEL_KEY: Record<string, Key> = { map: 'qMap', horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', pvp: 'qPvp', heal: 'qHeal', gear: 'qGear', me: 'qMe', talk: 'qTalk', attack: 'qAttack', pickup: 'qPickup', thoughts: 'qThoughts', destroy: 'qDestroy' };
 function loadWheel(): void {
   const v = MyPC.load('wheel', null) as unknown;
-  if (Array.isArray(v)) { const ok = v.filter((x): x is string => typeof x === 'string' && (WHEEL_ALL as readonly string[]).includes(x)); if (ok.length >= 2) wheelIds = [...new Set(ok)].slice(0, WHEEL_MAX); }
+  if (Array.isArray(v)) { const ok = v.map((x) => x === 'attackPerson' ? 'pvp' : x).filter((x): x is string => typeof x === 'string' && (WHEEL_ALL as readonly string[]).includes(x)); if (ok.length >= 2) wheelIds = [...new Set(ok)].slice(0, WHEEL_MAX); }
 }
 function saveWheel(): void { MyPC.save('wheel', wheelIds); }
 let wheelEdit = '';
@@ -984,7 +1006,7 @@ function wheelButton(pressed: boolean, pad: boolean): void {
       rideDestsAt = performance.now(); send({ t: Msg.Do, a: 'rideTo', text: '' });
       return;
     }
-    const items: WheelItem[] = wheelIds.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : t(WHEEL_KEY[id]!) }));
+    const items: WheelItem[] = wheelIds.map((id) => ({ id, icon: WHEEL_ICON[id]!, label: id === 'place' ? placeLabel() : id === 'pvp' ? `${t('qPvp')}: ${t(meNeeds?.pvp ? 'pvpOnW' : 'pvpOffW')}` : t(WHEEL_KEY[id]!) }));
     wheel.show(items, pad, t(pad ? 'wheelHelp' : 'wheelRemote'));
     return;
   }
@@ -1194,6 +1216,8 @@ function runQuick(id: string | null): void {
   if (id === 'gear') { openMenu('gear'); return; }
   if (id === 'me') { send({ t: Msg.Do, a: 'mine' }); openMenu('me'); return; }
   if (id === 'place') { const p = placeable(); if (p) startPlacing(p); else note(t('qNothing'), 2000); return; }
+  if (id === 'pvp') { togglePvp(); return; }
+  if (id === 'talk') { if (playing()) talk(); return; }
   doAction(id as ActionId, true);
 }
 
@@ -1394,7 +1418,7 @@ function updateHints(): void {
   const view = how === 'play' && camView !== 'top';
   const move = view ? `${t('hMove')}: ${pads ? 'stick' : '↑ ↓'} · ${t('hTurn')}: ${pads ? 'R stick' : '← →'}` : `${t('hMove')}: ${pads ? 'stick' : '← ↑ → ↓'}`;
   const list = how === 'play'
-    ? [move, part('use', actionLabel('use').replace(/ \(.*\)$/, '')), part('talk', actionLabel('talk')), part('attack', actionLabel('attack')), part('aim', actionLabel('aim').replace(/ \(.*\)$/, '')), part('run', actionLabel('run')), part('wheel', t('aWheel').replace(/ \(.*\)$/, '')), part('build', actionLabel('build')), part('menu', actionLabel('menu'))]
+    ? [move, part('use', actionLabel('use').replace(/ \(.*\)$/, '')), part('attack', actionLabel('attack')), part('aim', actionLabel('aim').replace(/ \(.*\)$/, '')), part('run', actionLabel('run')), part('wheel', t('aWheel').replace(/ \(.*\)$/, '')), part('build', actionLabel('build')), part('menu', actionLabel('menu'))]
     : [move, part('use', t('wFollow')), part('eat', t('wMap')), part('sleep', t('wCard')), part('menu', actionLabel('menu'))];
   if (!pads) list.push(t('hintMenu'));
   hudHint.textContent = list.filter(Boolean).join(' · ');
@@ -1423,17 +1447,6 @@ function nearestPerson(r: number): number {
   return best;
 }
 
-/** Is one of the town's teachers (NPC) within r metres, nearer than any person? */
-function nearestNpc(r: number): boolean {
-  const x = focusX(), y = focusY();
-  let npc = Infinity, person = Infinity;
-  for (let i = 0; i < CAP; i++) {
-    if (eid[i] === -1 || (kind[i] !== Kind.Npc && kind[i] !== Kind.Agent)) continue;
-    const d = Math.hypot(nx[i]! - x, ny[i]! - y);
-    if (kind[i] === Kind.Npc) npc = Math.min(npc, d); else person = Math.min(person, d);
-  }
-  return npc < r && npc <= person;
-}
 
 /** One of the player's actions, from any button. */
 function doAction(a: ActionId, pressed: boolean): void {
@@ -1462,38 +1475,33 @@ function doAction(a: ActionId, pressed: boolean): void {
     return;
   }
   if (!playing()) return;
-  if (a === 'use') { // things: a door, take, gather, drink... (never people, never a fight)
+  if (a === 'use') { // one button for things (a door, take, gather, drink...) and people (talk / quests / trade): never a fight
     const h = interactHint();
+    if (h?.talk) { talk(); return; }
     send(h?.door ? { t: Msg.Do, a: 'take', text: `door:${h.door[0]},${h.door[1]}` } : { t: Msg.Do, a: 'take' });
     return;
   }
   if (a === 'attack') { attack(); return; }
   if (a === 'destroy') { if (!placing) startPlacing('destroy'); return; } // aim at what to pull down (own or a dead owner's)
   if (a === 'horse') { send({ t: Msg.Do, a: 'horse' }); return; } // off when riding, on my horse, tame a wild one, or call mine
-  if (a === 'attackPerson') { // a person, never by mistake: PvP must be on first
-    if (!meNeeds?.pvp) { note(t('pvpNeed'), 3000); return; }
-    send({ t: Msg.Do, a: 'hitperson', text: myAng().toFixed(3) });
-    return;
-  }
-  if (a === 'talk') {
-    if (nearestNpc(3.5)) { quests.talkToNpc(); return; } // a town teacher: quests (and clans at the registrar)
-    if (nearestPerson(3.5) < 0) {
-      const pl = nearPlayers(3.5)[0];
-      if (pl) { trade.ask(pl[0]); return; } // next to another player: Talk asks them to trade
-      note(t('dNobodyNear'), 2000); return;
-    }
-    // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
-    // empty = just say hello. They may do what you ask.
-    send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I talk / type
-    held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
-    if (sttOn()) { talkBySpeech(); return; }
-    talkByKeyboard();
-    return;
-  }
   send({ t: Msg.Do, a }); // drink, eat, pickup, sleep
 }
 
-/** A horse's history from the server (Horses.history): my horses and the ones I lost. */
+/** The PvP switch (imad 2026-11-27: "an option to toggle, not an action"): on = Attack and the bow work on people too. */
+function togglePvp(): void { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); }
+/** Talking to whoever is next to me (the interact button, or the wheel): a town teacher, a person, else a player (= trade). */
+function talk(): void {
+  const who = talkTarget();
+  if (!who) { note(t('dNobodyNear'), 2000); return; }
+  if (who.k === 'npc') { quests.talkToNpc(); return; } // a town teacher: quests (and clans at the registrar)
+  if (who.k === 'player') { trade.ask(who.id); return; } // next to another player: talking asks them to trade
+  // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
+  // empty = just say hello. They may do what you ask.
+  send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I talk / type
+  held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
+  if (sttOn()) { talkBySpeech(); return; }
+  talkByKeyboard();
+}
 /** Attack: always a hit with the melee weapon (or fists) on what is in front. The bow shoots only when the Aim button is let go
  *  (imad 2026-11-27: "after a bow shot, Attack shot an arrow again: wrong, Attack uses the sword, the bow only on Aim release"). */
 function attack(): void {
@@ -1872,7 +1880,8 @@ function buildPage(id: string): Page {
       return { id, title: t('mFight'), rows, wide: true, html: `<p>${keys}</p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${have ? `<p class="dim">${esc(t('fHave'))}: ${esc(have)}</p>` : ''}` };
     }
     case 'actions':
-      for (const a of ['use', 'horse', 'talk', 'attack', 'attackPerson', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
+      for (const a of ['use', 'horse', 'attack', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
+      rows.push({ id: 'pvp', label: t('mPvp'), value: t(meNeeds?.pvp ? 'pvpOnW' : 'pvpOffW') });
       return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
     case 'past':
       for (const r of past ?? []) {
@@ -2056,9 +2065,9 @@ function pickRow(page: string, row: string): void {
     else if (row === 'off') { if (wheelIds.length <= 2) { note(t('wMin'), 2500); return; } wheelIds.splice(n, 1); saveWheel(); menu.back(); return; }
     else if (row === 'on') { if (wheelIds.length >= WHEEL_MAX) { note(t('wMax'), 2500); return; } wheelIds.push(wheelEdit); saveWheel(); menu.back(); return; }
     saveWheel(); menu.refresh();
-  } else if (page === 'actions') { menu.close(); doAction(row as ActionId, true); }
+  } else if (page === 'actions') { if (row === 'pvp') { togglePvp(); return; } menu.close(); doAction(row as ActionId, true); }
   else if (page === 'build') startPlacing(row.slice(2));
-  else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('inv'); else if (row === 'pvp') { send({ t: Msg.Do, a: 'pvp', text: meNeeds?.pvp ? '0' : '1' }); } }
+  else if (page === 'fight') { if (row === 'back') menu.back(); else if (row === 'craft') menu.push('inv'); else if (row === 'pvp') togglePvp(); }
   else if (page === 'past') {
     if (row === 'back') menu.back();
     else { menu.close(); note('…', 1500); send({ t: Msg.Do, a: 'replay', text: row.slice(1) }); }
@@ -2318,7 +2327,7 @@ function draw(now: number, dt: number): void {
   if (trip && trip.phase === 'in' && ++trip.frames >= 3 && now - trip.at >= 250 && ((!buildQ.length && !jobs.size) || now - trip.at > 1500)) { fade(false); trip = null; } // the ground is in: fade in
   if (bindsNews && playing() && predOk) {
     bindsNews = false;
-    const parts = (['use', 'talk', 'attack', 'aim', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
+    const parts = (['use', 'attack', 'aim', 'horse', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
     note(tf('bindsNew', parts.join(' · ')), 9000);
   }
   if (mapNews && playing() && predOk) { mapNews = false; note(t('mapBtnNews'), 7000); }
@@ -2749,11 +2758,16 @@ MyPC.init({
     how = MyPC.load('how', 'play') === 'watch' ? 'watch' : 'play';
     if (q.get('watch') !== null) how = 'watch';
     const b = MyPC.load('binds', null) as Binds | null;
-    if (b && b.pad && b.remote && (b.v ?? 1) < BINDS_V) {
+    if (b && b.pad && b.remote && (b.v ?? 1) < 2) {
       // The buttons were laid out again (interact / talk / attack / aim / build): the new defaults, said once.
       binds = cloneBinds(DEFAULT_BINDS); MyPC.save('binds', binds); bindsNews = true;
     } else if (b && b.pad && b.remote) {
       binds = { pad: { ...b.pad }, remote: { ...b.remote }, v: BINDS_V };
+      if ((b.v ?? 1) < 3) { // layout 3 (imad 2026-11-27): talk is the interact button, PvP a switch: their buttons are free (Y / green -> horse below)
+        const old = b as unknown as { pad: Record<string, number>; remote: Record<string, string> };
+        for (const k of ['talk', 'attackPerson']) { delete (binds.pad as Record<string, number>)[k]; delete (binds.remote as Record<string, string>)[k]; delete old.pad[k]; delete old.remote[k]; }
+        MyPC.save('binds', binds); bindsNews = true;
+      }
       // The map takes − from Thoughts when the player still had it there (Thoughts stays in Settings and the Buttons page).
       if (!('map' in b.pad) && b.pad.thoughts === DEFAULT_BINDS.pad.map) { delete binds.pad.thoughts; binds.pad.map = DEFAULT_BINDS.pad.map; MyPC.save('binds', binds); mapNews = true; }
       // Actions added since: their default button, when the player has not used it for something else.

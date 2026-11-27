@@ -357,11 +357,14 @@ export class App {
       // The player's buttons (imad 2026-11-20): Interact = things (take / gather / drink...), Talk = people (on the TV),
       // Attack = hit what is in front, Aim + Attack = a bow shot along the aim. The angle comes from the TV (where I face / aim).
       const ang = (v: unknown) => { const n = Number(String(v ?? '').split('@').pop()); return Number.isFinite(n) && String(v ?? '').trim() !== '' ? n : NaN; };
-      if (a === 'hit') {
+      if (a === 'hit') { // Attack: a zombie / animal in front; with PvP on also a person (the nearer one wins: imad 2026-11-27, one Attack button)
         const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, an0 = ang(text);
         if (Number.isFinite(an0)) e.angle[player] = an0;
         const t = this.frontTarget(player, e.angle[player]!, 2.6, 1.2) ;
         const near = t >= 0 ? t : (() => { const z = w.zombies.nearest(m, x, y, 1.9); return z >= 0 ? z : w.animals.nearest(m, x, y, 2.2); })();
+        const pt = this.pvp.has(name.toLowerCase()) ? this.personFront(player, e.angle[player]!, 2.2) : -1;
+        const dOf = (j: number) => j < 0 ? Infinity : Math.hypot(e.x[j]! - x, e.y[j]! - y);
+        if (pt >= 0 && dOf(pt) < dOf(near)) return this.personHit(player, name, pt, sv.weapon(player)[1]);
         if (near < 0) return { ok: false, code: 'swing', weapon: sv.weapon(player)[0] };
         e.angle[player] = Math.atan2(e.y[near]! - y, e.x[near]! - x);
         if (e.kind[near] === Kind.Threat) return { ok: true, code: w.zombies.hit(near, w.zombies.damageOf(player), player) ? 'zKilled' : 'zHit' };
@@ -377,28 +380,13 @@ export class App {
         try { this.db.setMeta('pvp_on', JSON.stringify([...this.pvp])); } catch { /* kept in memory */ }
         return { ok: true, code: 'pvp', on };
       }
-      if (a === 'hitperson') { // a separate action: never a hit on a person by mistake (the other Attack only touches zombies and animals)
+      if (a === 'hitperson') { // older TVs' separate action; Attack ('hit') now does this too while PvP is on
         if (!this.pvp.has(name.toLowerCase())) return { ok: false, code: 'pvpOff' };
-        const now = Date.now();
-        if ((this.hitAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
-        const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, an0 = ang(text);
+        const an0 = ang(text);
         if (Number.isFinite(an0)) e.angle[player] = an0;
-        let t = -1, bd = 2.2;
-        for (let j = 0; j < e.hi; j++) {
-          if (j === player || e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.hp[j]! <= 0) continue;
-          const dx = e.x[j]! - x, dy = e.y[j]! - y, d = Math.hypot(dx, dy);
-          if (d >= bd) continue;
-          let da = Math.atan2(dy, dx) - e.angle[player]!; da = Math.atan2(Math.sin(da), Math.cos(da));
-          if (Math.abs(da) <= 1.2 || d < 0.9) { bd = d; t = j; }
-        }
+        const t = this.personFront(player, e.angle[player]!, 2.2);
         if (t < 0) return { ok: false, code: 'swing', weapon: sv.weapon(player)[0] };
-        if (e.kind[t] === Kind.Player && !w.clans.pvpOn(t)) return { ok: false, code: 'theirPvpOff' };
-        this.hitAt.set(name, now + 900);
-        e.angle[player] = Math.atan2(e.y[t]! - y, e.x[t]! - x);
-        const dmg = pvpDamage(sv.weapon(player)[1], sv.weapon(t)[1] > 0, sv.defence(t));
-        w.clans.damage(t, dmg, player);
-        if (e.kind[t] === Kind.Agent) w.clans.hurtBy(t, player);
-        return { ok: true, code: 'pHit', dmg };
+        return this.personHit(player, name, t, sv.weapon(player)[1]);
       }
       if (a === 'shoot') {
         const m = e.map[player]!, x = e.x[player]!, y = e.y[player]!, inv = sv.inv(player);
@@ -408,11 +396,13 @@ export class App {
         e.angle[player] = aim;
         sv.add(player, 'arrows', -1);
         // The arrow flies along the aim; it hits the first zombie or animal within 0.9 m of that line, up to 22 m.
-        const t = this.lineTarget(player, aim, 22, 0.9);
+        // With PvP on, people are on that line too (players only when their PvP is on as well).
+        const t = this.lineTarget(player, aim, 22, 0.9, this.pvp.has(name.toLowerCase()));
         const dx = Math.cos(aim), dy = Math.sin(aim);
         w.shoot(m, x + dx * 0.6, y + dy * 0.6, dx, dy, player, ARROW_SPEED);
         if (t < 0) return { ok: false, code: 'missed', left: inv.arrows ?? 0 };
         const d = Math.hypot(e.x[t]! - x, e.y[t]! - y), dmg = (d < 10 ? 30 : d < 16 ? 24 : 18) * w.gear.bowMul(player);
+        if (e.kind[t] === Kind.Agent || e.kind[t] === Kind.Player) return { ...this.personHit(player, name, t, dmg, true), left: inv.arrows ?? 0 };
         if (e.kind[t] === Kind.Threat) return { ok: true, code: w.zombies.hit(t, dmg, player) ? 'zKilled' : 'zHit', left: inv.arrows ?? 0 };
         return { ...this.hitAnimal(player, t, dmg), left: inv.arrows ?? 0 };
       }
@@ -721,12 +711,41 @@ export class App {
     }
     return best;
   }
+  /** The person (AI person or player) within `r` m in front of me (70 deg each side, or touching), or -1. */
+  private personFront(i: number, a: number, r: number): number {
+    const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!;
+    let t = -1, bd = r;
+    for (let j = 0; j < e.hi; j++) {
+      if (j === i || e.map[j] !== m || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player) || e.hp[j]! <= 0) continue;
+      const dx = e.x[j]! - x, dy = e.y[j]! - y, d = Math.hypot(dx, dy);
+      if (d >= bd) continue;
+      let da = Math.atan2(dy, dx) - a; da = Math.atan2(Math.sin(da), Math.cos(da));
+      if (Math.abs(da) <= 1.2 || d < 0.9) { bd = d; t = j; }
+    }
+    return t;
+  }
+  /** A PvP hit on person t (small damage, nobody dies: Clans.damage); `weapon` = the weapon's (or the arrow's) damage. */
+  private personHit(player: number, name: string, t: number, weapon: number, shot = false): { ok: boolean; code: string; dmg?: number } {
+    const w = this.world, e = w.e, sv = w.survival;
+    if (e.kind[t] === Kind.Player && !w.clans.pvpOn(t)) return { ok: false, code: 'theirPvpOff' };
+    const now = Date.now();
+    if (!shot && (this.hitAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
+    if (!shot) this.hitAt.set(name, now + 900);
+    e.angle[player] = Math.atan2(e.y[t]! - e.y[player]!, e.x[t]! - e.x[player]!);
+    const dmg = pvpDamage(weapon, sv.weapon(t)[1] > 0, sv.defence(t));
+    w.clans.damage(t, dmg, player);
+    if (e.kind[t] === Kind.Agent) w.clans.hurtBy(t, player);
+    return { ok: true, code: 'pHit', dmg };
+  }
   /** The first zombie or animal an arrow along angle `a` meets (closer than `side` m to the line, ahead, within `r` m), or -1. */
-  private lineTarget(i: number, a: number, r: number, side: number): number {
+  private lineTarget(i: number, a: number, r: number, side: number, people = false): number {
     const e = this.world.e, m = e.map[i]!, x = e.x[i]!, y = e.y[i]!, cx = Math.cos(a), cy = Math.sin(a);
     let best = -1, bd = r;
     for (let j = 0; j < e.hi; j++) {
-      if ((e.kind[j] !== Kind.Threat && e.kind[j] !== Kind.Animal) || e.map[j] !== m || e.hp[j]! <= 0 || this.world.horses.owned(j)) continue;
+      if (j === i || e.map[j] !== m || e.hp[j]! <= 0) continue;
+      const k = e.kind[j];
+      if (k === Kind.Agent || k === Kind.Player) { if (!people || (k === Kind.Player && !this.world.clans.pvpOn(j))) continue; }
+      else if ((k !== Kind.Threat && k !== Kind.Animal) || this.world.horses.owned(j)) continue;
       const dx = e.x[j]! - x, dy = e.y[j]! - y, along = dx * cx + dy * cy, off = Math.abs(dx * cy - dy * cx);
       if (along > 0.3 && along < bd && off <= side + along * 0.02) { bd = along; best = j; }
     }

@@ -554,7 +554,7 @@ test('player buttons: attack hits what is in front, the bow shoots along the aim
     assert.ok(b.code === 'placed' || (b.code === 'noRoom' && b.kept), `built: ${JSON.stringify(b)}`);
     assert.equal(sv.inv(p).wood ?? 0, 0, 'the wood was used');
     await app.stop();
-    // PvP: a separate action, off by default; small damage; Attack never touches a person.
+    // PvP: a switch, off by default; small damage. Off = Attack never touches a person; on = the same Attack (and the bow) hits people.
     const q = w.freeSpot(town, x + 3, y)!;
     const person = [...Array(e.hi).keys()].find((i) => e.kind[i] === 1 && e.map[i] === town)!;
     e.x[person] = x + 1.2; e.y[person] = y; e.hp[person] = 100;
@@ -563,9 +563,20 @@ test('player buttons: attack hits what is in front, the bow shoots along the aim
     app.net.onDo('tester', p, 'hit', '0');
     assert.equal(e.hp[person], before, 'Attack never hits a person');
     assert.equal(app.net.onDo('tester', p, 'pvp', '1').code, 'pvp');
-    const pr = app.net.onDo('tester', p, 'hitperson', '0');
-    assert.equal(pr.code, 'pHit');
+    const pr = app.net.onDo('tester', p, 'hit', '0');
+    assert.equal(pr.code, 'pHit', 'with PvP on, Attack hits the person in front');
     assert.ok(e.hp[person]! < before && before - e.hp[person]! <= 30, 'small damage');
+    const mid = e.hp[person]!;
+    sv.inv(p).bow = 1; sv.inv(p).arrows = 3;
+    e.x[person] = x + 6; e.y[person] = y;
+    const sh = app.net.onDo('tester', p, 'shoot', '0');
+    assert.equal(sh.code, 'pHit', `with PvP on, an arrow hits a person on the line: ${JSON.stringify(sh)}`);
+    assert.ok(e.hp[person]! < mid, 'the arrow hurt');
+    app.net.onDo('tester', p, 'pvp', '0');
+    const left = e.hp[person]!;
+    app.net.onDo('tester', p, 'shoot', '0');
+    assert.equal(e.hp[person], left, 'PvP off: arrows pass people by');
+    assert.equal(app.net.onDo('tester', p, 'hitperson', '0').code, 'pvpOff');
     void q;
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1102,3 +1102,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   read as 80 % see-through: at 0.8 opacity you can't see yourself; say so if he wants it the other way). Third person indoors: the camera comes
   under the ceiling and stays inside the room (`World3D.follow`, `camB` / `camH` eased); first person sees the ceiling. Test house.test.ts;
   proof `ADMIN_TOKEN=... node tools/roof-proof.mjs <server> <sdk.js> <outdir>`.
+
+## One button for things and people, PvP a switch (imad 2026-11-27, binds v3, app 0.14.27)
+- Talk has no button of its own: the interact button (A / OK) talks to the person / teacher / player (= trade) right next to me (< 1.3 m, or
+  < 2.2 m in front), else does the thing (door, pick up, drink, chop...), else talks to whoever is within 3.5 m (`talkTarget` / `talkHint`, hint
+  "A Talk to <name>"). Y / green = horse now. Saved v2 binds drop talk / attackPerson once (`bindsNews`); the action `attackPerson` is gone.
+- PvP is a switch (Actions page, How to fight, wheel item `pvp`, old saved wheels' `attackPerson` -> `pvp`). Server: with it on, Do `hit` also
+  hits the nearer person in front (`personFront` / `personHit`), Do `shoot` hits a person on the line (players only with their PvP on too);
+  off = never a person. Do `hitperson` stays for older TVs. Test server.test "players"; proof `ADMIN_TOKEN=... node tools/interact-proof.mjs <server> <sdk.js> <outdir>`.

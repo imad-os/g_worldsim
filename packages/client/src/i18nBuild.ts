@@ -3,7 +3,7 @@ export const TB = {
   en: {
     dDropped: 'On the ground: {0}. Press A next to it to pick it up.', dOnGround: 'It is on the ground: press A to pick it up.', dPickedUp: 'Picked up {0}.', dBagFullSome: 'Your bag is full: some is still on the ground.',
     iaOpen: 'Open the door', iaClose: 'Close the door', iaPick: 'Pick up', iaDrink: 'Drink', iaEat: 'Eat', iaChop: 'Chop the tree', iaMine: 'Break the rock',
-    iaSearch: 'Search the rubble', iaMount: 'Get on your horse', iaTame: 'Tame the horse', iaOff: 'Get off the horse',
+    iaSearch: 'Search the rubble', iaMount: 'Get on your horse', iaTame: 'Tame the horse', iaTalk: 'Talk', iaTalkTo: 'Talk to {0}', iaTrade: 'Trade', iaTradeTo: 'Trade with {0}', qPvp: 'PvP', iaOff: 'Get off the horse',
     doorLocked: 'Locked: only the family who lives here can open this door.', doorSomeone: 'Someone is standing in the doorway.',
     bDestroy: 'Destroy (yours, or a dead owner\'s: half the materials back)', qDestroy: 'Destroy', bDestroyV: 'aim', dsPad: 'Stick: move · {0}: pull down · {1}: cancel', dsRemote: 'Arrows: move · OK: pull down · Back: cancel',
     dsOk: 'yours: you can pull it down', dsNothing: 'nothing built here', dsNotYours: 'it belongs to {0}: only they can pull it down', dsUnknown: 'nobody knows whose it is: it stays',
@@ -21,7 +21,7 @@ export const TB = {
   fr: {
     dDropped: 'Au sol : {0}. Appuie sur A à côté pour le ramasser.', dOnGround: 'C\'est au sol : appuie sur A pour le ramasser.', dPickedUp: 'Ramassé : {0}.', dBagFullSome: 'Ton sac est plein : il en reste au sol.',
     iaOpen: 'Ouvrir la porte', iaClose: 'Fermer la porte', iaPick: 'Ramasser', iaDrink: 'Boire', iaEat: 'Manger', iaChop: 'Couper l\'arbre', iaMine: 'Casser la roche',
-    iaSearch: 'Fouiller les gravats', iaMount: 'Monter sur ton cheval', iaTame: 'Apprivoiser le cheval', iaOff: 'Descendre du cheval',
+    iaSearch: 'Fouiller les gravats', iaMount: 'Monter sur ton cheval', iaTame: 'Apprivoiser le cheval', iaTalk: 'Parler', iaTalkTo: 'Parler à {0}', iaTrade: 'Échanger', iaTradeTo: 'Échanger avec {0}', qPvp: 'JcJ', iaOff: 'Descendre du cheval',
     doorLocked: 'Fermée à clé : seule la famille qui vit ici peut ouvrir cette porte.', doorSomeone: 'Quelqu\'un se tient dans l\'embrasure.',
     bDestroy: 'Démolir (les tiennes, ou d\'un propriétaire mort : la moitié des matériaux rendue)', qDestroy: 'Démolir', bDestroyV: 'viser', dsPad: 'Stick : déplacer · {0} : démolir · {1} : annuler', dsRemote: 'Flèches : déplacer · OK : démolir · Retour : annuler',
     dsOk: 'à toi : tu peux le démolir', dsNothing: 'rien de construit ici', dsNotYours: 'c\'est à {0} : lui seul peut le démolir', dsUnknown: 'personne ne sait à qui c\'est : ça reste',
@@ -39,7 +39,7 @@ export const TB = {
   es: {
     dDropped: 'En el suelo: {0}. Pulsa A al lado para recogerlo.', dOnGround: 'Está en el suelo: pulsa A para recogerlo.', dPickedUp: 'Recogido: {0}.', dBagFullSome: 'Tu bolsa está llena: queda algo en el suelo.',
     iaOpen: 'Abrir la puerta', iaClose: 'Cerrar la puerta', iaPick: 'Recoger', iaDrink: 'Beber', iaEat: 'Comer', iaChop: 'Talar el árbol', iaMine: 'Romper la roca',
-    iaSearch: 'Buscar entre los escombros', iaMount: 'Montar tu caballo', iaTame: 'Domar el caballo', iaOff: 'Bajar del caballo',
+    iaSearch: 'Buscar entre los escombros', iaMount: 'Montar tu caballo', iaTame: 'Domar el caballo', iaTalk: 'Hablar', iaTalkTo: 'Hablar con {0}', iaTrade: 'Intercambiar', iaTradeTo: 'Intercambiar con {0}', qPvp: 'PvP', iaOff: 'Bajar del caballo',
     doorLocked: 'Cerrada: solo la familia que vive aquí puede abrir esta puerta.', doorSomeone: 'Hay alguien en la puerta.',
     bDestroy: 'Derribar (las tuyas, o de un dueño muerto: recuperas la mitad de los materiales)', qDestroy: 'Derribar', bDestroyV: 'apuntar', dsPad: 'Stick: mover · {0}: derribar · {1}: cancelar', dsRemote: 'Flechas: mover · OK: derribar · Atrás: cancelar',
     dsOk: 'es tuyo: puedes derribarlo', dsNothing: 'aquí no hay nada construido', dsNotYours: 'es de {0}: solo esa persona puede derribarlo', dsUnknown: 'nadie sabe de quién es: se queda',
@@ -57,7 +57,7 @@ export const TB = {
   ar: {
     dDropped: 'على الأرض: {0}. اضغط A بجانبه لالتقاطه.', dOnGround: 'إنه على الأرض: اضغط A لالتقاطه.', dPickedUp: 'التقطت {0}.', dBagFullSome: 'حقيبتك ممتلئة: بقي بعضه على الأرض.',
     iaOpen: 'افتح الباب', iaClose: 'أغلق الباب', iaPick: 'التقط', iaDrink: 'اشرب', iaEat: 'كل', iaChop: 'اقطع الشجرة', iaMine: 'اكسر الصخرة',
-    iaSearch: 'فتش الأنقاض', iaMount: 'اركب حصانك', iaTame: 'روض الحصان', iaOff: 'انزل عن الحصان',
+    iaSearch: 'فتش الأنقاض', iaMount: 'اركب حصانك', iaTame: 'روض الحصان', iaTalk: 'تحدث', iaTalkTo: 'تحدث إلى {0}', iaTrade: 'تبادل', iaTradeTo: 'تبادل مع {0}', qPvp: 'القتال', iaOff: 'انزل عن الحصان',
     doorLocked: 'مقفل: فقط العائلة التي تسكن هنا تفتح هذا الباب.', doorSomeone: 'هناك شخص واقف في المدخل.',
     bDestroy: 'هدم (مبانيك أو مباني صاحب ميت: يعود نصف المواد)', qDestroy: 'هدم', bDestroyV: 'صوب', dsPad: 'العصا: تحريك · {0}: اهدم · {1}: إلغاء', dsRemote: 'الأسهم: تحريك · OK: اهدم · رجوع: إلغاء',
     dsOk: 'ملكك: يمكنك هدمه', dsNothing: 'لا يوجد بناء هنا', dsNotYours: 'إنه ملك {0}: وحده يمكنه هدمه', dsUnknown: 'لا أحد يعرف لمن هو: يبقى',
