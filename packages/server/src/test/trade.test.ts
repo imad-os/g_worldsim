@@ -59,7 +59,7 @@ test('trade: invite, offer, both accept = swapped at once; a change clears accep
 
   // Food from the hands; no room = nothing moves.
   t.act(a, 'Ana', `ask:${id(b)}`); t.act(b, 'Bo', `yes:${id(a)}`);
-  sv.add(b, 'wood', 20); // Bo's bag is full of wood
+  sv.add(b, 'wood', sv.capOf('wood')); // Bo's bag is full of wood
   t.act(a, 'Ana', 'put:wood:2');
   t.act(a, 'Ana', 'ok:1');
   assert.equal(t.act(b, 'Bo', 'ok:1').code, 'tradeNoRoom');
