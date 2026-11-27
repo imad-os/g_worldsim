@@ -949,7 +949,7 @@ export class Brain {
           const r = w.survival.pickDrops(i, 2);
           return Object.keys(r.got).length ? { ok: true, code: 'pickedDrop', got: r.got, left: r.left } as { ok: boolean; code: string } : { ok: false, code: 'full' };
         }
-        if (w.survival.foodRoom(i) <= 0) return { ok: false, code: 'full' }; // hands (5) and bag (20) both full
+        if (w.survival.foodRoom(i) <= 0) return { ok: false, code: 'full' }; // hands (5) and bag (40) both full
         const def = this.itemDef.get(e.sub[t]!), toBag = e.carry[i]! >= 5;
         w.remove(t, 'taken');
         w.survival.addFood(i, 1);

@@ -60,16 +60,31 @@ export class InvScreen {
   i = 0;
   tab = 0;
   readonly cells: string[] = Array(9).fill('');
+  /** How many times the grid's recipe is made at once (imad 2026-11-27: R2 adds one more batch, e.g. +5 arrows, with its materials). */
+  batch = 1;
   constructor(private c: InvCtx) {}
+
+  /** R2 / CH+ = one more batch if the bag has the materials for it, L2 / CH− = one less. */
+  more(d: 1 | -1): void {
+    const r = this.result(), c = this.c;
+    if (!r) { c.note(t('invHintNone'), 1500); return; }
+    if (d < 0) { this.batch = Math.max(1, this.batch - 1); return; }
+    const inv = c.inv(), pot = this.pot(), n = this.batch + 1;
+    const lack = Object.entries(pot).filter(([k, v]) => (inv[k] ?? 0) < v * n);
+    if (lack.length) { c.note(tf('invBatchMax', lack.map(([k, v]) => `${v * n - (inv[k] ?? 0)} ${c.thing(k)}`).join(', ')), 2500); return; }
+    this.batch = n;
+  }
+  /** What one more batch / all of them use, as words ("10 wood + 5 stone"). */
+  private uses(): string { return Object.entries(this.pot()).map(([k, v]) => `${v * this.batch} ${this.c.thing(k)}`).join(' + '); }
 
   /** What is in the crafting grid, as counts. */
   pot(): Record<string, number> { const p: Record<string, number> = {}; for (const k of this.cells) if (k) p[k] = (p[k] ?? 0) + 1; return p; }
-  clear(): void { this.cells.fill(''); }
+  clear(): void { this.cells.fill(''); this.batch = 1; }
   /** The bag minus what sits in the grid, in a fixed order. */
   bag(): [string, number][] {
     const inv = this.c.inv(), pot = this.pot(), out: [string, number][] = [];
     const keys = Object.keys(inv).filter((k) => (inv[k] ?? 0) > 0).sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
-    for (const k of keys) { const n = (inv[k] ?? 0) - (pot[k] ?? 0); if (n > 0) out.push([k, n]); }
+    for (const k of keys) { const n = (inv[k] ?? 0) - (pot[k] ?? 0) * this.batch; if (n > 0) out.push([k, n]); }
     return out;
   }
   /** What the grid makes: in the open category first, else in another one (same ingredients, other category). */
@@ -85,7 +100,7 @@ export class InvScreen {
     const c = this.c, inv = c.inv(), z = this.zone, res = this.result(), book = this.book(), bag = this.bag();
     const tabs = CATEGORIES.map((k, i) => `<div class="tb${i === this.tab ? ' cur' : ''}${z === 'tabs' && this.i === i ? ' on' : ''}">${hasIcon(CAT_ICON[k]!) ? `<i style="${iconStyle(CAT_ICON[k]!, Math.round(px() * 0.7))}"></i>` : ''}${esc(c.catName(k))}</div>`).join('');
     const grid = this.cells.map((k, i) => slot(k, 1, z === 'grid' && this.i === i, '', -1, IK)).join('');
-    const out = res ? slot(res.what, res.n ?? 1, z === 'result', res.cat !== CATEGORIES[this.tab] ? ' other' : '', -1, IK) : slot('', 0, z === 'result', ' empty');
+    const out = res ? slot(res.what, (res.n ?? 1) * this.batch, z === 'result', res.cat !== CATEGORIES[this.tab] ? ' other' : '', -1, IK) : slot('', 0, z === 'result', ' empty');
     const bk = book.map((r, i) => {
       const can = Object.entries(r.need).every(([k, n]) => (inv[k] ?? 0) >= n!);
       return slot(r.what, r.n ?? 1, z === 'book' && this.i === i, can ? ' can' : ' cant', -1, IK);
@@ -95,7 +110,7 @@ export class InvScreen {
     let name = '', hint = '';
     if (z === 'tabs') { name = c.catName(CATEGORIES[this.i]!); hint = t('invHintTab'); }
     else if (z === 'grid') { const k = this.cells[this.i]!; name = k ? c.thing(k) : t('invEmpty'); hint = k ? t('invHintGrid') : t('invHintNone'); }
-    else if (z === 'result') { name = res ? `${c.thing(res.what)}${res.n && res.n > 1 ? ' x' + res.n : ''}${res.cat !== CATEGORIES[this.tab] ? ' · ' + tf('invIn', c.catName(res.cat)) : ''}` : t('invEmpty'); hint = res ? tf('invHintMake', c.thing(res.what)) : t('invHintNone'); }
+    else if (z === 'result') { name = res ? `${tf('invBatch', c.thing(res.what), String((res.n ?? 1) * this.batch), this.uses())}${res.cat !== CATEGORIES[this.tab] ? ' · ' + tf('invIn', c.catName(res.cat)) : ''}` : t('invEmpty'); hint = res ? `${tf('invHintMake', c.thing(res.what))} · ${t('invMore')}` : t('invHintNone'); }
     else if (z === 'book') { const r = book[this.i]; if (r) { name = `${c.thing(r.what)} = ${Object.entries(r.need).map(([k, n]) => `${n} ${c.thing(k)}`).join(' + ')}`; hint = t('invHintBook'); } }
     else { const it = bag[this.i]; if (it) { const [k] = it, up = c.gear()?.up?.[k]; name = `${c.thing(k)}${up && (up[0] || up[1]) ? ` +${up[0]} · ${qName(up[1])}` : ''}`; hint = (RESOURCES as readonly string[]).includes(k) ? t('invHintRes') : k === 'medkit' ? tf('invHintHeal', String(MEDKIT_HEAL)) : SLOT_OF[k] ? t('invHintGear') : (PLACEABLE as readonly string[]).includes(k) ? t('invHintPlace') : ''; } else name = t('invEmpty'); }
     return `<div class="inv"><div class="tabs">${tabs}</div>
@@ -142,11 +157,11 @@ export class InvScreen {
   ok(): void {
     const c = this.c, z = this.zone;
     if (z === 'tabs') { this.tab = this.i; return; }
-    if (z === 'grid') { this.cells[this.i] = ''; return; }
+    if (z === 'grid') { this.cells[this.i] = ''; this.batch = 1; return; }
     if (z === 'result') {
       const r = this.result();
       if (!r) { c.note(t('invHintNone'), 2000); return; }
-      c.send('craft', `${r.cat}:${Object.entries(this.pot()).map(([k, n]) => `${k}=${n}`).join(',')}`);
+      c.send('craft', `${r.cat}:${Object.entries(this.pot()).map(([k, n]) => `${k}=${n}`).join(',')}${this.batch > 1 ? '*' + this.batch : ''}`);
       return;
     }
     if (z === 'book') {
@@ -166,7 +181,7 @@ export class InvScreen {
     if ((RESOURCES as readonly string[]).includes(k)) {
       const free = this.cells.indexOf('');
       if (free < 0) { c.note(t('invHintGrid'), 1500); return; }
-      this.cells[free] = k;
+      this.cells[free] = k; this.batch = 1;
       if (!this.bag()[this.i]) this.i = Math.max(0, this.i - 1);
     } else if (k === 'medkit') c.send('medkit', '');
     else if (SLOT_OF[k]) c.send('equip', `${SLOT_OF[k]}:${k}`);

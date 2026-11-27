@@ -2,7 +2,7 @@ import {
   WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Color, Fog, Mesh, Group,
   PlaneGeometry, MeshLambertMaterial, MeshPhongMaterial, MeshBasicMaterial, TorusGeometry, CircleGeometry, SphereGeometry,
   InstancedMesh, Matrix4, Vector3, Frustum, BoxGeometry, ConeGeometry, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, DodecahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
-  type BufferGeometry,
+  Float32BufferAttribute, type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
 import { Animals3D } from './animals.js';
@@ -19,6 +19,30 @@ const DROP_COLOR: Record<string, number> = { stone: 0x9a9690, brick: 0xa8553c, o
 import { Anims } from './anims.js';
 import { Hands } from './hands.js';
 import { LiveBow, BowShot } from './bow.js';
+
+/** An arrow along -z from its nose (origin): steel head, wooden shaft, three fletches (red, red, white) and a dark nock, vertex coloured. */
+function arrowGeo(): BufferGeometry {
+  const L = 0.82;
+  const paint = (g: BufferGeometry, hex: number): BufferGeometry => {
+    const c = new Color(hex), n = g.getAttribute('position').count, a = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) { a[k * 3] = c.r; a[k * 3 + 1] = c.g; a[k * 3 + 2] = c.b; }
+    g.setAttribute('color', new Float32BufferAttribute(a, 3));
+    return g.index ? g.toNonIndexed() : g;
+  };
+  const parts = [
+    paint(new ConeGeometry(0.022, 0.09, 4).rotateX(-Math.PI / 2).translate(0, 0, -0.045), 0xb8c2cc),
+    paint(new CylinderGeometry(0.009, 0.009, L, 5).rotateX(Math.PI / 2).translate(0, 0, L / 2 - 0.01), 0xc9a46a),
+    paint(new BoxGeometry(0.02, 0.02, 0.03).translate(0, 0, L), 0x2a2420),
+  ];
+  for (let k = 0; k < 3; k++) {
+    const f = new PlaneGeometry(0.038, 0.13).rotateX(Math.PI / 2).translate(0, 0.022, L - 0.1).rotateZ((k * Math.PI * 2) / 3);
+    parts.push(paint(f, k === 2 ? 0xf2efe6 : 0xc8392f));
+  }
+  for (const g of parts) { g.deleteAttribute('uv'); }
+  const geo = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
+  geo.computeVertexNormals();
+  return geo;
+}
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -71,7 +95,12 @@ export class World3D {
   private portals = new Group();
   private gateMat = new MeshLambertMaterial({ vertexColors: true });
   private shots: InstancedMesh;
+  private trails: InstancedMesh;
   private nShots = 0;
+  private readonly sq = new Quaternion();
+  private readonly se = new Euler(0, 0, 0, 'YXZ');
+  private readonly sv1 = new Vector3(1, 1, 1);
+  private readonly sp = new Vector3();
   // Items: canned food (1), berry bush (2), anything else = a small crate.
   private cans: InstancedMesh; private bushes: InstancedMesh; private berries: InstancedMesh; private crates: InstancedMesh;
   private nCan = 0; private nBush = 0; private nCrate = 0;
@@ -160,10 +189,16 @@ export class World3D {
     this.horses.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
     this.beasts = new Beasts3D(this.scene, shadows, tier === 'low' ? 16 : 28);
     this.beasts.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
-    this.shots = new InstancedMesh(new BoxGeometry(0.04, 0.04, 0.9), new MeshBasicMaterial({ color: 0xfff1a0 }), 256); // an arrow streak along its flight
+    // A real arrow in flight (imad 2026-11-27: "make arrows graphic better"): shaft, steel head, red / white fletching, one
+    // merged mesh with vertex colours, plus a faint streak behind it. Both instanced (one draw call each).
+    this.shots = new InstancedMesh(arrowGeo(), new MeshLambertMaterial({ vertexColors: true, side: DoubleSide }), 256);
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
     this.scene.add(this.shots);
+    this.trails = new InstancedMesh(new BoxGeometry(0.014, 0.014, 1.6).translate(0, 0, 0.9 + 0.8), new MeshBasicMaterial({ color: 0xfff6d8, transparent: true, opacity: 0.32, blending: AdditiveBlending, depthWrite: false }), 256);
+    this.trails.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.trails.count = 0; this.trails.frustumCulled = false;
+    this.scene.add(this.trails);
     const inst = (g: BufferGeometry, color: number, n: number) => {
       const m = new InstancedMesh(g, new Lam({ color, flatShading: true }), n);
       m.instanceMatrix.setUsage(DynamicDrawUsage); m.count = 0; m.frustumCulled = false; m.castShadow = shadows;
@@ -338,12 +373,18 @@ export class World3D {
   }
 
   beginShots(): void { this.nShots = 0; }
-  shot(x: number, z: number, vx = 0, vz = 0): void {
+  /** An arrow at (x, h, z) flying along (vx, vz), its nose `pitch` radians up (+) or down (-) on its arc. */
+  shot(x: number, z: number, vx = 0, vz = 0, h = 1.0, pitch = 0): void {
     if (this.nShots >= 256) return;
-    this.m.makeRotationY(vx || vz ? Math.atan2(vx, vz) : 0).setPosition(x, 1.0, z);
-    this.shots.setMatrixAt(this.nShots++, this.m);
+    this.se.set(pitch, vx || vz ? Math.atan2(vx, vz) + Math.PI : 0, 0); // the model points along -z
+    this.sq.setFromEuler(this.se);
+    this.m.compose(this.sp.set(x, h, z), this.sq, this.sv1);
+    this.shots.setMatrixAt(this.nShots, this.m);
+    this.trails.setMatrixAt(this.nShots++, this.m);
   }
-  endShots(): void { this.shots.count = this.nShots; this.shots.instanceMatrix.needsUpdate = true; }
+  /** Proof only (?dev): a still arrow on its arc at (x, z) to look at closely. */
+  debugArrow(x: number, z: number, pitch = 0.15): void { const m = new Mesh(this.shots.geometry, this.shots.material as MeshLambertMaterial); m.position.set(x, 1.4, z); m.rotation.set(pitch, 1.2, 0, 'YXZ'); this.scene.add(m); }
+  endShots(): void { this.shots.count = this.trails.count = this.nShots; this.shots.instanceMatrix.needsUpdate = true; this.trails.instanceMatrix.needsUpdate = true; }
 
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);

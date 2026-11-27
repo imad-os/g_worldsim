@@ -24,7 +24,7 @@ import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { TradeUi, ts as tradeText } from './tradeui.js';
 import { QuestUi } from './questui.js';
 import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
-import { Compass, SoundCues, Names, AutoRide, ChatLog, type CompassRow } from './nav.js';
+import { Compass, SoundCues, Names, Speech, AutoRide, ChatLog, type CompassRow } from './nav.js';
 import { publishedServer, sameServer } from './published.js';
 import { MARK_KINDS, MARK_ICON, NPCS, TRADE_NEAR, type MapMark, type MarkKind, type WeatherInfo } from '@worldsim/protocol';
 
@@ -270,6 +270,16 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const panelUrl = () => server.replace(/\/+$/, '') + '/panel/';
 
 let noteTimer = 0;
+/** A server restart announced (ms, Date.now): until then a countdown, after it the world stays up with a note until the server is back. */
+let restartAt = 0, restartTimer = 0;
+function restartCount(): void {
+  clearTimeout(restartTimer);
+  const left = Math.ceil((restartAt - Date.now()) / 1000);
+  if (left > 0) { note(tf('srvRestart', String(left)), 0); restartTimer = window.setTimeout(restartCount, 1000); }
+  else note(t('srvWaiting'), 0);
+}
+/** Waiting for a server that said it was restarting (up to 5 minutes): no "no server" screen meanwhile. */
+const restarting = () => restartAt > 0 && Date.now() - restartAt < 300_000;
 function note(text: string, ms = 3500): void {
   noteEl.textContent = text; noteEl.hidden = false;
   clearTimeout(noteTimer);
@@ -326,7 +336,8 @@ function connect(): void {
     retry++;
     // Could not reach it: the PC's link may have changed (new Cloudflare address). Ask Firestore, at most every 20 s.
     if (!opened) void findServer().then((ok) => { if (ok) connect(); });
-    if (mode !== 'world' || retry > 2) show('offline');
+    if (restarting() && mode === 'world') note(t('srvWaiting'), 0);
+    else if (mode !== 'world' || retry > 2) show('offline');
     retryTimer = window.setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(retry, 4)));
   };
 }
@@ -351,6 +362,7 @@ function onMsg(m: ServerMsg): void {
       break;
     case Msg.Welcome: {
       welcome = m;
+      if (restartAt) { const back = restarting(); restartAt = 0; clearTimeout(restartTimer); if (back) note(t('srvBack'), 3000); }
       seer = !!m.seer;
       looks = looksFor(m.tiles);
       chunkWorker()?.postMessage({ looks });
@@ -410,6 +422,12 @@ function onMsg(m: ServerMsg): void {
       if (m.kind === 'say') { // someone near you (or the one you follow) said something: the chat log, bottom left
         const d = m.data as { id: number; name: string; text: string };
         chatLog.add(d.name, d.text);
+        if (d.id !== meId) speech.add(d.id, d.text, performance.now()); // and over their head while they are near me
+      }
+      if (m.kind === 'restart') { // the server restarts soon (a deploy, the panel's Restart): count down, then wait for it on the world screen
+        const d = m.data as { in?: number };
+        restartAt = Date.now() + (d.in ?? 5) * 1000;
+        restartCount();
       }
       if (m.kind === 'wchat') { const d = m.data as { name: string; text: string; sys: number }; chatLog.add(d.name, d.text, !!d.sys); }
       if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
@@ -915,7 +933,7 @@ function loadWheel(): void {
 function saveWheel(): void { MyPC.save('wheel', wheelIds); }
 let wheelEdit = '';
 // ------------------------------------------------------------ the compass bar, names over heads, riding by yourself (imad 2026-11-26)
-const compass = new Compass(), names = new Names(), chatLog = new ChatLog(), cues = new SoundCues();
+const compass = new Compass(), names = new Names(), speech = new Speech(), chatLog = new ChatLog(), cues = new SoundCues();
 const CUE_ICON = ['🐇', '🦌', '🐗', '🐺', '🐻', '🐎'];
 setInterval(() => chatLog.tick(performance.now()), 5000);
 let namesOn = true, cuesOn = true, compassOn = true, compassAt = 0, rideDestsAt = 0;
@@ -1705,7 +1723,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'upNeed') { note(tf('dUpNeed', needText(dd.need ?? {})), 3500); return; }
   if (d.code === 'needLevel') { note(tf('dNeedLevel', String(dd.need?.level ?? '')), 3000); return; }
   if (d.code === 'maxLevel' || d.code === 'maxQuality' || d.code === 'notCarried') { note(t(d.code === 'maxLevel' ? 'dMaxLevel' : d.code === 'maxQuality' ? 'dMaxQuality' : 'dNotCarried'), 2500); return; }
-  if (d.code === 'crafted') { invScreen.clear(); for (const k of Object.keys(pot)) delete pot[k]; note(tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
+  if (d.code === 'crafted') { invScreen.clear(); for (const k of Object.keys(pot)) delete pot[k]; const nn = (d as { n?: number }).n ?? 1; note(nn > 1 ? tf('dCraftedN', thing(d.item ?? ''), String(nn)) : tf('dCrafted', thing(d.item ?? '')), 2500); menu.refresh(); return; }
   if (d.code === 'placed') { note(tf('dPlaced', thing(d.item ?? '')), 2500); return; }
   const more: Record<string, Key> = { noRecipe: 'dNoRecipe', noMat: 'dNoMat', noRoom: 'dNoRoom', noItem: 'dNoItem', tooThick: 'dTooThick', hutLimit: 'dHutLimit' };
   if (more[d.code]) { note(t(more[d.code]!), 2800); return; }
@@ -2280,7 +2298,7 @@ function draw(now: number, dt: number): void {
       send({ t: Msg.Do, a: 'rideShown' });
       fade(false);
     } else if (now - trip.shownAt > trip.secs * 1000 - FADE_MS) fade(true); // the end of the road: to black, the new map comes in behind it
-    names.hide();
+    names.hide(); speech.hide();
     buildOne(); buildOne(); // the road is cheap to draw: build the next map's chunks faster meanwhile
     bubbles.hide();
     return;
@@ -2317,7 +2335,7 @@ function draw(now: number, dt: number): void {
     let x = px[i]! + (nx[i]! - px[i]!) * a, y = py[i]! + (ny[i]! - py[i]!) * a;
     if (i === me) { x = predX; y = predY; }
     if (Math.abs(x - fx) > r || Math.abs(y - fy) > r) continue;
-    if (kind[i] === Kind.Projectile) { g3.shot(x, y, vx[i]!, vy[i]!); continue; }
+    if (kind[i] === Kind.Projectile) { arrowArc(i, x, y); g3.shot(x, y, vx[i]!, vy[i]!, arcOut.h, arcOut.pitch); continue; }
     if (kind[i] === Kind.Item) { g3.item(x, y, sub[i]!, eid[i]!); continue; }
     if (kind[i] !== Kind.Agent && kind[i] !== Kind.Player && kind[i] !== Kind.Threat && kind[i] !== Kind.Animal && kind[i] !== Kind.Npc) continue;
     // Walk cycle from the distance really covered on screen.
@@ -2427,6 +2445,7 @@ function draw(now: number, dt: number): void {
   if (seer && thoughtsOn && !menu.open && now - mindsAt < 4000) bubbles.draw(bubblePos, bubbleProject, fx, fy, actName);
   else bubbles.hide();
   if (namesOn && !menu.open && !rp) names.draw(eachPerson, nameProject, fx, fy, 26); else names.hide();
+  if (!menu.open && !rp) speech.draw(eachPerson, nameProject, fx, fy, 16, now); else speech.hide();
   if (cuesOn && how === 'play' && !menu.open && !rp && !meTransit) cues.draw(now, fx, fy, g3.view === 'top', yaw, 26, nameProject); else cues.hide();
   const cpOn = compassOn && how === 'play' && playing() && !menu.open && !meTransit && !rp;
   compass.show(cpOn);
@@ -2447,6 +2466,39 @@ function compassFit(now: number): number {
   return fitW = w;
 }
 /** Every person / player / teacher drawn this frame but me: (id, x, y, height of the name). */
+/**
+ * Arrows fly in a slight arc to what they were shot at (imad 2026-11-27: "it can't be perfectly straight, a slight curve based on
+ * where the selected target is"). The server's arrow flies flat; the TV lifts it: from the bow's height (1.35 m) up a little and
+ * down to the target's body, the nose following the curve. Worked out once per arrow (shooter behind it, target ahead within 24 m).
+ */
+const arcs = new Map<number, { sx: number; sy: number; R: number; h1: number; H: number; seen: number }>();
+const arcOut = { h: 1, pitch: 0 };
+let arcSweep = 0;
+function arrowArc(i: number, x: number, y: number): void {
+  const id = eid[i]!;
+  let a = arcs.get(id);
+  const sp = Math.hypot(vx[i]!, vy[i]!) || 1, ux = vx[i]! / sp, uy = vy[i]! / sp;
+  if (!a) {
+    let sx = x, sy = y, back = 8, R = 24, h1 = 0.05;
+    for (let j = 0; j < CAP; j++) {
+      if (eid[j] === -1 || j === i) continue;
+      const k = kind[j];
+      if (k !== Kind.Agent && k !== Kind.Player && k !== Kind.Threat && k !== Kind.Animal && k !== Kind.Npc) continue;
+      const dx = nx[j]! - x, dy = ny[j]! - y, along = dx * ux + dy * uy, side = Math.abs(dx * uy - dy * ux);
+      if (along < 0 && -along < back && side < 1.5 && (k === Kind.Agent || k === Kind.Player)) { back = -along; sx = x + ux * along; sy = y + uy * along; }
+      else if (along > 0.5 && side < 1.3 && along < R && k !== Kind.Npc) { R = along; h1 = k === Kind.Threat ? 1.25 : k === Kind.Animal ? (atype[j] === 0 ? 0.3 : atype[j] === 5 ? 1.3 : 0.75) : 1.2; }
+    }
+    const total = Math.max(3, R + Math.hypot(x - sx, y - sy));
+    a = { sx, sy, R: total, h1, H: Math.min(0.9, Math.max(0.12, total * 0.03)), seen: frameNo };
+    arcs.set(id, a);
+  }
+  a.seen = frameNo;
+  const s0 = (x - a.sx) * ux + (y - a.sy) * uy, u = s0 / a.R, h0 = 1.35;
+  const h = h0 + (a.h1 - h0) * u + 4 * a.H * u * (1 - u);
+  arcOut.h = Math.max(0.05, h);
+  arcOut.pitch = Math.atan(((a.h1 - h0) + 4 * a.H * (1 - 2 * u)) / a.R);
+  if (frameNo - arcSweep > 120) { arcSweep = frameNo; for (const [k, v] of arcs) if (frameNo - v.seen > 60) arcs.delete(k); }
+}
 function eachPerson(fn: (id: number, x: number, y: number, h: number) => void): void {
   for (let i = 0; i < CAP; i++) {
     if (eid[i] === -1 || drawnF[i] !== frameNo || eid[i] === meId) continue;
@@ -2601,6 +2653,7 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
     if (!pressed || repeat) return;
     if (menu.page === 'map' && remoteAction(binds, name) === 'map') { menu.close(); return; }
     if (mapKey(name === 'red' ? 'me' : name === 'green' ? 'next' : name === 'chUp' || name === 'yellow' ? 'in' : name === 'chDown' || name === 'blue' ? 'out' : '')) return;
+    if (menu.page === 'inv' && (name === 'chUp' || name === 'chDown')) { sound.play('ui_move'); invScreen.more(name === 'chUp' ? 1 : -1); menu.refresh(); return; }
     if (name === 'ok') menu.input('ok');
     else if (remoteAction(binds, name) === 'menu') menu.close();
     return;
@@ -2634,6 +2687,7 @@ function onPad(i: number, pressed: boolean): void {
     if (!pressed) return;
     if (menu.page === 'map' && padAction(binds, i) === 'map') { menu.close(); return; }
     if (mapKey(i === 2 ? 'me' : i === 3 ? 'next' : i === 5 || i === 7 ? 'in' : i === 4 || i === 6 ? 'out' : '')) return; // R / ZR zoom in, L / ZL out
+    if (menu.page === 'inv' && (i === 7 || i === 6)) { sound.play('ui_move'); invScreen.more(i === 7 ? 1 : -1); menu.refresh(); return; } // R2 / L2: one batch more / less
     if (i === 0) menu.input('ok');
     else if (i === 1) menu.input('back');
     else if (padAction(binds, i) === 'menu') menu.close();
@@ -2712,7 +2766,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), sndEnd: () => sound.seekEnd(), sndPlayers: () => sound.players(), amb: () => ({ ...amb }), flash: () => thunder(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), sndEnd: () => sound.seekEnd(), sndPlayers: () => sound.players(), amb: () => ({ ...amb }), flash: () => thunder(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, speech: () => [...document.querySelectorAll('#speech .sp')].filter((e) => !(e as HTMLElement).hidden).map((e) => e.textContent), arcs: () => [...arcs.values()], arrowLook: (x: number, y: number) => g3?.debugArrow(x, y), inv: (what?: string) => { if (what) { for (let tb = 0; tb < 8; tb++) { invScreen.tab = tb; const k = invScreen.book().findIndex((r) => r.what === what); if (k >= 0) { invScreen.zone = 'book'; invScreen.i = k; invScreen.ok(); break; } } menu.refresh(); } return { batch: invScreen.batch, cells: [...invScreen.cells], zone: invScreen.zone, res: invScreen.result()?.what ?? '' }; }, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
     MyPC.ready();
   },
   onStart() {

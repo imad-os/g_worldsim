@@ -1,4 +1,5 @@
 import { Act, Kind } from '@worldsim/protocol';
+import { CAP } from './survival.js';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf, TRAIT_KEYS } from './people.js';
 import { ADULT } from './life.js';
@@ -390,7 +391,7 @@ export class Tasks {
         const have = (k: number, r: string) => (r === 'food' ? sv.foodOf(k) : (sv.inv(k) as Record<string, number>)[r] ?? 0);
         const move = (from: number, to: number, r: string, n: number) => {
           if (r === 'food') { sv.useFood(from, n); sv.addFood(to, n); }
-          else { (sv.inv(from) as Record<string, number>)[r] = have(from, r) - n; (sv.inv(to) as Record<string, number>)[r] = Math.min(20, have(to, r) + n); }
+          else { (sv.inv(from) as Record<string, number>)[r] = have(from, r) - n; (sv.inv(to) as Record<string, number>)[r] = Math.min(CAP, have(to, r) + n); }
         };
         const n = Math.max(1, Math.min(have(i, what), s.times ?? 1));
         if (have(i, what) <= 0) return `I have no ${what}`;
@@ -558,7 +559,7 @@ export class Tasks {
         if (WATER_RE.test(s.what ?? '')) { // fill bottles at the water (imad 2026-11-26: store water for later)
           const sv = w.survival, id = e.id(i), have = () => sv.inv(i).water ?? 0;
           if (first) { s.n0 = have(); s.phase = 1; }
-          if (have() >= Math.min(20, s.n0! + Math.max(1, Math.min(12, s.times ?? 3)))) return true;
+          if (have() >= Math.min(CAP, s.n0! + Math.max(1, Math.min(12, s.times ?? 3)))) return true;
           if (sv.busy(id)) return false;
           const end = sv.ended.get(id);
           if (typeof end === 'string' && s.got) { sv.ended.delete(id); return end; }
@@ -575,7 +576,7 @@ export class Tasks {
         const sv = w.survival, id = e.id(i), have = () => sv.inv(i)[what] ?? 0;
         if (first) { s.n0 = have(); s.phase = 1; }
         const want = Math.max(1, Math.min(12, s.times ?? 3));
-        if (have() >= Math.min(20, s.n0! + want)) return true;
+        if (have() >= Math.min(CAP, s.n0! + want)) return true;
         if (sv.busy(id)) return false;
         const end = sv.ended.get(id);
         if (typeof end === 'string' && s.got) { sv.ended.delete(id); if ((s.fails = (s.fails ?? 0) + 1) >= 3) return end; }

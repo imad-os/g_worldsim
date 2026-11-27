@@ -1062,3 +1062,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   grey-brown / tawny / greyish, wolf greys only (grey, light, charcoal, black, white, grey-brown: never red), bear brown / dark / black / cinnamon / pale
   (texture tint, one material per coat), boar tints on the low-poly set. Vertex-coloured models get one geometry per coat (only the colour buffer is new;
   `Variant.fur` = the model's two fur colours). Tests stables.test.ts; proof `ADMIN_TOKEN=... [COATS_ONLY=1] node tools/stable-proof.mjs <server> <sdk.js> <outdir>`.
+## Words over heads, bag x2, batch crafting, arcing arrows, restart notice (imad 2026-11-27)
+- Notice `say` (people within 16 m, not me) = a speech bubble over their head for 4-10 s (`nav.ts Speech`, `#speech .sp`), besides the chat log.
+- Bag: `CAP` 40 of a thing (was 20), arrows `ARROW_CAP` 60 (was 30), `capOf(k)` in sim/survival.ts (tasks, agentSet bag.*, mergePlayer use it).
+- Crafting: R2 / CH+ = one more batch of the grid's recipe if the bag has it (`InvScreen.batch`, `more()`), L2 / CH− one less; the result and the
+  line under it show the total and what it uses; Do `craft` "cat:list*N" makes up to N batches (answer `n` = how many things made).
+- Arrows: the TV lifts the server's flat arrow onto an arc (`arrowArc` in app.ts: shooter behind, target ahead within 24 m, rise 3 % of the
+  length, nose follows the curve); `World3D.shot(x, z, vx, vz, h, pitch)` draws a real arrow (head, shaft, fletching; one instanced mesh) + a faint streak.
+- Restart notice: `restartSoon` sends Notice `restart` { why, who, in } to every TV and panel (`NetServer.toAll`), then restarts after
+  `App.restartWarnMs` (5 s). TV: countdown note, keeps the world (no "no server" screen) for 5 min while it waits, "The server is back" on
+  Welcome. Panel: `#restarting` banner, toast when connected again. Proof `ADMIN_TOKEN=... node tools/polish-proof.mjs <server> <sdk.js> <outdir>`.

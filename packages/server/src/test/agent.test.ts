@@ -42,6 +42,7 @@ test('panel AI agent: looks on its own, proposes code, runs it only on the owner
     await app.start();
     let restarted = 0;
     app.onRestartRequest = () => { restarted++; };
+    app.restartWarnMs = 300;
     const w = app.world;
     let i = -1;
     for (let k = 0; k < w.e.hi; k++) if (w.e.kind[k] === Kind.Agent) { i = k; break; }

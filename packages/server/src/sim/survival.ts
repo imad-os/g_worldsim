@@ -17,7 +17,10 @@ export const RES = RESOURCES;
 export type Res = (typeof RES)[number];
 /** Materials, tools, weapons, clothes and things to put down, by name. */
 export type Inv = Partial<Record<string, number>>;
-export const CAP = 20;
+/** What one person carries of a thing (imad 2026-11-27: the bag doubled, 20 -> 40; arrows 30 -> 60). */
+export const CAP = 40;
+export const ARROW_CAP = 60;
+export const capOf = (k: string): number => (k === 'arrows' ? ARROW_CAP : CAP);
 /** A pile on the ground (Survival.drops). */
 export interface Drop { what: string; n: number; at: number }
 /** Things made from a recipe (crafting, shared with the viewer: @worldsim/protocol craft.ts) plus the hut. */
@@ -328,7 +331,7 @@ export class Survival {
     const r = matchRecipe(cat, put);
     if (!r) return { ok: false, code: 'noRecipe' };
     if (!this.has(i, r.need)) return { ok: false, code: 'noMat' };
-    const cap = r.what === 'arrows' ? 30 : CAP;
+    const cap = capOf(r.what);
     if ((this.inv(i)[r.what] ?? 0) >= cap) return { ok: false, code: 'full' };
     this.use(i, r.need);
     const v = this.inv(i); v[r.what] = Math.min(cap, (v[r.what] ?? 0) + (r.n ?? 1));
@@ -462,9 +465,13 @@ export class Survival {
   }
   add(i: number, k: string, n: number): void {
     if (n > 0 && this.dropTo && this.dropTo.i === i) { const g = this.dropTo; if (this.dropAt(g.m, g.x, g.y, k, n)) return; }
+<<<<<<< HEAD
     const v = this.inv(i); v[k] = Math.max(0, Math.min(this.capOf(k), (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
   /** How many of one thing a bag holds. */
   capOf(k: string): number { return k === 'arrows' ? 30 : CAP; }
+=======
+    const v = this.inv(i); v[k] = Math.max(0, Math.min(capOf(k), (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
+>>>>>>> 0eb1a17 (Words over the speaker's head, bag doubled, R2 batch crafting, arrows on an arc, restart notice on TVs and panel)
   private use(i: number, need: Inv): void { for (const [k, n] of Object.entries(need)) this.add(i, k, -n!); }
 
   /** Make a tool now (materials are used up). True or why not. */
@@ -1234,7 +1241,7 @@ export class Survival {
     this.w.emit('drink', { id: e.id(i), from: 'bottle' });
     return true;
   }
-  /** A player at the water's edge fills bottles (3, up to 20): how many. */
+  /** A player at the water's edge fills bottles (3, up to CAP): how many. */
   fillBottles(i: number): number {
     const before = this.inv(i).water ?? 0;
     this.add(i, 'water', WATER_FILL);
@@ -1354,7 +1361,7 @@ export class Survival {
     if (!this.mayUseBox(i, m, k)) return 'notYours';
     const b = this.box(m, k), have = b[item] ?? 0;
     if (have <= 0) return 'noItem';
-    const room = item === 'food' ? this.foodRoom(i) : (item === 'arrows' ? 30 : CAP) - (this.inv(i)[item] ?? 0);
+    const room = item === 'food' ? this.foodRoom(i) : capOf(item) - (this.inv(i)[item] ?? 0);
     const g = Math.min(n, have, Math.max(0, room));
     if (g <= 0) return 'bagFull';
     this.boxOut(m, k, item, g);

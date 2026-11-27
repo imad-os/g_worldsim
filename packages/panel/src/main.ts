@@ -107,6 +107,8 @@ function signIn(): void {
 }
 
 listeners.state = (s, why) => {
+  if (restartAt && s === 'closed') { restartDown = true; restartBanner(); }
+  if (restartAt && s === 'open' && restartDown) { restartAt = 0; restartDown = false; restartBanner(); toast('The server is back', 'info'); }
   const el = $('conn');
   el.className = `conn ${s}`;
   el.title = s === 'open' ? 'Connected' : s === 'connecting' ? 'Connecting…' : `Disconnected${why ? ': ' + why : ''}`;
@@ -143,6 +145,18 @@ function outdatedBanner(): void {
   $('outdatedX').onclick = () => { el.hidden = true; };
 }
 listeners.outdated = () => outdatedBanner();
+/** A server restart announced to everyone connected (imad 2026-11-27): a countdown banner, then "restarting…" until the panel is connected again. */
+let restartAt = 0, restartWhy = '', restartTimer = 0, restartDown = false;
+function restartBanner(): void {
+  const el = $('restarting');
+  clearTimeout(restartTimer);
+  if (!restartAt) { el.hidden = true; return; }
+  const left = Math.ceil((restartAt - Date.now()) / 1000);
+  el.hidden = false;
+  el.innerHTML = `${icon('alert')}<div><b>${left > 0 ? `The server restarts in ${left} s` : 'The server is restarting…'}</b> <span class="dim">(${esc(restartWhy)})</span> ${left > 0 ? 'Players on their TVs see the same notice.' : 'This panel reconnects by itself when it is back.'}</div>`;
+  if (left > 0) restartTimer = window.setTimeout(restartBanner, 1000);
+  else if (Date.now() - restartAt > 300_000) { restartAt = 0; el.hidden = true; }
+}
 /** New errors on the server since this browser last opened the Errors page. */
 let errNew = 0;
 function errBadge(): void {
@@ -156,6 +170,7 @@ listeners.notice = (kind, data) => {
   if (kind === 'say') { const d = data as { id: number; name: string; text: string }; personSaid(d.id, d.name, d.text); if (load('sayToasts', false)) toast(`${d.name}: “${d.text}”`); }
   if (kind === 'error') { if (curKey === 'errors') { if (!document.querySelector('#eList details[open]')) void cur?.refresh?.(); } else { errNew++; errBadge(); } }
   if (kind === 'chat') chatNotice(data as Parameters<typeof chatNotice>[0]);
+  if (kind === 'restart') { const d = data as { why?: string; who?: string; in?: number }; restartAt = Date.now() + (d.in ?? 5) * 1000; restartWhy = `${d.why ?? 'restart'}${d.who ? ' by ' + d.who : ''}`; restartBanner(); }
   if (kind === 'url') toast(`Internet link changed: ${(data as { url: string }).url}`);
 };
 
@@ -184,6 +199,7 @@ document.body.innerHTML = `
   <div class="main"><header class="top"><button class="iconbtn only-m" id="menuBtn" aria-label="Menu">${icon('more')}</button><h1 id="title"></h1>
     <div class="top-r"><span id="clock" class="clock"></span><button class="iconbtn" id="pauseBtn" aria-label="Pause or resume"></button></div></header>
     <div id="outdated" class="outdated" role="alert" hidden></div>
+    <div id="restarting" class="outdated restarting" role="status" hidden></div>
     <main id="view" class="view"></main></div>
   <nav class="bottom">${bottomHtml(BOTTOM)}</nav>
   <div id="sheet" class="sheet" hidden><div class="sheet-b"><div class="sheet-h"><b>All pages</b><button class="iconbtn" id="sheetX" aria-label="Close">${icon('x')}</button></div><nav class="nav grid">${navHtml()}</nav></div></div>

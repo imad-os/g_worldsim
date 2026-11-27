@@ -527,6 +527,11 @@ export class NetServer {
     for (const s of this.sessions.values()) if (s.ws && s.view && s.view.map === m) this.send(s, { t: Msg.Notice, kind, data });
   }
 
+  /** A notice for everyone connected: every TV and every panel (a server restart coming). */
+  toAll(kind: string, data: unknown): void {
+    for (const s of this.sessions.values()) if (s.ws) this.send(s, { t: Msg.Notice, kind, data });
+  }
+
   /** A notice for every TV (not the admins' panels): the world channel's lines for the chat log. */
   toViewers(kind: string, data: unknown): void {
     for (const s of this.sessions.values()) if (s.ws && s.role === 'viewer') this.send(s, { t: Msg.Notice, kind, data });

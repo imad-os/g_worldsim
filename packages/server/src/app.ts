@@ -17,7 +17,7 @@ import { FirebaseAuth } from './auth/firebase.js';
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { loadScenario } from './sim/scenario.js';
 import { World, type WorldEvent } from './sim/world.js';
-import { PLACE_REACH } from './sim/survival.js';
+import { PLACE_REACH, capOf } from './sim/survival.js';
 import { NetServer } from './net/server.js';
 import { TunnelManager } from './tunnel.js';
 import type { AttackPlan } from './sim/zombies.js';
@@ -117,6 +117,8 @@ export class App {
   onStopRequest: () => void = () => {};
   /** Stop cleanly and start again (main.ts starts a new server process). */
   onRestartRequest: (why: string, before?: string) => void = () => {};
+  /** How long TVs and panels are warned before a restart (imad 2026-11-27: "a notice of server restart in game and control panel"). */
+  restartWarnMs = 5000;
   control!: Control;
   agent!: Agent;
   analysis!: Analysis;
@@ -337,12 +339,19 @@ export class App {
         const an = a === 'hit' || a === 'hitperson' ? 'attack' : a === 'shoot' ? 'shoot' : a === 'build' || a === 'place' ? 'build' : a === 'talk' || a === 'hold' ? 'talk' : '';
         if (an) w.gear.play(player, an, an === 'talk' ? 4 : undefined);
       }
-      if (a === 'craft') { // "weapon:wood=1,ore=1"
-        const [cat, list] = String(text ?? '').split(':');
+      if (a === 'craft') { // "weapon:wood=1,ore=1", "*5" after it = five batches (R2 on the TV), as many as the bag allows
+        const [cat, list0] = String(text ?? '').split(':');
+        const [list, times] = (list0 ?? '').split('*');
         const put: Record<string, number> = {};
         for (const p of (list ?? '').split(',')) { const [k, n] = p.split('='); if (k && Number(n) > 0) put[k] = Math.min(20, Math.floor(Number(n))); }
-        const r = sv.craftPut(player, cat ?? '', put);
-        return r.ok ? { ok: true, code: 'crafted', item: r.r.what } : { ok: false, code: r.code };
+        const want = Math.max(1, Math.min(60, Math.floor(Number(times) || 1)));
+        let made = 0, item = '', code = '';
+        for (let k = 0; k < want; k++) {
+          const r = sv.craftPut(player, cat ?? '', put);
+          if (!r.ok) { code = r.code; break; }
+          made += r.r.n ?? 1; item = r.r.what;
+        }
+        return made ? { ok: true, code: 'crafted', item, n: made } : { ok: false, code };
       }
       if (a === 'place') { const c = sv.placeFront(player, String(text ?? '')); return { ok: c === 'placed', code: c, item: String(text ?? '') }; }
       // The player's buttons (imad 2026-11-20): Interact = things (take / gather / drink...), Talk = people (on the TV),
@@ -672,7 +681,9 @@ export class App {
     try { writeFileSync(join(d, 'watchdog.pause'), `restart from the panel by ${who}`); writeFileSync(join(d, 'restart.flag'), String(Date.now())); } catch { /* tests, read-only */ }
     this.log.warn('restart asked', { who, why });
     this.control.noteRestart(why, who);
-    setTimeout(() => this.onRestartRequest(`${why} by ${who}`, before), 300);
+    // Everyone connected hears it first: TVs show a countdown and wait for the server instead of the "no server" screen.
+    try { this.net?.toAll('restart', { why, who, in: Math.round(this.restartWarnMs / 1000), at: Date.now() }); } catch { /* not started */ }
+    setTimeout(() => this.onRestartRequest(`${why} by ${who}`, before), Math.max(300, this.restartWarnMs));
     return { ok: true, restarting: true };
   }
   private ownerOnly(owner: boolean): void { if (!owner) throw new Error('only the owner (or the admin token) can do this'); }
@@ -1291,7 +1302,7 @@ export class App {
         const ia = a !== undefined ? e.slot(a) : -1, ib = b !== undefined ? e.slot(b) : -1;
         // The bag: added together.
         const bagA = w.survival.pinv.get(from);
-        if (bagA) { const bagB = w.survival.pinv.get(into) ?? {}; for (const [k, n] of Object.entries(bagA)) bagB[k as keyof typeof bagB] = Math.min(20, (bagB[k as keyof typeof bagB] ?? 0) + (n ?? 0)); w.survival.pinv.set(into, bagB); w.survival.pinv.delete(from); }
+        if (bagA) { const bagB = w.survival.pinv.get(into) ?? {}; for (const [k, n] of Object.entries(bagA)) bagB[k as keyof typeof bagB] = Math.min(capOf(k), (bagB[k as keyof typeof bagB] ?? 0) + (n ?? 0)); w.survival.pinv.set(into, bagB); w.survival.pinv.delete(from); }
         this.mapView.merge(from, into); // the map's marks too
         // The character in use ("from", unless keep: 'into') stays, with its place, look and family; the other goes.
         const keepInto = c.keep === 'into' && ib >= 0;
@@ -1503,7 +1514,7 @@ export class App {
           if (k === 'lifespan') { p.traits.lifespan = num(v, 1, 150, k); continue; }
           if (k === 'pregnant') { const r = w.life.setPregnant(p, fixed(v, -1, 100, k)); if (r !== true) throw new Error(r); continue; } // % of the way (-1 = not expecting)
           if (k === 'age') { if (p.player) throw new Error("players' characters stay 25"); p.born = w.gameSec - num(v, 0, 100, k, [0, 1000]) * w.yearSec; const ag = Number(v); e.flags[i] = (e.flags[i]! & ~(EFlag.Child | EFlag.Small)) | (ag < 16 ? EFlag.Child : 0) | (ag < 3 ? EFlag.Small : 0); continue; } // years
-          if (k.startsWith('bag.')) { const inv = w.survival.inv(i), it = k.slice(4); inv[it] = fixed(v, 0, it === 'arrows' ? 30 : 20, k) | 0; if (!inv[it]) delete inv[it]; continue; } // bag: { 'bag.ore': 5 }
+          if (k.startsWith('bag.')) { const inv = w.survival.inv(i), it = k.slice(4); inv[it] = fixed(v, 0, capOf(it), k) | 0; if (!inv[it]) delete inv[it]; continue; } // bag: { 'bag.ore': 5 }
           throw new Error(`can't change ${k}`);
         }
         e.nextThink[i] = w.tick; // decide again with the new values

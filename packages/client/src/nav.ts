@@ -265,3 +265,57 @@ export class SoundCues {
     for (let k = n; k < this.pool.length; k++) if (!this.pool[k]!.el.hidden) this.pool[k]!.el.hidden = true;
   }
 }
+
+/**
+ * What people near me say, over their heads (imad 2026-11-27: "if someone talks to me show the text on top of his head if he
+ * is near me"). Notice `say` lines stay up 4-10 s (longer lines longer), only for people drawn within `range` m. Built once;
+ * per frame only transforms change.
+ */
+export class Speech {
+  private readonly box: HTMLDivElement;
+  private readonly pool: { el: HTMLDivElement; id: number; text: string; lx: number; ly: number }[] = [];
+  private readonly cand: { id: number; x: number; y: number; d: number; h: number }[] = Array.from({ length: 16 }, () => ({ id: -1, x: 0, y: 0, d: 0, h: 0 }));
+  private readonly pt = { x: 0, y: 0 };
+  /** entity id -> line and until when (performance.now ms). */
+  readonly lines = new Map<number, { text: string; until: number }>();
+
+  constructor(max = 5) {
+    this.box = document.createElement('div'); this.box.id = 'speech';
+    for (let k = 0; k < max; k++) {
+      const el = document.createElement('div'); el.className = 'sp'; el.hidden = true;
+      this.box.appendChild(el);
+      this.pool.push({ el, id: -1, text: '', lx: 0, ly: 0 });
+    }
+    document.body.appendChild(this.box);
+  }
+  add(id: number, text: string, now: number): void {
+    const s = text.length > 150 ? text.slice(0, 147) + '…' : text;
+    this.lines.set(id, { text: s, until: now + Math.min(10000, 4000 + s.length * 60) });
+  }
+  hide(): void { for (const p of this.pool) if (!p.el.hidden) { p.el.hidden = true; p.id = -1; } }
+  /** Same `each` / `project` as Names: fn(id, x, y, head height). */
+  draw(each: (fn: (id: number, x: number, y: number, h: number) => void) => void, project: (x: number, h: number, z: number, out: { x: number; y: number }) => boolean, fx: number, fy: number, range: number, now: number): void {
+    if (!this.lines.size) { this.hide(); return; }
+    for (const [id, l] of this.lines) if (l.until < now) this.lines.delete(id);
+    let n = 0;
+    if (this.lines.size) each((id, x, y, h) => {
+      if (n >= this.cand.length || !this.lines.has(id)) return;
+      const d = Math.hypot(x - fx, y - fy);
+      if (d > range) return;
+      const c = this.cand[n++]!; c.id = id; c.x = x; c.y = y; c.d = d; c.h = h;
+    });
+    let k = 0;
+    for (; k < this.pool.length && k < n; k++) {
+      let best = k;
+      for (let j = k + 1; j < n; j++) if (this.cand[j]!.d < this.cand[best]!.d) best = j;
+      if (best !== k) { const t = this.cand[k]!; this.cand[k] = this.cand[best]!; this.cand[best] = t; }
+      const c = this.cand[k]!, p = this.pool[k]!, line = this.lines.get(c.id)!;
+      if (!project(c.x, c.h, c.y, this.pt)) { p.el.hidden = true; p.id = -1; continue; }
+      if (p.id !== c.id || p.text !== line.text) { p.id = c.id; p.text = line.text; p.el.textContent = line.text; }
+      p.el.hidden = false;
+      const rx = Math.round(this.pt.x), ry = Math.round(this.pt.y);
+      if (rx !== p.lx || ry !== p.ly) { p.lx = rx; p.ly = ry; p.el.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -100%)`; }
+    }
+    for (; k < this.pool.length; k++) if (!this.pool[k]!.el.hidden) { this.pool[k]!.el.hidden = true; this.pool[k]!.id = -1; }
+  }
+}

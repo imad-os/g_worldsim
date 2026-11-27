@@ -355,3 +355,4 @@ details.more{margin:4px 0}details.more>summary{cursor:pointer;color:var(--acc);f
 .thg .ic{width:14px;height:14px;vertical-align:-2px}
 @media (max-width:900px){.thcmp{grid-template-columns:1fr;gap:10px}.thtl svg{height:120px}}
 .thsel{display:flex;gap:10px;align-items:center;margin-bottom:8px}.thsel select{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--input);border:1px solid var(--line);border-radius:var(--r2);padding:8px 10px}
+.outdated.restarting{border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:color-mix(in srgb,var(--warn) 14%,transparent)}.outdated.restarting>svg{color:var(--warn)}
