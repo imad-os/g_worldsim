@@ -857,9 +857,7 @@ function interactHint(): IaHint | null {
   const x = focusX(), y = focusY();
   if (meNeeds.ride) return { key: 'iaOff' };
   if (meNeeds.asleep) return { key: 'iaWake' };
-  // Someone right next to me or close in front: the same button talks to them (imad 2026-11-27); else things first, people after.
-  const who = talkTarget();
-  if (who && (who.d < 1.3 || (who.d < 2.2 && who.faced))) return talkHint(who);
+  const who = talkTarget(); // nothing to do with things: the chip names the talk button and who it talks to
   let bk = '', bxd = 2.2; // my fridge / chest (imad 2026-11-26)
   for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
     const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
@@ -903,7 +901,7 @@ function updateInteract(now: number): void {
   if (now - iaAt < 200) return;
   iaAt = now;
   iaNow = mode === 'world' && !menu.open && !placing && !aimOn && !wheel.open ? interactHint() : null;
-  const k = keyName('use');
+  const k = keyName(iaNow?.talk ? 'talk' : 'use');
   const txt = iaNow && k ? `<b>${esc(k)}</b><span>${esc(iaNow.text ?? t(iaNow.key))}</span>` : '';
   if (txt === iaShown) return;
   iaShown = txt;
@@ -1432,7 +1430,7 @@ function updateHints(): void {
   const view = how === 'play' && camView !== 'top';
   const move = view ? `${t('hMove')}: ${pads ? 'stick' : '↑ ↓'} · ${t('hTurn')}: ${pads ? 'R stick' : '← →'}` : `${t('hMove')}: ${pads ? 'stick' : '← ↑ → ↓'}`;
   const list = how === 'play'
-    ? [move, part('use', actionLabel('use').replace(/ \(.*\)$/, '')), part('attack', actionLabel('attack')), part('aim', actionLabel('aim').replace(/ \(.*\)$/, '')), part('run', actionLabel('run')), part('wheel', t('aWheel').replace(/ \(.*\)$/, '')), part('build', actionLabel('build')), part('menu', actionLabel('menu'))]
+    ? [move, part('use', actionLabel('use').replace(/ \(.*\)$/, '')), part('talk', actionLabel('talk')), part('attack', actionLabel('attack')), part('aim', actionLabel('aim').replace(/ \(.*\)$/, '')), part('run', actionLabel('run')), part('wheel', t('aWheel').replace(/ \(.*\)$/, '')), part('build', actionLabel('build')), part('menu', actionLabel('menu'))]
     : [move, part('use', t('wFollow')), part('eat', t('wMap')), part('sleep', t('wCard')), part('menu', actionLabel('menu'))];
   if (!pads) list.push(t('hintMenu'));
   hudHint.textContent = list.filter(Boolean).join(' · ');
@@ -1489,9 +1487,9 @@ function doAction(a: ActionId, pressed: boolean): void {
     return;
   }
   if (!playing()) return;
-  if (a === 'use') { // one button for things (a door, take, gather, drink...) and people (talk / quests / trade): never a fight
+  if (a === 'talk') { talk(); return; } // its own button (imad 2026-11-27): people, teachers, players (= trade)
+  if (a === 'use') { // things: a door, take, gather, drink... (never people, never a fight)
     const h = interactHint();
-    if (h?.talk) { talk(); return; }
     send(h?.door ? { t: Msg.Do, a: 'take', text: `door:${h.door[0]},${h.door[1]}` } : { t: Msg.Do, a: 'take' });
     return;
   }
@@ -1894,7 +1892,7 @@ function buildPage(id: string): Page {
       return { id, title: t('mFight'), rows, wide: true, html: `<p>${keys}</p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}${have ? `<p class="dim">${esc(t('fHave'))}: ${esc(have)}</p>` : ''}` };
     }
     case 'actions':
-      for (const a of ['use', 'horse', 'attack', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
+      for (const a of ['use', 'talk', 'horse', 'attack', 'drink', 'eat', 'pickup', 'sleep'] as const) rows.push({ id: a, label: actionLabel(a) });
       rows.push({ id: 'pvp', label: t('mPvp'), value: t(meNeeds?.pvp ? 'pvpOnW' : 'pvpOffW') });
       return { id, title: t('mActions'), rows, html: meNeeds ? `<div class="pbars">${bar(t('nFood'), meNeeds.hunger)}${bar(t('nWater'), meNeeds.thirst)}${bar(t('nRest'), meNeeds.tired)}</div>` : undefined };
     case 'past':
@@ -2342,7 +2340,7 @@ function draw(now: number, dt: number): void {
   if (trip && trip.phase === 'in' && ++trip.frames >= 3 && now - trip.at >= 250 && ((!buildQ.length && !jobs.size) || now - trip.at > 1500)) { fade(false); trip = null; } // the ground is in: fade in
   if (bindsNews && playing() && predOk) {
     bindsNews = false;
-    const parts = (['use', 'attack', 'aim', 'horse', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
+    const parts = (['use', 'talk', 'attack', 'aim', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
     note(tf('bindsNew', parts.join(' · ')), 9000);
   }
   if (mapNews && playing() && predOk) { mapNews = false; note(t('mapBtnNews'), 7000); }
@@ -2779,9 +2777,11 @@ MyPC.init({
       binds = cloneBinds(DEFAULT_BINDS); MyPC.save('binds', binds); bindsNews = true;
     } else if (b && b.pad && b.remote) {
       binds = { pad: { ...b.pad }, remote: { ...b.remote }, v: BINDS_V };
-      if ((b.v ?? 1) < 3) { // layout 3 (imad 2026-11-27): talk is the interact button, PvP a switch: their buttons are free (Y / green -> horse below)
+      if ((b.v ?? 1) < 4) { // layout 4 (imad 2026-11-27): PvP is a switch (attackPerson gone); talk back on Y / green (layout 3 had the horse there)
         const old = b as unknown as { pad: Record<string, number>; remote: Record<string, string> };
-        for (const k of ['talk', 'attackPerson']) { delete (binds.pad as Record<string, number>)[k]; delete (binds.remote as Record<string, string>)[k]; delete old.pad[k]; delete old.remote[k]; }
+        if (old.pad.horse === 3 && !('talk' in old.pad)) delete binds.pad.horse;
+        if (old.remote.horse === 'green' && !('talk' in old.remote)) delete binds.remote.horse;
+        for (const k of ['attackPerson']) { delete (binds.pad as Record<string, number>)[k]; delete (binds.remote as Record<string, string>)[k]; delete old.pad[k]; delete old.remote[k]; }
         MyPC.save('binds', binds); bindsNews = true;
       }
       // The map takes − from Thoughts when the player still had it there (Thoughts stays in Settings and the Buttons page).

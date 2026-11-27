@@ -8,29 +8,28 @@
 import { t, tf, type Key } from './i18n.js';
 
 // ------------------------------------------------------------ actions and buttons
-/** Talking is the interact button (imad 2026-11-27: "the button of interacting is the same as talking"); PvP is a switch, not an action:
- *  with it on, Attack and Aim work on people too. Neither has a button of its own any more. */
-export const ACTIONS = ['use', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel', 'horse', 'map', 'destroy'] as const;
+/** Talk has its own button again (imad 2026-11-27: "with talk on A I can't open doors"); PvP is a switch, not an action:
+ *  with it on, Attack and Aim work on people too. */
+export const ACTIONS = ['use', 'talk', 'attack', 'aim', 'build', 'run', 'eat', 'drink', 'pickup', 'sleep', 'zoomIn', 'zoomOut', 'thoughts', 'person', 'menu', 'camera', 'wheel', 'horse', 'map', 'destroy'] as const;
 export type ActionId = (typeof ACTIONS)[number];
 const ACTION_KEY: Record<ActionId, Key> = {
   use: 'aUse', run: 'aRun', eat: 'aEat', drink: 'aDrink', pickup: 'aPickup', sleep: 'aSleep', zoomIn: 'aZoomIn', zoomOut: 'aZoomOut',
-  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', attack: 'aAttack', aim: 'aAim', build: 'aBuild', horse: 'aHorse', map: 'aMap', destroy: 'qDestroy',
+  thoughts: 'aThoughts', person: 'aPerson', menu: 'aMenu', camera: 'aCamera', wheel: 'aWheel', talk: 'aTalk', attack: 'aAttack', aim: 'aAim', build: 'aBuild', horse: 'aHorse', map: 'aMap', destroy: 'qDestroy',
 };
 export const actionLabel = (a: ActionId) => t(ACTION_KEY[a]);
 
 export interface Binds { pad: Partial<Record<ActionId, number>>; remote: Partial<Record<ActionId, string>>; v?: number }
 /** Version of the default layout: saved binds from an older one are replaced once (imad 2026-11-20: interact / talk / attack). */
-export const BINDS_V = 3;
+export const BINDS_V = 4;
 /**
- * Defaults (imad 2026-11-20): A interact (take, gather, drink... and talk to the person next to me: imad 2026-11-27), B run, X attack,
- * Y horse (was talk),
+ * Defaults (imad 2026-11-20): A interact (take, gather, drink, doors), B run, X attack, Y talk to the person next to me,
  * L / R zoom, ZL aim the bow (hold), ZR quick actions (hold), − map (imad 2026-11-25; thoughts are in Settings), + menu, L3 build, R3 camera.
- * Eat / sleep are on the wheel. Remote: OK interact / talk, red attack, green horse, yellow thoughts, blue person, CH + / − zoom, Info menu,
+ * Eat / sleep are on the wheel. Remote: OK interact, red attack, green talk, yellow thoughts, blue person, CH + / − zoom, Info menu,
  * ⏯ quick actions, ⏩ aim, Tools build, Guide map.
  */
 export const DEFAULT_BINDS: Binds = {
-  pad: { use: 0, run: 1, attack: 2, horse: 3, zoomIn: 4, zoomOut: 5, aim: 6, wheel: 7, map: 8, menu: 9, build: 10, camera: 11 },
-  remote: { use: 'ok', attack: 'red', horse: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause', aim: 'ff', build: 'tools', map: 'guide' },
+  pad: { use: 0, run: 1, attack: 2, talk: 3, zoomIn: 4, zoomOut: 5, aim: 6, wheel: 7, map: 8, menu: 9, build: 10, camera: 11 },
+  remote: { use: 'ok', attack: 'red', talk: 'green', thoughts: 'yellow', person: 'blue', zoomIn: 'chUp', zoomOut: 'chDown', menu: 'info', wheel: 'playPause', aim: 'ff', build: 'tools', map: 'guide' },
   v: BINDS_V,
 };
 export function cloneBinds(b: Binds): Binds { return { pad: { ...b.pad }, remote: { ...b.remote }, v: b.v }; }

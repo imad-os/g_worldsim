@@ -1123,10 +1123,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   my own slot): after a player's build `Survival.clearSpot` steps them out of the wall to the nearest open tile and the TV gets Notice did `tp`.
   Tests that built on a road were moved (server / territory / weather). Proof `ADMIN_TOKEN=... node tools/buildspot-proof.mjs <server> <sdk.js> <outdir>`.
 
-## One button for things and people, PvP a switch (imad 2026-11-27, binds v3, app 0.14.27)
-- Talk has no button of its own: the interact button (A / OK) talks to the person / teacher / player (= trade) right next to me (< 1.3 m, or
-  < 2.2 m in front), else does the thing (door, pick up, drink, chop...), else talks to whoever is within 3.5 m (`talkTarget` / `talkHint`, hint
-  "A Talk to <name>"). Y / green = horse now. Saved v2 binds drop talk / attackPerson once (`bindsNews`); the action `attackPerson` is gone.
+## Talk on its own button, PvP a switch (imad 2026-11-27, binds v4, app 0.15.2)
+- Talk on A (layout 3) was undone the same day (imad: "now I can't open the door"): A / OK = things only (door, pick up, drink, chop...), Y / green
+  = talk (person / teacher / player = trade; `talkTarget`). The A chip names Y and the person ("Y Talk to <name>") when there is nothing to do with
+  things. Saved v3 binds give Y / green back to talk once (horse there removed); `attackPerson` is gone.
 - PvP is a switch (Actions page, How to fight, wheel item `pvp`, old saved wheels' `attackPerson` -> `pvp`). Server: with it on, Do `hit` also
   hits the nearer person in front (`personFront` / `personHit`), Do `shoot` hits a person on the line (players only with their PvP on too);
   off = never a person. Do `hitperson` stays for older TVs. Test server.test "players"; proof `ADMIN_TOKEN=... node tools/interact-proof.mjs <server> <sdk.js> <outdir>`.

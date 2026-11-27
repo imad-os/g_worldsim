@@ -1,5 +1,5 @@
-// Interact = talk, PvP = a switch (imad 2026-11-27). A person next to me: the A hint says "Talk to <name>" and A starts a talk
-// (Do hold + the keyboard); PvP off: X never hits them; PvP on from the Actions page: the same X hits them (pHit).
+// Talk has its own button (Y), PvP = a switch (imad 2026-11-27). A person next to me: the chip says "Y Talk to <name>", A does things only
+// (Do take, never a talk), Y starts a talk (Do hold + the keyboard); PvP off: X never hits them; PvP on from the Actions page: the same X hits them (pHit).
 // ADMIN_TOKEN=... node tools/interact-proof.mjs <server> <sdk.js> <outdir>
 import fs from 'node:fs';
 import { start } from './tv-base.mjs';
@@ -22,10 +22,13 @@ await adm({ cmd: 'order', id: p.id, kind: 'stay' });
 await wait(2500);
 res.hint = await dev(() => window.__dev.ia());
 await page.screenshot({ path: `${out}/1-talk-hint.png` });
-// A (pad 0) = talk
-const s0 = sent.length;
+// A (use) next to them = things only; Y (talk) = talk
+let s0 = sent.length;
 await dev((a) => window.__dev.act(a), 'use'); await wait(150); await dev((a) => window.__dev.act(a, false), 'use'); await wait(1500);
 res.aSent = sent.slice(s0);
+s0 = sent.length;
+await dev((a) => window.__dev.act(a), 'talk'); await wait(150); await dev((a) => window.__dev.act(a, false), 'talk'); await wait(1500);
+res.ySent = sent.slice(s0);
 // PvP off: X (pad 2) does not hurt them
 const hp0 = (await adm({ cmd: 'agent', id: p.id })).data.hp;
 await dev((a) => window.__dev.act(a), 'attack'); await wait(150); await dev((a) => window.__dev.act(a, false), 'attack'); await wait(1200);
