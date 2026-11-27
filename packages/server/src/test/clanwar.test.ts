@@ -102,3 +102,24 @@ test('changing clan: a married person moves to the partner\'s clan; a much bette
   assert.equal(w.clans.clanOf(cid)?.id, B.id, 'they changed clan by themselves');
   void e; void A;
 });
+
+test('tension comes from real causes (no dice), says why, and a war starts after 3 hours at 10/10', () => {
+  const { w, A, B } = twoClans('war-tension');
+  // Homes far apart and members neutral: tension only heals.
+  A.hx = 20; A.hy = 20; B.hx = 150; B.hy = 150;
+  for (let h = 0; h < 5; h++) { w.gameSec += 3600; hourly(w); }
+  assert.equal(w.clans.tension(A.id, B.id), 0, 'nothing happened, no tension');
+  // Bad blood: everyone in A hates everyone in B and back.
+  for (const x of A.members) for (const y of B.members) for (const [a, b] of [[x, y], [y, x]] as const) { const p = w.profiles.get(a)!; p.mind ??= { notes: [], summary: '', mood: 'calm', rel: {}, lastPlan: 0 }; p.mind.rel['#' + b] = -5; }
+  const seen: number[] = [];
+  let war = false;
+  w.listeners.push((ev) => { if (ev.kind === 'clanWar') war = true; });
+  for (let h = 0; h < 60 && !war; h++) { w.gameSec += 3600; hourly(w); seen.push(w.clans.tension(A.id, B.id)); }
+  assert.ok(seen.every((t, k) => k === 0 || t >= seen[k - 1]! || war), 'it only climbs while the causes last');
+  const why = w.clans.why(A.id, B.id);
+  assert.equal(why[0]?.[0], 'bad blood', 'bad blood is the biggest cause');
+  assert.ok(why.some(([k]) => k === 'bad blood'), `bad blood is named (${JSON.stringify(why)})`);
+  const at10 = seen.findIndex((t) => t >= 10);
+  assert.ok(at10 >= 0 && war, `a war was declared (${seen.slice(-8).join(' ')}, ${A.members.length}/${B.members.length})`);
+  assert.ok(seen.length - 1 - at10 >= 3, `only after 3 hours at 10/10 (${seen.length - 1 - at10})`);
+});

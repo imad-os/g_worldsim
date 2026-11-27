@@ -939,8 +939,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   (only the clan's leader; foe = clan named, a leader named, else the tensest). Ways in: words to a leader (Planner.chat: the model's clan step
   `war <clan>` / `peace <clan>`, or `Clans.warNet` keyword net for the owner / loyal / agreeing: needs a real war word or a clan named), panel People >
   Clans (Declare war select + Make peace, "Leaders may start wars by themselves" = admin `clanWar { a, b, on }` / `{ auto }`), TV Clan page for a
-  player leader (Do `clan` `war:<id>` / `peace:<id>`, page `clanWar`, strings in questui.ts), task skill clan. Auto: tension >= 9.5, both 3+ members,
-  2 days after a peace, 3 % x leader courage an hour.
+  player leader (Do `clan` `war:<id>` / `peace:<id>`, page `clanWar`, strings in questui.ts), task skill clan. Auto (imad: "yes when it hits 10/10"):
+  tension at 10 for `TOP_HOLD` 3 game h (`topSince`), both 3+ members, 2 days after a peace = the bolder AI leader declares. No dice.
+- **Tension = real causes only (imad 2026-11-27: "it shouldn't be random")**: `tensionHour` (calmers first: time heals -0.1, friendship, families
+  across the clans -0.05 each; then bad blood = members' average feeling < -0.5 x 0.06, homes < 40 m +0.08, + 0.15 when food / water lack > 0.5) and
+  events (fights +1, a member beaten +0.5, a player hit +1, a killing +4 via a death listener, split +3). The old +0.25 an hour for living close (which
+  put every pair at 10) and the random feelings drop are gone. `Clans.why(a, b)` = causes fading 4 % an hour (saved `causes`), shown in the panel's rivals.
 - At war (`warFight` in quarrel, every 40 game min each, 9 m, not near zombies, adults only, never kin): duels (non-lethal) that count in `wins`;
   hourly by day 08-17 every 5 h a war party (bravest free adults, up to 6) goes to an enemy (`raid`, event `clanRaid`); 5 duels behind = the AI leader
   sues for peace (35 % an hour), `WAR_DAYS` 3 = peace anyway; tension held at 10, after peace 3. Events clanWar / clanPeace (world + clan chat news).

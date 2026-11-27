@@ -1422,7 +1422,7 @@ export class App {
           founder: c.founder !== undefined ? nm(c.founder) : '', approval: w.clans.approval(c), order: c.order ?? '', lastVote: c.lastVote ?? c.at,
           vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => nm(k)), votes: c.vote.ballots.length } : null,
           result: c.result ? { at: c.result.at, winner: nm(c.result.winner), old: nm(c.result.old), tally: c.result.tally.map(([k, n]) => [nm(k), n]) } : null,
-          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10, influence: w.influence.of(id) })), callMin: CALL_MIN, rivals: w.clans.rivals(c).map((r) => ({ id: r.clan.id, name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })),
+          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10, influence: w.influence.of(id) })), callMin: CALL_MIN, rivals: w.clans.rivals(c).map((r) => ({ id: r.clan.id, name: r.clan.name, tension: Math.round(r.tension * 10) / 10, why: r.why })),
           wars: w.clans.wars.filter((x) => x.a === c.id || x.b === c.id).map((x) => { const me = x.a === c.id ? 0 : 1, f = w.clans.byId(me ? x.a : x.b); return { id: f?.id ?? -1, name: f?.name ?? '', won: x.wins[me], lost: x.wins[1 - me], since: x.start, by: x.by === 'owner' ? 'the owner' : x.by, why: x.why }; }) })),
           now: w.gameSec, autoWar: w.clans.autoWar };
       }
