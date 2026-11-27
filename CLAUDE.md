@@ -804,6 +804,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 ## Tidy TV screen: compass colours, top-edge card, chat log (imad 2026-11-26, app 0.14.6)
 - Compass icons 2.5vw, each kind its own colour (`--c` per `.cp-i.<kind>` / `.mk-<mark kind>` in docs/index.html; marks are pins except star / danger).
 - `#card` flush with the top-right edge (top 0, right 0, 15vw, smaller text).
+- `#top` (world line: map, day, time, weather, people) at the bottom right, 5px from the edges, 1vw text (imad 2026-11-27, app 0.14.7; RTL bottom left).
 - `#chatlog` (nav.ts `ChatLog`), bottom left, text only, last 4 lines (older than 1 min faint): Notice `say` (people near me) + Notice `wchat`
   (world channel lines: `Chats` hook `world` -> `NetServer.toViewers`). `say` no longer uses the #note banner.
 - NPC lines go only to the player who talked (`Quests.onNpcSay(.., to)` -> `noticeTo`); an AI person taking a quest is silent.
