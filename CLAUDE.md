@@ -893,3 +893,6 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `threatToClanKid` loops over a per-tick list of children per map. Same results (world hash checked).
 - GOAP `plan` = `planFast` on number arrays (journal in the heuristic, effects memoised by `GAction.reads`); `planRef` = the
   reference, test ai.goap compares both on random problems. Colony actions declare `reads` (gather:wood reads axe).
+- The jam: a clan leader's day order (store water / food / wood / stone) went to EVERY free member: ~100 people at the one crate and the
+  water's edge, pushing each other every tick. `Clans.leaderOrder` now sends a day chore to a crew of `min(12, 4 + members / 15)`; the night
+  rally still calls everyone. 300 people: 2.4 -> 1.8 ms a tick. Tried and NOT kept: physics iterations 6 / 2 (fewer contacts, but 3 seeded tests changed).

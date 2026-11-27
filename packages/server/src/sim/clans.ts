@@ -418,8 +418,12 @@ export class Clans {
     } else return;
     c.order = text; c.orderAt = w.gameSec;
     w.speak(L, `${c.name}! ${text}`);
+    // A day's chore goes to a crew, not the whole clan: with 300 people a clan of 100 all walked to the one store crate and the water's
+    // edge at once and jammed there, pushing each other every tick (half the server's work, imad 2026-11-27). The night rally is for all.
     let n = 0;
+    const crew = danger ? Infinity : Math.min(12, 4 + Math.floor(c.members.length / 15));
     for (const id of c.members) {
+      if (n >= crew) break;
       const i = e.slot(id);
       if (id === c.leader || i < 0 || e.kind[i] !== Kind.Agent || e.map[i] !== c.map || !this.free(i)) continue;
       if (!w.rng.chance(0.15 + (this.loyal.get(id) ?? 0.5) * 0.6)) continue;
