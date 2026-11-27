@@ -817,7 +817,7 @@ const iaEl = document.getElementById('iahint')!;
 let iaAt = 0, iaShown = '';
 /** What the interact button does right now, in the server's own order for "take" (sim/brain.ts playerDo + app.ts). */
 let iaNow: IaHint | null = null;
-interface IaHint { key: Key; door?: [number, number]; talk?: boolean; text?: string }
+interface IaHint { key: Key; door?: [number, number]; talk?: boolean; text?: string; take?: string }
 /** Who the interact button would talk to: the nearest town teacher, person or other player within 3.5 m (`faced` = in front of me). */
 function talkTarget(): { k: 'npc' | 'person' | 'player'; id: number; d: number; faced: boolean } | null {
   const x = focusX(), y = focusY(), a = myAng();
@@ -836,64 +836,50 @@ function talkHint(w: NonNullable<ReturnType<typeof talkTarget>>): IaHint {
   const n = names.names.get(w.id);
   return { key: w.k === 'player' ? 'iaTrade' : 'iaTalk', talk: true, text: n ? tf(w.k === 'player' ? 'iaTradeTo' : 'iaTalkTo', n) : undefined };
 }
-/** The door within reach I face most (x, y, open?), or null. */
-function nearDoor(): [number, number, boolean] | null {
-  if (doorTileId < 0) return null;
-  const x = focusX(), y = focusY(), a = myAng();
-  let best: [number, number, boolean] | null = null, bs = Infinity;
-  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
-    const t = tileUnder(xx + 0.5, yy + 0.5);
-    if (t !== doorTileId && t !== doorOpenId) continue;
-    if (xx === Math.floor(x) && yy === Math.floor(y)) continue; // standing in the doorway: step out first
-    const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
-    if (d > 1.9) continue;
-    const sc = d - Math.cos(Math.atan2(yy + 0.5 - y, xx + 0.5 - x) - a) * 0.6;
-    if (sc < bs) { bs = sc; best = [xx, yy, t === doorOpenId]; }
-  }
-  return best;
-}
+/**
+ * What the interact button does right now (imad 2026-11-27: "only when very near, like touching, and facing it"): the thing I touch and
+ * face most, within its own reach (a door / chest 1.6 m, a bed 1.5, a tree / rock / rubble / herbs 1.3 from its middle, food on the
+ * ground 1.0, the water's edge 1.4, a horse 2.0), in front of me (65 deg each side) unless it is right under me. The TV names it in the Do
+ * (`take`), so the server does that one thing and nothing else near.
+ */
 function interactHint(): IaHint | null {
   if (how !== 'play' || !playing() || !meNeeds) return null;
-  const x = focusX(), y = focusY();
+  const x = focusX(), y = focusY(), a = myAng(), ca = Math.cos(a), sa = Math.sin(a);
   if (meNeeds.ride) return { key: 'iaOff' };
   if (meNeeds.asleep) return { key: 'iaWake' };
-  const who = talkTarget(); // nothing to do with things: the chip names the talk button and who it talks to
-  let bk = '', bxd = 2.2; // my fridge / chest (imad 2026-11-26)
-  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
-    const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
-    if (n !== 'fridge' && n !== 'chest') continue;
-    const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
-    if (d < bxd) { bxd = d; bk = n; }
+  let best: IaHint | null = null, bs = Infinity;
+  const consider = (px: number, py: number, reach: number, h: IaHint) => {
+    const dx = px - x, dy = py - y, d = Math.hypot(dx, dy);
+    if (d > reach) return;
+    const cos = d < 0.05 ? 1 : (dx * ca + dy * sa) / d;
+    if (d > 0.75 && cos < 0.42) return; // behind or beside me: not this one (65 deg each side)
+    const sc = d + (1 - cos) * 0.8;
+    if (sc < bs) { bs = sc; best = h; }
+  };
+  const fx = Math.floor(x), fy = Math.floor(y);
+  for (let yy = fy - 2; yy <= fy + 2; yy++) for (let xx = fx - 2; xx <= fx + 2; xx++) {
+    const n = tileName[tileUnder(xx + 0.5, yy + 0.5)], cx = xx + 0.5, cy = yy + 0.5;
+    if (!n) continue;
+    if (n === 'door' || n === 'dooropen') { if (xx !== fx || yy !== fy) consider(cx, cy, 1.6, { key: n === 'dooropen' ? 'iaClose' : 'iaOpen', door: [xx, yy], take: `door:${xx},${yy}` }); } // standing in the doorway: step out first
+    else if (n === 'fridge' || n === 'chest') consider(cx, cy, 1.6, { key: n === 'fridge' ? 'iaFridge' : 'iaChest', take: `box:${xx},${yy}` });
+    else if (n === 'bed') consider(cx, cy, 1.5, { key: 'iaBed', take: `bed:${xx},${yy}` });
+    else if (n === 'tree' || n === 'rock' || n === 'rubble' || n === 'herbs') consider(cx, cy, 1.3, { key: n === 'tree' ? 'iaChop' : n === 'rock' ? 'iaMine' : n === 'herbs' ? 'iaPick' : 'iaSearch', take: `tile:${xx},${yy}` });
+    else if (n === 'water') { // the edge of the water nearest to me, not the middle of the tile
+      const ex = Math.max(xx, Math.min(xx + 1, x)), ey = Math.max(yy, Math.min(yy + 1, y));
+      consider(ex, ey, 1.0, { key: meNeeds.thirst > 5 ? 'iaDrink' : 'iaFill', take: 'water' }); // not thirsty: fill bottles
+    }
   }
-  const dr = nearDoor();
-  // A door beside the fridge: the nearer one wins (standing at the fridge = the fridge).
-  if (dr && !(bk && bxd < Math.hypot(dr[0] + 0.5 - x, dr[1] + 0.5 - y))) return { key: dr[2] ? 'iaClose' : 'iaOpen', door: [dr[0], dr[1]] };
-  for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.4) return { key: 'iaPick' };
-  if (bk) return { key: bk === 'fridge' ? 'iaFridge' : 'iaChest' };
-  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) { // a bed: lie down in it (imad 2026-11-26)
-    if (tileName[tileUnder(xx + 0.5, yy + 0.5)] === 'bed' && Math.hypot(xx + 0.5 - x, yy + 0.5 - y) < 1.8) return { key: 'iaBed' };
-  }
-  for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && kind[i] === Kind.Item && Math.hypot(nx[i]! - x, ny[i]! - y) < 1.8) return { key: 'iaPick' };
-  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
-    if (tileName[tileUnder(xx + 0.5, yy + 0.5)] === 'water' && Math.abs(xx + 0.5 - x) < 2.1 && Math.abs(yy + 0.5 - y) < 2.1) return { key: meNeeds.thirst > 5 ? 'iaDrink' : 'iaFill' }; // not thirsty: fill bottles
-  }
-  if ((meNeeds.carry > 0 || (meNeeds.inv?.food ?? 0) > 0) && meNeeds.hunger > 15) return { key: 'iaEat' };
-  let best = '', bd = 1.6;
-  for (let yy = Math.floor(y) - 2; yy <= Math.floor(y) + 2; yy++) for (let xx = Math.floor(x) - 2; xx <= Math.floor(x) + 2; xx++) {
-    const n = tileName[tileUnder(xx + 0.5, yy + 0.5)];
-    if (n !== 'tree' && n !== 'rock' && n !== 'rubble') continue;
-    const d = Math.hypot(xx + 0.5 - x, yy + 0.5 - y);
-    if (d < bd) { bd = d; best = n; }
-  }
-  if (best) return { key: best === 'tree' ? 'iaChop' : best === 'rock' ? 'iaMine' : 'iaSearch' };
   for (let i = 0; i < CAP; i++) {
-    if (eid[i] === -1 || kind[i] !== Kind.Animal) continue;
-    const h = horseInfo.get(eid[i]!);
-    if (!h) continue;
-    const d = Math.hypot(nx[i]! - x, ny[i]! - y);
-    if (h[4] && d < 3.5) return { key: 'iaMount' };
-    if (!h[3] && d < 3.4) return { key: 'iaTame' };
+    if (eid[i] === -1) continue;
+    if (kind[i] === Kind.Item) consider(nx[i]!, ny[i]!, 1.0, { key: 'iaPick', take: `item:${eid[i]}` });
+    else if (kind[i] === Kind.Animal) {
+      const h = horseInfo.get(eid[i]!);
+      if (h && (h[4] || !h[3])) consider(nx[i]!, ny[i]!, 2.0, { key: h[4] ? 'iaMount' : 'iaTame', take: 'horse' });
+    }
   }
+  if (best) return best;
+  if ((meNeeds.carry > 0 || (meNeeds.inv?.food ?? 0) > 0) && meNeeds.hunger > 15) return { key: 'iaEat', take: 'eat' };
+  const who = talkTarget(); // nothing to do with things: the chip names the talk button and who it talks to
   return who ? talkHint(who) : null;
 }
 /** Five times a second: the chip "A  Open the door" over the hints. */
@@ -1490,7 +1476,8 @@ function doAction(a: ActionId, pressed: boolean): void {
   if (a === 'talk') { talk(); return; } // its own button (imad 2026-11-27): people, teachers, players (= trade)
   if (a === 'use') { // things: a door, take, gather, drink... (never people, never a fight)
     const h = interactHint();
-    send(h?.door ? { t: Msg.Do, a: 'take', text: `door:${h.door[0]},${h.door[1]}` } : { t: Msg.Do, a: 'take' });
+    if (h?.talk || (!h?.take && !meNeeds?.ride && !meNeeds?.asleep)) { note(t('iaNothing'), 1500); return; } // nothing touched and faced: nothing happens
+    send(h?.take ? { t: Msg.Do, a: 'take', text: h.take } : { t: Msg.Do, a: 'take' });
     return;
   }
   if (a === 'attack') { attack(); return; }

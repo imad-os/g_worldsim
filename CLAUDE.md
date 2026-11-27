@@ -1127,6 +1127,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Talk on A (layout 3) was undone the same day (imad: "now I can't open the door"): A / OK = things only (door, pick up, drink, chop...), Y / green
   = talk (person / teacher / player = trade; `talkTarget`). The A chip names Y and the person ("Y Talk to <name>") when there is nothing to do with
   things. Saved v3 binds give Y / green back to talk once (horse there removed); `attackPerson` is gone.
+- **A only on what I touch and face (imad 2026-11-27, app 0.15.3)**: `interactHint` scores every candidate by distance + facing (65 deg each side,
+  anything under 0.75 m counts): doors / fridges / chests 1.6 m, beds 1.5, tree / rock / rubble / herbs 1.3 from the tile's middle, ground items 1.0,
+  the water's edge 1.0, horses 2.0; nothing = note `iaNothing`, nothing sent. The TV names the target in Do `take` text (`door:` / `box:` / `bed:x,y`,
+  `tile:x,y`, `item:<id>`, `water`, `eat`, `horse`); server `App.takeAimed` does exactly that (reach 2.2-2.4 for lag; `Survival.playerWork(i, at)`,
+  `Brain.playerDo(i, a, target)`). Bare `take` (older TVs) keeps the old nearest-first order. Proof `ADMIN_TOKEN=... node tools/aim-interact-proof.mjs <server> <sdk.js> <outdir>`.
 - PvP is a switch (Actions page, How to fight, wheel item `pvp`, old saved wheels' `attackPerson` -> `pvp`). Server: with it on, Do `hit` also
   hits the nearer person in front (`personFront` / `personHit`), Do `shoot` hits a person on the line (players only with their PvP on too);
   off = never a person. Do `hitperson` stays for older TVs. Test server.test "players"; proof `ADMIN_TOKEN=... node tools/interact-proof.mjs <server> <sdk.js> <outdir>`.

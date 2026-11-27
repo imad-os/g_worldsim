@@ -365,9 +365,14 @@ export class Survival {
   }
 
   /** A player's "use" by a tree, a rock or rubble: one piece of it now. Code, or '' (none in front). */
-  playerWork(i: number): { code: string; got?: Record<string, number>; hard?: boolean } | null {
+  /** `at` = the tile (y * w + x) the player aimed at (the TV's interact target), else the nearest workable one within 1.6 m. */
+  playerWork(i: number, at = -1): { code: string; got?: Record<string, number>; hard?: boolean } | null {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
-    let best = -1, bd = 1.6;
+    let best = -1, bd = at >= 0 ? -1 : 1.6;
+    if (at >= 0) {
+      const t = tm.tiles[at];
+      if ((t === this.T.tree || t === this.T.rock || t === this.T.rubble || (t === this.T.herbs && this.T.herbs >= 0)) && Math.hypot((at % tm.w) + 0.5 - e.x[i]!, ((at / tm.w) | 0) + 0.5 - e.y[i]!) < 2.4) best = at;
+    }
     for (let yy = Math.floor(e.y[i]!) - 2; yy <= Math.floor(e.y[i]!) + 2; yy++) for (let xx = Math.floor(e.x[i]!) - 2; xx <= Math.floor(e.x[i]!) + 2; xx++) {
       if (!tm.inside(xx, yy)) continue;
       const t = tm.get(xx, yy);

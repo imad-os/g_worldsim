@@ -922,11 +922,12 @@ export class Brain {
    * A player does what people do: 'use' = the obvious thing here (pick up food, drink, else eat), or one action by name.
    * Returns what happened ('drank', 'picked', 'ate', 'sleep', 'wake') or why not ('noWater', 'nothing', 'noFood', 'full').
    */
-  playerDo(i: number, a: string): { ok: boolean; code: string; item?: string } {
+  /** `target` = the item the player aimed at (the TV's interact target), else the nearest one. */
+  playerDo(i: number, a: string, target = -1): { ok: boolean; code: string; item?: string } {
     const w = this.w, e = w.e;
     if (e.kind[i] !== Kind.Player || e.map[i] === NO_MAP) return { ok: false, code: 'nothing' };
     const m = e.map[i]!;
-    const item = () => { const t = this.nearestItem(i, 1.8, true); return t; };
+    const item = () => (target >= 0 ? target : this.nearestItem(i, 1.8, true));
     if (a === 'use') {
       if (item() >= 0) a = 'pickup';
       else if (this.nearWater(m, e.x[i]!, e.y[i]!) && e.thirst[i]! > 5) a = 'drink';

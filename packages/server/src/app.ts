@@ -472,6 +472,9 @@ export class App {
           if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
         }
         if (e.flags[player]! & EFlag.Sleeping) return w.brain.playerDo(player, 'sleep'); // asleep: A gets up
+        // The TV names what I aimed at (imad 2026-11-27: "only when touching it and facing it"): that thing and nothing else.
+        const aimed = /^(item|tile|bed|water|eat|horse)(?::(\d+)(?:,(\d+))?)?$/.exec(String(text ?? ''));
+        if (aimed) return this.takeAimed(player, name, aimed[1]!, Number(aimed[2] ?? -1), Number(aimed[3] ?? -1));
         if (w.brain.nearestItem(player, 1.4, true) < 0) { const bk = sv.boxNear(player, '', 2.2); if (bk >= 0) { const W = w.maps[e.map[player]!]!.tiles.w; return this.boxDo(player, `${bk % W},${(bk / W) | 0}`); } } // A next to my fridge / chest opens it
         if (w.brain.nearestItem(player, 1.4, true) < 0) { // A next to a bed I may use: lie down in it (imad 2026-11-26)
           const bd = sv.bedNear(player, 1.8);
@@ -715,6 +718,39 @@ export class App {
       if (Math.abs(da) <= cone || d < 0.9) { bd = d; best = j; }
     }
     return best;
+  }
+  /** The interact button on the one thing the TV aimed at: an item / pile (entity id), a tree / rock / rubble / herbs tile, a bed, the water, eat, a horse. */
+  private takeAimed(player: number, name: string, what: string, a: number, b: number): Record<string, unknown> {
+    const w = this.world, e = w.e, sv = w.survival, m = e.map[player]!, tm = w.maps[m]!.tiles, x = e.x[player]!, y = e.y[player]!;
+    const far = (tx: number, ty: number, r: number) => Math.hypot(tx - x, ty - y) > r;
+    switch (what) {
+      case 'item': {
+        const t = e.slot(a);
+        if (t < 0 || e.kind[t] !== Kind.Item || e.map[t] !== m || far(e.x[t]!, e.y[t]!, 2.2)) return { ok: false, code: 'nothing' };
+        return w.brain.playerDo(player, 'pickup', t);
+      }
+      case 'tile': {
+        if (!tm.inside(a, b) || far(a + 0.5, b + 0.5, 2.4)) return { ok: false, code: 'nothing' };
+        const now = Date.now();
+        if ((this.workAt.get(name) ?? 0) > now) return { ok: false, code: 'wait' };
+        const wk = sv.playerWork(player, b * tm.w + a);
+        if (!wk) return { ok: false, code: 'nothing' };
+        this.workAt.set(name, now + (wk.hard ? 1600 : 900));
+        w.gear.play(player, wk.code === 'chopped' ? 'chop' : wk.code === 'mined' ? 'mine' : 'use');
+        return { ok: !!wk.got, code: wk.code, got: wk.got };
+      }
+      case 'bed': {
+        const k = b * tm.w + a;
+        if (!tm.inside(a, b) || far(a + 0.5, b + 0.5, 2.4) || !sv.onBed(m, a + 0.5, b + 0.5) || !sv.homes.mayEnter(player, m, k)) return { ok: false, code: 'nothing' };
+        w.setPos(player, a + 0.5, b + 0.5); e.inX[player] = e.inY[player] = 0;
+        const r = w.brain.playerDo(player, 'sleep');
+        return r.ok ? { ok: true, code: 'bedSleep', x: a + 0.5, y: b + 0.5 } : r;
+      }
+      case 'water': return w.brain.playerDo(player, e.thirst[player]! > 5 ? 'drink' : 'fill');
+      case 'eat': return w.brain.playerDo(player, 'eat');
+      case 'horse': return w.horses.playerAct(player);
+    }
+    return { ok: false, code: 'nothing' };
   }
   /** The person (AI person or player) within `r` m in front of me (70 deg each side, or touching), or -1. */
   private personFront(i: number, a: number, r: number): number {
