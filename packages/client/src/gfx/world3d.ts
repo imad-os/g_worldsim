@@ -17,6 +17,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 /** Colours of dropped piles by kind. */
 const DROP_COLOR: Record<string, number> = { stone: 0x9a9690, brick: 0xa8553c, ore: 0x4f5f78, scrap: 0x8c6a4e, leather: 0xb07a45, claw: 0xece0c4, meat: 0xb8423c, food: 0xc4523f, water: 0x5aa8e0, other: 0x9a7448 };
 import { Anims } from './anims.js';
+import { Roofs } from './roofs.js';
 import { Hands } from './hands.js';
 import { LiveBow, BowShot } from './bow.js';
 
@@ -131,6 +132,10 @@ export class World3D {
   private aimK = 0;
   /** Distance behind the character in 'third'. */
   back = 7;
+  /** Roofs on huts and houses (gfx/roofs.ts); `roofs.mine` = the room I am in (third person: the camera stays under its ceiling). */
+  readonly roofs = new Roofs();
+  /** Third person indoors: the camera's distance behind and height, eased (it glides in under the ceiling and back out). */
+  private camB = -1; private camH = -1;
   private viewSet = '';
   private tier: Tier;
   private m = new Matrix4();
@@ -151,6 +156,7 @@ export class World3D {
     this.renderer.toneMapping = NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     const shadows = tier !== 'low';
+    this.roofs.shadows = shadows;
     if (shadows) {
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = tier === 'high' ? PCFSoftShadowMap : PCFShadowMap; // soft edges only on strong screens
@@ -164,7 +170,7 @@ export class World3D {
     this.scene.background = this.bg;
     this.fog = new Fog(this.bg, 60, 160);
     this.scene.fog = this.fog;
-    this.scene.add(this.hemi, this.sun, this.sun.target, this.lamp, this.chunks, this.portals);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.lamp, this.chunks, this.portals, this.roofs.group);
     // Beyond the map edge: dark forest floor instead of empty sky.
     this.under = new Mesh(new PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2), new MeshLambertMaterial({ color: 0x2e4a2a }));
     this.under.position.y = -0.8;
@@ -248,13 +254,13 @@ export class World3D {
   ghost(cells: number[] | null, ok = true, door: number[] | null = null): void {
     if (!cells) { if (this.ghostBox) this.ghostBox.visible = false; if (this.ghostArrow) this.ghostArrow.visible = false; return; }
     if (!this.ghostBox) {
-      this.ghostBox = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: 0x7cf09a, transparent: true, opacity: 0.42, depthWrite: false }), 40);
+      this.ghostBox = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: 0x7cf09a, transparent: true, opacity: 0.42, depthWrite: false }), 100);
       this.ghostBox.instanceMatrix.setUsage(DynamicDrawUsage); this.ghostBox.frustumCulled = false; this.ghostBox.renderOrder = 6;
       this.ghostArrow = new Mesh(new ConeGeometry(0.42, 0.9, 3).rotateX(Math.PI / 2).rotateY(Math.PI / 2), new MeshBasicMaterial({ color: 0xffd35a, transparent: true, opacity: 0.9, depthWrite: false }));
       this.ghostArrow.renderOrder = 7;
       this.scene.add(this.ghostBox, this.ghostArrow);
     }
-    const g = this.ghostBox, n = Math.min(40, (cells.length / 3) | 0);
+    const g = this.ghostBox, n = Math.min(100, (cells.length / 3) | 0);
     (g.material as MeshBasicMaterial).color.setHex(ok ? 0x7cf09a : 0xff5a4a);
     for (let k = 0; k < n; k++) {
       const h = Math.max(0.06, cells[k * 3 + 2]!);
@@ -306,6 +312,7 @@ export class World3D {
   /** A new map: water covers it, old chunks and portals go. */
   setMap(w: number, h: number, portals: GateSpec[]): void {
     this.clearChunks();
+    this.roofs.clear();
     this.water.scale.set(w, 1, h); this.water.position.set(w / 2, -0.14, h / 2);
     for (const c of this.portals.children.slice()) { this.portals.remove(c); dispose(c as Mesh); }
     for (const p of portals) this.portals.add(gateMesh(p, w, h, this.gateMat));
@@ -463,7 +470,23 @@ export class World3D {
       const ak = this.aimK, rx = -fz, rz = fx; // right of where I look
       if (this.view === 'third') {
         // Aiming: from behind (back, high) to just over the right shoulder, looking far down the arrow's line.
-        const b = this.back + (2.9 - this.back) * ak, side = 0.95 * ak, h = 1.4 + this.back * 0.42 + (1.72 - 1.4 - this.back * 0.42) * ak, ahead = 3 + 13 * ak;
+        let b = this.back + (2.9 - this.back) * ak, h = 1.4 + this.back * 0.42 + (1.72 - 1.4 - this.back * 0.42) * ak;
+        const side = 0.95 * ak, ahead = 3 + 13 * ak;
+        // Indoors (imad 2026-11-27: "in third person make it look good without the roof going see-through"): the camera comes in under
+        // the ceiling and no further back than the room's far wall, looking at me from inside the room.
+        const room = this.roofs.mine;
+        if (room) {
+          const pad = 0.32, lx = this.look.x, lz = this.look.z, bx = -fx, bz = -fz;
+          const ix0 = room.x0 + 0.5 + pad, ix1 = room.x1 + 0.5 - pad, iz0 = room.y0 + 0.5 + pad, iz1 = room.y1 + 0.5 - pad;
+          let tMax = b;
+          if (bx > 1e-4) tMax = Math.min(tMax, (ix1 - lx) / bx); else if (bx < -1e-4) tMax = Math.min(tMax, (ix0 - lx) / bx);
+          if (bz > 1e-4) tMax = Math.min(tMax, (iz1 - lz) / bz); else if (bz < -1e-4) tMax = Math.min(tMax, (iz0 - lz) / bz);
+          b = Math.max(0.6, tMax);
+          h = Math.min(h, room.h - 0.3, 1.45 + b * 0.3);
+        }
+        const kc = snap || this.camB < 0 ? 1 : 1 - Math.exp(-dt * 7);
+        this.camB = this.camB < 0 ? b : this.camB + (b - this.camB) * kc; this.camH = this.camH < 0 ? h : this.camH + (h - this.camH) * kc;
+        if (room) { b = Math.min(b, this.camB); h = Math.min(h, this.camH); } else { b = this.camB; h = this.camH; }
         this.camera.position.set(this.look.x - fx * b + rx * side, h, this.look.z - fz * b + rz * side);
         this.camera.lookAt(this.look.x + fx * ahead + rx * side * 0.35, 1.1 + 0.15 * ak, this.look.z + fz * ahead + rz * side * 0.35);
       } else {

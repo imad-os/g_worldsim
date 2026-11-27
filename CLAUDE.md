@@ -1072,3 +1072,20 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Restart notice: `restartSoon` sends Notice `restart` { why, who, in } to every TV and panel (`NetServer.toAll`), then restarts after
   `App.restartWarnMs` (5 s). TV: countdown note, keeps the world (no "no server" screen) for 5 min while it waits, "The server is back" on
   Welcome. Panel: `#restarting` banner, toast when connected again. Proof `ADMIN_TOKEN=... node tools/polish-proof.mjs <server> <sdk.js> <outdir>`.
+
+
+## Big house, thin tall walls, roofs (imad 2026-11-27)
+- **Big house** (protocol craft.ts `HOUSE_SIZE` 9, `HOUSE_NEED` 20 wood + 20 stone + 10 leather + 6 brick: every kind within the bag's 20; `DWELLINGS`,
+  `isDwelling`): a 7 x 7 room (twice the hut's 5 x 5 floor), its own door. A home like a hut (counts in `HUTS_PER_MAP`); `Survival.sizeOf` reads 5 / 7 / 9
+  from the walls, `dwellingOf(size)`; build event / refund / proof key `house`. TV: Build page row "Big house" (`bHouse`, code `needHouse`), the ghost and
+  door turning take the size (`sideOf`). AI: only when asked ("big house" words, skill build what "house", GOAP `build:house` = fact `+house`);
+  the camp's own hut goals stay huts.
+- **Thin, tall walls** (client only, tiles unchanged): `woodwall` = `HOME_WALL_H` 2.7 m (was 1.7), `HOME_WALL_T` 0.24 m slabs along the line to
+  thin-wall / door / window neighbours (`chunkmesh.ts thinWall`, boards on the sides); doors and windows in them get planks up to the top (`thinTop`),
+  windows turn with the wall. Collision is still the whole tile.
+- **Roofs** (`client/src/gfx/roofs.ts`, `World3D.roofs`): rooms found from the tiles (a filled floor rectangle closed by thin walls / doors / windows;
+  farm barns get them too), rescanned when a chunk mesh goes in (`roofScan`), dropped with the chunk. Gable roof, ridge along the door's wall,
+  shingle rows outside, boards inside (the ceiling), gable ends. Top view: the roof of the room I am in fades to `ROOF_FADE` 0.25 (imad's "0.8"
+  read as 80 % see-through: at 0.8 opacity you can't see yourself; say so if he wants it the other way). Third person indoors: the camera comes
+  under the ceiling and stays inside the room (`World3D.follow`, `camB` / `camH` eased); first person sees the ceiling. Test house.test.ts;
+  proof `ADMIN_TOKEN=... node tools/roof-proof.mjs <server> <sdk.js> <outdir>`.

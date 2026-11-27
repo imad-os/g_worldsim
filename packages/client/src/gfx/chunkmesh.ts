@@ -197,6 +197,51 @@ export function chunkGeo(d: ChunkData): ChunkGeo {
   return { ground: geo(d.ground)!, groundLo: geo(d.groundLo)!, props: geo(d.props), near: geo(d.near), far: geo(d.far), glow: geo(d.glow), pool: geo(d.pool) };
 }
 
+/** The tallest thin wall next to (lx, ly) and its thickness, or null (a door / window in a hut wall fills up to the wall's top). */
+function thinTop(lx: number, ly: number, at: TileAt, looks: Look[]): [number, number] | null {
+  let best: [number, number] | null = null;
+  for (const [dx, dy] of NB4) {
+    const id = at(lx + dx, ly + dy);
+    if (id < 0) continue;
+    const L = looks[id]!;
+    if (L.shape === Shape.Wall && L.thin && (!best || L.height > best[0])) best = [L.height, L.thin];
+  }
+  return best;
+}
+const NB4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+const WALL_C = new Color(), WALL_T = new Color();
+/**
+ * A thin plank wall (hut / house walls): a slab along the line to every neighbour it joins (thin walls, doors, windows), a post where
+ * it stands alone. Its sides are horizontal boards (alternating shades, darker towards the ground); the top is a capping beam.
+ */
+function thinWall(o: Out, L: Look, lx: number, ly: number, wx: number, wy: number, at: TileAt, looks: Look[], r1: number): void {
+  // 0 = no join, 1 = another thin wall, 2 = a door / window (the slab reaches 3 cm into its frame: no crack of light at the seam).
+  const link = (dx: number, dy: number) => {
+    const id = at(lx + dx, ly + dy);
+    if (id < 0) return 0;
+    const S = looks[id]!;
+    return S.shape === Shape.Wall && !!S.thin ? 1 : S.shape === Shape.Door || S.shape === Shape.Window ? 2 : 0;
+  };
+  const e = link(1, 0), w = link(-1, 0), s = link(0, 1), n = link(0, -1), X = (j: number) => (j === 2 ? 0.03 : 0);
+  const h = L.height, t2 = L.thin! / 2, cx = wx + 0.5, cz = wy + 0.5, v = 0.94 + r1 * 0.1;
+  colOf(L.side, WALL_C).multiplyScalar(v); colOf(L.top, WALL_T).multiplyScalar(v);
+  const ew = e || w, ns = n || s;
+  if (ew || !ns) slab(o, ew ? (w ? wx - X(w) : cx - t2) : cx - t2, ew ? (e ? wx + 1 + X(e) : cx + t2) : cx + t2, cz - t2, cz + t2, h, !w, !e, true, true);
+  if (ns) slab(o, cx - t2, cx + t2, n ? wy - X(n) : cz - t2, s ? wy + 1 + X(s) : cz + t2, h, true, true, !n, !s);
+}
+const BOARDS = 5;
+/** A box x0..x1, z0..z1, 0..h: top + the long sides as boards; the end faces only where asked (wx0 = west face, ...). */
+function slab(o: Out, x0: number, x1: number, z0: number, z1: number, h: number, fw: boolean, fe: boolean, fn: boolean, fs: boolean): void {
+  quad(o, x0, h, z1, x1, h, z1, x1, h, z0, x0, h, z0, 0, 1, 0, WALL_T, 1, 1);
+  for (let k = 0; k < BOARDS; k++) {
+    const y0 = (h * k) / BOARDS, y1 = (h * (k + 1)) / BOARDS, sh = (k & 1 ? 0.9 : 1) * (0.62 + 0.38 * (k / BOARDS)), sh1 = (k & 1 ? 0.9 : 1) * (0.62 + 0.38 * ((k + 0.85) / BOARDS));
+    if (fs) quad(o, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, WALL_C, sh, sh1);
+    if (fn) quad(o, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, WALL_C, sh, sh1);
+    if (fe) quad(o, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, WALL_C, sh * 0.95, sh1 * 0.95);
+    if (fw) quad(o, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, WALL_C, sh * 0.95, sh1 * 0.95);
+  }
+}
+
 export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hiDetail: boolean): ChunkData {
   const ox = cx * CHUNK_TILES, oy = cy * CHUNK_TILES;
   // ---------------------------------------------------------------- ground
@@ -221,7 +266,7 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       }
       acc.r += c.r; acc.g += c.g; acc.b += c.b;
       h += L.shape === Shape.Water ? WATER_BED : 0;
-      if (L.shape === Shape.Wall) wall = true;
+      if (L.shape === Shape.Wall && !L.thin) wall = true; // thin walls: no dark band at the foot (the floor runs up to them)
       if (L.ground === 0x6a6762 || L.ground === 0xb08a5f || L.shape === Shape.Water) flat = true; // road, floor, water: no bumps
       n++;
     }
@@ -241,7 +286,9 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
   for (let ly = 0; ly < CHUNK_TILES; ly++) for (let lx = 0; lx < CHUNK_TILES; lx++) {
     const id = at(lx, ly), L = looks[id]!, wx = ox + lx, wy = oy + ly;
     const r1 = hash2(wx, wy), r2 = hash2(wy + 17, wx - 3), r3 = hash2(wx * 3 + 7, wy * 5 + 1);
-    if (L.shape === Shape.Wall) {
+    if (L.shape === Shape.Wall && L.thin) {
+      thinWall(o, L, lx, ly, wx, wy, at, looks, r1);
+    } else if (L.shape === Shape.Wall) {
       const h = wallHeight(L, wx, wy);
       const v = 0.92 + r1 * 0.14;
       colOf(L.top, c).multiplyScalar(v);
@@ -376,20 +423,28 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
       let [px, pz] = at2(-0.44, 0); addTpl(o, t.box, place(px, 0, pz, 0, yaw, 0, 0.12, 1.85, 0.2), c, 0.6);
       [px, pz] = at2(0.44, 0); addTpl(o, t.box, place(px, 0, pz, 0, yaw, 0, 0.12, 1.85, 0.2), c, 0.6);
       addTpl(o, t.box, place(cx0, 1.78, cz0, 0, yaw, 0, 1, 0.14, 0.22), c, 0.8);
+      const top = thinTop(lx, ly, at, looks); // in a tall hut wall: planks over the door up to the wall's top
+      if (top && top[0] > 1.95) { colOf(0x7a5432, c); addTpl(o, t.box, place(cx0, 1.92, cz0, 0, yaw, 0, 1, top[0] - 1.92, top[1]), c, 0.9); }
       colOf(L.top, c);
       if (L.open) { [px, pz] = at2(-0.38, -0.4); addTpl(o, t.box, place(px, 0.03, pz, 0, yaw + Math.PI / 2, 0, 0.78, 1.7, 0.07), c, 0.7); }
       else {
-        addTpl(o, t.box, place(cx0, 0.03, cz0, 0, yaw, 0, 0.76, 1.7, 0.08), c, 0.7);
+        addTpl(o, t.box, place(cx0, 0.02, cz0, 0, yaw, 0, 0.8, 1.77, 0.08), c, 0.7); // the leaf fills the frame (no light round it)
         colOf(0x3b2a1a, c); [px, pz] = at2(0.24, 0); addTpl(o, t.box, place(px, 0.85, pz, 0, yaw, 0, 0.07, 0.07, 0.14), c, 0.9); // the handle
       }
     } else if (L.shape === Shape.Window) {
-      // A low plank wall, glass above it, posts and a beam.
+      // A low plank wall, glass above it, posts and a beam, in the line of the wall round it (turned by its neighbours, like a door);
+      // in a thin hut wall it is as thin as the wall and the planks go on up to the wall's top above it.
+      const wl = (x: number, y: number) => { const id2 = at(x, y); if (id2 < 0) return 0; const S = looks[id2]!.shape; return S === Shape.Wall || S === Shape.Door || S === Shape.Window ? 1 : 0; };
+      const vert = wl(lx, ly - 1) + wl(lx, ly + 1) > wl(lx - 1, ly) + wl(lx + 1, ly), yaw = vert ? Math.PI / 2 : 0;
+      const top = thinTop(lx, ly, at, looks), d = top ? top[1] : 0.92, cx0 = wx + 0.5, cz0 = wy + 0.5, cs = Math.cos(yaw), sn = Math.sin(yaw);
+      const at2 = (f: number): [number, number] => [cx0 + cs * f, cz0 - sn * f];
       colOf(L.side, c);
-      addTpl(o, t.box, place(wx + 0.5, 0, wy + 0.5, 0, 0, 0, 1, 0.8, 0.92), c, 0.6);
-      addTpl(o, t.box, place(wx + 0.06, 0.8, wy + 0.5, 0, 0, 0, 0.12, 0.9, 0.92), c, 0.8);
-      addTpl(o, t.box, place(wx + 0.94, 0.8, wy + 0.5, 0, 0, 0, 0.12, 0.9, 0.92), c, 0.8);
-      addTpl(o, t.box, place(wx + 0.5, 1.6, wy + 0.5, 0, 0, 0, 1, 0.12, 0.92), c, 0.85);
-      colOf(0x9fd4e8, c); addTpl(og, t.box, place(wx + 0.5, 0.8, wy + 0.5, 0, 0, 0, 0.78, 0.8, 0.04), c, 1);
+      addTpl(o, t.box, place(cx0, 0, cz0, 0, yaw, 0, 1, 0.8, d), c, 0.6);
+      let [px, pz] = at2(-0.44); addTpl(o, t.box, place(px, 0.8, pz, 0, yaw, 0, 0.12, 0.9, d), c, 0.8);
+      [px, pz] = at2(0.44); addTpl(o, t.box, place(px, 0.8, pz, 0, yaw, 0, 0.12, 0.9, d), c, 0.8);
+      addTpl(o, t.box, place(cx0, 1.6, cz0, 0, yaw, 0, 1, 0.12, d), c, 0.85);
+      if (top && top[0] > 1.75) addTpl(o, t.box, place(cx0, 1.72, cz0, 0, yaw, 0, 1, top[0] - 1.72, d), c, 0.9);
+      colOf(0x9fd4e8, c); addTpl(og, t.box, place(cx0, 0.8, cz0, 0, yaw, 0, 0.78, 0.8, 0.04), c, 1);
     } else if (L.shape === Shape.Bed) {
       // A bed a grown person fits in (imad 2026-11-25: "beds are tiny"): about 1 x 1.9 m, the head on this tile against the wall,
       // the foot reaching over the open floor next to it; a wooden frame, a red blanket, a pillow.

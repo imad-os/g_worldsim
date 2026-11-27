@@ -38,6 +38,18 @@ export const MEDKIT_HEAL = 45;
 export const HUT_SIZE = 7;
 // imad 2026-11-25: dear, so people live in the huts they have instead of leaving abandoned ones everywhere.
 export const HUT_NEED: Readonly<Record<string, number>> = { wood: 20, stone: 10, leather: 5 };
+/**
+ * A big house (imad 2026-11-27: "one more type of houses double in size than the hut, thin walls, a roof"): 9 x 9, a 7 x 7 room inside
+ * (twice the hut's 5 x 5 floor), its own door in the middle of one side. Dearer than a hut, every kind within what a bag holds (20).
+ */
+export const HOUSE_SIZE = 9;
+export const HOUSE_NEED: Readonly<Record<string, number>> = { wood: 20, stone: 20, leather: 10, brick: 6 };
+/** The buildings with walls and a roof: side length (tiles, walls included) and what they cost. */
+export const DWELLINGS: Readonly<Record<string, { size: number; need: Readonly<Record<string, number>> }>> = {
+  hut: { size: HUT_SIZE, need: HUT_NEED }, house: { size: HOUSE_SIZE, need: HOUSE_NEED },
+};
+/** Is `what` a building with walls and a roof (a hut or a house)? */
+export const isDwelling = (what: string): what is 'hut' | 'house' => what === 'hut' || what === 'house';
 export const PLACEABLE = ['palisade', 'spikes', 'stonewall', 'door', 'window', 'bed', 'lamp', 'campfire', 'fridge', 'chest'] as const;
 /** Furniture that goes only on a hut's floor (imad 2026-11-26). */
 export const INSIDE_ONLY: readonly string[] = ['fridge', 'chest'];

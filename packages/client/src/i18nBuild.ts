@@ -15,7 +15,7 @@ export const TB = {
     dTooFar: 'That is too far: aim closer to you.', dSomeone: 'Someone is standing there.', dDoorBlocked: 'The door would open onto a wall: turn it.',
     dDoorShut: 'This is not your home: its door opens only for the owner\'s family.', dHard: 'The rock is hard: keep hitting it.',
     dDoorClosed: 'The door is closed: press A to open it.', dHorseIn: 'Horses can\'t go inside: get off first.', dHutLimit: 'You already built 2 huts on this map (the most).',
-    bHut2: 'Hut ({0}, with its own door)', bHelp2: 'Pick what to build, then aim it: a see-through model shows where it goes (green = fine, red = not there). Move it with the stick or the arrows, turn a hut\'s door, and confirm. Things not in your bag are made from your materials first.',
+    bHut2: 'Hut ({0}, with its own door)', bHouse: 'Big house ({0}: twice the room of a hut, with its own door)', needHouse: 'A big house needs {0}.', bHelp2: 'Pick what to build, then aim it: a see-through model shows where it goes (green = fine, red = not there). Move it with the stick or the arrows, turn a hut\'s door, and confirm. Things not in your bag are made from your materials first.',
     meHut2: 'Build a hut here ({0})', needHut2: 'A hut needs {0}.',
   },
   fr: {
@@ -33,7 +33,7 @@ export const TB = {
     dTooFar: 'C\'est trop loin : vise plus près de toi.', dSomeone: 'Quelqu\'un se tient là.', dDoorBlocked: 'La porte donnerait sur un mur : tourne-la.',
     dDoorShut: 'Ce n\'est pas ta maison : sa porte ne s\'ouvre que pour la famille du propriétaire.', dHard: 'La roche est dure : continue de frapper.',
     dDoorClosed: 'La porte est fermée : appuie sur A pour l\'ouvrir.', dHorseIn: 'Les chevaux n\'entrent pas : descends d\'abord.', dHutLimit: 'Tu as déjà construit 2 cabanes sur cette carte (le maximum).',
-    bHut2: 'Cabane ({0}, avec sa porte)', bHelp2: 'Choisis quoi construire, puis vise : un modèle transparent montre où il ira (vert = bon, rouge = impossible). Déplace-le avec le stick ou les flèches, tourne la porte d\'une cabane, puis confirme. Ce qui n\'est pas dans ton sac est d\'abord fabriqué avec tes matériaux.',
+    bHut2: 'Cabane ({0}, avec sa porte)', bHouse: 'Grande maison ({0} : deux fois la place d\'une cabane, avec sa porte)', needHouse: 'Une grande maison demande {0}.', bHelp2: 'Choisis quoi construire, puis vise : un modèle transparent montre où il ira (vert = bon, rouge = impossible). Déplace-le avec le stick ou les flèches, tourne la porte d\'une cabane, puis confirme. Ce qui n\'est pas dans ton sac est d\'abord fabriqué avec tes matériaux.',
     meHut2: 'Construire une cabane ici ({0})', needHut2: 'Une cabane demande {0}.',
   },
   es: {
@@ -51,7 +51,7 @@ export const TB = {
     dTooFar: 'Está demasiado lejos: apunta más cerca.', dSomeone: 'Hay alguien ahí.', dDoorBlocked: 'La puerta daría a una pared: gírala.',
     dDoorShut: 'No es tu casa: su puerta solo se abre para la familia del dueño.', dHard: 'La roca es dura: sigue golpeando.',
     dDoorClosed: 'La puerta está cerrada: pulsa A para abrirla.', dHorseIn: 'Los caballos no pueden entrar: bájate primero.', dHutLimit: 'Ya construiste 2 cabañas en este mapa (el máximo).',
-    bHut2: 'Cabaña ({0}, con su puerta)', bHelp2: 'Elige qué construir y apunta: un modelo transparente muestra dónde irá (verde = bien, rojo = no). Muévelo con el stick o las flechas, gira la puerta de una cabaña y confirma. Lo que no está en tu bolsa se hace antes con tus materiales.',
+    bHut2: 'Cabaña ({0}, con su puerta)', bHouse: 'Casa grande ({0}: el doble de sitio que una cabaña, con su puerta)', needHouse: 'Una casa grande necesita {0}.', bHelp2: 'Elige qué construir y apunta: un modelo transparente muestra dónde irá (verde = bien, rojo = no). Muévelo con el stick o las flechas, gira la puerta de una cabaña y confirma. Lo que no está en tu bolsa se hace antes con tus materiales.',
     meHut2: 'Construir una cabaña aquí ({0})', needHut2: 'Una cabaña necesita {0}.',
   },
   ar: {
@@ -69,7 +69,7 @@ export const TB = {
     dTooFar: 'هذا بعيد جدا: صوب أقرب إليك.', dSomeone: 'هناك شخص واقف.', dDoorBlocked: 'سيفتح الباب على جدار: أدره.',
     dDoorShut: 'هذا ليس بيتك: بابه لا يفتح إلا لعائلة صاحبه.', dHard: 'الصخرة صلبة: واصل الضرب.',
     dDoorClosed: 'الباب مغلق: اضغط A لفتحه.', dHorseIn: 'الخيول لا تدخل: انزل أولًا.', dHutLimit: 'بنيت كوخين على هذه الخريطة (الحد الأقصى).',
-    bHut2: 'كوخ ({0}، مع بابه)', bHelp2: 'اختر ما تبنيه ثم صوب: نموذج شفاف يبين مكانه (أخضر = جيد، أحمر = لا). حركه بالعصا أو الأسهم، أدر باب الكوخ، ثم أكد. ما ليس في حقيبتك يصنع أولا من موادك.',
+    bHut2: 'كوخ ({0}، مع بابه)', bHouse: 'بيت كبير ({0}: ضعف مساحة الكوخ، مع بابه)', needHouse: 'البيت الكبير يحتاج {0}.', bHelp2: 'اختر ما تبنيه ثم صوب: نموذج شفاف يبين مكانه (أخضر = جيد، أحمر = لا). حركه بالعصا أو الأسهم، أدر باب الكوخ، ثم أكد. ما ليس في حقيبتك يصنع أولا من موادك.',
     meHut2: 'ابن كوخا هنا ({0})', needHut2: 'الكوخ يحتاج {0}.',
   },
 } as const;

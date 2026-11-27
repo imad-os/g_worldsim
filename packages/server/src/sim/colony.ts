@@ -1,4 +1,4 @@
-import { Kind, RECIPES_ALL, PLACEABLE, WEAPONS, HUT_NEED } from '@worldsim/protocol';
+import { Kind, RECIPES_ALL, PLACEABLE, WEAPONS, HUT_NEED, HOUSE_NEED } from '@worldsim/protocol';
 import { compress, plan, type Facts, type GAction } from './goap.js';
 import type { Step } from './tasks.js';
 import type { World } from './world.js';
@@ -230,7 +230,11 @@ export class Colony {
     // Building at the camp.
     const toCamp = tr(dCamp);
     if (sv.enabled) {
-      if (sv.homes.builtBy(e.id(i), m) < HUTS_PER_MAP) add('build:hut', { use: { ...HUT_NEED }, add: { '+hut': 1 }, step: { do: 'build', what: 'hut' } }, () => WORK.hut + toCamp);
+      if (sv.homes.builtBy(e.id(i), m) < HUTS_PER_MAP) {
+        add('build:hut', { use: { ...HUT_NEED }, add: { '+hut': 1 }, step: { do: 'build', what: 'hut' } }, () => WORK.hut + toCamp);
+        // The big house (imad 2026-11-27): only when someone asks for one (its own fact, so the camp's hut goals never pay double).
+        add('build:house', { use: { ...HOUSE_NEED }, add: { '+house': 1 }, step: { do: 'build', what: 'house' } }, () => WORK.hut * 2 + toCamp);
+      }
       add('build:campfire', { use: { wood: 3, stone: 2 }, add: { fire: 1, fuel: 10, '+fire': 1 }, step: { do: 'build', what: 'campfire' } }, () => WORK.fire + toCamp);
       add('tend', { pre: { fire: 1 }, use: { wood: 1 }, add: { fuel: 4 }, step: { do: 'tend', unit: 'fuel' } }, () => WORK.tend + toCamp);
       add('repair', { use: { wood: 1, broken: 1 }, add: { '+repaired': 1 }, step: { do: 'repair' } }, () => WORK.repair + toCamp);
@@ -287,7 +291,7 @@ export class Colony {
    */
   planTo(i: number, kind: 'craft' | 'build', what: string): Step[] | string {
     const sv = this.w.survival, have = sv.inv(i)[what] ?? 0;
-    const fact = what === 'hut' ? '+hut' : what === 'campfire' ? '+fire' : what === 'palisade' || what === 'stonewall' ? '+wall' : '+' + what;
+    const fact = what === 'hut' ? '+hut' : what === 'house' ? '+house' : what === 'campfire' ? '+fire' : what === 'palisade' || what === 'stonewall' ? '+wall' : '+' + what;
     const want: Facts[] = kind === 'craft' ? [{ [what]: have + 1 }] : [{ [fact]: 1 }];
     const p = this.planFor(i, { name: 'asked', text: what, want, value: 1, trait: 'intelligence', crew: 1 });
     if (p) return p.steps;

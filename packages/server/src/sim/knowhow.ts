@@ -3,7 +3,7 @@
  * and people must be aware of its benefits and how to use it"). The phrases are ONE table in protocol/items.ts (the TV's bag shows
  * them too); this file turns them into prompt lines: the whole know-how once per request, and per person what they own and use.
  */
-import { ITEM_INFO, itemText, RECIPES_ALL, HUT_NEED } from '@worldsim/protocol';
+import { ITEM_INFO, itemText, RECIPES_ALL, HUT_NEED, HOUSE_NEED } from '@worldsim/protocol';
 import type { World } from './world.js';
 
 const ORDER: string[] = ['material', 'food', 'weapon', 'wear', 'healing', 'defence', 'furniture', 'building', 'animal'];
@@ -37,6 +37,7 @@ const ALIAS: Record<string, string> = { field: 'farm', store: 'crate', 'first-ai
 /** What a thing costs: "2 wood + 1 leather" (both ways for a spear), '' = nothing to make. */
 export function recipeOf(id: string): string {
   if (id === 'hut') return Object.entries(HUT_NEED).map(([k, n]) => `${n} ${k}`).join(' + ');
+  if (id === 'house') return Object.entries(HOUSE_NEED).map(([k, n]) => `${n} ${k}`).join(' + ');
   return RECIPES_ALL.filter((r) => r.what === id).map((r) => Object.entries(r.need).map(([k, n]) => `${n} ${k}`).join(' + ')).join(' or ');
 }
 /** One short line for a thing: "axe (1 wood + 1 stone): chops trees for 2 wood a blow ...". */

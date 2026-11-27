@@ -120,6 +120,7 @@ function askedWork0(text: string): { task: string; steps: Step[] } | null {
       : (['palisade', 'spikes', 'stonewall', 'door', 'window', 'bed', 'lamp'].find((x) => t.includes(x)) ?? '');
     return { task: what ? 'pull down my ' + what : 'pull down what I built', steps: [{ do: 'destroy', what }] };
   }
+  if (/\b(big|large) house\b|\bgrande maison\b|\bcasa grande\b|بيت كبير|منزل كبير|دار كبيرة/.test(t) && /\b(build|make|construct|construis|construisez|fais|faire|construye|construir|haz|hacer)\b|ابن|إبن|اصنع|بناء|ابني/.test(t)) return { task: 'build a big house', steps: [{ do: 'build', what: 'house' }] };
   if (/\b(hut|house|home|shelter|cabin|cabane|maison|abri|casa|caba[ñn]a|refugio)\b|بيت|منزل|كوخ|مأوى/.test(t) && /\b(build|make|construct|construis|construisez|fais|faire|construye|construir|haz|hacer)\b|ابن|إبن|اصنع|بناء|ابني/.test(t)) return { task: 'build a hut', steps: [{ do: 'build', what: 'hut' }] };
   if (/\b(fire|campfire|feu|fuego|hoguera|fogata)\b|نار/.test(t)) {
     if (/\b(feed|keep|add wood|alimente|entretiens|mets du bois|aviva|mant[eé]n)\b|زد|أضف/.test(t)) return { task: 'keep the fire going', steps: [{ do: 'tend' }] };
@@ -773,7 +774,7 @@ export class Planner {
         + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
         + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, explore {"what": "woods" | "near" | "", "times"} (an expedition to places few have seen: woods = into the wild by day, near = round the camp; you come back and tell what you found: brave explorers are respected), tame {} (go to where wild horses live, walk calmly up to one and tame it), ride {"what": "home" | a place} (get on your horse, it comes when you whistle, and ride there: much faster than walking; after tame, add ride home), hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
         + 'craft {"what": "axe" | "spear" | "sword" | "bow" | "arrows" | "clothes" | "armor" | "helmet" | "medkit"}, '
-        + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
+        + 'build {"what": "campfire" | "hut" | "house" (a big house: twice the room, twice the cost) | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
         + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), destroy {"what": "hut" | "lamp" | "bed" | "palisade" | "fire" | "field" | ""} (pull down something YOU built, or whose owner is dead; never someone else\'s), '
         + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}, npc {"what": "guide" | "smith" | "hunter" | "warden" | "registrar" | "mayor" | "healer" | "farmer" | "ranger" | "builder"} (walk to a teacher and talk: take or hand in a quest; the last five live in Ridgeford), '

@@ -437,8 +437,8 @@ export class App {
         const at = /#(\d+),(\d+)(?:,(\d))?$/.exec(raw);
         const an0 = ang(raw.includes('@') ? raw : '');
         if (Number.isFinite(an0)) e.angle[player] = an0;
-        const put = (): string => at ? sv.placeAt(player, what, Number(at[1]), Number(at[2]), Number(at[3] ?? 0)) : what === 'hut' ? sv.playerHut(player) : sv.placeFront(player, what);
-        if (what === 'hut') { const c = put(); return { ok: c === 'built', code: c, item: what }; }
+        const put = (): string => at ? sv.placeAt(player, what, Number(at[1]), Number(at[2]), Number(at[3] ?? 0)) : what === 'hut' || what === 'house' ? sv.playerHut(player, what) : sv.placeFront(player, what);
+        if (what === 'hut' || what === 'house') { const c = put(); return { ok: c === 'built', code: c, item: what }; }
         if ((sv.inv(player)[what] ?? 0) < 1) {
           const r = RECIPES_ALL.find((q) => q.what === what && (PLACEABLE as readonly string[]).includes(q.what));
           if (!r) return { ok: false, code: 'nothing', item: what };

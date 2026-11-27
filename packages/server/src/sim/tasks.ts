@@ -63,6 +63,7 @@ export function thingOf(q0: string, kind: 'craft' | 'build'): string {
     [/palisade|fence|barricade|palissade|cerca|valla|سياج|حاجز/, 'palisade'], [/spike|pieu|estaca|أوتاد|شوك/, 'spikes'], [/stone ?wall|brick ?wall|mur de pierre|muro de piedra|جدار حجر/, 'stonewall'], [/\bwall|\bmur\b|muro|muralla|جدار|سور/, 'palisade'],
     [/door|porte|puerta|باب/, 'door'], [/window|fenêtre|fenetre|ventana|نافذة|شباك/, 'window'], [/\bbed|\blit\b|cama|سرير/, 'bed'], [/lamp|light|lantern|lampe|lanterne|lámpara|lampara|farol|مصباح|فانوس/, 'lamp'],
     [/fridge|refrigerator|frigo|réfrigérateur|nevera|refrigerador|ثلاجة|براد/, 'fridge'], [/chest|coffre|cofre|baúl|baul|صندوق/, 'chest'],
+    [/^house$|big house|large house|grande maison|casa grande|بيت كبير|منزل كبير|دار كبيرة/, 'house'], // the big house (9 x 9); a plain "house" in words stays a hut
     [/hut|house|home|shelter|cabane|maison|abri|casa|cabaña|refugio|بيت|منزل|كوخ/, 'hut'], [/fire|feu|fuego|campfire|نار/, 'campfire'],
   ];
   for (const [re, v] of T) if (re.test(q)) return v;

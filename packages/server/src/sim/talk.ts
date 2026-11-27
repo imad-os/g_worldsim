@@ -129,7 +129,7 @@ export class Talk {
       }
       case 'bitten': if (Number(d.hp ?? 100) < 40) { const id = Number(d.id), [m, x, y] = this.slotPos(id); this.witness(m, x, y, 20, `hurt:${id}:${Math.floor(w.gameSec / 3600)}`, `${this.nm(id)} was badly hurt by ${d.animal ? `a ${String(d.animal)}` : 'a zombie'}`, 5, [id], [id]); } break;
       case 'duel': { const a = Number(d.a), b = Number(d.b), [m, x, y] = this.slotPos(a); this.witness(m, x, y, 20, `duel:${Math.min(a, b)}:${Math.max(a, b)}:${Math.floor(w.gameSec / 3600)}`, `${this.nm(a)} and ${this.nm(b)} came to blows`, 4, [a, b]); break; }
-      case 'build': if (d.what === 'hut' && Number(d.id ?? -1) >= 0) this.seed(Number(d.id), `hut:${d.id}:${d.tx}:${d.ty}`, `${this.nm(Number(d.id))} built a new hut`, 3, [Number(d.id)]); break;
+      case 'build': if ((d.what === 'hut' || d.what === 'house') && Number(d.id ?? -1) >= 0) this.seed(Number(d.id), `hut:${d.id}:${d.tx}:${d.ty}`, `${this.nm(Number(d.id))} built a new ${String(d.what)}`, 3, [Number(d.id)]); break;
       case 'trespass': { // territory (sim/territory.ts, another module): an intruder was warned off a clan's camp
         const id = Number(d.id ?? -1), [m, x, y] = this.slotPos(id);
         if (id >= 0) this.witness(m, x, y, 25, `trespass:${id}:${Math.floor(w.gameSec / 3600)}`, `${this.nm(id)} was chased out of ${String(d.clan ?? 'a clan')}'s camp`, 5, [id]);

@@ -6,8 +6,13 @@ import type { TileTypeInfo } from '@worldsim/protocol';
  */
 export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14, Herbs = 15, Fridge = 16, Chest = 17, Fence = 18, Stall = 19 }
 
-/** `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides. */
-export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean; open?: boolean }
+/**
+ * `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides; `thin`: a thin wall (m thick) along the line to its
+ * wall / door / window neighbours instead of a whole-tile block (hut and house walls, imad 2026-11-27: "thin and taller, with roofs").
+ */
+export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean; open?: boolean; thin?: number }
+/** Hut and house walls: how tall (m; was 1.7) and how thick (m; was a whole 1 m tile). The roof sits on top (gfx/roofs.ts). */
+export const HOME_WALL_H = 2.7, HOME_WALL_T = 0.24;
 
 /** Ground of the horse field (grass tufts like grass, no dry patches). */
 export const PASTURE = 0x80b45a;
@@ -22,7 +27,7 @@ const BY_NAME: Record<string, Look> = {
   wall: { shape: Shape.Wall, ground: 0x8d877e, top: 0xc2b8aa, side: 0xa69b8d, height: 2.3 },
   tree: { shape: Shape.Tree, ground: 0x5e8f45, top: 0x4f9440, side: 0x6b4a2f, height: 0 },
   rubble: { shape: Shape.Rubble, ground: 0x908779, top: 0x9b9283, side: 0, height: 0 },
-  woodwall: { shape: Shape.Wall, ground: 0x8a6a48, top: 0x8b6239, side: 0x7a5432, height: 1.7, even: true, planks: true },
+  woodwall: { shape: Shape.Wall, ground: 0x8a6a48, top: 0x8b6239, side: 0x7a5432, height: HOME_WALL_H, even: true, planks: true, thin: HOME_WALL_T },
   campfire: { shape: Shape.Fire, ground: 0x8d7a62, top: 0x8f8a82, side: 0x5b3a22, height: 0 },
   ashes: { shape: Shape.Ashes, ground: 0x6f6a63, top: 0x3d3a37, side: 0x4a3524, height: 0 },
   crate: { shape: Shape.Wall, ground: 0x8a6a48, top: 0xa47a48, side: 0x8b6239, height: 0.8, even: true, planks: true },

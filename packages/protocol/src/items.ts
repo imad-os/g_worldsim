@@ -176,6 +176,11 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     fr: 'Cabane : une maison avec un toit et sa porte, où votre famille dort en sécurité ; dedans, le froid est 80 % plus faible. 20 bois + 10 pierres + 5 cuirs, à côté des autres cabanes du camp (serrées = plus faciles à défendre).',
     es: 'Cabaña: un hogar con techo y su propia puerta, donde tu familia duerme a salvo; dentro, el frío es un 80 % más débil. 20 madera + 10 piedra + 5 cuero, junto a las otras cabañas del campamento (juntas = más fáciles de defender).',
     ar: 'الكوخ: بيت بسقف وباب خاص تنام فيه عائلتك بأمان؛ في داخله يضعف البرد 80 %. 20 خشب + 10 حجر + 5 جلد؛ ابنه بجانب أكواخ المخيم الأخرى (المتقاربة أسهل في الدفاع).' } },
+  house: { kind: 'building', text: {
+    en: 'Big house: twice the room of a hut (9 x 9, a 7 x 7 room under one roof) with its own door, for a big family: beds, fridges and chests for everyone. 20 wood + 20 stone + 10 leather + 6 bricks.',
+    fr: 'Grande maison : deux fois la place d\'une cabane (9 x 9, une pièce de 7 x 7 sous un toit) avec sa porte, pour une grande famille : des lits, frigos et coffres pour tous. 20 bois + 20 pierres + 10 cuirs + 6 briques.',
+    es: 'Casa grande: el doble de sitio que una cabaña (9 x 9, una sala de 7 x 7 bajo un techo) con su puerta, para una familia grande: camas, neveras y cofres para todos. 20 madera + 20 piedra + 10 cuero + 6 ladrillos.',
+    ar: 'البيت الكبير: ضعف مساحة الكوخ (9 × 9، غرفة 7 × 7 تحت سقف واحد) بباب خاص، لعائلة كبيرة: أسرّة وثلاجات وصناديق للجميع. 20 خشب + 20 حجر + 10 جلد + 6 طوب.' } },
   crate: { kind: 'building', text: {
     en: 'The camp\'s store: food, wood, stone and scrap kept for everyone. Put what you carry in it, take from it when in need.',
     fr: 'La réserve du camp : nourriture, bois, pierre et ferraille pour tous. Déposez-y ce que vous portez, prenez-y en cas de besoin.',

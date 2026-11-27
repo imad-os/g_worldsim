@@ -4,7 +4,7 @@ import {
 } from '@worldsim/protocol';
 import { Color } from 'three';
 import { t, tf, setLang, type Key } from './i18n.js';
-import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, boxHolds, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, HUT_SIZE, HOUSE_NEED, DWELLINGS, isDwelling, INSIDE_ONLY, BOX_CAP, boxHolds, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { World3D, type Tier, type ChunkView } from './gfx/world3d.js';
 import { DynRes } from './gfx/dynres.js';
 import { buildChunk, chunkGeo, type ChunkData } from './gfx/chunkmesh.js';
@@ -470,6 +470,7 @@ function onMsg(m: ServerMsg): void {
       if (m.map !== map) break;
       for (const k of m.keys) {
         tilesOf.delete(k);
+        g3?.roofs.drop(k & 0xffff, k >>> 16);
         const g = meshOf.get(k);
         if (g) { g3?.removeChunk(g); meshOf.delete(k); }
       }
@@ -570,8 +571,11 @@ function chunkDone(m: { id: number; data?: ChunkData; error?: string }): void {
   const old = meshOf.get(j.k);
   if (old) g3.removeChunk(old);
   meshOf.set(j.k, g3.addChunk(chunkGeo(m.data), j.k & 0xffff, j.k >>> 16));
+  roofScan(j.k);
   noteChunkMs(performance.now() - t0);
 }
+/** Rooms (huts, houses) round chunk k get their roofs once its mesh is in (gfx/roofs.ts). */
+function roofScan(k: number): void { if (!g3) return; g3.roofs.setLooks(looks); g3.roofs.rescan(k & 0xffff, k >>> 16, tileUnder); }
 function noteChunkMs(ms: number): void { chunkMs.total += ms; chunkMs.n++; if (ms > chunkMs.max) chunkMs.max = ms; }
 /** The chunk's tiles with a border from its neighbours (-1 where none has arrived). */
 function tileWindow(k: number): Int16Array {
@@ -602,6 +606,7 @@ function buildOne(): void {
   const old = meshOf.get(k);
   if (old) g3.removeChunk(old);
   meshOf.set(k, g3.addChunk(chunkGeo(buildChunk(k & 0xffff, k >>> 16, (lx, ly) => tileAt(k, lx, ly), looks, hi)), k & 0xffff, k >>> 16));
+  roofScan(k);
   noteChunkMs(performance.now() - t0);
 }
 
@@ -1030,7 +1035,8 @@ const WALLISH = new Set(['woodwall', 'palisade', 'stonewall', 'floor']);
 /** How tall each thing's model is (0 = flat). */
 const GHOST_H: Record<string, number> = { palisade: 1.3, spikes: 0.5, stonewall: 1.3, door: 1.5, window: 1.2, bed: 0.35, lamp: 1.6, campfire: 0.3, fridge: 1.7, chest: 0.6 };
 /** A hut's size (7 x 7 since imad 2026-11-26) and half of it. */
-const HS = HUT_SIZE, HH = (HUT_SIZE - 1) >> 1;
+/** A building's side (a hut 7, the big house 9) and half of it; 1 for a thing. */
+const sideOf = (what: string) => DWELLINGS[what]?.size ?? 1, halfOf = (what: string) => (sideOf(what) - 1) >> 1;
 function startPlacing(what: string): void {
   if (how !== 'play' || !playing()) return;
   menu.close();
@@ -1038,11 +1044,11 @@ function startPlacing(what: string): void {
   if (aimOn) setAim(false);
   const a = myAng(), x = focusX(), y = focusY();
   held.left = held.right = held.up = held.down = false; padHeld.left = padHeld.right = padHeld.up = padHeld.down = false; runHeld = false;
-  if (what === 'hut') {
-    const cx = x + Math.cos(a) * (HH + 2.5), cy = y + Math.sin(a) * (HH + 2.5);
+  if (isDwelling(what)) {
+    const H = halfOf(what), cx = x + Math.cos(a) * (H + 2.5), cy = y + Math.sin(a) * (H + 2.5);
     // The door faces me.
     const dx = x - cx, dy = y - cy, dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : dy > 0 ? 0 : 2;
-    placing = { what, tx: Math.floor(cx - HH), ty: Math.floor(cy - HH), dir, moveAt: 0, sent: false };
+    placing = { what, tx: Math.floor(cx - H), ty: Math.floor(cy - H), dir, moveAt: 0, sent: false };
   } else placing = { what, tx: Math.floor(x + Math.cos(a) * 1.6), ty: Math.floor(y + Math.sin(a) * 1.6), dir: 0, moveAt: 0, sent: false };
   sound.play('ui_open');
   askDestroy();
@@ -1069,7 +1075,8 @@ function placeCheck(p: NonNullable<typeof placing>): string {
     for (let i = 0; i < CAP; i++) if (eid[i] !== -1 && (kind[i] === Kind.Agent || kind[i] === Kind.Player) && Math.abs(nx[i]! - tx - 0.5) < 0.9 && Math.abs(ny[i]! - ty - 0.5) < 0.9) return true;
     return false;
   };
-  if (p.what === 'hut') {
+  if (isDwelling(p.what)) {
+    const HS = sideOf(p.what), HH = halfOf(p.what);
     const cx = Math.max(p.tx, Math.min(p.tx + HS - 1, x - 0.5)), cy = Math.max(p.ty, Math.min(p.ty + HS - 1, y - 0.5));
     if (Math.hypot(cx + 0.5 - x, cy + 0.5 - y) > PLACE_REACH) return 'tooFar';
     const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + HH + dx * HH, dY = p.ty + HH + dy * HH;
@@ -1103,15 +1110,16 @@ function placeNote(): void {
     note(`${tf('plTitle', t('bDestroy'))} · ${why} — ${keys}`, 0);
     return;
   }
-  const c = placeCheck(placing), name = placing.what === 'hut' ? t('bHut2').replace(/ \(.*$/, '') : cap1(thing(placing.what));
-  const keys = pads ? tf('plPad', String(MyPC.gamepad?.label?.(0) ?? 'A'), placing.what === 'hut' ? `${String(MyPC.gamepad?.label?.(2) ?? 'X')} / ${keyName('build') || 'Y'}` : '—', String(MyPC.gamepad?.label?.(1) ?? 'B'))
-    : tf('plRemote', placing.what === 'hut' ? (keyName('build') || 'CH+') : '—');
-  const door = placing.what === 'hut' ? ' · ' + tf('plDoor', t((['dirS', 'dirE', 'dirN', 'dirW'] as const)[placing.dir]!)) : '';
+  const dw = isDwelling(placing.what);
+  const c = placeCheck(placing), name = placing.what === 'hut' ? t('bHut2').replace(/ \(.*$/, '') : placing.what === 'house' ? t('bHouse').replace(/ \(.*$/, '') : cap1(thing(placing.what));
+  const keys = pads ? tf('plPad', String(MyPC.gamepad?.label?.(0) ?? 'A'), dw ? `${String(MyPC.gamepad?.label?.(2) ?? 'X')} / ${keyName('build') || 'Y'}` : '—', String(MyPC.gamepad?.label?.(1) ?? 'B'))
+    : tf('plRemote', dw ? (keyName('build') || 'CH+') : '—');
+  const door = dw ? ' · ' + tf('plDoor', t((['dirS', 'dirE', 'dirN', 'dirW'] as const)[placing.dir]!)) : '';
   note(`${tf('plTitle', name)} · ${c ? tf('plBad', t(PLACE_CODE[c] ?? 'cNoRoom')) : t('plOk')}${door} — ${keys}`, 0);
 }
 function placeMove(dx: number, dy: number): void {
   if (!placing) return;
-  const p = placing, w = p.what === 'hut' ? HS : 1;
+  const p = placing, w = sideOf(p.what);
   const nxp = Math.max(0, Math.min(mapW - w, p.tx + dx)), nyp = Math.max(0, Math.min(mapH - w, p.ty + dy));
   // Never further than the reach (plus the hut's size).
   const cx = nxp + w / 2, cy = nyp + w / 2;
@@ -1121,7 +1129,7 @@ function placeMove(dx: number, dy: number): void {
   askDestroy();
   placeNote();
 }
-function placeTurn(): void { if (!placing || placing.what !== 'hut') return; placing.dir = (placing.dir + 1) % 4; sound.play('ui_move'); placeNote(); }
+function placeTurn(): void { if (!placing || !isDwelling(placing.what)) return; placing.dir = (placing.dir + 1) % 4; sound.play('ui_move'); placeNote(); }
 function placeConfirm(): void {
   if (!placing || placing.sent) return;
   const c = placeCheck(placing);
@@ -1163,7 +1171,8 @@ function drawGhost(): void {
     g3.ghost(cells, ok);
     return;
   }
-  if (p.what === 'hut') {
+  if (isDwelling(p.what)) {
+    const HS = sideOf(p.what), HH = halfOf(p.what);
     const [dx, dy] = PDIRS[p.dir]!, dX = p.tx + HH + dx * HH, dY = p.ty + HH + dy * HH;
     for (let yy = 0; yy < HS; yy++) for (let xx = 0; xx < HS; xx++) {
       const X = p.tx + xx, Y = p.ty + yy, edge = xx === 0 || yy === 0 || xx === HS - 1 || yy === HS - 1;
@@ -1654,6 +1663,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     const why: Record<string, Key> = { tooFar: 'dTooFar', someone: 'dSomeone', doorBlocked: 'dDoorBlocked' };
     if (why[d.code]) { sound.play('ui_error'); note(t(why[d.code]!), 3000); return; }
     if (d.code === 'needHut') { sound.play('ui_error'); note(tf('needHut2', needText(HUT_NEED)), 3500); return; }
+    if (d.code === 'needHouse') { sound.play('ui_error'); note(tf('needHouse', needText(HOUSE_NEED)), 3500); return; }
   }
   if (d.a === 'shoot') { sound.play('bow_shot'); if (d.ok) setTimeout(() => sound.play('arrow_hit'), 110); }
   else if (DID_SOUND[d.code]) sound.play(DID_SOUND[d.code]!, undefined, undefined, d.code === 'zKilled' ? 0.9 : 1);
@@ -1839,6 +1849,8 @@ function buildPage(id: string): Page {
       const inv = meNeeds?.inv ?? {};
       const hutOk = Object.entries(HUT_NEED).every(([k, n]) => (inv[k] ?? 0) >= n);
       rows.push({ id: 'b:hut', label: tf('bHut2', needText(HUT_NEED)), value: hutOk ? t('cHave') : t('bMissing'), dim: !hutOk });
+      const houseOk = Object.entries(HOUSE_NEED).every(([k, n]) => (inv[k] ?? 0) >= n);
+      rows.push({ id: 'b:house', label: tf('bHouse', needText(HOUSE_NEED)), value: houseOk ? t('cHave') : t('bMissing'), dim: !houseOk });
       for (const p of PLACEABLE) {
         const r = RECIPES_ALL.find((q) => q.what === p);
         const have = inv[p] ?? 0, can = !!r && Object.entries(r.need).every(([k, n]) => (inv[k] ?? 0) >= n!);
@@ -2313,6 +2325,8 @@ function draw(now: number, dt: number): void {
   const fx = focusX(), fy = focusY();
   g3.view = rp || !playing() || !predOk ? 'top' : camView;
   g3.yaw = yaw;
+  g3.roofs.setLooks(looks);
+  g3.roofs.update(fx, fy, g3.view === 'top', dt); // my room's roof fades from above; third person stays under its ceiling
   g3.follow(fx, fy, dt, snapCam);
   snapCam = false;
   const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed;

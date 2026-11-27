@@ -1,4 +1,4 @@
-import { Act, ANIMAL_NAMES, Kind, dropSub, dropKindOf, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, HANDS, WATER_FILL, WATER_DRINK, boxHolds, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, Kind, dropSub, dropKindOf, HUT_NEED, HUT_SIZE, HOUSE_NEED, HOUSE_SIZE, DWELLINGS, isDwelling, INSIDE_ONLY, BOX_CAP, HANDS, WATER_FILL, WATER_DRINK, boxHolds, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
@@ -24,7 +24,9 @@ export const capOf = (k: string): number => (k === 'arrows' ? ARROW_CAP : CAP);
 /** A pile on the ground (Survival.drops). */
 export interface Drop { what: string; n: number; at: number }
 /** Things made from a recipe (crafting, shared with the viewer: @worldsim/protocol craft.ts) plus the hut. */
-export const RECIPES: Record<string, Inv> = { hut: { ...HUT_NEED } };
+export const RECIPES: Record<string, Inv> = { hut: { ...HUT_NEED }, house: { ...HOUSE_NEED } };
+/** A hut or a house by its side length (a house is 9 tiles a side, huts 7, old huts 5). */
+export const dwellingOf = (size: number): 'hut' | 'house' => size >= HOUSE_SIZE ? 'house' : 'hut';
 for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
 /** What pulling down `what` gives back: half of each ingredient (rounded down), at least 1 of the biggest. A field gives back its seeds' worth of nothing. */
 export function refundOf(what: string): [string, number][] {
@@ -222,14 +224,14 @@ export class Survival {
     if (!tm || out < 0) return 5;
     const [dx, dy] = DIRS[dir] ?? DIRS[0]!, ox = out % tm.w, oy = (out / tm.w) | 0;
     let n = 0;
-    for (let k = 2; k <= HUT_SIZE; k++) { // past the doorway: count the room's tiles up to the back wall
+    for (let k = 2; k <= HOUSE_SIZE; k++) { // past the doorway: count the room's tiles up to the back wall
       const x = ox - dx * k, y = oy - dy * k;
       if (!tm.inside(x, y)) break;
       const t = tm.get(x, y);
       if (t === this.T.woodwall || t === this.placeTile.get('window')) break;
       n++;
     }
-    const s = n >= HUT_SIZE - 2 ? HUT_SIZE : 5;
+    const s = n >= HOUSE_SIZE - 2 ? HOUSE_SIZE : n >= HUT_SIZE - 2 ? HUT_SIZE : 5;
     this.hutSz.set(key, s);
     return s;
   }
@@ -527,10 +529,10 @@ export class Survival {
   /** Start building a campfire or a hut near (x, y) (default: where they stand). Materials are used when it is done. */
   build(i: number, what: string, x?: number, y?: number): true | string {
     if (!this.enabled) return 'this world has no buildings';
-    if (what !== 'campfire' && what !== 'hut') return this.buildThing(i, what);
+    if (what !== 'campfire' && !isDwelling(what)) return this.buildThing(i, what);
     // Huts are dear (imad 2026-11-25): someone with no home moves into a free hut instead of building another.
     if (what === 'hut' && this.w.e.kind[i] === Kind.Agent) { const moved = this.homes.moveIn(this.w.e.id(i), this.w.e.map[i]!); if (moved) return moved; }
-    if (what === 'hut' && this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return `I already built ${HUTS_PER_MAP} huts here, that is the most`;
+    if (isDwelling(what) && this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return `I already built ${HUTS_PER_MAP} homes here, that is the most`;
     if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
     const e = this.w.e, m = e.map[i]!;
     if (this.w.ai.siting && !this.camp[m] && x === undefined) { const cs = this.campSite(m, e.x[i]!, e.y[i]!); if (cs) this.setCamp(m, cs.x, cs.y); }
@@ -545,24 +547,24 @@ export class Survival {
       const W = this.w.maps[m]!.tiles.w;
       return this.begin(i, { kind: 'fire', m, tx: s % W, ty: (s / W) | 0, work: 0 });
     }
-    const W = this.w.maps[m]!.tiles.w;
+    const W = this.w.maps[m]!.tiles.w, S = DWELLINGS[what]!.size;
     let x0: number, y0: number, dir = 0;
     if (this.w.ai.siting && camp) {
-      const hs = own ? this.hutSiteIn(m, { x: Math.floor(own.x), y: Math.floor(own.y), r: 16 }, own) ?? this.hutSiteIn(m, { x: Math.floor(own.x), y: Math.floor(own.y), r: 24 }, own) : this.hutSite(m);
+      const hs = own ? this.hutSiteIn(m, { x: Math.floor(own.x), y: Math.floor(own.y), r: 16 + (S - HUT_SIZE) }, own, S) ?? this.hutSiteIn(m, { x: Math.floor(own.x), y: Math.floor(own.y), r: 24 + (S - HUT_SIZE) }, own, S) : this.hutSite(m, S);
       if (hs) { x0 = hs.x0; y0 = hs.y0; dir = hs.dir; }
       else { // no room inside the wall: outside, as before (it will not be protected)
         // Close first, so the wall that follows the huts (plannedRadius, up to 28) can still take it in; far only when nothing is near.
-        let s0 = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 18);
-        if (s0 < 0) s0 = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 30);
-        if (s0 < 0) return 'I found no clear ground for a hut';
+        let s0 = this.site(m, cx, cy, S, S, 18);
+        if (s0 < 0) s0 = this.site(m, cx, cy, S, S, 30);
+        if (s0 < 0) return `I found no clear ground for a ${what}`;
         x0 = s0 % W; y0 = (s0 / W) | 0;
       }
     } else {
-      const s = this.site(m, cx, cy, HUT_SIZE, HUT_SIZE, 30);
-      if (s < 0) return 'I found no clear ground for a hut';
+      const s = this.site(m, cx, cy, S, S, 30);
+      if (s < 0) return `I found no clear ground for a ${what}`;
       x0 = s % W; y0 = (s / W) | 0;
     }
-    const S = HUT_SIZE, H = (S - 1) >> 1, [ddx, ddy] = DIRS[dir]!, door = (y0 + H + ddy * H) * W + x0 + H + ddx * H;
+    const H = (S - 1) >> 1, [ddx, ddy] = DIRS[dir]!, door = (y0 + H + ddy * H) * W + x0 + H + ddx * H;
     // Floor first (inside), then the walls from the back to the front; the doorway stays open.
     const floor: number[] = [], walls: number[] = [];
     for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
@@ -613,14 +615,14 @@ export class Survival {
    * it stands, the camp's centre still reaches every door, the store and the way out. Scored: the door faces the camp's centre,
    * close to it (a compact village is a short wall). null = no such place (the caller may then build outside, as before).
    */
-  hutSite(m: number): { x0: number; y0: number; dir: number } | null {
+  hutSite(m: number, size = HUT_SIZE): { x0: number; y0: number; dir: number } | null {
     const p = this.perimeter(m);
     if (!p) return null;
     // Before the wall is fixed, a crowded spot may take a wider circle (the wall will follow the huts), up to 24 tiles.
-    for (let r = p.r; r <= (this.walls[m] ? p.r : 28); r += 2) { const h = this.hutSiteIn(m, { ...p, r }); if (h) return h; }
+    for (let r = p.r; r <= (this.walls[m] ? p.r : 28 + (size - HUT_SIZE)); r += 2) { const h = this.hutSiteIn(m, { ...p, r }, undefined, size); if (h) return h; }
     return null;
   }
-  private hutSiteIn(m: number, p: { x: number; y: number; r: number }, origin?: { x: number; y: number }): { x0: number; y0: number; dir: number } | null {
+  private hutSiteIn(m: number, p: { x: number; y: number; r: number }, origin?: { x: number; y: number }, size = HUT_SIZE): { x0: number; y0: number; dir: number } | null {
     const w = this.w, tm = w.maps[m]!.tiles, camp = origin ?? this.camp[m];
     if (!camp) return null;
     const keep = this.taken(m), cands: [number, number, number, number][] = [];
@@ -630,15 +632,15 @@ export class Survival {
       if (keep.has(k) || t === this.T.campfire) return false;
       return inner ? this.buildable.has(t) : tm.cost[t]! > 0;
     };
-    const R = p.r, S = HUT_SIZE, H = (S - 1) >> 1;
+    const R = p.r, S = size, H = (S - 1) >> 1;
     // The village is a cluster (imad 2026-11-26: "camps must be a collection of huts, so the strategy is to stay close for a better
     // defence"): every hut that stands pulls the next one next to it, a one or two tile lane apart (a short wall, neighbours in call).
-    const rects: { x0: number; y0: number }[] = [];
+    const rects: { x0: number; y0: number; s: number }[] = [];
     this.huts[m]!.forEach((o, n) => { if (o < 0) return; const r = this.hutRect(m, o, this.hutDir[m]![n] ?? 0); if (r) rects.push(r); });
     const cluster = (x0: number, y0: number) => {
       let v = 0;
       for (const r of rects) {
-        const gap = Math.max(Math.max(r.x0 - (x0 + S - 1), x0 - (r.x0 + S - 1)), Math.max(r.y0 - (y0 + S - 1), y0 - (r.y0 + S - 1))) - 1;
+        const gap = Math.max(Math.max(r.x0 - (x0 + S - 1), x0 - (r.x0 + r.s - 1)), Math.max(r.y0 - (y0 + S - 1), y0 - (r.y0 + r.s - 1))) - 1;
         if (gap < 1) continue;
         v += gap <= 2 ? (v ? 0.6 : 1.6) : gap <= 4 ? (v ? 0.2 : 0.7) : 0;
       }
@@ -686,14 +688,14 @@ export class Survival {
   }
 
   /** A player builds a hut (imad 2026-11-20: players can make everything the people make): right away, just ahead of them. */
-  playerHut(i: number): string {
+  playerHut(i: number, what: 'hut' | 'house' = 'hut'): string {
     if (!this.enabled) return 'nothing';
     if (this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return 'hutLimit';
-    if (!this.has(i, RECIPES.hut!)) return 'needHut';
-    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
-    const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * 5, e.y[i]! + Math.sin(a) * 5, HUT_SIZE, HUT_SIZE, 20);
+    if (!this.has(i, RECIPES[what]!)) return what === 'house' ? 'needHouse' : 'needHut';
+    const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, S = DWELLINGS[what]!.size;
+    const a = e.angle[i]!, s = this.site(m, e.x[i]! + Math.cos(a) * (S - 2), e.y[i]! + Math.sin(a) * (S - 2), S, S, 20);
     if (s < 0) return 'noRoom';
-    return this.hutAt(i, s % tm.w, (s / tm.w) | 0, 0);
+    return this.hutAt(i, s % tm.w, (s / tm.w) | 0, 0, what);
   }
   /**
    * Can this player put `what` exactly there (imad 2026-11-25: "aim where to build very precisely")? A thing: tile (tx, ty);
@@ -703,10 +705,10 @@ export class Survival {
   canPlace(i: number, what: string, tx: number, ty: number, dir = 0): string {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, x = e.x[i]!, y = e.y[i]!;
     const near = (px: number, py: number, r: number) => { for (const p of w.portals) if (p.from === m && Math.hypot(p.x - px, p.y - py) < r) return true; return false; };
-    if (what === 'hut') {
+    if (isDwelling(what)) {
       if (!this.enabled) return 'nothing';
       // Close enough: the square's nearest tile within 8 m.
-      const S = HUT_SIZE, H = (S - 1) >> 1;
+      const S = DWELLINGS[what]!.size, H = (S - 1) >> 1;
       const cx = Math.max(tx, Math.min(tx + S - 1, x - 0.5)), cy = Math.max(ty, Math.min(ty + S - 1, y - 0.5));
       if (Math.hypot(cx + 0.5 - x, cy + 0.5 - y) > PLACE_REACH) return 'tooFar';
       const [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (ty + H + dy * H) * tm.w + tx + H + dx * H;
@@ -741,11 +743,11 @@ export class Survival {
   }
   /** A player puts `what` exactly where they aimed (made from the bag's materials by the caller first). */
   placeAt(i: number, what: string, tx: number, ty: number, dir = 0): string {
-    if (what === 'hut') {
+    if (isDwelling(what)) {
       if (this.homes.builtBy(this.w.e.id(i), this.w.e.map[i]!) >= HUTS_PER_MAP) return 'hutLimit';
-      if (!this.has(i, RECIPES.hut!)) return 'needHut';
+      if (!this.has(i, RECIPES[what]!)) return what === 'house' ? 'needHouse' : 'needHut';
       const c = this.canPlace(i, what, tx, ty, dir);
-      return c || this.hutAt(i, tx, ty, dir);
+      return c || this.hutAt(i, tx, ty, dir, what);
     }
     if ((this.inv(i)[what] ?? 0) < 1) return 'noItem';
     const c = this.canPlace(i, what, tx, ty, dir);
@@ -756,14 +758,14 @@ export class Survival {
     return 'placed';
   }
   /** Put a player's hut up at once: walls, a floor, its own door (theirs: only their family may go in). */
-  private hutAt(i: number, x0: number, y0: number, dir: number): string {
+  private hutAt(i: number, x0: number, y0: number, dir: number, what: 'hut' | 'house' = 'hut'): string {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles;
-    const S = HUT_SIZE, H = (S - 1) >> 1, [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (y0 + H + dy * H) * tm.w + x0 + H + dx * H;
+    const S = DWELLINGS[what]!.size, H = (S - 1) >> 1, [dx, dy] = DIRS[dir] ?? DIRS[0]!, door = (y0 + H + dy * H) * tm.w + x0 + H + dx * H;
     for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
       const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
       if (edge && k !== door && this.occupied(m, x0 + xx, y0 + yy)) return 'someone';
     }
-    this.use(i, RECIPES.hut!);
+    this.use(i, RECIPES[what]!);
     for (let yy = 0; yy < S; yy++) for (let xx = 0; xx < S; xx++) {
       const k = (y0 + yy) * tm.w + x0 + xx, edge = xx === 0 || yy === 0 || xx === S - 1 || yy === S - 1;
       if (tm.tiles[k] === this.T.water) continue;
@@ -777,7 +779,7 @@ export class Survival {
     this.hutDir[m]!.push(dir);
     this.homes.built(m, out, dir, e.id(i));
     this.setCamp(m, x0 + H + 0.5 + dx * (H + 2), y0 + H + 0.5 + dy * (H + 2));
-    w.emit('build', { id: e.id(i), what: 'hut', map: w.maps[m]!.def.id, tx: x0 + H, ty: y0 + H, player: true });
+    w.emit('build', { id: e.id(i), what, map: w.maps[m]!.def.id, tx: x0 + H, ty: y0 + H, player: true });
     return 'built';
   }
 
@@ -861,7 +863,7 @@ export class Survival {
   /** An AI person pulls down their own (or a dead owner's) hut / piece nearest to them; what = 'hut', a thing's name or '' = any. */
   wreck(i: number, what = ''): true | string {
     const w = this.w, e = w.e, m = e.map[i]!, tm = w.maps[m]!.tiles, me = e.id(i);
-    const want = what === 'hut' ? -2 : what ? this.placeTile.get(what) ?? (what === 'fire' ? this.T.campfire : what === 'field' ? this.T.farm : -3) : -1;
+    const want = isDwelling(what) ? -2 : what ? this.placeTile.get(what) ?? (what === 'fire' ? this.T.campfire : what === 'field' ? this.T.farm : -3) : -1;
     if (want === -3) return `I don't know what "${what}" is`;
     let best = -1, bd = Infinity;
     const consider = (k: number) => {
@@ -890,7 +892,7 @@ export class Survival {
   }
   private pullDown0(i: number, m: number, k: number): void {
     const w = this.w, tm = w.maps[m]!.tiles, h = this.homes.at(m, k), W = tm.w;
-    const what = h ? 'hut' : tm.tiles[k] === this.T.doorOpen ? 'door' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
+    const what = h ? dwellingOf(this.sizeOf(m, h.out, h.dir)) : tm.tiles[k] === this.T.doorOpen ? 'door' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
     const cells = this.destroyCells(m, k);
     for (const c of cells) {
       if (tm.tiles[c] !== this.T.water && this.builtTile(tm.tiles[c]!)) tm.set(c % W, (c / W) | 0, this.groundOf(m, c));
@@ -1671,9 +1673,10 @@ export class Survival {
       }
       case 'hut': {
         if (!j.tiles!.length) return true;
-        if (!j.tries) { // the first piece: pay for the whole hut
-          if (!this.has(i, RECIPES.hut!)) return 'I lost my materials';
-          this.use(i, RECIPES.hut!);
+        const dw = dwellingOf(j.n ?? 5);
+        if (!j.tries) { // the first piece: pay for the whole hut (or house)
+          if (!this.has(i, RECIPES[dw]!)) return 'I lost my materials';
+          this.use(i, RECIPES[dw]!);
         }
         j.tries = (j.tries ?? 0) + 1;
         // Place up to 2 tiles per unit of work; a wall tile with someone on it waits (at most 30 tries in all).
@@ -1691,7 +1694,7 @@ export class Survival {
         this.hutDir[j.m]!.push(j.dir ?? 0);
         this.homes.built(j.m, j.ty * tm.w + j.tx, j.dir ?? 0, id);
         this.setCamp(j.m, j.tx + 0.5 + jdx, j.ty + 0.5 + jdy);
-        w.emit('build', { id, what: 'hut', map: mapId, tx: j.tx - jdx * hh, ty: j.ty - jdy * hh });
+        w.emit('build', { id, what: dw, map: mapId, tx: j.tx - jdx * hh, ty: j.ty - jdy * hh });
         return true;
       }
     }
