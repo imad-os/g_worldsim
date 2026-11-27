@@ -22,3 +22,18 @@ placeholder colours); quality tints and glows are added by the game.
   Idle, Idle_2, Eating, Walk, Gallop, Attack_Kick, Death. Prepared for this game (2026-11-25) with glTF-Transform: unused
   animations and constant tracks removed, keyframes resampled, mesh quantized (KHR_mesh_quantization), 280 KB.
   Coats, the saddle and the rare / legendary glow are added by the game (packages/client/src/gfx/horses.ts).
+
+## Wild animals
+
+Prepared by `tools/assets/build-animals.mjs` (sources fetched at pinned commits by `tools/assets/fetch.sh`): every part merged into
+one skinned mesh with vertex colours, only the animations the game plays, keyframes resampled, mesh quantized
+(KHR_mesh_quantization). Drawn by packages/client/src/gfx/beasts.ts.
+
+- `wolf.glb`, `deer.glb` (doe), `stag.glb`: Wolf, Deer and Stag from "Ultimate Animated Animals" by Quaternius
+  (https://quaternius.com, CC0 1.0), the same pack as the horse. Kept: Idle, Idle_2, Walk, Gallop, Eating, Attack (headbutt for
+  deer), Hit, Death. The stag's antlers are moved onto its head bone.
+- `rabbit.glb`: "Rabbit" by Snabisch (https://opengameart.org/content/rabbit-0, CC0). Wild-rabbit colours; the white body under
+  the fur shell is pulled in a little so it no longer flickers through. Kept: Sitting (two idles), Running, Dying.
+- `bear.glb`: "White Bear (Low poly)" by Phelippeau Rudy / STKudy85 (https://opengameart.org/content/white-bear-low-poly, CC0;
+  texture in tools/assets/src/oga/). It had no skeleton: rigged for this game (hips, chest, head, four legs), its moves made here
+  (Idle, Walk, Gallop, Eating, Attack = rears up and swipes), the fur texture turned brown.

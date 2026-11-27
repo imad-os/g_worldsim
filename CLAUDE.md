@@ -896,3 +896,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - The jam: a clan leader's day order (store water / food / wood / stone) went to EVERY free member: ~100 people at the one crate and the
   water's edge, pushing each other every tick. `Clans.leaderOrder` now sends a day chore to a crew of `min(12, 4 + members / 15)`; the night
   rally still calls everyone. 300 people: 2.4 -> 1.8 ms a tick. Tried and NOT kept: physics iterations 6 / 2 (fewer contacts, but 3 seeded tests changed).
+
+## Wild animals as real models (imad 2026-11-27: "the bears, wolves, rabbits and deer are bad 3D models", app 0.14.18)
+- `client/src/gfx/beasts.ts` `Beasts3D` (`World3D.beasts`): rabbit, deer (doe / stag by entity id parity), wolf, bear as animated skinned
+  models from docs/models (CC0, credits docs/models/CREDITS.md); the boar and anything not loaded yet = the old low-poly `Animals3D`.
+  Moves: Walk / run clip by eased speed (pace follows it), Attack on act Fight (13) when close, idles picked now and then (deer / rabbits
+  graze), a killed animal (corpses keep the entity id) plays Death and sinks (the bear has none: it rolls over). Off screen = skipped,
+  past 30 m every other frame, cap 16 low / 28 other tiers.
+- Models made by `node tools/assets/build-animals.mjs` (after `sh tools/assets/fetch.sh` + `npm i --no-save @gltf-transform/core@4
+  @gltf-transform/functions@4 @gltf-transform/extensions@4 pngjs@7 jpeg-js@0.4`): parts merged into one mesh with vertex colours, only
+  used clips, still channels dropped, quantized (~70-300 KB each). The bear had no skeleton: rigged + its clips made in the script.
+- Proof `ADMIN_TOKEN=... node tools/animals-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.beasts()`).

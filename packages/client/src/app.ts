@@ -158,7 +158,7 @@ let capture: ActionId | null = null;
 /** The bow's aim (imad 2026-11-20 "a good system to attack with a bow"): held Aim = the stick points, Attack shoots along it. */
 let aimOn = false, aimAng = 0, aimLock = -1, moveAng = NaN, aimAt = 0, aimShown = -1;
 /** Animals just killed, falling over where they were (Frame.dead; imad 2026-11-25). */
-const corpses: { type: number; x: number; y: number; f: number; at: number }[] = [];
+const corpses: { id: number; type: number; x: number; y: number; f: number; at: number }[] = [];
 /** The way my character faces, as the server counts angles (0 = east, +y = south). */
 function myAng(): number {
   if (aimOn) return aimAng;
@@ -366,6 +366,7 @@ function onMsg(m: ServerMsg): void {
         g3.rainSnow = MyPC.load('rainsnow', true) !== false;
         void loadItems();
         g3.horses.load(new URL('models/horse.glb', location.href).href).catch((err) => console.warn('horse model', err)); // CC0, docs/models/CREDITS.md
+        g3.beasts.loadAll(new URL('models/', location.href).href); // rabbit, deer, wolf, bear (CC0, docs/models/CREDITS.md)
         const s0 = tierScale();
         dyn = new DynRes(s0, tier === 'high' ? 0.6 : 0.5, Math.min(1, s0 * 1.15));
         resize(); applyGfx();
@@ -481,7 +482,7 @@ function onMsg(m: ServerMsg): void {
         const s = slotOf.get(id);
         if (s !== undefined && kind[s] === Kind.Animal && m.dead?.includes(id) && drawnF[s]! > 0 && frameNo - drawnF[s]! < 30) { // killed: it falls where it was drawn
           if (corpses.length >= 32) corpses.shift();
-          corpses.push({ type: atype[s]!, x: drawnX[s]!, y: drawnY[s]!, f: face[s]!, at: now });
+          corpses.push({ id, type: atype[s]!, x: drawnX[s]!, y: drawnY[s]!, f: face[s]!, at: now });
         }
         if (s !== undefined) { eid[s] = -1; kind[s] = 0; slotOf.delete(id); }
         if (id === follow) follow = -1;
@@ -2208,11 +2209,11 @@ function draw(now: number, dt: number): void {
   const P = g3.people, me = playing() && predOk ? meSlot() : -1, tsec = now / 1000;
   const r = g3.view === 'top' ? (g3.dist * 1.6 + 8) * g3.distK : g3.sight + 4, eyes = g3.view === 'first';
   frameNo++;
-  P.begin(); g3.peopleFar.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin(); g3.horses.begin();
+  P.begin(); g3.peopleFar.begin(); g3.beginShots(); g3.beginItems(); g3.animals.begin(); g3.beasts.begin(); g3.horses.begin();
   if (rp) { // a past event: only the recorded people and zombies
     rp.draw(P, dt, actName);
     g3.dist += (Math.max(16, Math.min(42, rp.span * 1.1 + 10)) - g3.dist) * Math.min(1, dt * 2);
-  P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
+  P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.beasts.end(); g3.horses.end(); g3.render(); bubbles.hide();
     return;
   }
   let handsOn = false;
@@ -2256,7 +2257,10 @@ function draw(now: number, dt: number): void {
       else g3.animals.add(5, hx, hy, hf, phase[i]! * 1.4, Math.min(1, hv / 1.6));
       continue;
     }
-    if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
+    if (kind[i] === Kind.Animal) { // the animated model when it has loaded (not the boar yet), else the low-poly set
+      if (!g3.beasts.add(atype[i]!, eid[i]!, x, y, face[i]!, spd[i]!, sub[i]!, dt)) g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6));
+      continue;
+    }
     if (i === me && aimOn) face[i] = Math.PI / 2 - (aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng); // I turn to my aim
     if (eyes && i === me) {
       // First person (imad 2026-11-26): the eye where my character's eyes really are, worked out again every frame (a child is
@@ -2304,12 +2308,12 @@ function draw(now: number, dt: number): void {
   for (let k = corpses.length - 1; k >= 0; k--) { // animals just killed: falling over, then sinking
     const c = corpses[k]!, age = (now - c.at) / 1000;
     if (age > DEATH_SECS) { corpses.splice(k, 1); continue; }
-    g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
+    if (!g3.beasts.add(c.type, c.id, c.x, c.y, c.f, 0, 0, dt, age)) g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
   }
   if (!handsOn) g3.hands.hide();
   if (me >= 0) g3.myBowAt(aimOn, aimOn ? aimGear(gearOf[me]!) : gearOf[me]!, aimOn ? (now - aimAt) / 1000 : (now - animAt[me]!) / 1000, dt);
   else g3.myBowAt(false, 0, 0, dt);
-  P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
+  P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.beasts.end(); g3.horses.end();
   g3.anims.update(now, dt, (tx, ty) => tileUnder(tx + 0.5, ty + 0.5), looks, menu.open && menu.page === 'box' && boxView ? [boxView.at[0]!, boxView.at[1]!] : null);
   if (aimOn && me >= 0) {
     const lk = aimLock >= 0 && eid[aimLock] !== -1 ? aimLock : -1;
@@ -2609,7 +2613,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
     MyPC.ready();
   },
   onStart() {

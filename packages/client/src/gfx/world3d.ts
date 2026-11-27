@@ -6,6 +6,7 @@ import {
 } from 'three';
 import { People } from './people.js';
 import { Animals3D } from './animals.js';
+import { Beasts3D } from './beasts.js';
 import { Horses3D } from './horses.js';
 import { gateMesh, type GateSpec } from './gate.js';
 import { Precip } from './weather.js';
@@ -85,6 +86,8 @@ export class World3D {
   /** Lamp light on the ground: added on, only at night. */
   private poolMat = new MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false, side: DoubleSide });
   readonly animals: Animals3D;
+  /** Wild animals with animated models (the low-poly set stands in until they load, and draws the boar). */
+  readonly beasts: Beasts3D;
   /** Horses: the CC0 animated model (docs/models/horse.glb). */
   readonly horses: Horses3D;
   readonly target = new Vector3();
@@ -153,6 +156,8 @@ export class World3D {
     this.animals = new Animals3D(this.scene, 128, shadows);
     this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
     this.horses.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
+    this.beasts = new Beasts3D(this.scene, shadows, tier === 'low' ? 16 : 28);
+    this.beasts.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
     this.shots = new InstancedMesh(new BoxGeometry(0.04, 0.04, 0.9), new MeshBasicMaterial({ color: 0xfff1a0 }), 256); // an arrow streak along its flight
     this.shots.instanceMatrix.setUsage(DynamicDrawUsage);
     this.shots.count = 0; this.shots.frustumCulled = false;
@@ -444,6 +449,7 @@ export class World3D {
     this.camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(this.pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     if (this.horses.view) this.horses.view.shadowD = this.shadowR * 1.2;
+    if (this.beasts.view) this.beasts.view.shadowD = this.shadowR * 1.2;
   }
 
   /**
