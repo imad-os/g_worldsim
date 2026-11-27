@@ -580,6 +580,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   once the camp has a store); a player leader's order (Do `clan` `order:<words>`) goes to members via `Planner.chat` (speaker = their leader:
   obeyed by loyalty). Do `clan` info / join:<id> / quit / found:<name> / vote:<id> / call / order:<text>. Events quest, questDone, clanJoin,
   clanSwitch, clanVote(Start), clanOrder, clanRebel logged. TV: `client/src/questui.ts` (pages quests / npc / clan / clanJoin / clanVote).
+- **Ridgeford's teachers, quests 11-20 (imad 2026-11-27, app 0.14.23)**: `NpcDef.map` (none = start map): Mayor Ines, Yasmin the healer, Old Tobias,
+  Ranger Idris, Nadia the builder stand in the middle of `ridge`. q11 (Mara: go north, meet the mayor), q12 water bottles, q13 herbs, q14 medkit,
+  q15 field, q16 store x3, q17 palisade / spikes / stonewall / bed, q18 explore, q19 tamed, q20 ore x2. `Quests.npcMap(key)`, `Quests.keyFrom(words)`;
+  task skill npc takes the road to another map (`walkToMap`, travel open only); `update()` sends AI people to a giver on another map only by day
+  (before 14:00), not from the wild, chance 0.08 per check.
 - Test quests.test.ts; proof `ADMIN_TOKEN=... node tools/quest-proof.mjs <server> <sdk.js> <outdir>` (sdk from raw.githubusercontent.com/imad-os/g/main/sdk/mypc-sdk.js).
 
 ## Horses (imad 2026-11-25, app 0.12.0)

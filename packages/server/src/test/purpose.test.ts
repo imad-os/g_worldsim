@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Kind } from '@worldsim/protocol';
+import { Act, Kind } from '@worldsim/protocol';
 import { scenario } from './helpers.js';
 import { World } from '../sim/world.js';
 import { ageOf } from '../sim/people.js';
@@ -73,13 +73,20 @@ test('purpose: once the camp is stocked, free people pursue dreams and pastimes 
   const run = (purpose: boolean) => {
     const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'dream-busy', ai: { goap: true, learn: true, siting: true, instinct: true, purpose } });
     w.populate(); w.land.setup();
-    let tasks = 0;
+    let tasks = 0, idle = 0, seen = 0;
     w.listeners.push((x) => { if (x.kind === 'task') tasks++; });
-    until(w, () => false, 48);
-    return { tasks, stats: w.purpose.stats };
+    // Standing around by day: idle / resting / wandering with nothing to do, sampled every 100 ticks 08-19.
+    until(w, () => {
+      if (w.tick % 100 === 0 && w.brain.hour() >= 8 && w.brain.hour() < 19) for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent) {
+        seen++; const a = w.e.act[i]; if ((a === Act.Idle || a === Act.Rest || a === Act.Wander) && !w.profileOf(i)?.mind?.task) idle++;
+      }
+      return false;
+    }, 48);
+    return { tasks, idle: idle / Math.max(1, seen), stats: w.purpose.stats };
   };
   const off = run(false), on = run(true);
   assert.equal(off.stats.pursuits + off.stats.pastimes, 0);
   assert.ok(on.stats.pursuits + on.stats.pastimes >= 12 && on.stats.pursuits >= 4, JSON.stringify(on.stats));
-  assert.ok(on.tasks > off.tasks * 1.3, `more done (${on.tasks} vs ${off.tasks})`);
+  // More done, or (when the camp keeps everyone busy anyway, e.g. a long wall to build) clearly less standing around.
+  assert.ok(on.tasks > off.tasks * 1.3 || on.idle < off.idle * 0.75, `more done (${on.tasks} vs ${off.tasks}) or less idle (${on.idle.toFixed(2)} vs ${off.idle.toFixed(2)})`);
 });
