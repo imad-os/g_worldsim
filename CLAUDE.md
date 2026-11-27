@@ -974,6 +974,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Admin `thoughts` (READS). Panel page Thoughts (`panel/src/thoughts.ts`): add a rule, "What it changed" (10 min before a mark vs every sample since,
   shares in points), right now, stacked drivers over time with dashed marks, groups with reasons / places / names / rule that held them, rules at work
   (a "never" rule the engine has no action for is flagged), knowledge feed. Test thoughts.test.ts; proof `node tools/thoughts-proof.mjs <outdir>` (dark).
+
 ## Clan camps as territory (imad 2026-11-27: "every clan its own camp, defend it; at peace let them in for family / needs; aware, not walking into an enemy camp; warn first, small PvP damage")
 - `sim/territory.ts` (`World.territory`, saved `territory` = who is barred where). Camps = the map's first camp (owned by `Clans.mainClan`, radius = its
   wall circle 14-30 m) + every clan's own camp (`CLAN_CAMP_AT` now 3: a clan of 4+ that is not the main one gets one, radius 18).
