@@ -1355,16 +1355,11 @@ function doAction(a: ActionId, pressed: boolean): void {
   send({ t: Msg.Do, a }); // drink, eat, pickup, sleep
 }
 
-/** Attack: a hit on what is in front; with a bow and nothing in reach, a shot (along the aim, or at what the facing points to). */
+/** Attack: always a hit with the melee weapon (or fists) on what is in front. The bow shoots only when the Aim button is let go
+ *  (imad 2026-11-27: "after a bow shot, Attack shot an arrow again: wrong, Attack uses the sword, the bow only on Aim release"). */
 function attack(): void {
-  const inv = meNeeds?.inv ?? {}, bow = (inv.bow ?? 0) > 0 && (inv.arrows ?? 0) > 0;
-  const x = focusX(), y = focusY(), a = myAng();
   if (aimOn) return; // aiming: letting go of the aim button shoots (imad 2026-11-25)
-  const near = targetNear(x, y, a, 2.6, 1.2);
-  if (near < 0 && bow) {
-    const far = targetNear(x, y, a, 20, 0.45);
-    if (far >= 0) { send({ t: Msg.Do, a: 'shoot', text: Math.atan2(ny[far]! - y, nx[far]! - x).toFixed(3) }); return; }
-  }
+  const a = myAng();
   send({ t: Msg.Do, a: 'hit', text: a.toFixed(3) });
 }
 /** Aim button held: the stick turns the aim, my character holds the bow drawn; let go = the arrow flies (`fire`). */
