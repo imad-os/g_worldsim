@@ -801,7 +801,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   other camps (`campCheck`, `Survival.campSite`), event `clanCamp`, notes, the leader lights its fire. `Survival.campFor(i)` / `clans.campOf(id, m)`:
   that clan's huts and fires go there (`hutSiteIn` with an origin). Walls / night watch / store stay at the map's first camp. Test society.test.ts.
 
-## Tidy TV screen: compass colours, top-edge card, chat log (imad 2026-11-26, app 0.14.4)
+## Tidy TV screen: compass colours, top-edge card, chat log (imad 2026-11-26, app 0.14.6)
 - Compass icons 2.5vw, each kind its own colour (`--c` per `.cp-i.<kind>` / `.mk-<mark kind>` in docs/index.html; marks are pins except star / danger).
 - `#card` flush with the top-right edge (top 0, right 0, 15vw, smaller text).
 - `#chatlog` (nav.ts `ChatLog`), bottom left, text only, last 4 lines (older than 1 min faint): Notice `say` (people near me) + Notice `wchat`
@@ -825,3 +825,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   `grid` (`visual()` in ui.ts) unless the grid says `geo: true` (MapScreen: a canvas, same in every language). The quick wheel is placed by absolute
   positions (not mirrored). Proof: Playwright `locale: 'ar'` (the SDK takes the language from the browser when standalone), press arrows, compare the
   `.on` element's x.
+## First-person hands, eye height, smooth gallop (imad 2026-11-26, app 0.14.6)
+- `gfx/hands.ts` `Hands` (hung on the camera, `World3D.hands`; the camera is now in the scene): first person shows my forearms + fists (skin, sleeve by
+  what I wear) with the weapon / tool (grip from the model's bounding box: bow by its middle), the same moves as `People` (attack, chop, mine, build,
+  talk, aim / shoot, use), walk sway; on horseback both hands on the reins over the horse's neck. Scaled by the camera fov so aiming keeps their size.
+- Eye height (`World3D.eyeWant`, eased in `follow`): app.ts works it out every frame from my size (child / small), seat (`riderSeat` incl. the
+  stride's `Horses3D.bounce`) and lying: on foot 1.65 m, in the saddle ~2.6 m (the horse's head and ears show ahead), asleep 0.55.
+- Horses (`Horses3D.add`): speed eased (5/s), gait with a margin (gallop in > 2.6 m/s, out < 2.1: the canter at 4.2 sat on the old 4.2 switch),
+  a gait change keeps the point of the stride + 0.35 s fade, pace eased. Riders bounce with the horse's back instead of their own bob.
+  `?dev` `__dev.gaits()`. Proof `ADMIN_TOKEN=... node tools/fpv-proof.mjs <server> <sdk.js> <outdir>` (writes gaits.json).

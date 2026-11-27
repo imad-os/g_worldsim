@@ -128,7 +128,7 @@ export class People {
       rx = -0.9 * Math.sin(p * Math.PI); lean = 0.3 * Math.sin(p * Math.PI); armsSet = true;
     }
     // On a horse (`seat` = its back's height): sit there, legs astride, hands on the reins.
-    const bob = seat > 0 ? seat - 0.52 * SCALE * size + Math.abs(Math.sin(phase * 0.5)) * 0.05 * amp : Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
+    const bob = seat > 0 ? seat - 0.52 * SCALE * size : Math.abs(Math.sin(phase)) * 0.05 * amp * size, k = SCALE * size;
     if (seat > 0) amp = 0;
     this.base.compose(this.v.set(x, bob + lift, z), this.q.setFromEuler(this.e.set(0, facing + twist, 0)), this.s.set(k, k, k));
     if (lie > 0) {

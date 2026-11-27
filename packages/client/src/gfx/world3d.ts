@@ -13,6 +13,7 @@ import { patchShadows } from './shadows.js';
 import type { ChunkGeo } from './chunkmesh.js';
 import { CHUNK_TILES } from '@worldsim/protocol';
 import { Anims } from './anims.js';
+import { Hands } from './hands.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -43,6 +44,11 @@ export class World3D {
   private pm = new Matrix4();
   /** Fridge doors / chest lids opening, cut trees falling (gfx/anims.ts). */
   readonly anims: Anims;
+  /** My own hands in first person (gfx/hands.ts), hung on the camera. */
+  readonly hands: Hands;
+  /** First person: the eye's height (m), eased towards `eyeWant` (app.ts works it out from my size, seat, lying). */
+  eyeWant = 1.65;
+  private eyeH = 1.65;
   private hemi = new HemisphereLight(0xcfe3ff, 0x5d4c3a, 1.1);
   private sun = new DirectionalLight(0xfff1d6, 2.4);
   private lamp = new PointLight(0xffc27a, 0, 14, 1.6);
@@ -124,6 +130,8 @@ export class World3D {
     this.people = new People(this.scene, 512, shadows);
     this.peopleFar = new People(this.scene, 256, false, true);
     this.anims = new Anims(this.scene, shadows);
+    this.scene.add(this.camera); // for the hands hung on it
+    this.hands = new Hands(this.camera);
     this.animals = new Animals3D(this.scene, 128, shadows);
     this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
     this.horses.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
@@ -375,8 +383,11 @@ export class World3D {
         this.camera.position.set(this.look.x - fx * b + rx * side, h, this.look.z - fz * b + rz * side);
         this.camera.lookAt(this.look.x + fx * ahead + rx * side * 0.35, 1.1 + 0.15 * ak, this.look.z + fz * ahead + rz * side * 0.35);
       } else {
-        this.camera.position.set(this.look.x + fx * 0.18, 1.55, this.look.z + fz * 0.18);
-        this.camera.lookAt(this.look.x + fx * 10, 0.9 + 0.35 * ak, this.look.z + fz * 10);
+        // Mounting, getting off, lying down: the eye glides to its new height instead of jumping.
+        this.eyeH += (this.eyeWant - this.eyeH) * (snap ? 1 : 1 - Math.exp(-dt * 7));
+        const eh = this.eyeH;
+        this.camera.position.set(this.look.x + fx * 0.18, eh, this.look.z + fz * 0.18);
+        this.camera.lookAt(this.look.x + fx * 10, eh - 0.65 + 0.35 * ak, this.look.z + fz * 10);
       }
       this.fogAt(this.sight * 0.35, this.sight);
       d = this.sight * 0.4;

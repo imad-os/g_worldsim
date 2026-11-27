@@ -867,7 +867,8 @@ function wheelButton(pressed: boolean, pad: boolean): void {
   if (wheel.sel < 0 && performance.now() - wheel.openedAt < 350) { wheel.hold = false; return; }
   runQuick(wheel.close());
 }
-/** Seat height of the horse a rider at (x, y) sits on (the ridden horse nearest to them). */
+let seatBounce = 0;
+/** Seat height of the horse a rider at (x, y) sits on (the ridden horse nearest to them), with its stride's bounce. */
 function riderSeat(x: number, y: number): number {
   let best = -1, bd = 1.5;
   for (let j = 0; j < CAP; j++) {
@@ -876,7 +877,8 @@ function riderSeat(x: number, y: number): number {
     if (d < bd) { bd = d; best = j; }
   }
   const sc = best >= 0 ? horseInfo.get(eid[best]!)?.[0] ?? 1 : 1;
-  return g3 ? g3.horses.seat(sc) : 1.4 * sc;
+  seatBounce = g3 && best >= 0 ? g3.horses.bounce(eid[best]!, sc) : 0; // the rider rises and falls with the horse's stride
+  return (g3 ? g3.horses.seat(sc) : 1.4 * sc) + seatBounce;
 }
 /** The nearest horse within r m of me (slot / -1). */
 function horseNear(r: number): number {
@@ -2163,6 +2165,7 @@ function draw(now: number, dt: number): void {
   P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end(); g3.render(); bubbles.hide();
     return;
   }
+  let handsOn = false;
   for (let i = 0; i < CAP; i++) {
     if (eid[i] === -1) continue;
     let x = px[i]! + (nx[i]! - px[i]!) * a, y = py[i]! + (ny[i]! - py[i]!) * a;
@@ -2204,7 +2207,22 @@ function draw(now: number, dt: number): void {
     }
     if (kind[i] === Kind.Animal) { g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6)); continue; }
     if (i === me && aimOn) face[i] = Math.PI / 2 - (aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng); // I turn to my aim
-    if (eyes && i === me) continue;
+    if (eyes && i === me) {
+      // First person (imad 2026-11-26): the eye where my character's eyes really are, worked out again every frame (a child is
+      // shorter, on horseback it is the saddle's height + my seated height and rises and falls with the stride, lying down is
+      // low), and my own hands at the bottom of the screen instead of my body.
+      const f = flags[i]!, sz = f & EFlag.Small ? 0.42 : f & EFlag.Child ? 0.62 : 1, k = 1.25 * sz, asleep = (f & EFlag.Sleeping) !== 0;
+      const seat = riding[i] ? riderSeat(x, y) : 0;
+      g3.eyeWant = asleep ? 0.55 : seat > 0 ? seat + 0.8 * k : 1.32 * k;
+      if (asleep) g3.hands.hide();
+      else {
+        g3.hands.update({ look: atype[i]! > 0 ? playerLook(true, atype[i]!) : ME, gear: aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, at: aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000,
+          phase: phase[i]!, amp: Math.min(1, spd[i]! / 2.2), riding: seat > 0, bounce: seat > 0 ? seatBounce : 0, dt, fov: g3.camera.fov });
+        handsOn = true;
+      }
+      myLook = atype[i]! > 0 ? playerLook(true, atype[i]!) : ME; myGear = gearOf[i]!;
+      continue;
+    }
     // Lying down (imad 2026-11-26: "they are not visible, the bed hides them"): asleep next to a bed = climb onto it and lie on top
     // of it along it, the head on the pillow; elsewhere lie down on the ground; getting up plays it backwards.
     const dead = (flags[i]! & EFlag.Dead) !== 0, asleep = (flags[i]! & EFlag.Sleeping) !== 0, size = flags[i]! & EFlag.Small ? 0.42 : flags[i]! & EFlag.Child ? 0.62 : 1;
@@ -2237,6 +2255,7 @@ function draw(now: number, dt: number): void {
     if (age > DEATH_SECS) { corpses.splice(k, 1); continue; }
     g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
   }
+  if (!handsOn) g3.hands.hide();
   P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
   g3.anims.update(now, dt, (tx, ty) => tileUnder(tx + 0.5, ty + 0.5), looks, menu.open && menu.page === 'box' && boxView ? [boxView.at[0]!, boxView.at[1]!] : null);
   if (aimOn && me >= 0) {
@@ -2535,7 +2554,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
     MyPC.ready();
   },
   onStart() {

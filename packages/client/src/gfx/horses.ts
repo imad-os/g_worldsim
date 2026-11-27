@@ -28,6 +28,8 @@ const COATS: [number, number, number, number, number][] = [
 ];
 const GOLD = 0xffc94a;
 const SEAT = 0.64; // seat height as part of the horse's height
+/** Gait changes with a margin (m/s): into a gallop above GALLOP_IN, back to a walk below GALLOP_OUT (riders trot at 3.1). */
+const GALLOP_IN = 2.6, GALLOP_OUT = 2.1;
 const H = 2.5; // height to the ears, metres (people are drawn 1.25 x life size too)
 
 interface Inst {
@@ -35,6 +37,10 @@ interface Inst {
   mat: MeshLambertMaterial; coat: number; q: number; saddle: Mesh; ring: Mesh; sparks: Points | null; seen: number; idleAlt: number;
   /** Seconds of animation not yet played (skipped frames). */
   lag: number;
+  /** Speed and animation pace eased over a few frames (the speed read from the screen jitters). */
+  sp: number; ts: number;
+  /** Proof / tuning: gait changes so far, the last 240 speeds given. */
+  sw: number; raw: Float32Array; ri: number;
 }
 
 export class Horses3D {
@@ -154,17 +160,31 @@ export class Horses3D {
     h.root.rotation.y = facing;
     h.root.scale.setScalar(scale);
     h.saddle.visible = tamed;
-    // Animation from what it really does.
-    const want = speed > 4.2 ? 'Gallop' : speed > 0.25 ? 'Walk' : act === 3 ? 'Eating' : (h.idleAlt > 0.7 ? 'Idle_2' : 'Idle');
-    if (want !== h.cur && h.acts[want]) {
-      const from = h.acts[h.cur], to = h.acts[want]!;
-      to.reset().play();
-      if (from) to.crossFadeFrom(from, 0.25, false);
+    // Animation from what it really does (imad 2026-11-26: "the running animation is not smooth"): the speed is eased first
+    // (read from the screen it jitters frame to frame), the gait changes with a margin either way (a canter at 4.2 m/s sat
+    // right on the old switch and flipped Walk / Gallop every few frames, each time from the start of the clip), a change of
+    // gait keeps the legs where they were in the stride, and the pace follows the speed smoothly.
+    h.raw[h.ri++ % 240] = speed;
+    h.sp += (speed - h.sp) * (1 - Math.exp(-dt * 5));
+    const sp = h.sp, cur = h.cur;
+    const still = act === 3 ? 'Eating' : cur === 'Idle' || cur === 'Idle_2' ? cur : h.idleAlt > 0.7 ? 'Idle_2' : 'Idle';
+    const want = sp > (cur === 'Gallop' ? GALLOP_OUT : GALLOP_IN) ? 'Gallop' : sp > (cur === 'Walk' || cur === 'Gallop' ? 0.15 : 0.35) ? 'Walk' : still;
+    if (want !== cur && h.acts[want]) {
+      const from = h.acts[cur], to = h.acts[want]!;
+      const gaits = (want === 'Walk' || want === 'Gallop') && (cur === 'Walk' || cur === 'Gallop');
+      const share = from && gaits ? (from.time % from.getClip().duration) / from.getClip().duration : 0;
+      to.reset();
+      if (gaits) to.time = share * to.getClip().duration; // the same point of the stride
+      to.play();
+      if (from) to.crossFadeFrom(from, gaits ? 0.35 : 0.3, false);
       h.cur = want;
-      if (want === 'Idle' || want === 'Idle_2') h.idleAlt = Math.random();
+      h.sw++;
+      h.ts = -1; // a new gait starts at its own pace
+      if (want === 'Walk' || want === 'Gallop') h.idleAlt = Math.random(); // the next rest: one of the two idles
     }
-    const a = h.acts[h.cur];
-    if (a) a.timeScale = h.cur === 'Gallop' ? Math.max(0.6, speed / 7.5) : h.cur === 'Walk' ? Math.max(0.5, Math.min(2.4, speed / 1.5)) : 1;
+    const tsWant = h.cur === 'Gallop' ? Math.max(0.62, Math.min(1.5, 0.48 + sp * 0.062)) : h.cur === 'Walk' ? Math.max(0.55, Math.min(1.85, sp / 1.45)) : 1;
+    h.ts = h.ts < 0 ? tsWant : h.ts + (tsWant - h.ts) * (1 - Math.exp(-dt * 6));
+    for (const k of ['Walk', 'Gallop']) { const ac = h.acts[k]; if (ac && ac.isRunning()) ac.timeScale = k === 'Gallop' ? Math.max(0.62, h.ts) : Math.min(1.85, h.ts); }
     h.lag += dt;
     if (!far || ((this.frame + id) & 1) === 0) { h.mixer.update(Math.min(0.5, h.lag)); h.lag = 0; }
     // Quality effects: sparks rise and fade round a legendary horse.
@@ -177,6 +197,25 @@ export class Horses3D {
       pos.needsUpdate = true;
       (h.sparks.material as PointsMaterial).opacity = 0.9;
     }
+  }
+
+  /**
+   * How far the horse's back is up or down in its stride right now (metres, x its size): the rider and a first-person
+   * camera rise and fall with it instead of a bob of their own.
+   */
+  bounce(id: number, scale: number): number {
+    const h = this.live.get(id);
+    if (!h) return 0;
+    let b = 0;
+    const g = h.acts.Gallop, w = h.acts.Walk;
+    if (g && g.isRunning()) b += g.getEffectiveWeight() * 0.075 * (0.5 - 0.5 * Math.cos((g.time / g.getClip().duration) * Math.PI * 2));
+    if (w && w.isRunning()) b += w.getEffectiveWeight() * 0.022 * (0.5 - 0.5 * Math.cos((w.time / w.getClip().duration) * Math.PI * 4));
+    return b * scale;
+  }
+
+  /** Proof / tuning (?dev): each horse's gait, eased speed, pace, gait changes and its last speeds (oldest first). */
+  debug(): { id: number; cur: string; sp: number; ts: number; sw: number; raw: number[] }[] {
+    return [...this.live].map(([id, h]) => ({ id, cur: h.cur, sp: h.sp, ts: h.ts, sw: h.sw, raw: Array.from({ length: Math.min(240, h.ri) }, (_, k) => h.raw[(h.ri - Math.min(240, h.ri) + k) % 240]!) }));
   }
 
   /** Seat height of a horse drawn at `scale` (for its rider). */
@@ -209,7 +248,7 @@ export class Horses3D {
     ring.position.y = 0.04; ring.visible = false; ring.renderOrder = 2;
     root.add(ring);
     this.scene.add(root);
-    return { root, mesh: m, mixer, acts, cur: 'Idle', mat, coat: -1, q: -1, saddle, ring, sparks: null, seen: this.frame, idleAlt: Math.random(), lag: 0 };
+    return { root, mesh: m, mixer, acts, cur: 'Idle', mat, coat: -1, q: -1, saddle, ring, sparks: null, seen: this.frame, idleAlt: Math.random(), lag: 0, sp: 0, ts: 1, sw: 0, raw: new Float32Array(240), ri: 0 };
   }
 
   private makeSparks(root: Group): Points {
