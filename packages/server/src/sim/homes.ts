@@ -292,7 +292,7 @@ export class Homes {
     const shown = [...all].sort((a, b) => key(a) - key(b)).filter((h, k) => k < 3 || h.owner === id || h.free || fam(h.owner)).slice(0, 8);
     const rows = shown.map((h) => `(${Math.floor(h.x)}, ${Math.floor(h.y)}) ${h.owner === id ? 'yours' : h.free ? 'FREE: anyone without a home can move in' : `${h.ownerName}'s${fam(h.owner) ? ' (your family)' : ''}`}`);
     const free = all.filter((h) => h.free).length;
-    return `Huts on this map: ${all.length} (${free ? `${free} free` : 'none free'}; huts are dear to build, so move into a free one before building): ${rows.join('; ')}${all.length > shown.length ? `; and ${all.length - shown.length} more, all lived in` : ''}.`;
+    return `Huts on this map: ${all.length} (${free ? `${free} free` : 'none free'}): ${rows.join('; ')}${all.length > shown.length ? `; and ${all.length - shown.length} more, all lived in` : ''}.`;
   }
   // ------------------------------------------------------------------ beds (imad 2026-11-26: "4 beds in his hut and he builds a new one")
   /** Who sleeps in hut h: the owner, their partner and the children of 3+ who live there (little ones sleep by a parent). */

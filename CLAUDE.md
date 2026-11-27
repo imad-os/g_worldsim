@@ -1003,6 +1003,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   The patient goes on with their day until the healer is within `MEET` 4 m: then "X, hold still, let me see to your wounds" / "Thank you" (event
   `healMeet`, `Job.met`) and `Brain.waitForHealer` (after danger / kids) holds them still facing the healer (`healerOf` = met and within 8 m). Test heal.test.ts.
 - E12 in research/EXPERIMENTS.md (`experiment-prompts.ts`, fake model): 20.2k -> 8.9k chars a call, tokens -64 %, planned tasks ok 1 % -> 74 %. Test prompts.test.ts.
+- **Fewer tokens, same facts (imad 2026-11-27, models 2B-30B and Gemini 2.5 Flash; "clearer or at least as clear")**: `Planner.planSystem()` / `worldRules()`
+  = role + SOURCES + the world's rules (clans, camps, leaders, huts are dear) + "lines are Label: facts" + the answer form, the same every call (a local model
+  reuses it; chat's system has the fixed part first, "You are X" last). Person = `describeLines` (Person / Needs / Now / Stats / Gear / Has (food once: hands
+  + bag) / Home / Standing / Family / Clan / quest / Camp / plan / horse / place / Weather / ... / Near / Memory / Remembered events / Recent (5, short times)).
+  No "Your things" (knowHowFor on top says it), no per-person clan / hut rules, no duplicate hut count; a craft quest for a thing they own says only a new
+  one counts. `hoist(blocks)`: sentences (30+ chars, never split in a quote) every person of a batch has word for word go once under "Same for everyone
+  below:" with their label; personal labels (`OWN`) never move. Last line repeats the goal rule. Full words, no codes (small models misread them).
+  E12 re-run (3 days, 3 seeds, fake model): prompt 9628 -> 7736 chars (-20 %), max 25.8k -> 20.3k, system 733 -> 1485 (fixed), same plans (ok 0.74).
+  Experiment `--dump f` writes every system + prompt. Test prompts.test.ts.
+- **Brain tests (imad 2026-11-27)**: panel AI brain > Saved brains = a scrolling box (`.blist`, 440 px), a Test button per brain (admin `brainTest { id }`:
+  answer + seconds under it), "Test them all" = one at a time (fair times), list then fastest first, failures last. Proof `node tools/brains-proof.mjs <outdir>`
+  (fake OpenAI-compatible server with a delay per model).
 
 ## Thoughts page (imad 2026-11-27: "see what people think, not every person; whether a rule / tweak changes their thoughts, quickly")
 - `ops/thoughts.ts` (`App.thoughts`, memory only): every 30 real s (5 s timer, not while paused) each AI person = one driver (danger, order, rule, asked,

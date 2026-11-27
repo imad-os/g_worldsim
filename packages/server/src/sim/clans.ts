@@ -927,8 +927,8 @@ export class Clans {
     const lead = c.leader === id;
     return `Clan: ${c.name}, ${lead ? 'you are its elected leader (your members follow your orders)' : `led by ${this.name(c.leader)} (elected; approval ${this.approval(c)}%)`}, ${c.members.length} members; your loyalty ${Math.round(this.loyalty(id) * 100)}%.`
       + (c.order ? ` The leader's order: "${c.order}".` : '') + (c.vote ? ` An election is on: ${c.vote.cands.map((k) => this.name(k)).join(' or ')}.` : '')
-      + (c.camp ? ` Your clan has its own camp at (${Math.round(c.camp.x)}, ${Math.round(c.camp.y)}): your home and huts belong there.` : c.members.length > CLAN_CAMP_AT - 4 ? ` Past ${CLAN_CAMP_AT} members a clan gets a camp of its own.` : '')
-      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + this.warText(c, lead) + w.towns.promptText(id) + w.territory.promptText(i) + ' You may change clan (skill clan), but everyone must belong to one.';
+      + (c.camp ? ` Your clan has its own camp at (${Math.round(c.camp.x)}, ${Math.round(c.camp.y)}): your home and huts belong there.` : '')
+      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + this.warText(c, lead) + w.towns.promptText(id) + w.territory.promptText(i); // changing clan / camps of their own: in the system prompt (Planner.worldRules)
   }
   private warText(c: Clan, lead: boolean): string {
     const ws = this.wars.filter((x) => x.a === c.id || x.b === c.id).map((x) => { const mine = x.a === c.id ? 0 : 1, f = this.byId(x.a === c.id ? x.b : x.a); return `${f?.name ?? '?'} (duels won ${x.wins[mine]} to ${x.wins[1 - mine]})`; });

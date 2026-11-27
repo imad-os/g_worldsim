@@ -39,6 +39,9 @@ input[type=checkbox]{accent-color:var(--acc);width:18px;height:18px;min-height:a
 .tag{display:inline-block;font-size:11.5px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--card2);color:var(--dim);border:1px solid var(--line);vertical-align:middle;letter-spacing:.02em}
 .tag.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .bstats{display:flex;flex-wrap:wrap;gap:4px 14px;margin:4px 0 2px;font-size:.86em}
+.blist{max-height:440px;overflow-y:auto;overscroll-behavior:contain;margin-bottom:10px;padding-right:4px;border-top:1px solid var(--line,rgba(127,127,127,.2));border-bottom:1px solid var(--line,rgba(127,127,127,.2))}
+.btry{margin-top:4px;font-size:.88em}
+.btry .out{margin:4px 0 0;max-height:7em;overflow:auto;white-space:pre-wrap}
 .tag.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent);background:color-mix(in srgb,var(--bad) 12%,transparent)}
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:13px;padding:3px 10px;border-radius:99px;background:var(--card2);border:1px solid var(--line);margin:2px 4px 2px 0}
 .chip .ic{width:14px;height:14px}.chip.food{color:var(--warn)}.chip.mood{color:var(--acc)}

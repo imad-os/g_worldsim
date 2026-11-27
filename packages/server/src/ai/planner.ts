@@ -16,7 +16,7 @@ import { Convo, smallTalk } from './convo.js';
 import { kidTalk, kidVoice } from '../sim/family.js';
 import { Act, EFlag, Kind, CONFIRM } from '@worldsim/protocol';
 import { warWords } from '../sim/clans.js';
-import { SOURCES, knowHowFor, mentioned, ownText } from '../sim/knowhow.js';
+import { SOURCES, knowHowFor, mentioned } from '../sim/knowhow.js';
 import type { Ai } from './llm.js';
 import { AiError, parseJsonReply } from './llm.js';
 import type { Logger } from '../log.js';
@@ -69,6 +69,53 @@ const NOTES_MAX = 12;
 const HOUR = 3600;
 
 /** Words for a need (0 fine .. 100 desperate). */
+/** Sentences of a text, never split inside a quote. */
+function sentences(text: string): string[] {
+  const out: string[] = [];
+  let q = false, start = 0;
+  for (let k = 0; k < text.length; k++) {
+    const c = text[k]!;
+    if (c === '"') q = !q;
+    else if (!q && (c === '.' || c === '!' || c === '?') && text[k + 1] === ' ') { out.push(text.slice(start, k + 1).trim()); start = k + 2; }
+  }
+  if (text.slice(start).trim()) out.push(text.slice(start).trim());
+  return out;
+}
+/** Lines whose facts are personal by nature: never moved to the shared part, even when two people share them. */
+const OWN = /^(Person|Needs|Now|Stats|Gear|Has|Home|Standing|Family|Near|Feelings|Memory|Remembered events|Places you know|Recent|Goals now|Not possible now|Nothing new)\b/;
+/**
+ * The sentences every person of a batch has word for word (the wild horses, the clan's order, the leader, a lesson): taken out of each
+ * block and returned to be said once above them. A line left with only its label goes.
+ */
+export function hoist(blocks: string[][]): string[] {
+  if (blocks.length < 2) return [];
+  const split = (line: string) => { const c = line.indexOf(': '), lab = /^[A-Z][\w ()'-]{0,30}: /.test(line) && c > 0 ? line.slice(0, c + 2) : ''; return { lab, ss: sentences(line.slice(lab.length)) }; };
+  const count = new Map<string, number>(), labOf = new Map<string, string>();
+  for (const b of blocks) {
+    const seen = new Set<string>();
+    for (const line of b) {
+      if (OWN.test(line)) continue;
+      const { lab, ss } = split(line);
+      for (const x of ss) if (x.length >= 30) { const key = lab + '\u0000' + x; seen.add(key); labOf.set(key, lab); }
+    }
+    for (const x of seen) count.set(x, (count.get(x) ?? 0) + 1);
+  }
+  const same = [...count].filter(([, n]) => n === blocks.length).map(([x]) => x);
+  if (!same.length) return [];
+  const drop = new Set(same);
+  for (const b of blocks) {
+    for (let k = b.length - 1; k >= 0; k--) {
+      if (OWN.test(b[k]!)) continue;
+      const { lab, ss } = split(b[k]!), keep = ss.filter((x) => !drop.has(lab + '\u0000' + x));
+      if (keep.length === ss.length) continue;
+      if (keep.length) b[k] = lab + keep.join(' '); else b.splice(k, 1);
+    }
+  }
+  // Back as lines under their own label ("Clan: ...", "Weather: ..."), in the order first seen.
+  const byLab = new Map<string, string[]>();
+  for (const key of same) { const lab = labOf.get(key)!; (byLab.get(lab) ?? byLab.set(lab, []).get(lab)!).push(key.slice(lab.length + 1)); }
+  return [...byLab].map(([lab, xs]) => lab + xs.join(' '));
+}
 function level(v: number): string { return v < 25 ? 'fine' : v < 50 ? 'a little' : v < 75 ? 'quite' : v < 92 ? 'very' : 'desperately'; }
 /** Strip what models add around an answer: <think> blocks, quotes, a "Name:" prefix. */
 export function cleanLine(text: string, name: string): string {
@@ -366,12 +413,7 @@ export class Planner {
     const before = ids.map((id) => this.mind(id)!.lastPlan);
     for (const id of ids) { const m = this.mind(id)!; m.lastPlan = w.gameSec; m.urgent = false; }
     const prompt = this.planPrompt(slots, before);
-    const system = 'You decide what survivors in a post-apocalyptic world want to do next. Stay in character, be practical, '
-      + 'keep lines short and natural. Answer ONLY with JSON: {"people":[{"name":"...","goal":"...","with":"name or empty",'
-      + '"why":"short reason","say":"one short line they say aloud, or empty","mood":"one word","memory":"their updated long-term memory, '
-      + 'at most 300 characters, or empty when nothing new happened to them"}]}. Exactly one entry per person asked about, nobody else. '
-      + '"goal" = one item copied word for word from that person\'s own "Goals now" list, without the words in brackets (e.g. "talk", '
-      + '"gather wood"); the other person goes in "with" (e.g. {"goal":"talk","with":"Sami"}), never in "goal". "mood" = one word such as calm.';
+    const system = this.planSystem();
     const ex: Exchange = { at: Date.now(), kind: 'plan', who: ids.map((id) => this.name(id)).join(', '), prompt, reply: '', ms: 0 };
     let applied = 0, seen = 0;
     try {
@@ -494,16 +536,41 @@ export class Planner {
     const w = this.w, e = w.e, m = e.map[slots[0]!]!, place = w.maps[m]!.def.name;
     const sets = slots.map((i) => this.goalsFor(i)), things = new Set<string>();
     sets.forEach((g, k) => { for (const x of g.goals) if (GOAL_THING[x]) things.add(GOAL_THING[x]!); for (const x of this.carried(slots[k]!)) things.add(x); });
-    const wild = this.placeText(-1);
-    const lines = [`Time: ${this.clock()}. Place: ${place}. Travel to other places is ${w.travelOpen ? 'open' : 'closed'}.`,
-      ...(wild ? [wild] : []), ...(w.survival.enabled ? [SOURCES] : []), ...(knowHowFor(things) ? [knowHowFor(things)] : []), ''];
-    slots.forEach((i, k) => {
+    const wild = this.placeText(-1), know = knowHowFor(things);
+    const head = [`Time: ${this.clock()}. Place: ${place}. Travel to other places is ${w.travelOpen ? 'open' : 'closed'}.`, ...(wild ? [wild] : []), ...(know ? [know] : [])];
+    const blocks = slots.map((i, k) => {
       const g = sets[k]!, mind = this.mind(e.id(i))!, quiet = before[k] !== undefined && !mind.notes.some((n) => n.at > before[k]!);
-      lines.push(this.describe(i, true), `Goals now: ${g.goals.join(', ')}.`, ...(g.cant.length ? [`Not possible now: ${g.cant.join('; ')}.`] : []),
-        ...(quiet ? ['Nothing new since the last plan: leave "memory" empty.'] : []), '');
+      return [...this.describeLines(i, true), `Goals now: ${g.goals.join(', ')}.`, ...(g.cant.length ? [`Not possible now: ${g.cant.join('; ')}.`] : []),
+        ...(quiet ? ['Nothing new since the last plan: leave "memory" empty.'] : [])];
     });
-    lines.push('For each person above, give one entry in "people".');
+    const same = hoist(blocks);
+    const lines = [...head, ...(same.length ? ['Same for everyone below:', ...same] : []), ''];
+    for (const bl of blocks) lines.push(...bl, '');
+    lines.push(`For each person above, give one entry in "people"; "goal" is copied from that person's own "Goals now" list.`);
     return lines.join('\n');
+  }
+
+  /**
+   * The planner's system prompt: who answers, how the world works (the same for every person and call, so it is said once here and
+   * a local model reuses it between calls), how to read a person and the exact answer form.
+   */
+  planSystem(): string {
+    return 'You decide what survivors in a post-apocalyptic world want to do next. Stay in character, be practical, keep lines short and natural.\n'
+      + this.worldRules()
+      + 'Each person is written as lines "Label: facts". "Goals now" lists the only goals that person can take up now.\n'
+      + 'Answer ONLY with JSON: {"people":[{"name":"...","goal":"...","with":"name or empty",'
+      + '"why":"short reason","say":"one short line they say aloud, or empty","mood":"one word","memory":"their updated long-term memory, '
+      + 'at most 300 characters, or empty when nothing new happened to them"}]}. Exactly one entry per person asked about, nobody else. '
+      + '"goal" = one item copied word for word from that person\'s own "Goals now" list, without the words in brackets (e.g. "talk", '
+      + '"gather wood"); the other person goes in "with" (e.g. {"goal":"talk","with":"Sami"}), never in "goal". "mood" = one word such as calm.';
+  }
+
+  /** How the world works, for every system prompt (imad 2026-11-27: these sentences were repeated for every person of every prompt). */
+  private worldRules(): string {
+    return 'How this world works:\n'
+      + (this.w.survival.enabled ? `- ${SOURCES}\n- Huts are dear to build: move into a free hut before building one.\n` : '')
+      + '- Everyone must belong to a clan and may change clan (skill clan); a clan of 4 or more gets a camp of its own.\n'
+      + '- People usually do what the leader of their place and of their clan ask; when free, help with what the camp needs most.\n';
   }
 
   /** Things person i carries that are more than materials (their know-how goes in the prompt). */
@@ -562,8 +629,15 @@ export class Planner {
   }
 
   /** A person as the model sees them. */
-  private describe(i: number, inBatch = false): string {
-    const w = this.w, e = w.e, id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!;
+  private describe(i: number, inBatch = false): string { return this.describeLines(i, inBatch).join('\n'); }
+
+  /**
+   * A person as labelled lines, each fact once (imad 2026-11-27: "fewer tokens, the same information"; small 2B-8B models read
+   * "Label: facts" lines better than paragraphs, so no codes or abbreviations). What things are for is said once on top of the prompt
+   * (knowHowFor), not again per person; food is counted once (hands + bag); the world's rules live in the system prompt.
+   */
+  private describeLines(i: number, inBatch = false): string[] {
+    const w = this.w, e = w.e, id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!, s = w.survival, t = p.traits, k10 = (x: number) => Math.round(x * 10);
     const near: [number, string][] = [];
     for (let j = 0; j < e.hi; j++) {
       if (j === i || e.map[j] !== e.map[i] || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
@@ -576,33 +650,40 @@ export class Planner {
     near.sort((a, b) => a[0] - b[0]);
     const nearText = near.slice(0, 6).map((x) => x[1]).join('; ') + (near.length > 6 ? `; and ${near.length - 6} more farther off` : '');
     const rel = Object.entries(mind.rel).filter(([, v]) => Math.abs(v) >= 1).map(([k, v]) => `${k[0] === '#' ? this.name(Number(k.slice(1))) : k.slice(1)} ${v > 0 ? '+' : ''}${Math.round(v)}`);
-    const wish = mind.plan && mind.plan.until > w.gameSec ? `${mind.plan.act}${mind.plan.with !== undefined ? ' with ' + this.name(mind.plan.with) : ''}` : 'none';
+    const wish = mind.plan && mind.plan.until > w.gameSec ? `${mind.plan.act}${mind.plan.with !== undefined ? ' with ' + this.name(mind.plan.with) : ''}` : '';
+    const wp = s.weapon(i), task = w.tasks.describe(id), m = e.map[i]!, kid = kidVoice(w.family.ageOf(i)), quest = w.quests.promptText(i);
+    const plan = w.plan.text(m), lead = s.leader[m] ?? -1, place = this.placeText(i, inBatch), standing = `${w.influence.promptText(id)} ${w.purpose.promptText(id)}`.trim();
+    const opt = (x: string) => (x ? [x] : []);
     return [
       `Person: ${p.name} (${p.sex === 'f' ? 'woman' : 'man'}, ${Math.floor(ageOf(p, w.gameSec, w.yearSec))}; ${p.personality.join(', ')}; mood: ${mind.mood})`,
-      `Hungry: ${level(e.hunger[i]!)}. Thirsty: ${level(e.thirst[i]!)}. Tired: ${level(e.tired[i]!)}. Lonely: ${level(e.lonely[i]!)}. Health ${Math.round(e.hp[i]!)}%. Carrying ${w.survival.foodOf(i)} food${w.survival.inv(i).water ? ` and ${w.survival.inv(i).water} water` : ''}. Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}. Last wish: ${wish}.`,
-      this.selfText(i),
+      `Needs: hungry ${level(e.hunger[i]!)}, thirsty ${level(e.thirst[i]!)}, tired ${level(e.tired[i]!)}, lonely ${level(e.lonely[i]!)}; health ${Math.round(e.hp[i]!)}%.`,
+      `Now: ${ACT_TEXT[e.act[i]!] ?? 'standing'}${task ? `; working on: ${task}` : ''}${wish ? `; last wish: ${wish}` : ''}.`,
+      `Stats (0-10): strength ${k10(t.strength)}, speed ${k10(t.speed)}, courage ${k10(t.courage)}, intelligence ${k10(t.intelligence)}, kindness ${k10(t.empathy)}; level ${levelOf(p.xp)}.`,
+      `Gear: ${wp[1] > 0 ? w.gear.label(i, wp[0]) : 'bare hands'}.${w.gear.gearText(i)} Defence ${Math.round(s.defence(i) * 100)}%.`,
+      `Has: ${this.invText(i)}.`,
+      `Home: ${s.homes.describe(id)} ${s.homes.mapText(m, id)}`.trim(),
+      ...opt(standing ? `Standing: ${standing}` : ''),
       this.familyText(i),
-      ...(kidVoice(w.family.ageOf(i)) ? [kidVoice(w.family.ageOf(i))] : []),
+      ...opt(kid),
       w.clans.promptText(i),
-      ...(w.quests.promptText(i) ? [w.quests.promptText(i)] : []),
-      `Has: ${this.invText(i)}.${this.campText(i)}`,
-      ...(w.plan.text(e.map[i]!) ? [w.plan.text(e.map[i]!) + ' Help with what is most needed when you are free.'] : []),
-      ...(ownText(w, i) ? [ownText(w, i)] : []),
+      ...opt(quest),
+      ...opt(this.campText(i)),
+      ...opt(plan),
       w.horses.promptText(i),
-      ...(this.placeText(i, inBatch) ? [this.placeText(i, inBatch)] : []),
-      w.weather.promptText(e.map[i]!),
-      ...(w.lore.promptText(i) ? [w.lore.promptText(i)] : []),
-      ...(w.aware.promptText(i) ? [w.aware.promptText(i)] : []),
-      ...(w.talk.promptText(i) ? [w.talk.promptText(i)] : []),
-      ...(w.migrate.promptText(i) ? [w.migrate.promptText(i)] : []),
+      ...opt(place),
+      w.weather.promptText(m),
+      ...opt(w.lore.promptText(i)),
+      ...opt(w.aware.promptText(i)),
+      ...opt(w.talk.promptText(i)),
+      ...opt(w.migrate.promptText(i)),
       `Near: ${near.length ? nearText : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
-      ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),
-      ...(w.rules.text(i) ? [w.rules.text(i)] : []),
+      ...(lead < 0 ? [] : lead === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(lead)}.`]),
+      ...opt(w.rules.text(i)),
       `Memory: ${mind.summary || 'nothing yet'}`,
-      ...(w.ai.instinct ? [w.memory.story(i)].filter(Boolean) : []),
+      ...(w.ai.instinct ? opt(w.memory.story(i)) : []),
       `Recent: ${mind.notes.length ? this.recent(mind) : 'nothing'}`,
-    ].join('\n');
+    ].filter((x) => x && x.trim());
   }
 
   /** The newest notes, the same words said once with a count ("x3"), at most 6. */
@@ -612,7 +693,7 @@ export class Planner {
       const same = out.find((o) => o.text === n.text);
       if (same) { same.n++; same.at = n.at; } else out.push({ at: n.at, text: n.text, n: 1 });
     }
-    return out.sort((a, b) => a.at - b.at).slice(-6).map((o) => `${this.clock(o.at)} ${o.text}${o.n > 1 ? ` (x${o.n})` : ''}`).join(' | ');
+    return out.sort((a, b) => a.at - b.at).slice(-5).map((o) => `${this.when(o.at)} ${o.text}${o.n > 1 ? ` (x${o.n})` : ''}`).join(' | ');
   }
 
   /**
@@ -629,14 +710,6 @@ export class Planner {
     return `${wild.join(', ')}: very dangerous wild place${wild.length > 1 ? 's' : ''} (wolves, bears, zombies; many die there). Only adults go, armed and together, by day; children are never allowed.`;
   }
 
-  /** What a person knows about themselves: their strengths (0-10), level, what they are doing, how they are armed and dressed. */
-  private selfText(i: number): string {
-    const w = this.w, id = w.e.id(i), p = w.profileOf(i)!, t = p.traits, k = (x: number) => Math.round(x * 10);
-    const wp = w.survival.weapon(i), goal = w.tasks.describe(id);
-    return `Stats (0-10): strength ${k(t.strength)}, speed ${k(t.speed)}, courage ${k(t.courage)}, intelligence ${k(t.intelligence)}, kindness ${k(t.empathy)}. Level ${levelOf(p.xp)} (${p.xp ?? 0} xp).`
-      + ` Weapon: ${wp[1] > 0 ? w.gear.label(i, wp[0]) : 'bare hands'}.${w.gear.gearText(i)} Defence ${Math.round(w.survival.defence(i) * 100)}%.${goal ? ` Working on: ${goal}.` : ''}`
-      + ` ${w.survival.homes.describe(id)} ${w.survival.homes.mapText(w.e.map[i]!, id)} ${w.influence.promptText(id)} ${w.purpose.promptText(id)}`;
-  }
   /** Family: married or single, children, parents, brothers and sisters, a baby on the way (they must know it to talk about it). */
   private familyText(i: number): string {
     const w = this.w, e = w.e, id = e.id(i), p = w.profileOf(i)!, now = w.gameSec, y = w.yearSec;
@@ -662,19 +735,31 @@ export class Planner {
     return `Family: ${parts.join(' ')}`;
   }
 
- private invText(i: number): string {
-    const v = this.w.survival.inv(i), parts = Object.entries(v).filter(([, n]) => n! > 0).map(([k, n]) => `${n} ${k}`);
-    return parts.length ? parts.join(', ') : 'no materials';
+  private invText(i: number): string {
+    const s = this.w.survival, v = s.inv(i), food = s.foodOf(i);
+    const parts = [`${food} food`, ...Object.entries(v).filter(([k, n]) => n! > 0 && k !== 'food').map(([k, n]) => `${n} ${k}`)];
+    return parts.join(', ');
   }
   private campText(i: number): string {
     const w = this.w, e = w.e, s = w.survival, m = e.map[i]!;
     if (!s.enabled) return '';
-    const f = s.nearestFire(i, 60), camp = s.campOf(m);
-    const fire = f >= 0 ? ` A campfire burns ${Math.round(Math.hypot((f % w.maps[m]!.tiles.w) + 0.5 - e.x[i]!, ((f / w.maps[m]!.tiles.w) | 0) + 0.5 - e.y[i]!))} m away (${Math.round(s.fuel(m, f))} h of wood left).` : ' No fire nearby.';
-    const st = s.stash[m];
-    return `${fire} Huts here: ${s.huts[m]!.length}. Fields: ${[...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length}.${st ? ` The camp's store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap.` : ' No store yet.'}${w.zombies.count(m) ? ` ${w.zombies.count(m)} zombies are out.` : ''}${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} ${w.animals.count(m) ? ` ${w.animals.count(m)} animals roam this map.` : ''}`;
+    const f = s.nearestFire(i, 60), camp = s.campOf(m), st = s.stash[m], parts: string[] = [];
+    if (camp) parts.push(`${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away`);
+    parts.push(f >= 0 ? `a campfire ${Math.round(Math.hypot((f % w.maps[m]!.tiles.w) + 0.5 - e.x[i]!, ((f / w.maps[m]!.tiles.w) | 0) + 0.5 - e.y[i]!))} m away (${Math.round(s.fuel(m, f))} h of wood left)` : 'no fire nearby');
+    parts.push(st ? `the store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap` : 'no store yet');
+    const fields = [...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length;
+    if (fields) parts.push(`${fields} fields`);
+    if (w.zombies.count(m)) parts.push(`${w.zombies.count(m)} zombies are out`);
+    if (w.animals.count(m)) parts.push(`${w.animals.count(m)} animals roam this map`);
+    return `Camp: ${parts.join('; ')}.`;
   }
 
+  /** A short time for memories: "14:30" today, "day 2 14:30" before. */
+  private when(at: number): string {
+    const h = (x: number) => x / HOUR + 8, day = (x: number) => Math.floor(h(x) / 24), hh = ((h(at) % 24) + 24) % 24;
+    const t = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor((hh % 1) * 60)).padStart(2, '0')}`;
+    return day(at) === day(this.w.gameSec) ? t : `day ${day(at) + 1} ${t}`;
+  }
   /** "day 2 14:30 (afternoon)" — the day starts at 08:00 like the viewers show. */
   clock(at = this.w.gameSec): string {
     const h = at / HOUR + 8, day = Math.floor(h / 24) + 1, hh = ((h % 24) + 24) % 24;
@@ -761,7 +846,8 @@ export class Planner {
       const present = this.presentNames(i);
       // Know-how only for what is in play: the things named, the ones they carry and the ones their goals now make or use.
       const things = new Set([...mentioned(text ?? ''), ...this.carried(i), ...this.goalsFor(i).goals.map((g) => GOAL_THING[g] ?? '')]);
-      const prompt = [this.describe(i), `People you can name: ${present.join(', ') || 'nobody'}.`, ...(w.survival.enabled ? [SOURCES] : []), knowHowFor(things), '',
+      const know = knowHowFor(things);
+      const prompt = [this.describe(i), `People you can name: ${present.join(', ') || 'nobody'}.`, ...(know ? [know] : []), '',
         ...(via ? [via === 'dm' ? 'This is a written message only to you (you are not next to them: "come" means walk to where they are).'
           : `This is written in the ${via === 'world' ? 'world channel, which everyone reads' : 'clan channel, which your clan reads'}; answer for yourself, briefly.`] : []),
         text ? `${who} says to you: "${text.slice(0, 300)}"` : `${who} walks up to you.`,
@@ -773,7 +859,8 @@ export class Planner {
           ? `${from} is asking you to marry them. Decide as yourself, from your feelings about them and how well you know them: add "marry": true if you accept, "marry": false if you refuse, and say it.`
           : `${from} is asking you to marry them, but you cannot: ${canWed}. Say no kindly and add "marry": false.`] : []),
         ...(wantsDivorce ? [`${from}, your partner, is telling you they want a divorce. You are divorced now: react as yourself.`] : [])].join('\n');
-      const system = `You are ${p.name}, a survivor in a post-apocalyptic world. ${kidVoice(w.family.ageOf(i))} Speak naturally and briefly (one or two short sentences), in the `
+      // The fixed part first (a local model reuses it between calls), who they are last.
+      const system = this.worldRules() + 'Speak naturally and briefly (one or two short sentences), in the '
         + 'language you are spoken to. Answer ONLY with JSON: {"say":"the words you say","marry":true or false (only when asked to marry),"do":"come|follow|goto|bring|stay|stop|drink|eat|forage|sleep|talk|wander|rest|nothing","target":"a name or empty",'
         + '"task":"short name of what you will do, or empty","plan":[steps, or empty]}. When you agree to something that takes several steps, write "plan": '
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
@@ -792,7 +879,8 @@ export class Planner {
         + 'Example for "go ask Sara to marry you": {"say":"I\'ll go and ask her.","task":"ask Sara to marry me","plan":[{"do":"marry","who":"Sara"}]}. '
         + 'Example for "divorce him": {"say":"It is time.","task":"divorce","plan":[{"do":"divorce","who":"found"}]}. '
         + 'Example for "collect food and store it": {"say":"I\'ll fill the store.","task":"stock the store","plan":[{"do":"collect","what":"food","times":4},{"do":"store","what":"food"}]}. '
-        + 'Example for "build us a house": {"say":"Good idea, I\'ll get wood.","task":"build a hut","plan":[{"do":"build","what":"hut"}]}';
+        + 'Example for "build us a house": {"say":"Good idea, I\'ll get wood.","task":"build a hut","plan":[{"do":"build","what":"hut"}]}'
+        + `\nYou are ${p.name}, a survivor in a post-apocalyptic world. ${kidVoice(w.family.ageOf(i))}`.trimEnd();
       const ex: Exchange = { at: Date.now(), kind: 'chat', who: `${from} -> ${p.name}`, prompt, reply: '', ms: 0 };
       try {
         const r = await this.ai.generate({ system, prompt, json: true, maxTokens: 200, temperature: 0.8 });

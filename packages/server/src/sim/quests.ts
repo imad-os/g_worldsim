@@ -200,7 +200,9 @@ export class Quests {
     const learned = s.done.map((d) => questDef(d)?.lesson).filter(Boolean);
     if (learned.length) parts.push(`Lessons you learned from the town's teachers (use them): ${learned.join(' ')}`);
     const q = s.cur ? questDef(s.cur.id) : undefined;
-    if (q) parts.push(`Your quest now: "${q.title.en}" for ${npcDef(q.npc)!.name} (${s.cur!.ready ? 'done: go back to hand it in' : `${s.cur!.n}/${q.need[0]!.n}: ${q.ask.en}`}).`);
+    // A quest to make something they already carry: only a new one counts (imad's example: "your first axe" for a man with an axe).
+    const nd = q?.need[0], owned = !!nd && nd.ev === 'craft' && !!nd.what && (this.w.survival.inv(i)[nd.what] ?? 0) > 0;
+    if (q) parts.push(`Your quest now: "${q.title.en}" for ${npcDef(q.npc)!.name} (${s.cur!.ready ? 'done: go back to hand it in' : `${s.cur!.n}/${q.need[0]!.n}: ${q.ask.en}${owned ? ` You already have one: only a new one you make counts.` : ''}`}).`);
     else if (this.next(this.w.e.id(i))) { const k = this.next(this.w.e.id(i))!.npc, m = this.npcMap(k); parts.push(`${npcDef(k)!.name} in ${this.w.maps[m]?.def.name ?? 'town'} has a quest for you (skill npc).`); }
     return parts.join('\n');
   }

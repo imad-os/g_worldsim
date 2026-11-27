@@ -110,7 +110,7 @@ export class Memory {
       const d = Math.round(Math.hypot(p.x - e.x[i]!, p.y - e.y[i]!));
       pl.push(`${k === 'danger' ? 'danger (I was hurt)' : k} ${d < 5 ? 'right here' : `${d} m ${dir(p.x - e.x[i]!, p.y - e.y[i]!)}`}`);
     }
-    return [`Your memories (${m.l.length} kept, ${m.s.length} recent): ${mems.length ? mems.join(' | ') : 'nothing yet'}.`,
+    return [`Remembered events: ${mems.length ? mems.join(' | ') : 'nothing yet'}.`,
       ...(pl.length ? [`Places you know: ${pl.join('; ')}.`] : [])].join('\n');
   }
 

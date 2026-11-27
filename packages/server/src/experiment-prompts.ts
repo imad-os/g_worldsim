@@ -22,7 +22,8 @@ import { Rng } from './sim/rng.js';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 const arg = (k: string, d: string) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1]! : d; };
 const DAYS = Number(arg('days', '3')), SEEDS = arg('seeds', 'pr-a,pr-b,pr-c').split(','), AGENTS = Number(arg('agents', '16'));
-const POLICY = arg('policy', 'sensible'), OUT = arg('out', ''), SAMPLE = arg('sample', '');
+const POLICY = arg('policy', 'sensible'), OUT = arg('out', ''), SAMPLE = arg('sample', ''), DUMP = arg('dump', '');
+const dumped: string[] = [];
 const CLOCK = 30, RATE = 20, PLAN_EVERY = 20 * RATE; // the App ticks the planner every 2 s; minGapSec 20 = one batch per 20 real s
 
 const BASIC = ['drink', 'eat', 'forage', 'sleep', 'talk', 'wander', 'rest', 'travel'];
@@ -34,7 +35,7 @@ function goalsIn(block: string, shared: string[]): string[] {
   return own ? own[1]!.split(', ').map(clean) : shared;
 }
 function lvl(block: string, k: string): number {
-  const m = new RegExp(`${k}: (fine|a little|quite|very|desperately)`).exec(block);
+  const m = new RegExp(`${k}:? (fine|a little|quite|very|desperately)`, 'i').exec(block); // old "Thirsty: a little" and new "thirsty a little"
   return m ? ['fine', 'a little', 'quite', 'very', 'desperately'].indexOf(m[1]!) : 0;
 }
 
@@ -52,7 +53,7 @@ function fakeAnswer(prompt: string, rng: Rng, policy: string): string {
     let goal = '';
     if (policy === 'random') goal = goals[rng.int(goals.length)] ?? 'rest';
     else {
-      const food = Number(/Carrying (\d+) food/.exec(b)?.[1] ?? 0);
+      const food = Number(/(?:Carrying|Has:) (\d+) food/.exec(b)?.[1] ?? 0);
       if (lvl(b, 'Thirsty') >= 3) goal = 'drink';
       else if (lvl(b, 'Hungry') >= 2) goal = food > 0 && has('eat') ? 'eat' : 'forage';
       else if (lvl(b, 'Tired') >= 3 || (night && lvl(b, 'Tired') >= 1)) goal = 'sleep';
@@ -89,6 +90,7 @@ export async function runPrompts(seed: string, policy = POLICY, days = DAYS, age
   ai.status = () => ({ ready: true, callsLastHour: 0, maxCallsPerHour: 1e9 });
   ai.generate = async (r: { prompt: string; system?: string }) => {
     calls++; lens.push(r.prompt.length + (r.system?.length ?? 0));
+    if (DUMP) dumped.push(`=== SYSTEM\n${r.system ?? ''}\n=== PROMPT\n${r.prompt}`);
     planned += (r.prompt.match(/^Person: /gm) ?? []).length;
     if (!sample && /Person: .*\b(man|woman), \d{2,}/.test(r.prompt) && calls > 20) sample = r.prompt;
     return { text: fakeAnswer(r.prompt, rng, policy), ms: 1 };
@@ -97,8 +99,8 @@ export async function runPrompts(seed: string, policy = POLICY, days = DAYS, age
   // Tasks the planner started (its goals), to judge the choices made from the prompt.
   const mine = new Map<number, string>(), byGoal: Record<string, [number, number]> = {}, reasons: Record<string, number> = {}, goals: Record<string, number> = {};
   let inPlan = false;
-  const apply = planner.applyPlans.bind(planner);
-  planner.applyPlans = (ids: number[], list: { name: string; goal: string }[]) => {
+  const apply = planner.applyPlansN.bind(planner);
+  planner.applyPlansN = (ids: number[], list: { name: string; goal: string }[]) => {
     for (const p of list) goals[p.goal] = (goals[p.goal] ?? 0) + 1;
     inPlan = true; try { return apply(ids, list); } finally { inPlan = false; }
   };
@@ -131,6 +133,7 @@ export async function runPrompts(seed: string, policy = POLICY, days = DAYS, age
     }
   }
   if (SAMPLE && sample) writeFileSync(SAMPLE, sample);
+  if (DUMP) writeFileSync(DUMP, dumped.join('\n\n'));
   let alive = 0, stock = 0;
   for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent) alive++;
   for (let m = 0; m < w.maps.length; m++) stock += (w.survival.stash[m]?.food ?? 0) + (w.survival.stash[m]?.wood ?? 0) + (w.survival.stash[m]?.stone ?? 0);

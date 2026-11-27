@@ -287,7 +287,7 @@ export const ai: Screen = {
   render() {
     return `<div class="grid2">
     ${card('Status', `<div id="aStatus" class="stat"></div>`)}
-    ${card('Saved brains', `<p class="dim small" id="bFall"></p><div id="bList"><div class="skel"></div></div><button class="btn" id="bAdd">${icon('plus')} Add a brain</button>`, { help: help('brains') })}
+    ${card('Saved brains', `<p class="dim small" id="bFall"></p><div id="bList" class="blist"><div class="skel"></div></div><div class="row wrap"><button class="btn" id="bAdd">${icon('plus')} Add a brain</button><button class="btn" id="bTestAll">Test them all</button><span class="dim small" id="bTestNote"></span></div>`, { help: help('brains') })}
     ${card('<span id="bEdTitle">Edit brain</span>', `${row('Name', `<input id="aName" maxlength="40" placeholder="e.g. Gemini fast">`)}
       ${row('Type', `<select id="aProv"><option value="none">Off (built-in brain)</option><option value="gemini">Gemini (Google)</option><option value="ollama">Ollama (your own models)</option><option value="openai">OpenAI-compatible</option></select>`)}
       <div id="aUrlRow">${row('Address', `<input id="aUrl" placeholder="https://your-ollama-server">`, help('aiUrl'))}</div>
@@ -306,6 +306,7 @@ export const ai: Screen = {
   async mount() {
     on('#aProv', 'change', () => { provRows(); (document.getElementById('aModel') as HTMLInputElement).value = ''; });
     on('#bAdd', 'click', () => edit(null));
+    on('#bTestAll', 'click', () => { void testAll(); });
     on('#aSave', 'click', () => void saveBrain(false));
     on('#aKeyAdd', 'click', () => { if (!val('aKey')) { toast('Paste a key first', 'err'); return; } void saveBrain(false); });
     on('#aUse', 'click', () => void saveBrain(true));
@@ -334,6 +335,45 @@ type BrainsAns = { active: string; fallback?: string; list: BrainV[]; envKeys?: 
 const PROV_NAMES: Record<string, string> = { none: 'Built-in', gemini: 'Gemini', ollama: 'Ollama', openai: 'OpenAI-compatible' };
 let brains: BrainsAns = { active: '', list: [] };
 let editing: BrainV | null = null;
+/** Brain tests (imad 2026-11-27): the answer and the time it took, per brain; after "Test them all" the list is in order of time. */
+type BrainTry = { ms: number; text: string; model?: string; err?: string; running?: boolean };
+const tries = new Map<string, BrainTry>();
+let byTime = false;
+async function testBrain(id: string): Promise<void> {
+  tries.set(id, { ms: 0, text: '', running: true }); renderBrains();
+  const t0 = performance.now();
+  try {
+    const r = await cmd<{ text: string; ms: number; model: string }>({ cmd: 'brainTest', id }, 120000);
+    tries.set(id, { ms: r.ms || Math.round(performance.now() - t0), text: r.text, model: r.model });
+  } catch (e) { tries.set(id, { ms: Math.round(performance.now() - t0), text: '', err: String((e as Error).message ?? e) }); }
+  renderBrains();
+}
+async function testAll(): Promise<void> {
+  const list = brains.list.filter((b) => b.provider !== 'none');
+  const btn = document.getElementById('bTestAll') as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  byTime = true;
+  // One at a time, so one brain's wait does not slow another on the same server and every time is fair.
+  for (let k = 0; k < list.length; k++) { setHtml('bTestNote', `Testing ${k + 1} of ${list.length}: ${esc(list[k]!.name)}…`); await testBrain(list[k]!.id); }
+  const ok = list.filter((b) => !tries.get(b.id)?.err).length;
+  setHtml('bTestNote', `${ok} of ${list.length} answered. Fastest first.`);
+  if (btn) btn.disabled = false;
+  renderBrains();
+}
+/** Saved brains in the order shown: as saved, or by test time (answers first, fastest on top; failures and untested last). */
+function shownBrains(): BrainV[] {
+  if (!byTime) return brains.list;
+  const key = (b: BrainV) => { const t = tries.get(b.id); return !t || t.running ? 2e9 : t.err ? 1e9 + t.ms : t.ms; };
+  return [...brains.list].sort((a, b) => key(a) - key(b));
+}
+function tryTxt(b: BrainV): string {
+  const t = tries.get(b.id);
+  if (!t) return '';
+  if (t.running) return '<div class="btry dim">Asking the model…</div>';
+  const sec = `${(t.ms / 1000).toFixed(1)} s`;
+  return t.err ? `<div class="btry"><span class="tag bad">${sec}</span> <span class="bad">${esc(t.err.slice(0, 200))}</span></div>`
+    : `<div class="btry"><span class="tag ok">${sec}</span>${t.model ? ` <small class="dim">${esc(t.model)}</small>` : ''}<pre class="out">${esc(t.text)}</pre></div>`;
+}
 function provRows(): void {
   const p = val('aProv');
   document.getElementById('aUrlRow')!.hidden = p !== 'ollama' && p !== 'openai';
@@ -394,13 +434,14 @@ function statsTxt(st: BrainStatsV | undefined): string {
 function renderBrains(): void {
   const fo = brains.failover, fb = brains.fallback ?? '';
   setHtml('bFall', `${fb ? `Fallback: <b>${esc(brains.list.find((b) => b.id === fb)?.name ?? '?')}</b>. ` : 'No fallback brain. '}When the brain in use fails ${fo?.errors ?? 3} requests in a row, the fallback thinks for ${fo?.minutes ?? 30} minutes, then the brain in use takes over again.${fo?.on ? ` <span class="bad">Fallback thinking now, until ${new Date(fo.until).toLocaleTimeString()}.</span>` : fo?.streak ? ` <span class="bad">${fo.streak} error${fo.streak === 1 ? '' : 's'} in a row now.</span>` : ''}`);
-  setHtml('bList', brains.list.map((b) => `<div class="li${b.active ? ' on' : ''}"><div><b>${esc(b.name)}</b> ${b.active ? '<span class="tag ok">In use</span>' : ''}${b.id === fb ? ' <span class="tag">Fallback</span>' : ''}${fo?.on && fo.brain === b.id ? ' <span class="tag bad">Thinking now</span>' : ''}<br>
+  setHtml('bList', shownBrains().map((b) => `<div class="li${b.active ? ' on' : ''}"><div><b>${esc(b.name)}</b> ${b.active ? '<span class="tag ok">In use</span>' : ''}${b.id === fb ? ' <span class="tag">Fallback</span>' : ''}${fo?.on && fo.brain === b.id ? ' <span class="tag bad">Thinking now</span>' : ''}<br>
     <small class="dim">${esc(PROV_NAMES[b.provider] ?? b.provider)}${b.provider !== 'none' ? ` · ${esc(b.model || (b.provider === 'ollama' ? 'fastest model' : 'default model'))}` : ''}${b.provider === 'ollama' || b.provider === 'openai' ? ` · ${esc(b.url)}` : ''}${b.keys ? ` · ${b.keys > 1 ? `${b.keys} keys` : 'key'} …${esc(b.keyEnd)}` : b.provider === 'gemini' && brains.envKeys?.gemini ? ` · ${brains.envKeys.gemini} keys from .env` : ''}</small>
-    ${statsTxt(b.stats)}</div>
-    <div class="row">${b.active ? '' : `<button class="btn sm primary" data-buse="${esc(b.id)}">Use</button><button class="btn sm ghost" data-bfb="${b.id === fb ? '' : esc(b.id)}">${b.id === fb ? 'No fallback' : 'Set as fallback'}</button>`}<button class="btn sm ghost" data-bed="${esc(b.id)}">Edit</button>${b.active ? '' : `<button class="btn sm ghost danger" data-brm="${esc(b.id)}" aria-label="Delete">${icon('x')}</button>`}</div></div>`).join(''));
+    ${statsTxt(b.stats)}${tryTxt(b)}</div>
+    <div class="row">${b.provider === 'none' ? '' : `<button class="btn sm ghost" data-btest="${esc(b.id)}"${tries.get(b.id)?.running ? ' disabled' : ''}>Test</button>`}${b.active ? '' : `<button class="btn sm primary" data-buse="${esc(b.id)}">Use</button><button class="btn sm ghost" data-bfb="${b.id === fb ? '' : esc(b.id)}">${b.id === fb ? 'No fallback' : 'Set as fallback'}</button>`}<button class="btn sm ghost" data-bed="${esc(b.id)}">Edit</button>${b.active ? '' : `<button class="btn sm ghost danger" data-brm="${esc(b.id)}" aria-label="Delete">${icon('x')}</button>`}</div></div>`).join(''));
   on('[data-buse]', 'click', async (el) => { try { const r = await cmd<BrainsAns & { ai: AiStatus }>({ cmd: 'brainUse', id: el.dataset.buse! }); brains = r; renderBrains(); show(r.ai); toast(`Now thinking with ${brains.list.find((b) => b.active)?.name}`, 'ok'); } catch (e) { err(e); } });
   on('[data-bfb]', 'click', async (el) => { try { brains = await cmd<BrainsAns>({ cmd: 'brainFallback', id: el.dataset.bfb ?? '' }); renderBrains(); toast(brains.fallback ? `Fallback: ${brains.list.find((b) => b.id === brains.fallback)?.name}` : 'No fallback brain', 'ok'); } catch (e) { err(e); } });
   on('[data-bed]', 'click', (el) => edit(brains.list.find((b) => b.id === el.dataset.bed) ?? null));
+  on('[data-btest]', 'click', (el) => { void testBrain(el.dataset.btest!); });
   on('[data-brm]', 'click', async (el) => { const b = brains.list.find((x) => x.id === el.dataset.brm); if (!b || !confirm(`Delete the brain "${b.name}"?`)) return; try { brains = { ...brains, ...(await cmd<BrainsAns>({ cmd: 'brainDelete', id: b.id })) }; renderBrains(); if (editing?.id === b.id) edit(null); } catch (e) { err(e); } });
 }
 function show(s: AiStatus): void {

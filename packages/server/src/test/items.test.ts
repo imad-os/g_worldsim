@@ -32,10 +32,11 @@ test('items: prompts tell people what things are for, what they own and where th
   w.survival.add(i, 'axe', 1); w.survival.add(i, 'medkit', 1);
   const pr = (p as unknown as { planPrompt(s: number[]): string }).planPrompt([i]);
   assert.ok(!pr.includes(KNOW_HOW), 'not the whole know-how list any more (imad 2026-11-27: prompts too long)');
-  assert.ok(pr.includes(SOURCES), 'where materials come from');
+  assert.ok(p.planSystem().includes(SOURCES) && !pr.includes(SOURCES), 'where materials come from: once, in the system prompt');
   assert.ok(/axe \(1 wood \+ 1 stone\): chops trees/.test(pr) && /medkit \(3 herb \+ 1 leather\): gives back 45 health/.test(pr), 'what the things in play are for and cost');
   assert.ok(!/stonewall \(/.test(pr), 'nothing about things nobody here can make or use');
-  assert.ok(/Your things: axe \(chops trees/.test(pr) && /medkit \(gives back 45 health/.test(pr), 'what they own, with what it does');
+  assert.ok(/^Has: .*\b1 axe\b.*\b1 medkit\b/m.test(pr), 'what they own');
+  assert.equal((pr.match(/chops trees/g) ?? []).length, 1, 'what a thing does is said once (imad 2026-11-27: it was said twice)');
   assert.ok(/You have no horse\. Wild horses live in/.test(pr), 'where the wild horses are');
   assert.ok(!/hut = 12 wood/.test(pr), 'the real hut cost');
 });
