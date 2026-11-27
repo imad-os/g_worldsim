@@ -998,6 +998,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **"go to Pine Woods" (imad 2026-11-27, it had become a NEVER rule: the model's refine listed child / court as forbidden)**: `DO` entry go / travel /
   aller / ir / اذهب to -> task skill `visit` (walk to the map named, done on arrival; wild maps by day only), once. `classify` drops a forbid list on an order
   to do with no word of no (saved rules mend at load).
+- **Treating someone = a handshake (imad 2026-11-27: "I couldn't treat Zoe: they walked away"; "not stop completely, only when someone is treating
+  them")**: the heal job's stand spot follows the patient (`Survival.follow`, healer runs when 6 m+ behind, gives up at 60 m / another map / 40 re-aims).
+  The patient goes on with their day until the healer is within `MEET` 4 m: then "X, hold still, let me see to your wounds" / "Thank you" (event
+  `healMeet`, `Job.met`) and `Brain.waitForHealer` (after danger / kids) holds them still facing the healer (`healerOf` = met and within 8 m). Test heal.test.ts.
 - E12 in research/EXPERIMENTS.md (`experiment-prompts.ts`, fake model): 20.2k -> 8.9k chars a call, tokens -64 %, planned tasks ok 1 % -> 74 %. Test prompts.test.ts.
 
 ## Thoughts page (imad 2026-11-27: "see what people think, not every person; whether a rule / tweak changes their thoughts, quickly")

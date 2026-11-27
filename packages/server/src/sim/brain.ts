@@ -83,6 +83,8 @@ export class Brain {
   readonly tactics: Tactics;
   /** A job (survival work): where to stand, what to face. */
   private readonly jobX: Float32Array;
+  /** 1 = run to the job spot (a healer catching up with a patient on the move). */
+  private readonly jobRun: Uint8Array;
   private readonly jobY: Float32Array;
   private readonly faceX: Float32Array;
   private readonly faceY: Float32Array;
@@ -100,7 +102,7 @@ export class Brain {
     this.whyCode = new Uint8Array(cap); this.whyArg = new Int32Array(cap).fill(-1); this.whyAt = new Float64Array(cap);
     this.ordKind = new Uint8Array(cap); this.ordWho = new Int32Array(cap).fill(-1); this.ordAct = new Int8Array(cap).fill(-1); this.ordUntil = new Float64Array(cap);
     this.tactics = new Tactics(w, cap);
-    this.jobX = new Float32Array(cap); this.jobY = new Float32Array(cap); this.faceX = new Float32Array(cap); this.faceY = new Float32Array(cap);
+    this.jobRun = new Uint8Array(cap); this.jobX = new Float32Array(cap); this.jobY = new Float32Array(cap); this.faceX = new Float32Array(cap); this.faceY = new Float32Array(cap);
     const idsOf = (names: string[]) => new Set(w.sc.tiles.filter((t) => names.includes(t.name)).map((t) => t.id));
     const water = idsOf(life.water), shelter = idsOf(life.shelter);
     this.drinkSpots = []; this.shelterSpots = [];
@@ -216,7 +218,7 @@ export class Brain {
   }
 
   /** Survival work (sim/survival.ts): walk to (sx, sy), then stay there doing `act` facing (fx, fy) until the job is stopped. */
-  job(i: number, sx: number, sy: number, fx: number, fy: number, act: number): boolean {
+  job(i: number, sx: number, sy: number, fx: number, fy: number, act: number, run = false): boolean {
     const w = this.w, e = w.e;
     if (e.kind[i] !== Kind.Agent || w.family.dependent(i)) return false;
     { // a new mother's week at home: work only inside it (the fridge, the chest)
@@ -225,7 +227,7 @@ export class Brain {
     }
     this.ordKind[i] = 6; this.ordWho[i] = -1; this.ordAct[i] = act; this.ordUntil[i] = w.gameSec + 6 * HOUR;
     this.noWay.delete(e.id(i));
-    this.jobX[i] = sx; this.jobY[i] = sy; this.faceX[i] = fx; this.faceY[i] = fy;
+    this.jobX[i] = sx; this.jobY[i] = sy; this.faceX[i] = fx; this.faceY[i] = fy; this.jobRun[i] = run ? 1 : 0;
     if (e.flags[i]! & EFlag.Sleeping) this.setAct(i, Act.Idle);
     this.pN[i] = 0; this.replans[i] = 0;
     e.nextThink[i] = w.tick + 1;
@@ -369,7 +371,7 @@ export class Brain {
         this.schedule(i, 2); return true;
       }
       if (this.walking(i) && e.act[i] === this.ordAct[i]) { this.schedule(i, 1); return true; }
-      if (!this.goTo(i, this.jobX[i]!, this.jobY[i]!)) { this.ordKind[i] = 0; this.noWay.add(e.id(i)); return false; }
+      if (!this.goTo(i, this.jobX[i]!, this.jobY[i]!, this.jobRun[i] === 1)) { this.ordKind[i] = 0; this.noWay.add(e.id(i)); return false; }
       this.setAct(i, this.ordAct[i]!); this.schedule(i, 1);
       return true;
     }
@@ -1082,6 +1084,7 @@ export class Brain {
     if (w.family.dependent(i)) { this.little(i); return; } // under 3: looked after, never on their own
     if (this.danger(i)) return;
     if (this.tendKids(i)) return;
+    if (this.waitForHealer(i, asleep)) return;
     if (this.hunting(i)) return;
     if (this.obey(i)) return;
     if (this.warmUp(i)) return;
@@ -1102,6 +1105,23 @@ export class Brain {
     if (this.continueAct(i)) return;
     this.replans[i] = 0;
     this.choose(i, rng.next());
+  }
+
+  /**
+   * Someone is dressing my wounds: once they are beside me and we have spoken (`Survival.follow`), stand still and face them until it is
+   * done (imad 2026-11-27: "not stop completely, only when someone is treating them, like a handshake"). Before that I go on as usual.
+   * Danger and my little ones come first (above); asleep = already still; a desperate need still wins.
+   */
+  private waitForHealer(i: number, asleep: boolean): boolean {
+    const w = this.w, e = w.e;
+    if (asleep || e.thirst[i]! > 92 || e.hunger[i]! > 95) return false;
+    const h = w.survival.healerOf(e.id(i));
+    if (h < 0) return false;
+    this.stop(i);
+    if (e.act[i] !== Act.Rest) this.setAct(i, Act.Rest);
+    e.angle[i] = Math.atan2(e.y[h]! - e.y[i]!, e.x[h]! - e.x[i]!);
+    this.schedule(i, 1, 20);
+    return true;
   }
 
   private schedule(i: number, lod: number, maxTicks = Infinity): void {

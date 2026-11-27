@@ -54,8 +54,10 @@ const HERBS_WILD = 45, HERBS_TOWN = 14;
 const FIRE_START = 10 * HOUR, FIRE_ADD = 4 * HOUR, FIRE_WARM = 6;
 
 type JobKind = keyof typeof WORK;
-interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; dir?: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number; box?: number }
+interface Job { kind: JobKind; m: number; tx: number; ty: number; work: number; dir?: number; tiles?: number[]; tries?: number; why?: string; who?: number; what?: string; n?: number; box?: number; met?: boolean }
 const LAMP_R = 3.5, BED_R = 1.3;
+/** Healer and patient this close = they meet: the patient becomes aware and holds still for the treatment. */
+const MEET = 4;
 /** How far a player can aim a build (metres). */
 export const PLACE_REACH = 8;
 /** Door directions (outwards): south, east, north, west. */
@@ -1460,6 +1462,44 @@ export class Survival {
     return this.begin(i, { kind: 'heal', m: e.map[i]!, tx: Math.floor(e.x[j]!), ty: Math.floor(e.y[j]!), work: 0, who });
   }
 
+  /**
+   * The one treating someone keeps up with them (imad 2026-11-27: "I couldn't treat Zoe: they walked away"). The patient goes on with
+   * their day while the healer walks over (runs when 6 m+ behind); only when the healer is beside them (`MEET` m) is there a handshake:
+   * the healer says so, the patient answers and from then stands still for the treatment (`healerOf`, Brain). A string = the job ends.
+   */
+  private follow(i: number, j: Job): string | null {
+    const w = this.w, e = w.e, t = e.slot(j.who!);
+    if (t < 0) return 'they are gone';
+    if (e.map[t] !== e.map[i]) return 'they left for another place';
+    const px = e.x[t]!, py = e.y[t]!, d = Math.hypot(px - e.x[i]!, py - e.y[i]!);
+    if (d > 60) return 'they walked away';
+    if (j.met && d > MEET * 2) j.met = false; // pulled away (danger, a player): meet again when caught up
+    if (!j.met && d < MEET) {
+      j.met = true;
+      const pn = w.profileOf(t)?.name ?? '', hn = w.profileOf(i)?.name ?? '';
+      w.speak(i, `${pn ? pn + ', h' : 'H'}old still, let me see to your wounds.`);
+      w.speak(t, `Thank you${hn ? ', ' + hn : ''}.`);
+      w.emit('healMeet', { id: e.id(i), who: j.who, map: w.maps[e.map[i]!]!.def.id });
+    }
+    if (Math.hypot(px - (j.tx + 0.5), py - (j.ty + 0.5)) < 2) return null;
+    if ((j.tries = (j.tries ?? 0) + 1) > 40) return 'they kept walking away';
+    j.tx = Math.floor(px); j.ty = Math.floor(py); j.work = 0;
+    const k = d > 0.01 ? 1.2 / d : 0;
+    w.brain.job(i, px - (px - e.x[i]!) * k, py - (py - e.y[i]!) * k, px, py, Act.Build, d > 6);
+    return null;
+  }
+  /** The one treating person `id` once they have met (the handshake in `follow`), as a slot, or -1: only then does the patient hold still. */
+  healerOf(id: number): number {
+    const e = this.w.e, p = e.slot(id);
+    if (p < 0) return -1;
+    for (const [hid, j] of this.jobs) {
+      if (j.kind !== 'heal' || j.who !== id || !j.met) continue;
+      const h = e.slot(hid);
+      if (h >= 0 && e.map[h] === e.map[p] && Math.hypot(e.x[h]! - e.x[p]!, e.y[h]! - e.y[p]!) < MEET * 2) return h;
+    }
+    return -1;
+  }
+
   private W(i: number): number { return this.w.maps[this.w.e.map[i]!]!.tiles.w; }
 
   private begin(i: number, j: Job): true | string {
@@ -1507,6 +1547,7 @@ export class Survival {
       if (i < 0 || e.map[i] !== j.m) { this.jobs.delete(id); continue; }
       const o = w.brain.orderOf(i);
       if (o.kind !== 'job') { this.done(id, j.why ?? (w.brain.noWay.delete(id) ? 'I could not find a way there' : 'I had to stop')); continue; }
+      if (j.kind === 'heal') { const r = this.follow(i, j); if (r) { this.done(id, r); continue; } }
       if (!w.brain.atJob(i)) continue;
       j.work += dg;
       if (j.work < WORK[j.kind]) continue;
@@ -1666,7 +1707,7 @@ export class Survival {
       case 'heal': {
         const t = e.slot(j.who!);
         if (t < 0) return 'they are gone';
-        if (Math.hypot(e.x[t]! - e.x[i]!, e.y[t]! - e.y[i]!) > 3) return 'they walked away';
+        if (Math.hypot(e.x[t]! - e.x[i]!, e.y[t]! - e.y[i]!) > 3.5) return false; // they shifted: `follow` walks over to them again
         e.hp[t] = Math.min(w.sc.agents.hp, e.hp[t]! + 35);
         w.emit('heal', { id, who: j.who, hp: Math.round(e.hp[t]!) });
         return true;
