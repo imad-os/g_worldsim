@@ -5,12 +5,19 @@ import fs from 'node:fs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 import WebSocket from 'ws';
 import { encode, decode } from '@msgpack/msgpack';
-export async function start(server, sdkPath, view = { width: 1280, height: 720 }) {
+export async function start(server, sdkPath, view = { width: 1280, height: 720 }, opt = {}) {
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: view, colorScheme: 'dark' });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   const did = [], notes = [];
   page.on('websocket', (sock) => sock.on('framereceived', (f) => { try { const m = decode(Buffer.isBuffer(f.payload) ? f.payload : Buffer.from(f.payload)); if (m.t === 'note') { notes.push(m); if (m.kind === 'did') did.push(m.data); } } catch {} }));
+  if (opt.pad) await page.addInitScript(() => { // a fake Xbox pad: window.__axis(x, y), window.__btn(i, on)
+    const btn = () => ({ pressed: false, touched: false, value: 0 });
+    const pad = { id: 'Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)', index: 0, connected: true, mapping: 'standard', buttons: Array.from({ length: 17 }, btn), axes: [0, 0, 0, 0], timestamp: 1 };
+    window.__axis = (x, y) => { pad.axes[0] = x; pad.axes[1] = y; pad.timestamp++; };
+    window.__btn = (i, on) => { pad.buttons[i] = { pressed: on, touched: on, value: on ? 1 : 0 }; pad.timestamp++; };
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, writable: true, value: () => [pad, null, null, null] });
+  });
   await page.route(/mypc-sdk\.js/, (r) => r.fulfill({ contentType: 'text/javascript', body: fs.readFileSync(sdkPath) }));
   const ws = new WebSocket(server.replace(/^http/, 'ws') + '/ws');
   await new Promise((r) => ws.on('open', r));

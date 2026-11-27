@@ -826,7 +826,8 @@ export class Brain {
       e.hunger[i] = Math.min(100, e.hunger[i]! + N.hunger * k * h * (asleep ? 0.5 : 1));
       e.thirst[i] = Math.min(100, e.thirst[i]! + N.thirst * k * h * (asleep ? 0.5 : 1));
       e.tired[i] = asleep ? Math.max(0, e.tired[i]! - N.sleepRecover * h * (w.survival.onBed(e.map[i]!, e.x[i]!, e.y[i]!) ? 2 : 1)) : Math.min(100, e.tired[i]! + N.tired * k * h);
-      if (asleep && e.tired[i]! <= 0) { e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; e.act[i] = Act.Idle; }
+      // A player sleeps until they get up themselves (a move, A, Sleep again): waking them when rested made Sleep end at once
+      // when they were not tired (imad 2026-11-27: "it sleeps and wakes the same time").
       // Company: people awake within 6 m keep loneliness down, alone it grows like everyone's (it was never counted: the bar stayed full).
       if (!asleep) {
         const near = this.company(i, 6);
