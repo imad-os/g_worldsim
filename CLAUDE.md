@@ -982,6 +982,9 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   that, "talk to Ghita", "None", a person twice. `Planner.readGoal` (brackets dropped, first word, work-goal prefixes, synonyms, a name in the goal wins
   over `with`, "help X" = talk) + `applyPlansN` (first entry per person, strangers skipped); only an answer with NO entry for the batch is an error.
   System prompt shows the exact form. Test planreply.test.ts.
+- **"go to Pine Woods" (imad 2026-11-27, it had become a NEVER rule: the model's refine listed child / court as forbidden)**: `DO` entry go / travel /
+  aller / ir / اذهب to -> task skill `visit` (walk to the map named, done on arrival; wild maps by day only), once. `classify` drops a forbid list on an order
+  to do with no word of no (saved rules mend at load).
 - E12 in research/EXPERIMENTS.md (`experiment-prompts.ts`, fake model): 20.2k -> 8.9k chars a call, tokens -64 %, planned tasks ok 1 % -> 74 %. Test prompts.test.ts.
 
 ## Thoughts page (imad 2026-11-27: "see what people think, not every person; whether a rule / tweak changes their thoughts, quickly")

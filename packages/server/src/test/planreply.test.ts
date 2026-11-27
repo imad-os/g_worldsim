@@ -40,3 +40,18 @@ test('planner: loose batch answers are read (talk to X, None, duplicates, strang
   assert.equal(p.readGoal(D, 'help with most needed homes', '').goal, null);
   assert.equal(p.readGoal(D, `help ${nm(A)}`, '').goal, 'talk');
 });
+
+test('rules: "go to Pine Woods" is an order to go there, never a "never" (the model\'s forbid list is dropped)', async () => {
+  const { classify, compileRule } = await import('../sim/rules.js');
+  const w = new World(scenario(), { tickRate: 20, clockScale: 30, capacity: 2048, seed: 'rule-go' });
+  w.populate(); w.land.setup(); w.step();
+  const r = compileRule(w, 'go to "Pine Woods"', () => -1);
+  assert.equal(r.kind, 'goal');
+  assert.equal(r.plan?.[0]?.do, 'visit');
+  // A rule saved with the bad forbid list is mended when read again.
+  const old = classify({ text: 'go to "Pine Woods"', forbid: ['child', 'court'], with: -1 });
+  assert.deepEqual(old.forbid, []);
+  assert.equal(old.kind, 'goal');
+  // A real "never" keeps its forbids.
+  assert.equal(compileRule(w, 'never travel', () => -1).kind, 'never');
+});

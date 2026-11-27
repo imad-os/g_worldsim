@@ -112,9 +112,11 @@ const DO: [RegExp, (t: string) => Step[]][] = [
   [/\b(heal|treat|care for the (sick|wounded)|soign\w*|cura\w*)\b|عالج|داو/, () => [{ do: 'heal' }]],
   [/\b(drink|bois de l'eau|bebe\w*)\b|اشرب/, () => [{ do: 'drink' }]],
   [/\b(sleep|dors|dormir|duerme)\b|(^|\s)(نم|تنام)(\s|$)/, () => [{ do: 'sleep' }]],
+  // "go to Pine Woods": take the road to that place (the task finds the map named in the words).
+  [/\b(go|travel|walk|head|move) (to|into|over to)\b|\b(va|aller|allez|ve|ir|vete) (à|a|au|en|al)\b|اذهب|روح/, (t) => [{ do: 'visit', what: t.trim() }]],
 ];
 /** Orders that are done once (a hut every day would fill the map): no "every ..." word = once. */
-const ONCE = new Set(['build', 'craft', 'tame']);
+const ONCE = new Set(['build', 'craft', 'tame', 'visit']);
 const ANIMALS: [RegExp, string][] = [[/\b(rabbits?|lapins?|conejos?)\b|أرنب|ارانب/, 'rabbit'], [/\b(deer|cerfs?|biches?|ciervos?|venados?)\b|غزال|غزلان|أيل/, 'deer'],
   [/\b(boars?|sangliers?|jabal[ií]e?s?)\b|خنزير/, 'boar'], [/\b(wol(f|ves)|loups?|lobos?)\b|ذئب|ذئاب/, 'wolf'], [/\b(bears?|ours|osos?)\b|دب/, 'bear']];
 function animalIn(t: string): string { for (const [re, a] of ANIMALS) if (re.test(t)) return a; return ''; }
@@ -206,6 +208,9 @@ export function classify(r: Rule, nameOf: (name: string) => number = () => -1): 
     }
   }
   const yes = ' ' + r.text.toLowerCase().replace(/[’']/g, "'").replace(NOT_A_NO, ' must ') + ' ';
+  // An order to DO with no word of "no" is never a "never": a forbid list on it (the model's refine read "go to Pine Woods" as
+  // forbidding children, imad 2026-11-27) is dropped, here and for rules saved before.
+  if (!NEVER.test(yes) && stepsOfWords(r.text).length) r.forbid = [];
   if (r.forbid.length || NEVER.test(yes)) { r.kind = 'never'; delete r.goal; delete r.plan; delete r.every; delete r.hours; return r; }
   r.kind = 'goal';
   // Work the engine knows ("hunt", "chop wood", "farm"...) comes before marriage words ("hunt every day for your family").

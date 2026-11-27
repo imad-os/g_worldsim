@@ -72,7 +72,7 @@ export interface Step { gx?: number; gy?: number; key?: string; units?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore', 'settle'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore', 'settle', 'visit'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -168,6 +168,7 @@ export class Tasks {
       return st >= 0 ? st : w.e.map[i]!;
     }
     for (const mp of w.maps) if (mp.def.id.toLowerCase() === q || mp.def.name.toLowerCase() === q || mp.def.name.toLowerCase().includes(q)) return mp.index;
+    for (const mp of w.maps) if (q.includes(mp.def.name.toLowerCase())) return mp.index; // "go to pine woods"
     if (/wood|forest|wild|for[eê]t|bosque|غابة/.test(q)) { for (const mp of w.maps) if (w.wild(mp.index)) return mp.index; }
     return -1;
   }
@@ -463,6 +464,15 @@ export class Tasks {
         if (r.code === 'forbidden') return 'I must not tame horses';
         if (r.code === 'tooYoung') return 'I am too young';
         if ((s.n0 = (s.n0 ?? 0) + 1) >= 8) { b.order(i, 'stop', -1, -1, 0); return `${r.name ?? 'the horse'} would not let me tame it`; }
+        return false;
+      }
+      case 'visit': { // go to another place (a rule "go to Pine Woods", a chat plan): through the gates, done on arrival
+        const to = this.mapFor(i, String(s.what ?? ''));
+        if (to < 0 || to >= w.maps.length) return 'I do not know that place';
+        if (e.map[i] === to) return true;
+        if (!w.travelOpen) return 'the roads are closed';
+        if (w.wild(to) && !b.mayGoWild(i)) return `${w.maps[to]!.def.name} is too dangerous for me now`;
+        if (!this.walkToMap(i, to, s)) return 'I found no road there';
         return false;
       }
       case 'settle': { // move to another map for good (sim/migrate.ts): through the gates, then the old hut is let go
