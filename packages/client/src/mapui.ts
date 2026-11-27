@@ -29,7 +29,9 @@ export interface MapCtx {
   npcName(key: string): string;
 }
 
-const ZOOMS = [0, 2, 4, 7, 11, 16, 24]; // pixels per metre (0 = the whole map fits); imad 2026-11-26: "make sure I can zoom in"
+const ZOOMS = [0, 2, 4, 7, 11, 16, 24];
+/** Icon size x per zoom level (whole map .. closest). */
+const ICON_ZOOM = [0.9, 1, 1.15, 1.35, 1.6, 1.9, 2.3]; // pixels per metre (0 = the whole map fits); imad 2026-11-26: "make sure I can zoom in"
 const NPC_ICON = '📜';
 export const MARK_KEY: Record<MarkKind, Key> = { home: 'mkHome', mine: 'mkMine', hunt: 'mkHunt', wood: 'mkWood', water: 'mkWater', farm: 'mkFarm', danger: 'mkDanger', camp: 'mkCamp', star: 'mkStar' };
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -201,21 +203,23 @@ export class MapScreen implements Grid {
     for (let y = 0; y <= d.map.h; y += 16) { g.moveTo(X(0), Math.round(Y(y)) + 0.5); g.lineTo(X(d.map.w), Math.round(Y(y)) + 0.5); }
     g.stroke();
     g.strokeStyle = 'rgba(255, 230, 180, 0.5)'; g.lineWidth = 2; g.strokeRect(X(0), Y(0), d.map.w * k, d.map.h * k);
-    const p = d.places, fs = Math.max(13, Math.min(24, H / 30));
+    // Icons are big enough to tell apart at a glance and grow with the zoom (imad 2026-11-27: "tiny, make them bigger and zoomed too").
+    const base = Math.max(20, Math.min(36, H / 17)), zk = ICON_ZOOM[this.zoom] ?? 1;
+    const p = d.places, fs = base * zk, lf = Math.round(Math.max(13, Math.min(26, base * 0.66 * Math.sqrt(zk))));
     const icon = (x: number, y: number, s: string, size = fs, label = '', col = '#fff6e0') => {
       g.font = `${size}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(s, X(x), Y(y));
-      if (label) { g.font = `600 ${Math.round(fs * 0.62)}px sans-serif`; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.strokeText(label, X(x), Y(y) + size * 0.85); g.fillStyle = col; g.fillText(label, X(x), Y(y) + size * 0.85); g.fillStyle = '#fff'; }
+      if (label) { g.font = `600 ${lf}px sans-serif`; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.strokeText(label, X(x), Y(y) + size * 0.85); g.fillStyle = col; g.fillText(label, X(x), Y(y) + size * 0.85); g.fillStyle = '#fff'; }
     };
     const dot = (x: number, y: number, r: number, fill: string, line = 'rgba(0,0,0,0.6)') => { g.beginPath(); g.arc(X(x), Y(y), r, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5; g.strokeStyle = line; g.stroke(); };
     // Huts (every one built: mine gold, someone's brown, free ones grey), then the camp and its fires, the store.
     for (const [x, y, own, who] of p.huts) {
-      const s = Math.max(7, 5 * k);
+      const s = Math.max(fs * 0.55, 5 * k);
       g.fillStyle = own === 1 ? '#ffd166' : own === 2 ? '#b07a45' : '#8c8c84'; g.strokeStyle = 'rgba(0,0,0,0.7)'; g.lineWidth = 1.5;
       g.fillRect(X(x) - s / 2, Y(y) - s / 2, s, s); g.strokeRect(X(x) - s / 2, Y(y) - s / 2, s, s);
       if (k >= 4 && own !== 1) icon(x, y + 2, '', fs, who ? tf('mapHutOf', who) : t('mapHutFree'), '#e8d9c0');
     }
-    for (const [x, y] of p.fires) dot(x, y, 4, '#ff8a3c');
+    for (const [x, y] of p.fires) dot(x, y, fs * 0.24, '#ff8a3c');
     if (p.camp) icon(p.camp[0], p.camp[1], '🔥', fs * 1.2, t('mapCamp'));
     if (p.store) icon(p.store[0], p.store[1], '📦', fs * 0.9, k >= 4 ? t('mapStore') : '');
     if (p.home) icon(p.home[0], p.home[1], '🏠', fs * 1.25, t('mapHome'), '#ffd166');
@@ -224,9 +228,9 @@ export class MapScreen implements Grid {
       icon(x, y, '⇆', fs * 0.8, tf('mapGate', d.maps.find(([id]) => id === to)?.[1] ?? to), '#bfe6ff');
     }
     for (const [x, y, key] of p.npcs) icon(x, y, NPC_ICON, fs * 0.85, k >= 7 ? this.c.npcName(key) : '', '#9ff3ff');
-    for (const [x, y] of p.people) dot(x, y, 3.2, '#f1efe6');
-    for (const [x, y, n] of p.players) { dot(x, y, 4.2, '#6fb7ff', '#0d2a44'); if (k >= 2) icon(x, y - 0.2, '', fs, n, '#cfe6ff'); }
-    for (const [x, y, q] of p.wild ?? []) { dot(x, y, 3.6, q === 2 ? '#ffcf4a' : q === 1 ? '#8fc8ff' : '#a8784a'); if (k >= 7) icon(x, y - 1.2, '🐎', fs * 0.6); } // wild horses (gold = legendary, blue = rare)
+    for (const [x, y] of p.people) dot(x, y, fs * 0.2, '#f1efe6');
+    for (const [x, y, n] of p.players) { dot(x, y, fs * 0.27, '#6fb7ff', '#0d2a44'); if (k >= 2) icon(x, y - 0.2, '', fs, n, '#cfe6ff'); }
+    for (const [x, y, q] of p.wild ?? []) { dot(x, y, fs * 0.23, q === 2 ? '#ffcf4a' : q === 1 ? '#8fc8ff' : '#a8784a'); if (k >= 7) icon(x, y - 1.2, '🐎', fs * 0.6); } // wild horses (gold = legendary, blue = rare)
     for (const [x, y, n] of p.horses) { g.beginPath(); g.arc(X(x), Y(y), fs * 0.62, 0, Math.PI * 2); g.fillStyle = 'rgba(20, 16, 10, 0.7)'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#ffd166'; g.stroke(); icon(x, y, '🐎', fs * 0.8, n, '#ffe7a3'); } // my horses, always named
     // My marks.
     let hover = -1, hd = 18;
@@ -255,7 +259,7 @@ export class MapScreen implements Grid {
     const steps = [5, 10, 20, 50, 100, 200], len = steps.find((s) => s * k >= 70) ?? 200, bw = len * k, by = H - 18;
     g.fillStyle = 'rgba(14, 12, 9, 0.72)'; g.fillRect(10, by - 22, Math.max(bw, 60) + 92, 32);
     g.strokeStyle = '#fff6e0'; g.lineWidth = 2; g.beginPath(); g.moveTo(18, by - 4); g.lineTo(18, by); g.lineTo(18 + bw, by); g.lineTo(18 + bw, by - 4); g.stroke();
-    g.font = `600 ${Math.round(fs * 0.62)}px sans-serif`; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff6e0';
+    g.font = `600 ${Math.round(Math.max(13, Math.min(17, base * 0.6)))}px sans-serif`; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = '#fff6e0';
     g.fillText(`${len} m`, 18, by - 8);
     g.textAlign = 'right'; g.fillText(tf('mapZoom', `${this.zoom + 1}/${ZOOMS.length}`), Math.max(bw, 60) + 96, by - 8);
     this.info(me);
