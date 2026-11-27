@@ -28,6 +28,11 @@ export interface GAction<S = unknown> {
   cost: number | ((s: Facts) => number);
   /** What the executor runs (sim/tasks.ts step), opaque here. */
   step: S;
+  /**
+   * The facts a function `add` / `cost` reads ([] = none: they give the same at every state). Left out = they may read
+   * anything. Only a speed hint: the planner then works them out once per value of those facts instead of at every state.
+   */
+  reads?: string[];
 }
 
 export interface Plan<S = unknown> { actions: GAction<S>[]; cost: number; expanded: number }
@@ -121,11 +126,14 @@ class Heap<T> {
 interface Node { s: Facts; g: number; act: GAction | null; parent: Node | null; depth: number }
 
 /**
+ * The reference planner: plain objects, easy to read. `plan` below gives exactly the same answers (test ai.goap.test.ts
+ * compares them), only faster.
+ *
  * The cheapest plan from `start` to `goal`, or null when there is none within `maxNodes` expansions / `maxDepth` actions.
  * States are compared on the facts the actions and the goal mention (rounded to 1/100), so different orders of the
  * same work collapse into one state.
  */
-export function plan<S>(start: Facts, goal: Facts, actions: GAction<S>[], opts: { maxNodes?: number; maxDepth?: number } = {}): Plan<S> | null {
+export function planRef<S>(start: Facts, goal: Facts, actions: GAction<S>[], opts: { maxNodes?: number; maxDepth?: number } = {}): Plan<S> | null {
   const maxNodes = opts.maxNodes ?? 4000, maxDepth = opts.maxDepth ?? 40;
   if (satisfied(start, goal)) return { actions: [], cost: 0, expanded: 0 };
   const keys = new Set<string>(Object.keys(goal));
@@ -157,6 +165,162 @@ export function plan<S>(start: Facts, goal: Facts, actions: GAction<S>[], opts: 
       if (!Number.isFinite(h)) continue;
       best.set(k2, g2);
       open.push(g2 + h, { s: s2, g: g2, act: a, parent: n, depth: n.depth + 1 });
+    }
+  }
+  return null;
+}
+
+/** A plan() state: one number per fact the goal or the actions mention (order = the sorted fact names). */
+type St = Float64Array;
+/** What an action gives and costs at some state: the facts it adds (indexes, amounts) and its cost. */
+interface Eff { ai: number[]; av: number[]; cost: number }
+interface CAct<S> { a: GAction<S>; pre: number[]; preV: number[]; use: number[]; useV: number[]; fixed: Eff | null; dep: number[] | null; memo: Map<string | number, Eff> }
+class Unindexed extends Error {}
+
+/**
+ * The cheapest plan from `start` to `goal`, or null when there is none within `maxNodes` expansions / `maxDepth` actions.
+ * States are compared on the facts the actions and the goal mention (rounded to 1/100), so different orders of the
+ * same work collapse into one state.
+ *
+ * Same search as `planRef`, on number arrays instead of objects (the planner was the server's biggest pause: up to 0.4 s
+ * planning huts, imad 2026-11-27 "the server struggles"): facts by index, a journal instead of copies in the heuristic,
+ * and what each action gives and costs worked out once per value of the facts it reads (`GAction.reads`).
+ */
+export function plan<S>(start: Facts, goal: Facts, actions: GAction<S>[], opts: { maxNodes?: number; maxDepth?: number } = {}): Plan<S> | null {
+  try { return planFast(start, goal, actions, opts); } catch (err) { if (err instanceof Unindexed) return planRef(start, goal, actions, opts); throw err; }
+}
+
+function planFast<S>(start: Facts, goal: Facts, actions: GAction<S>[], opts: { maxNodes?: number; maxDepth?: number }): Plan<S> | null {
+  const maxNodes = opts.maxNodes ?? 4000, maxDepth = opts.maxDepth ?? 40;
+  if (satisfied(start, goal)) return { actions: [], cost: 0, expanded: 0 };
+  const keys = new Set<string>(Object.keys(goal));
+  for (const a of actions) { for (const k in a.pre ?? {}) keys.add(k); for (const k in a.use ?? {}) keys.add(k); for (const k in addOf(a, start)) keys.add(k); }
+  const order = [...keys].sort(), K = order.length, ix = new Map(order.map((k, n) => [k, n]));
+  const idx = (k: string) => { const n = ix.get(k); if (n === undefined) throw new Unindexed(k); return n; };
+  const st0: St = new Float64Array(K);
+  for (let k = 0; k < K; k++) st0[k] = start[order[k]!] ?? 0;
+  // A state as an object, for the actions' own add / cost functions (facts outside the index never change).
+  const obj = (st: St): Facts => { const o: Facts = { ...start }; for (let k = 0; k < K; k++) o[order[k]!] = st[k]!; return o; };
+  const effAt = (a: GAction<S>, o: Facts): Eff => {
+    const add = addOf(a, o), ai: number[] = [], av: number[] = [];
+    for (const k in add) { ai.push(idx(k)); av.push(add[k]!); }
+    return { ai, av, cost: costOf(a, o) };
+  };
+  const acts: CAct<S>[] = actions.map((a) => {
+    const pre: number[] = [], preV: number[] = [], use: number[] = [], useV: number[] = [];
+    for (const k in a.pre ?? {}) { pre.push(idx(k)); preV.push(a.pre![k]!); }
+    for (const k in a.use ?? {}) { use.push(idx(k)); useV.push(a.use![k]!); }
+    const isFixed = typeof a.add !== 'function' && typeof a.cost !== 'function';
+    const reads = isFixed ? [] : a.reads;
+    const dep = reads ? reads.filter((k) => ix.has(k)).map((k) => ix.get(k)!) : null; // a fact outside the index never changes
+    return { a, pre, preV, use, useV, fixed: reads && !reads.length ? effAt(a, start) : null, dep, memo: new Map() };
+  });
+  const eff = (c: CAct<S>, st: St): Eff => {
+    if (c.fixed) return c.fixed;
+    if (!c.dep) return effAt(c.a, obj(st));
+    let mk: string | number;
+    if (c.dep.length === 1) mk = st[c.dep[0]!]!;
+    else { mk = ''; for (const d of c.dep) mk += st[d]! + ','; }
+    let e = c.memo.get(mk);
+    if (!e) { e = effAt(c.a, obj(st)); c.memo.set(mk, e); }
+    return e;
+  };
+  const gi: number[] = [], gv: number[] = [];
+  for (const k in goal) { gi.push(idx(k)); gv.push(goal[k]!); }
+  const sat = (st: St) => { for (let g = 0; g < gi.length; g++) if (st[gi[g]!]! < gv[g]!) return false; return true; };
+  const can = (c: CAct<S>, st: St) => {
+    for (let k = 0; k < c.pre.length; k++) if (st[c.pre[k]!]! < c.preV[k]!) return false;
+    for (let k = 0; k < c.use.length; k++) if (st[c.use[k]!]! < c.useV[k]!) return false;
+    return true;
+  };
+  const keyOf = (st: St) => { let o = ''; for (let k = 0; k < K; k++) o += Math.round(st[k]! * 100) + ','; return o; };
+  // Producers of each fact, as `producersOf`: by what the action gives at the start.
+  const prod: CAct<S>[][] = Array.from({ length: K }, () => []);
+  for (const c of acts) for (const k in addOf(c.a, start)) prod[idx(k)]!.push(c);
+
+  // The relaxed heuristic of `relaxed()`, on arrays: stock changes are journalled and undone when a producer fails.
+  const stock: St = new Float64Array(K), visiting = new Uint8Array(K), jk: number[] = [], jv: number[] = [];
+  const ranked: ([CAct<S>, number, number, number][] | null | undefined)[] = new Array(K);
+  // A fact whose producers all give and cost the same at every state is ranked once for the whole search.
+  const stable = prod.map((ps) => ps.every((c) => c.fixed)), kept: ([CAct<S>, number, number, number][] | null | undefined)[] = new Array(K);
+  let hs: St = st0, total = 0;
+  const rank = (f: number): [CAct<S>, number, number, number][] | null => {
+    let cand = ranked[f];
+    if (cand !== undefined) return cand;
+    if (stable[f] && kept[f] !== undefined) return (ranked[f] = kept[f]!);
+    const ps = prod[f]!;
+    if (!ps.length) cand = null;
+    else {
+      cand = [];
+      for (const c of ps) {
+        const e = eff(c, hs);
+        let y = 0;
+        for (let k = 0; k < e.ai.length; k++) if (e.ai[k] === f) { y = e.av[k]!; break; }
+        if (y > 0) cand.push([c, e.cost / y, y, e.cost]);
+      }
+      cand.sort((p, q) => p[1] - q[1]);
+    }
+    ranked[f] = cand;
+    if (stable[f]) kept[f] = cand;
+    return cand;
+  };
+  const need = (f: number, n: number, depth: number): boolean => {
+    const have = Math.max(0, stock[f]!), take = Math.min(have, n);
+    jk.push(f); jv.push(stock[f]!); stock[f] = have - take; n -= take;
+    if (n <= 1e-9) return true;
+    if (depth > 6 || visiting[f]) return false;
+    const cand = rank(f);
+    if (!cand) return false;
+    visiting[f] = 1;
+    let ok = false;
+    for (const [best, , by, cost] of cand) {
+      const mark = jk.length, t0 = total;
+      const times = Math.ceil(n / by - 1e-9);
+      total += times * cost;
+      ok = true;
+      for (let k = 0; k < best.use.length; k++) ok = need(best.use[k]!, best.useV[k]! * times, depth + 1) && ok;
+      for (let k = 0; k < best.pre.length; k++) { const pk = best.pre[k]!; if (hs[pk]! < best.preV[k]!) ok = need(pk, best.preV[k]! - hs[pk]!, depth + 1) && ok; }
+      if (ok) break;
+      while (jk.length > mark) stock[jk.pop()!] = jv.pop()!;
+      total = t0;
+    }
+    visiting[f] = 0;
+    return ok;
+  };
+  const h = (st: St): number => {
+    hs = st; total = 0; stock.set(st); jk.length = 0; jv.length = 0; ranked.fill(undefined);
+    for (let g = 0; g < gi.length; g++) if (!need(gi[g]!, gv[g]!, 0)) return Infinity;
+    return total;
+  };
+
+  interface FNode { s: St; g: number; act: GAction<S> | null; parent: FNode | null; depth: number }
+  const h0 = h(st0);
+  if (!Number.isFinite(h0)) return null;
+  const open = new Heap<FNode>(), best = new Map<string, number>();
+  open.push(h0, { s: st0, g: 0, act: null, parent: null, depth: 0 });
+  best.set(keyOf(st0), 0);
+  let expanded = 0;
+  while (open.size && expanded < maxNodes) {
+    const n = open.pop();
+    if (sat(n.s)) {
+      const out: GAction<S>[] = [];
+      for (let k: FNode | null = n; k && k.act; k = k.parent) out.unshift(k.act);
+      return { actions: out, cost: n.g, expanded };
+    }
+    if ((best.get(keyOf(n.s)) ?? Infinity) < n.g) continue; // a cheaper way here was found later
+    expanded++;
+    if (n.depth >= maxDepth) continue;
+    for (const c of acts) {
+      if (!can(c, n.s)) continue;
+      const e = eff(c, n.s), s2 = n.s.slice();
+      for (let k = 0; k < c.use.length; k++) s2[c.use[k]!] = s2[c.use[k]!]! - c.useV[k]!;
+      for (let k = 0; k < e.ai.length; k++) s2[e.ai[k]!] = s2[e.ai[k]!]! + e.av[k]!;
+      const g2 = n.g + e.cost, k2 = keyOf(s2);
+      if ((best.get(k2) ?? Infinity) <= g2) continue;
+      const hv = h(s2);
+      if (!Number.isFinite(hv)) continue;
+      best.set(k2, g2);
+      open.push(g2 + hv, { s: s2, g: g2, act: c.a, parent: n, depth: n.depth + 1 });
     }
   }
   return null;

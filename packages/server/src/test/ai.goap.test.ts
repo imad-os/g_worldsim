@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Kind } from '@worldsim/protocol';
-import { compress, plan, type GAction } from '../sim/goap.js';
+import { compress, plan, planRef, type GAction, type Facts } from '../sim/goap.js';
 import { auditHut, flood, walkableNear } from '../sim/structures.js';
 import { World } from '../sim/world.js';
 import { scenario } from './helpers.js';
@@ -26,6 +26,29 @@ test('goap: plans a hut from nothing, discovers that an axe first is cheaper, us
   assert.deepEqual(compress(plan({}, { '+wall': 2 }, acts)!.actions).map(([a, n]) => `${a.key}x${n}`).at(-1), 'wallx2');
   // Impossible goals give null, fast.
   assert.equal(plan({}, { unobtainium: 1 }, acts), null);
+});
+
+test('goap: the fast planner gives exactly the reference planner\'s plans (random worlds of recipes)', () => {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const facts = ['wood', 'stone', 'ore', 'leather', 'axe', 'tool', 'item', '+hut', '+wall', 'fire'];
+  for (let n = 0; n < 150; n++) {
+    const acts: GAction<null>[] = [];
+    const nA = 4 + Math.floor(rnd() * 9);
+    for (let k = 0; k < nA; k++) {
+      const pick = () => facts[Math.floor(rnd() * facts.length)]!;
+      const use: Facts = {}, pre: Facts = {}, add: Facts = {};
+      if (rnd() < 0.6) use[pick()] = 1 + Math.floor(rnd() * 3);
+      if (rnd() < 0.2) pre[pick()] = 1;
+      add[pick()] = 1 + Math.floor(rnd() * 2);
+      const fn = rnd() < 0.3, reads = rnd() < 0.5 ? ['axe'] : undefined, c = 10 + Math.floor(rnd() * 200);
+      acts.push({ key: 'a' + k, use, pre, add: fn ? (s) => ({ ...add, wood: (s.axe ?? 0) > 0 ? 2 : 1 }) : add, cost: fn ? (s) => c + ((s.axe ?? 0) > 0 ? 5 : 0) : c, reads: fn ? reads : undefined, step: null });
+    }
+    const start: Facts = {}; for (const f of facts) if (rnd() < 0.3) start[f] = Math.floor(rnd() * 4);
+    const goal: Facts = { [facts[Math.floor(rnd() * facts.length)]!]: 1 + Math.floor(rnd() * 3) };
+    const a = plan(start, goal, acts, { maxNodes: 800 }), b = planRef(start, goal, acts, { maxNodes: 800 });
+    assert.deepEqual(a && { k: a.actions.map((x) => x.key), c: a.cost, e: a.expanded }, b && { k: b.actions.map((x) => x.key), c: b.cost, e: b.expanded }, `case ${n}`);
+  }
 });
 
 test('structures: a hut is read from its walls in any orientation; a gap in the wall is not a room', () => {

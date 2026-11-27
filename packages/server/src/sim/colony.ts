@@ -156,7 +156,10 @@ export class Colony {
     const add = (key: string, a: Omit<Act, 'key' | 'cost'>, prior: (s: Facts) => number) => {
       const [mult, spu] = this.learned(i, key);
       const unit = a.step.unit;
-      out.push({ ...a, key, cost: (s) => {
+      // What add / cost read of the state (a speed hint for the planner, sim/goap.ts): a fixed add reads nothing, a function
+      // add says what it reads (else: maybe anything); prior reads nothing when it takes no argument.
+      const reads = prior.length ? undefined : typeof a.add !== 'function' ? [] : a.reads;
+      out.push({ ...a, key, reads, cost: (s) => {
         const base = prior(s);
         // Learned seconds per unit replace the guess (blended half and half so one bad day does not stick).
         const per = unit && spu ? (base * 0.5 + spu * ((typeof a.add === 'function' ? a.add(s) : a.add)[unit] ?? 1) * 0.5) : base;
@@ -165,7 +168,7 @@ export class Colony {
     };
     // Amortised walking per unit (the first trip is the long one); sources far off (known, past 60 m) cost the trip again.
     const hop = (d: number) => tr(4 + Math.min(d, 60) / 4 + Math.max(0, d - 60) / 2);
-    if (Number.isFinite(dTree)) add('gather:wood', { add: (s) => ({ wood: (s.axe ?? 0) > 0 ? 2 : 1 }), step: { do: 'gather', what: 'wood', unit: 'wood' } }, () => WORK.chop + hop(dTree));
+    if (Number.isFinite(dTree)) add('gather:wood', { add: (s) => ({ wood: (s.axe ?? 0) > 0 ? 2 : 1 }), reads: ['axe'], step: { do: 'gather', what: 'wood', unit: 'wood' } }, () => WORK.chop + hop(dTree));
     const dStone = Math.min(dRubble, dRock);
     if (Number.isFinite(dStone)) add('gather:stone', { add: { stone: 1 }, step: { do: 'gather', what: 'stone', unit: 'stone' } }, () => dRock <= dRubble ? (WORK.mine + hop(dRock)) / ROCK_STONE : (WORK.dig + hop(dRubble)) / 0.5);
     if (Number.isFinite(dRock)) add('gather:ore', { add: { ore: 1 }, step: { do: 'gather', what: 'ore', unit: 'ore' } }, () => (WORK.mine + hop(dRock)) / ORE_CHANCE);

@@ -66,9 +66,25 @@ export class Family {
     for (const [k, r] of Object.entries(p.kin ?? {})) if (r === 'parent') { const x = Number(k.slice(1)); if (!out.includes(x)) out.push(x); }
     return out;
   }
+  /**
+   * Children by blood of each parent, rebuilt at most once a tick (childrenOf was a walk over every profile ever, the dead
+   * too, for every person several times a tick: with 300 people the largest cost of the brain, imad 2026-11-27).
+   */
+  private kidIdx = new Map<number, number[]>();
+  private kidsAt = -1;
+  private kidsN = -1;
   childrenOf(id: number): number[] {
-    const out: number[] = [];
-    for (const [cid, q] of this.w.profiles) if (q.parents.includes(id)) out.push(cid);
+    const w = this.w;
+    if (this.kidsAt !== w.tick || this.kidsN !== w.profiles.size) {
+      this.kidsAt = w.tick; this.kidsN = w.profiles.size;
+      this.kidIdx.clear();
+      for (const [cid, q] of w.profiles) for (const pid of q.parents) {
+        let l = this.kidIdx.get(pid);
+        if (!l) this.kidIdx.set(pid, (l = []));
+        if (!l.includes(cid)) l.push(cid);
+      }
+    }
+    const out: number[] = [...(this.kidIdx.get(id) ?? [])];
     for (const [k, r] of Object.entries(this.prof(id)?.kin ?? {})) if (r === 'child') { const x = Number(k.slice(1)); if (!out.includes(x)) out.push(x); }
     return out;
   }
@@ -453,8 +469,8 @@ export class Family {
     if (care <= 0.45) return -1;
     const most = Math.min(4, 1 + Math.floor((care - 0.45) * 8));
     const mine = this.childrenOf(me);
-    for (let k = 0; k < e.hi; k++) {
-      if (e.kind[k] !== Kind.Agent || e.map[k] !== m || this.ageOf(k) >= 14 || Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) > 25) continue;
+    for (const k of this.young(m)) {
+      if (Math.hypot(e.x[k]! - e.x[c]!, e.y[k]! - e.y[c]!) > 25) continue;
       const kid = e.id(k);
       if (mine.includes(kid) || !this.parentsOf(kid).some((p) => w.clans.clanOf(p) === clan)) continue;
       const z = w.zombies.nearest(m, e.x[k]!, e.y[k]!, 7);
@@ -464,6 +480,19 @@ export class Family {
       return a;
     }
     return -1;
+  }
+
+  /** Agents under 14 on map m, in slot order; worked out once a tick. */
+  private youngAt = -1;
+  private youngBy: number[][] = [];
+  private young(m: number): number[] {
+    const w = this.w, e = w.e;
+    if (this.youngAt !== w.tick) {
+      this.youngAt = w.tick;
+      this.youngBy = w.maps.map(() => []);
+      for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent && e.map[k] !== NO_MAP && e.map[k]! < this.youngBy.length && this.ageOf(k) < 14) this.youngBy[e.map[k]!]!.push(k);
+    }
+    return this.youngBy[m] ?? [];
   }
 
   /** The TV's family page: my little ones' needs, and every child's age. */

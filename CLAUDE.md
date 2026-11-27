@@ -875,3 +875,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Test purpose.test.ts.
 - Guards are real people (night watch, `Survival.watch`: AI people on a 3-hour `guard` job by courage / strength / weapon); the 5 in the middle of
   town (Mara, Joren, Sela, warden Bram, Odile) are NPCs (Kind.Npc, quest givers, no needs).
+
+## Server speed with a big population (imad 2026-11-27: "300 people, max speed 2-3.7 instead of x4")
+- Cost grows with people: 14 people 0.25 ms a tick, 300 people ~3 ms (cloud), most in physics (crowds touching), the brain, and
+  the camp planner's pauses. Measure: `node packages/server/dist/profile.js <agents> <days> <zombies> <maxPop>` (sim only, per
+  system max / avg every half game day) and `node tools/server-profile.mjs <secs> <speed> <tvs> <agents>` (the whole App with TVs
+  and panel reads: event-loop lag, tick ms, effective speed, kB/s, admin read times).
+- `Family.childrenOf` uses a parent -> children index rebuilt once a tick (it walked every profile ever per call);
+  `threatToClanKid` loops over a per-tick list of children per map. Same results (world hash checked).
+- GOAP `plan` = `planFast` on number arrays (journal in the heuristic, effects memoised by `GAction.reads`); `planRef` = the
+  reference, test ai.goap compares both on random problems. Colony actions declare `reads` (gather:wood reads axe).
