@@ -43,3 +43,20 @@ test('tunnel watchdog restarts a tunnel whose public address stops answering', a
   assert.ok(starts >= 3, `watchdog restarted on its own (${starts})`);
   await m.stop();
 });
+
+/** imad 2026-11-27: the live switch to cloudflare-quick said "does not answer" on Windows (a new name, cached as missing). */
+test('a brand-new tunnel address is given time and asked through public DNS, else the PC lookup', async () => {
+  const srv = createServer((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}'); });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  after(() => { srv.closeAllConnections(); srv.close(); });
+  const port = (srv.address() as { port: number }).port;
+  const { askHealth } = await import('../tunnel.js');
+  assert.equal(await askHealth(`http://127.0.0.1:${port}`, 3000), true);
+  assert.equal(await askHealth(`http://localhost:${port}`, 6000), true, 'a name public DNS does not know falls back to the PC lookup');
+  assert.equal(await askHealth('http://127.0.0.1:1', 2000), false);
+  const m = new TunnelManager({ port: 0 }, new Logger('error', undefined, true), 'none');
+  m.firstWaitMs = 300;
+  const t0 = Date.now();
+  assert.equal(await m.healthy(`http://127.0.0.1:${port}`, true), true);
+  assert.ok(Date.now() - t0 >= 290, 'waited before the first check');
+});

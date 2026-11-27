@@ -2,6 +2,7 @@ rules_version = '2';
 // World simulator: who may use the control panel (imad 2026-11-20).
 // roles/<uid>   { role: 'owner' | 'admin' | 'player', email, name, at }  (no document = player)
 // players/<uid> { name, email, at }                                        (people who joined the world)
+// server/current { url, provider, at, uid }                                (the server's public link, public read)
 // The owner's email is written ONLY in the copy published in the Firebase console: replace OWNER_EMAIL below there,
 // never in this file (the repository is public).
 service cloud.firestore {
@@ -38,6 +39,21 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['name', 'email', 'at'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 20;
       allow delete: if isStaff() || request.auth.uid == uid;
+    }
+
+    // server/current { url, provider, at, uid }: the world server's public link (imad 2026-11-27). Anyone may read it (TVs and the
+    // panel look it up when their address stops answering). Written by the server's own account only: the first account to
+    // write it keeps it; the owner / an admin can delete it, and the server writes it again at its next link.
+    function goodLink(d) {
+      return d.keys().hasOnly(['url', 'provider', 'at', 'uid']) && d.uid == request.auth.uid
+        && d.url is string && d.url.size() <= 200 && d.url.matches('https://[A-Za-z0-9.-]+(:[0-9]+)?')
+        && d.provider is string && d.provider.size() <= 20 && d.at is int;
+    }
+    match /server/{doc} {
+      allow get: if doc == 'current';
+      allow create: if signedIn() && doc == 'current' && goodLink(request.resource.data);
+      allow update: if signedIn() && resource.data.uid == request.auth.uid && goodLink(request.resource.data);
+      allow delete: if isStaff();
     }
 
     match /{other=**} {

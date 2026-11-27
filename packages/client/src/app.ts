@@ -24,6 +24,7 @@ import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
 import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
 import { Compass, SoundCues, Names, AutoRide, ChatLog, type CompassRow } from './nav.js';
+import { publishedServer, sameServer } from './published.js';
 import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind, type WeatherInfo } from '@worldsim/protocol';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
@@ -282,10 +283,28 @@ function wsUrl(addr: string): string {
 }
 
 // ------------------------------------------------------------ network
+/**
+ * The server's link as published in Firestore (it changes when the PC's tunnel restarts). Switches to it when it differs from
+ * the address in hand; true = switched (the caller reconnects at once).
+ */
+async function findServer(): Promise<boolean> {
+  const url = await publishedServer(new URL('panel/firebase.json', location.href).href);
+  if (!url || (server && sameServer(url, server))) return false;
+  server = url;
+  MyPC.save('server', server);
+  if (auth) { auth = { ...auth, server }; MyPC.save('auth', auth); }
+  retry = 0;
+  return true;
+}
+
 function connect(): void {
   clearTimeout(retryTimer);
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
-  if (!server) { show('noserver'); return; }
+  if (!server) {
+    show('connect');
+    void findServer().then((ok) => { if (ok) connect(); else if (!server) show('noserver'); });
+    return;
+  }
   if (mode !== 'world') show(retry > 1 ? 'offline' : 'connect');
   let sock: WebSocket;
   try { sock = new WebSocket(wsUrl(server)); } catch { show('noserver'); return; }
@@ -297,11 +316,15 @@ function connect(): void {
     else sock.send(encode({ t: Msg.Pair, v: PROTOCOL_VERSION, name: profileName(), dev: deviceName() }));
   };
   sock.onmessage = (ev) => onMsg(decode(ev.data as ArrayBuffer) as ServerMsg);
+  let opened = false;
+  sock.addEventListener('open', () => { opened = true; });
   sock.onclose = () => {
     if (ws !== sock) return;
     ws = null;
     if (mode === 'pairfail') return;
     retry++;
+    // Could not reach it: the PC's link may have changed (new Cloudflare address). Ask Firestore, at most every 20 s.
+    if (!opened) void findServer().then((ok) => { if (ok) connect(); });
     if (mode !== 'world' || retry > 2) show('offline');
     retryTimer = window.setTimeout(connect, Math.min(15000, 1000 * 2 ** Math.min(retry, 4)));
   };
@@ -2550,7 +2573,8 @@ MyPC.init({
     auth = MyPC.load('auth', null);
     // Served by the world server itself (through its tunnel): that is the server.
     const own = /github\.io$/i.test(location.hostname) ? '' : location.origin;
-    server = String(q.get('server') || cfg.server || MyPC.load('server', '') || auth?.server || own);
+    // The address saved on this TV (typed, or found in Firestore last time) first; it is looked up again when it stops answering.
+    server = String(q.get('server') || MyPC.load('server', '') || cfg.server || auth?.server || own);
     how = MyPC.load('how', 'play') === 'watch' ? 'watch' : 'play';
     if (q.get('watch') !== null) how = 'watch';
     const b = MyPC.load('binds', null) as Binds | null;

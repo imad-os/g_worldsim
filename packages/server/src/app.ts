@@ -10,6 +10,7 @@ import { Monitor } from './monitor.js';
 import { Db } from './persist/db.js';
 import { Snapshots, EventLog } from './persist/snapshot.js';
 import { CloudSync } from './persist/cloud.js';
+import { LinkPublisher } from './persist/link.js';
 import { Players } from './persist/players.js';
 import { Accounts } from './persist/accounts.js';
 import { FirebaseAuth } from './auth/firebase.js';
@@ -43,10 +44,14 @@ import { execFileSync } from 'node:child_process';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
 const ARROW_SPEED = 100; // m/s: a player's bow arrow (imad 2026-11-25: "make the arrow faster"; other projectiles use the scenario's speed)
 /** The Firebase project of the panel's sign-in: docs/panel/firebase.json (the public web config, the same file the panel reads). */
-function firebaseProject(): string {
+function firebaseWeb(): { projectId: string; apiKey: string } {
   const f = join(ROOT, 'docs', 'panel', 'firebase.json');
-  try { return existsSync(f) ? String((JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string }).projectId ?? '') : ''; } catch { return ''; }
+  try {
+    const j = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as { projectId?: string; apiKey?: string }) : {};
+    return { projectId: String(j.projectId ?? ''), apiKey: String(j.apiKey ?? '') };
+  } catch { return { projectId: '', apiKey: '' }; }
 }
+function firebaseProject(): string { return firebaseWeb().projectId; }
 /** Panel commands that only read: never written to the timeline. */
 /** Tile colours / names / solid, indexed by tile id, for the panel's map and tools. */
 function byId(tiles: { id: number; name: string; color: number; solid?: boolean }[]): { colors: number[]; names: string[]; solid: boolean[] } {
@@ -92,6 +97,9 @@ export class App {
   /** Tests: a fake Google / Firestore for the sign-in checks. */
   authFetch?: ConstructorParameters<typeof FirebaseAuth>[1];
   tunnel!: TunnelManager;
+  /** The public link in Firestore server/current (off with auth.projectId 'none', as in the tests). */
+  link!: LinkPublisher;
+  linkFetch?: ConstructorParameters<typeof LinkPublisher>[4];
   ai!: Ai;
   brains!: Brains;
   brainStats!: BrainStats;
@@ -571,9 +579,12 @@ export class App {
       port: (this.net.http.address() as { port: number }).port, bin: c.tunnel.bin, ngrokDomain: c.tunnel.ngrokDomain,
       cloudflareHostname: c.tunnel.cloudflareHostname, cloudflareToken: this.secrets.cloudflareToken,
     }, this.log, (this.db.getMeta('tunnel_provider') as Config['tunnel']['provider'] | undefined) ?? c.tunnel.provider);
+    const fw = firebaseWeb();
+    this.link = new LinkPublisher(c.auth.projectId === 'none' ? '' : c.auth.projectId || fw.projectId, fw.apiKey, join(dataDir, 'firebase-link.json'), this.log, this.linkFetch);
     this.tunnel.onUrl = (url, old) => {
       this.db.setMeta('public_url', url);
       this.net.notifyAdmins('url', { url, old });
+      this.link.publish(url, this.tunnel.current.name);
     };
     void this.tunnel.start();
     this.loop.start();
@@ -610,6 +621,7 @@ export class App {
   private secretList(): string[] {
     const s = this.secrets, out = [s.adminToken, s.cloudflareToken ?? '', s.ollamaKey ?? '', s.openaiKey ?? '', s.firebase?.private_key ?? '', ...keyList(s.geminiKey), ...s.viewers.values()];
     for (const b of this.brains.view().list) out.push(...keyList(this.brains.get(b.id)?.key));
+    out.push(...(this.link?.secrets() ?? []));
     return out.filter((x) => x && x.length >= 6);
   }
   /** What agent code can use. */
@@ -1309,7 +1321,7 @@ export class App {
         if (!ok) throw new Error('no such player (players from .env are removed there)');
         return { kicked: this.net.kick(String(c.name)) };
       }
-      case 'tunnel': return this.tunnel.status();
+      case 'tunnel': return { ...this.tunnel.status(), published: this.link.status };
       case 'tunnelSwitch': {
         const ok = ['ngrok', 'tailscale', 'cloudflare', 'cloudflare-quick', 'none'];
         if (!ok.includes(String(c.provider))) throw new Error('bad provider');
@@ -1745,6 +1757,7 @@ export class App {
     this.loop?.stop();
     try { this.world?.replays.flush(); } catch { /* closing */ }
     for (const t of this.timers) clearInterval(t);
+    this.link?.stop();
     await this.tunnel?.stop().catch(() => {});
     await this.net?.close();
     if (this.world) this.snapshot();
