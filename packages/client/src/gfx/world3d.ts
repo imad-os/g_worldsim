@@ -111,6 +111,8 @@ export class World3D {
   rainSnow = true;
   /** The sky (Notice 'weather'): kind, strength, temperature; eased into the light, fog and snow on the ground. */
   private wx = { kind: 'clear', k: 0, t: 15, over: 0, fog: 1, cover: 0, flash: 0, nextFlash: 0 };
+  /** A lightning flash just lit the sky (the app plays its thunder a moment later). */
+  onFlash: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, tier: Tier) {
     this.tier = tier;
@@ -387,7 +389,7 @@ export class World3D {
     else if (w.t > 2) w.cover = Math.max(0, w.cover - dt * 0.004 * Math.min(5, w.t - 1));
     // Lightning now and then in a storm.
     w.flash = Math.max(0, w.flash - dt * 6);
-    if (kind === 'storm') { w.nextFlash -= dt; if (w.nextFlash <= 0) { w.flash = 1; w.nextFlash = 6 + Math.random() * 14; } }
+    if (kind === 'storm') { w.nextFlash -= dt; if (w.nextFlash <= 0) { w.flash = 1; w.nextFlash = 6 + Math.random() * 14; this.onFlash?.(); } }
     const pk = kind === 'rain' ? 1 : kind === 'storm' ? 2 : kind === 'snow' ? 3 : kind === 'blizzard' ? 4 : 0;
     this.precip.update(dt, this.rainSnow ? pk : 0, k, x, z, this.dark);
   }

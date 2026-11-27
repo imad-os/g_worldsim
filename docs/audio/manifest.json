@@ -1,5 +1,5 @@
 {
- "v": 1,
+ "v": 2,
  "sounds": [
   {
    "id": "step_dirt",
@@ -503,24 +503,28 @@
   {
    "id": "boar",
    "files": [
+    "animal/boar_1.ogg",
+    "animal/boar_2.ogg",
     "animal/boar.ogg"
    ],
    "cat": "animal",
    "loop": false,
    "gain": 0.65,
-   "license": "CC0",
-   "source": "https://opengameart.org/content/boar-0"
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. pig_10 / pig_12 pitched down (CC BY-SA 3.0) + https://opengameart.org/content/boar-0 (CC0)"
   },
   {
    "id": "boar_attack",
    "files": [
-    "animal/boar_attack.ogg"
+    "animal/boar_attack.ogg",
+    "animal/boar_attack_2.ogg",
+    "animal/boar_attack_3.ogg"
    ],
    "cat": "animal",
    "loop": false,
    "gain": 0.75,
-   "license": "CC0",
-   "source": "https://opengameart.org/content/dog-snarl-grunt-grumble"
+   "license": "CC BY 4.0",
+   "source": "OGA dog snarl (CC0) + Oculus PigSqueal (CC BY 4.0) + 0 A.D. pig_squeal_move (CC BY-SA 3.0)"
   },
   {
    "id": "wolf_growl",
@@ -538,13 +542,16 @@
    "id": "bear_roar",
    "files": [
     "animal/bear_roar_1.ogg",
-    "animal/bear_roar_2.ogg"
+    "animal/bear_roar_2.ogg",
+    "animal/bear_roar_3.ogg",
+    "animal/bear_roar_4.ogg",
+    "animal/bear_roar_5.ogg"
    ],
    "cat": "animal",
    "loop": false,
    "gain": 0.85,
    "license": "CC0",
-   "source": "https://opengameart.org/content/bear-growls"
+   "source": "https://opengameart.org/content/bear-growls (CC0) + https://freesound.org/s/516829/ (MATRIXXX_, CC0) + 0 A.D. lion1 / lion3 (CC BY-SA 3.0), pitched down"
   },
   {
    "id": "animal_hurt",
@@ -588,9 +595,9 @@
    ],
    "cat": "ambience",
    "loop": true,
-   "gain": 0.35,
+   "gain": 0.5,
    "license": "CC0",
-   "source": "https://opengameart.org/content/ambient-bird-sounds"
+   "source": "https://freesound.org/s/414098/ (felix.blume, CC0)"
   },
   {
    "id": "amb_woods",
@@ -599,9 +606,9 @@
    ],
    "cat": "ambience",
    "loop": true,
-   "gain": 0.35,
-   "license": "CC0",
-   "source": "https://opengameart.org/content/ambient-bird-sounds https://opengameart.org/content/wind1"
+   "gain": 0.5,
+   "license": "CC BY 4.0",
+   "source": "Oculus Audio Pack AMBForst_Forest_LOOP_01 (CC BY 4.0)"
   },
   {
    "id": "amb_night",
@@ -610,9 +617,9 @@
    ],
    "cat": "ambience",
    "loop": true,
-   "gain": 0.35,
+   "gain": 0.75,
    "license": "CC0",
-   "source": "https://opengameart.org/content/crickets-ambient-noise-loopable"
+   "source": "https://freesound.org/s/476672/ (felix.blume, CC0)"
   },
   {
    "id": "fire_loop",
@@ -621,9 +628,9 @@
    ],
    "cat": "ambience",
    "loop": true,
-   "gain": 0.5,
-   "license": "CC0",
-   "source": "https://opengameart.org/content/fire-crackling"
+   "gain": 0.6,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. attack/fire/c_11..c_19, stitched (CC BY-SA 3.0)"
   },
   {
    "id": "rain_loop",
@@ -632,9 +639,9 @@
    ],
    "cat": "ambience",
    "loop": true,
-   "gain": 0.45,
+   "gain": 0.65,
    "license": "CC0",
-   "source": "https://opengameart.org/content/rain-loopable"
+   "source": "https://freesound.org/s/466241/ (richwise, CC0)"
   },
   {
    "id": "wind_loop",
@@ -643,9 +650,9 @@
    ],
    "cat": "ambience",
    "loop": true,
-   "gain": 0.4,
+   "gain": 0.7,
    "license": "CC0",
-   "source": "https://opengameart.org/content/wind1"
+   "source": "https://freesound.org/s/711106/ (felix.blume, CC0)"
   },
   {
    "id": "whistle",
@@ -658,6 +665,177 @@
    "gain": 0.6,
    "license": "CC0",
    "source": "made for this game: tools/audio/whistle.mjs (synthesised)"
+  },
+  {
+   "id": "amb_night_woods",
+   "files": [
+    "ambience/amb_night_woods.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.75,
+   "license": "CC BY 4.0",
+   "source": "Oculus Audio Pack AMBForst_Night_LOOP_01 (CC BY 4.0)"
+  },
+  {
+   "id": "rain_heavy",
+   "files": [
+    "ambience/rain_heavy.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.55,
+   "license": "CC BY 4.0",
+   "source": "Oculus Audio Pack RAINVege_ForestRain_LOOP_01 (CC BY 4.0)"
+  },
+  {
+   "id": "blizzard_loop",
+   "files": [
+    "ambience/blizzard_loop.ogg"
+   ],
+   "cat": "ambience",
+   "loop": true,
+   "gain": 0.5,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. ambient/weather/snowstorm_11 (CC BY-SA 3.0)"
+  },
+  {
+   "id": "fire_pop",
+   "files": [
+    "ambience/fire_pop_1.ogg",
+    "ambience/fire_pop_2.ogg",
+    "ambience/fire_pop_3.ogg",
+    "ambience/fire_pop_4.ogg"
+   ],
+   "cat": "ambience",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. attack/fire/sz11..15 (CC BY-SA 3.0)"
+  },
+  {
+   "id": "thunder",
+   "files": [
+    "ambience/thunder_1.ogg",
+    "ambience/thunder_2.ogg"
+   ],
+   "cat": "ambience",
+   "loop": false,
+   "gain": 0.9,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. ambient/weather/thunder_10, thunder_11 (CC BY-SA 3.0)"
+  },
+  {
+   "id": "wind_gust",
+   "files": [
+    "ambience/wind_gust_1.ogg",
+    "ambience/wind_gust_2.ogg"
+   ],
+   "cat": "ambience",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. ambient/weather/windgust_11 (CC BY-SA 3.0)"
+  },
+  {
+   "id": "owl",
+   "files": [
+    "animal/owl_1.ogg",
+    "animal/owl_2.ogg",
+    "animal/owl_3.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC0",
+   "source": "https://freesound.org/s/465697/ (breviceps, CC0)"
+  },
+  {
+   "id": "wolf_howl",
+   "files": [
+    "animal/wolf_howl_1.ogg",
+    "animal/wolf_howl_2.ogg",
+    "animal/wolf_howl_3.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC0",
+   "source": "tools/audio/build.py howl()"
+  },
+  {
+   "id": "deer",
+   "files": [
+    "animal/deer_1.ogg",
+    "animal/deer_2.ogg",
+    "animal/deer_3.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.45,
+   "license": "CC0",
+   "source": "tools/audio/build.py snort() / bleat()"
+  },
+  {
+   "id": "horse",
+   "files": [
+    "animal/horse_1.ogg",
+    "animal/horse_2.ogg",
+    "animal/horse_3.ogg",
+    "animal/horse_4.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC BY 4.0",
+   "source": "Oculus HorseNeigh / HorseNeighAmbient (CC BY 4.0) + 0 A.D. horse_select1 / 2 (CC BY-SA 3.0)"
+  },
+  {
+   "id": "horse_snort",
+   "files": [
+    "animal/horse_snort_1.ogg",
+    "animal/horse_snort_2.ogg",
+    "animal/horse_snort_3.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.5,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. horse_idle1..3 (CC BY-SA 3.0)"
+  },
+  {
+   "id": "hoof",
+   "files": [
+    "animal/hoof_1.ogg",
+    "animal/hoof_2.ogg",
+    "animal/hoof_3.ogg",
+    "animal/hoof_4.ogg",
+    "animal/hoof_5.ogg",
+    "animal/hoof_6.ogg",
+    "animal/hoof_7.ogg",
+    "animal/hoof_8.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.55,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. actor/mounted/movement/mstep110..115, single beats (CC BY-SA 3.0)"
+  },
+  {
+   "id": "gallop",
+   "files": [
+    "animal/gallop_1.ogg",
+    "animal/gallop_2.ogg",
+    "animal/gallop_3.ogg",
+    "animal/gallop_4.ogg",
+    "animal/gallop_5.ogg",
+    "animal/gallop_6.ogg"
+   ],
+   "cat": "animal",
+   "loop": false,
+   "gain": 0.6,
+   "license": "CC BY-SA 3.0",
+   "source": "0 A.D. actor/mounted/movement/mstep110..115, one stride each (CC BY-SA 3.0)"
   }
  ]
 }

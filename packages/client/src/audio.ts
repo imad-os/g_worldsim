@@ -3,7 +3,10 @@
  * Real recordings (CC0 / CC-BY, docs/audio/CREDITS.md) listed in docs/audio/manifest.json.
  * - One-shots are decoded once into AudioBuffers (short, mono) and played through one Web Audio graph:
  *   source -> gain (distance) -> stereo pan (left / right of the camera) -> bus (effects / ui / voices) -> master.
- * - Loops (ambience, fire) are <audio loop> elements: streamed, so they cost no decoded memory on small TVs.
+ * - Loops (ambience, fire, rain) are streamed <audio> elements, so they cost no decoded memory on small TVs. Each loop has
+ *   TWO players: a few seconds before one ends the other starts from a random place and they crossfade (equal power), so
+ *   there is never a gap at the seam (an <audio loop> stops for a moment there) and the 45-80 s recordings never repeat
+ *   the same way (imad 2026-11-27: "fire is badly repeating, it needs to be continuous like rain and wind and the night").
  * - At most MAX_VOICES at once; the same sound at most once per 60 ms. Missing files are simply silent.
  */
 export interface SoundPrefs { on: boolean; master: number; fx: number; amb: number; ui: number }
@@ -12,6 +15,8 @@ export const SOUND_DEFAULTS: SoundPrefs = { on: true, master: 0.8, fx: 0.9, amb:
 interface Entry { id: string; files: string[]; cat: string; loop?: boolean; gain?: number }
 const MAX_VOICES = 14;
 const HEAR = 26; // metres: quieter with distance, silent past this
+const XFADE = 3; // seconds: the two players of a loop overlap this long
+interface Loop { id: string; file: string; a: HTMLAudioElement | null; b: HTMLAudioElement | null; x: number; want: number; cur: number }
 
 export class Sound {
   prefs: SoundPrefs = { ...SOUND_DEFAULTS };
@@ -23,14 +28,15 @@ export class Sound {
   private loading = new Set<string>();
   private lastAt = new Map<string, number>();
   private voices = 0;
-  private loops = new Map<string, { el: HTMLAudioElement; want: number; cur: number }>();
+  private loops = new Map<string, Loop>();
+  private lastPick = new Map<string, number>();
   private base = '';
   /** Listener: where the camera looks and which way (yaw: 0 = north). */
   lx = 0; ly = 0; yaw = 0; topView = true;
   ready = false;
   /** The last sounds played (newest last): for checks. */
   readonly log: string[] = [];
-  stats() { return { ready: this.ready, state: this.ctx?.state ?? 'none', sounds: this.entries.size, decoded: this.buffers.size, loops: [...this.loops.entries()].map(([k, l]) => `${k}:${l.cur.toFixed(2)}`), log: this.log.slice() }; }
+  stats() { return { ready: this.ready, state: this.ctx?.state ?? 'none', sounds: this.entries.size, decoded: this.buffers.size, loops: [...this.loops.entries()].map(([k, l]) => `${k}:${l.cur.toFixed(2)}${l.b ? '+x' : ''}`), swaps: this.swaps, log: this.log.slice() }; }
 
   async load(base: string): Promise<void> {
     this.base = base;
@@ -96,7 +102,12 @@ export class Sound {
    * Play a sound. With (x, y): from that place in the world (quieter far away, left / right of the camera).
    * `vol` scales it, `rate` changes the pitch a little (variety).
    */
-  play(id: string, x?: number, y?: number, vol = 1, rate = 1): void {
+  play(id: string, x?: number, y?: number, vol = 1, rate = 1): void { this.start(id, x, y, vol, rate); }
+
+  /** Far away, beyond hearing range (thunder, a howl over the hills): only a side (-1 left .. 1 right) and a volume. */
+  playFar(id: string, pan: number, vol = 1, rate = 1): void { this.start(id, undefined, undefined, vol, rate, pan); }
+
+  private start(id: string, x?: number, y?: number, vol = 1, rate = 1, side = 0): void {
     const ctx = this.ctx, e = this.entries.get(id);
     if (!ctx || !e || !this.prefs.on || ctx.state !== 'running' || this.voices >= MAX_VOICES) return;
     const now = performance.now();
@@ -104,7 +115,7 @@ export class Sound {
     const bufs = this.buffers.get(id);
     if (!bufs) { void this.decode(e); return; }
     if (!bufs.length) return;
-    let g = (e.gain ?? 1) * vol, pan = 0;
+    let g = (e.gain ?? 1) * vol, pan = Math.max(-0.9, Math.min(0.9, side));
     if (x !== undefined && y !== undefined) {
       const dx = x - this.lx, dy = y - this.ly, d = Math.hypot(dx, dy);
       if (d > HEAR) return;
@@ -116,7 +127,11 @@ export class Sound {
     if (g < 0.02) return;
     this.lastAt.set(id, now);
     const src = ctx.createBufferSource();
-    src.buffer = bufs[(Math.random() * bufs.length) | 0]!;
+    // A different take from the last one (never the same recording twice in a row).
+    let k = (Math.random() * bufs.length) | 0;
+    if (bufs.length > 1 && k === this.lastPick.get(id)) k = (k + 1 + ((Math.random() * (bufs.length - 1)) | 0)) % bufs.length;
+    this.lastPick.set(id, k);
+    src.buffer = bufs[k]!;
     src.playbackRate.value = rate * (0.94 + Math.random() * 0.12);
     const gain = ctx.createGain();
     gain.gain.value = g;
@@ -137,33 +152,70 @@ export class Sound {
     let l = this.loops.get(id);
     if (!l) {
       if (vol <= 0.01 || !this.ctx) return;
-      const el = new Audio(this.base + e.files[0]);
-      el.loop = true; el.preload = 'auto'; el.volume = 0;
-      l = { el, want: 0, cur: 0 };
+      l = { id, file: this.base + e.files[(Math.random() * e.files.length) | 0]!, a: null, b: null, x: 0, want: 0, cur: 0 };
+      l.a = this.player(l, true);
       this.loops.set(id, l);
     }
     l.want = vol * (e.gain ?? 1);
   }
 
-  private setLoopVol(l: { el: HTMLAudioElement; cur: number }): void {
-    const p = this.prefs, v = p.on ? l.cur * p.amb * p.master : 0;
-    l.el.volume = Math.max(0, Math.min(1, v));
+  private swaps = 0;
+  private player(l: Loop, first: boolean): HTMLAudioElement {
+    const el = new Audio(l.file);
+    el.preload = 'auto'; el.loop = true; el.volume = 0; // loop = a safety net only: the other player takes over before the end
+    // Start somewhere in the recording (the first pass anywhere, later ones in the first third), so passes never line up.
+    el.addEventListener('loadedmetadata', () => {
+      const d = el.duration;
+      if (isFinite(d) && d > XFADE * 3) { try { el.currentTime = Math.random() * (first ? d * 0.7 : d * 0.33); } catch { /* not seekable yet */ } }
+    }, { once: true });
+    return el;
   }
 
-  /** Every frame (or so): loops fade towards where they should be. */
+  private stopEl(el: HTMLAudioElement | null): void { if (!el) return; el.pause(); el.removeAttribute('src'); el.load(); }
+
+  private setLoopVol(l: Loop): void {
+    const p = this.prefs, v = p.on ? l.cur * p.amb * p.master : 0;
+    // Equal-power crossfade between the two players.
+    const ga = l.b ? Math.cos(l.x * Math.PI / 2) : 1, gb = Math.sin(l.x * Math.PI / 2);
+    if (l.a) l.a.volume = Math.max(0, Math.min(1, v * ga));
+    if (l.b) l.b.volume = Math.max(0, Math.min(1, v * gb));
+  }
+
+  /** Every frame (or so): loops fade towards where they should be, and hand over to their second player near the end. */
   tick(dt: number): void {
     for (const [id, l] of this.loops) {
       const k = Math.min(1, dt * 1.5);
       l.cur += (l.want - l.cur) * k;
-      if (l.want <= 0.01 && l.cur < 0.01) { l.el.pause(); l.el.removeAttribute('src'); l.el.load(); this.loops.delete(id); continue; }
+      if (l.want <= 0.01 && l.cur < 0.01) { this.stopEl(l.a); this.stopEl(l.b); this.loops.delete(id); continue; }
+      const a = l.a!;
+      if (!l.b) {
+        const d = a.duration, left = d - a.currentTime;
+        if (isFinite(d) && d > XFADE * 3 && !a.paused && left < XFADE + 0.25) { l.b = this.player(l, false); l.x = 0; this.swaps++; }
+      } else {
+        if (!l.b.paused && l.b.currentTime > 0) l.x = Math.min(1, l.x + dt / XFADE);
+        if (l.x >= 1) { this.stopEl(a); l.a = l.b; l.b = null; l.x = 0; }
+      }
       this.setLoopVol(l);
-      if (l.el.paused && this.prefs.on && this.ctx) void l.el.play().catch(() => {});
+      if (this.prefs.on && this.ctx) for (const el of [l.a, l.b]) if (el && el.paused) void el.play().catch(() => {});
     }
+  }
+
+  /** For checks: move every loop close to its end, so the handover to the second player happens now. */
+  seekEnd(): number {
+    let n = 0;
+    for (const l of this.loops.values()) { const a = l.a; if (a && !l.b && isFinite(a.duration)) { a.currentTime = Math.max(0, a.duration - XFADE - 1); n++; } }
+    return n;
+  }
+  /** For checks: each loop's players (time / length / volume / playing). */
+  players(): Record<string, string> {
+    const o: Record<string, string> = {}, f = (e: HTMLAudioElement | null) => (e ? `${e.currentTime.toFixed(1)}/${(e.duration || 0).toFixed(0)}@${e.volume.toFixed(2)}${e.paused ? 'p' : ''}` : '-');
+    for (const [k, l] of this.loops) o[k] = f(l.a) + ' | ' + f(l.b);
+    return o;
   }
 
   /** The app is hidden / under My PC's menu: everything stops; back: it goes on. */
   pause(on: boolean): void {
-    if (on) { for (const l of this.loops.values()) l.el.pause(); void this.ctx?.suspend().catch(() => {}); }
+    if (on) { for (const l of this.loops.values()) { l.a?.pause(); l.b?.pause(); } void this.ctx?.suspend().catch(() => {}); }
     else { void this.ctx?.resume().catch(() => {}); }
   }
 }

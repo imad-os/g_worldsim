@@ -41,7 +41,7 @@ const DID_SOUND: Record<string, string> = { zHit: 'hit', zKilled: 'zombie_die', 
   ate: 'eat', picked: 'pickup', crafted: 'craft', placed: 'place', built: 'build', swing: 'swing', missed: 'bow_shot', sleep: 'drop', wake: 'equip', partners: 'reward', married: 'levelup', expecting: 'reward',
   called: 'whistle', doorOpened: 'door_open', doorClosed: 'door_close', doorLocked: 'ui_error', doorSomeone: 'ui_error',
   noRecipe: 'ui_error', noMat: 'ui_error', noRoom: 'ui_error', noItem: 'ui_error', buildNeed: 'ui_error', needHut: 'ui_error', hutLimit: 'ui_error', noBow: 'ui_error', noArrows: 'ui_error', tooFar: 'ui_error' };
-const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar'];
+const ANIMAL_CRY = ['rabbit', 'deer', 'boar', 'wolf_growl', 'bear_roar', 'horse_snort'];
 
 /**
  * The world, as a My PC app. 3D low-poly with a tilted camera. Two ways to be there:
@@ -363,6 +363,7 @@ function onMsg(m: ServerMsg): void {
       gameSec = m.clock.gameSec; tickAt = performance.now(); clockScale = m.clock.clockScale; simSpeed = m.clock.paused ? 0 : m.clock.speed;
       if (!g3) {
         try { g3 = new World3D(canvas, tier); } catch { show('nogl'); return; }
+        g3.onFlash = thunder;
         g3.rainSnow = MyPC.load('rainsnow', true) !== false;
         void loadItems();
         g3.horses.load(new URL('models/horse.glb', location.href).href).catch((err) => console.warn('horse model', err)); // CC0, docs/models/CREDITS.md
@@ -676,26 +677,94 @@ function bedPose(x: number, y: number, size: number): { x: number; y: number; f:
 }
 const easeS = (v: number) => { const u = Math.max(0, Math.min(1, v)); return u * u * (3 - 2 * u); };
 function stepUnder(x: number, y: number): string { const t = tileUnder(x, y); return stepName[t] ?? 'step_dirt'; }
-/** Every second: ambience by the hour and the map, the campfire's crackle by how near the nearest one is. */
+/** The game hour now (0..24), between server frames too. */
+function hourNow(now = performance.now()): number { return (((gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed) / 3600 + 8) % 24 + 24) % 24; }
+function isNight(): boolean { const h = hourNow(); return h < 5.5 || h >= 20.5; }
+const AMB_LOOPS = ['amb_day', 'amb_night', 'amb_woods', 'amb_night_woods', 'fire_loop', 'rain_loop', 'rain_heavy', 'wind_loop', 'blizzard_loop'];
+/** Where the nearest campfire is (fd = its distance, 99 = none within 9 m) and the weather's strength, for the layered details. */
+const amb = { fd: 99, fx: 0, fy: 0, night: 0, woods: false, wind: 0, rain: 0, storm: false, on: false };
+/** When each layered detail plays next (performance.now() ms). */
+const ambNext: Record<string, number> = {};
+/**
+ * Every second: the beds (imad 2026-11-27: "fire, rain, wind and the night must be continuous"): long recordings crossfaded by
+ * the engine, day and night blended over dawn and dusk, the woods and the town apart, rain softening the birds, wind with the
+ * weather, the campfire's crackle by how near it is. On top, details at random times (sprinkle()) so nothing repeats.
+ */
 function ambience(now: number): void {
   if (now - ambAt < 1000) return;
   ambAt = now;
-  if (mode !== 'world' || rp) { for (const id of ['amb_day', 'amb_night', 'amb_woods', 'fire_loop', 'rain_loop', 'wind_loop']) sound.loop(id, 0); return; }
-  const h = (((gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed) / 3600 + 8) % 24 + 24) % 24;
-  const night = h < 5.5 || h >= 20.5, woods = /wood|forest/i.test(map);
-  sound.loop('amb_night', night ? 0.8 : 0);
-  sound.loop('amb_woods', !night && woods ? 0.8 : 0);
-  sound.loop('amb_day', !night && !woods ? 0.6 : 0);
+  if (mode !== 'world' || rp) { for (const id of AMB_LOOPS) sound.loop(id, 0); amb.on = false; return; }
+  amb.on = true;
+  const h = hourNow(now), woods = /wood|forest|wild/i.test(map);
+  // 0 = full day .. 1 = full night, easing over an hour round 05:00-06:00 and 20:00-21:00.
+  const night = h < 5 || h >= 21 ? 1 : h < 6 ? 6 - h : h >= 20 ? h - 20 : 0;
+  const wk = wxInfo?.w ?? 'clear', wkk = wxInfo?.k ?? 0;
+  const rain = wk === 'rain' ? 0.5 + 0.5 * wkk : wk === 'storm' ? 1 : 0;
+  const wind = wk === 'storm' ? 0.7 + 0.3 * wkk : wk === 'blizzard' ? 1 : wk === 'snow' ? 0.35 : wk === 'cloudy' ? 0.15 : 0.06;
+  const hush = 1 - 0.65 * rain - 0.4 * Math.max(0, wind - 0.3); // rain and wind drown the birds and crickets
+  amb.night = night; amb.woods = woods; amb.rain = rain; amb.wind = wind; amb.storm = wk === 'storm';
+  sound.loop('amb_day', !woods ? 0.6 * (1 - night) * hush : 0);
+  sound.loop('amb_woods', woods ? 0.8 * (1 - night) * hush : 0);
+  sound.loop('amb_night', (woods ? 0.35 : 0.8) * night * hush);
+  sound.loop('amb_night_woods', woods ? 0.8 * night * hush : 0);
   let fd = 99;
   if (campfireTile >= 0) {
     const cx = Math.floor(focusX()), cy = Math.floor(focusY());
-    for (let yy = cy - 9; yy <= cy + 9; yy++) for (let xx = cx - 9; xx <= cx + 9; xx++) if (tileUnder(xx + 0.5, yy + 0.5) === campfireTile) fd = Math.min(fd, Math.hypot(xx + 0.5 - focusX(), yy + 0.5 - focusY()));
+    for (let yy = cy - 9; yy <= cy + 9; yy++) for (let xx = cx - 9; xx <= cx + 9; xx++) if (tileUnder(xx + 0.5, yy + 0.5) === campfireTile) {
+      const d = Math.hypot(xx + 0.5 - focusX(), yy + 0.5 - focusY());
+      if (d < fd) { fd = d; amb.fx = xx + 0.5; amb.fy = yy + 0.5; }
+    }
   }
-  sound.loop('fire_loop', fd < 9 ? Math.min(1, (1 - fd / 9) * 1.2) : 0);
-  // The weather: rain on the roofs and leaves, wind in storms and blizzards.
-  const wk = wxInfo?.w ?? 'clear', wkk = wxInfo?.k ?? 0;
-  sound.loop('rain_loop', wk === 'rain' || wk === 'storm' ? 0.45 + 0.45 * wkk : 0);
-  sound.loop('wind_loop', wk === 'storm' || wk === 'blizzard' ? 0.5 + 0.4 * wkk : wk === 'snow' ? 0.25 : 0);
+  amb.fd = fd;
+  sound.loop('fire_loop', fd < 10 ? Math.min(1, Math.pow(1 - fd / 10, 1.3) * 1.25) : 0);
+  // The weather: steady rain on roofs and leaves, a heavy downpour in storms, wind that grows with it, a blizzard's roar.
+  sound.loop('rain_loop', rain ? 0.35 + 0.45 * rain : 0);
+  sound.loop('rain_heavy', wk === 'storm' ? 0.55 + 0.4 * wkk : wk === 'rain' && wkk > 0.6 ? (wkk - 0.6) * 1.2 : 0);
+  sound.loop('wind_loop', wind > 0.1 ? Math.min(1, wind * 0.9) : 0);
+  sound.loop('blizzard_loop', wk === 'blizzard' ? 0.5 + 0.45 * wkk : 0);
+}
+/** Every frame: the layered details at random times (fire pops from the fire, owls and howls far away at night, gusts, birds). */
+function sprinkle(now: number): void {
+  if (!amb.on) return;
+  const due = (k: string, lo: number, hi: number): boolean => {
+    const t = ambNext[k];
+    if (t === undefined) { ambNext[k] = now + lo + Math.random() * (hi - lo); return false; }
+    if (now < t) return false;
+    ambNext[k] = now + lo + Math.random() * (hi - lo);
+    return true;
+  };
+  const side = () => Math.random() * 1.6 - 0.8;
+  if (amb.fd < 8 && due('pop', 350, 2600)) sound.play('fire_pop', amb.fx + (Math.random() - 0.5) * 0.6, amb.fy + (Math.random() - 0.5) * 0.6, 0.35 + Math.random() * 0.55, 0.85 + Math.random() * 0.35);
+  const calm = amb.rain < 0.5 && amb.wind < 0.6;
+  if (amb.night > 0.6 && calm && due('owl', 22000, 70000)) sound.playFar('owl', side(), 0.35 + Math.random() * 0.35, 0.95 + Math.random() * 0.1);
+  if (amb.night > 0.8 && calm && due('howl', amb.woods ? 35000 : 90000, amb.woods ? 110000 : 260000)) sound.playFar('wolf_howl', side(), (amb.woods ? 0.45 : 0.22) + Math.random() * 0.2, 0.9 + Math.random() * 0.2);
+  if (amb.wind > 0.3 && due('gust', 7000, 22000)) sound.playFar('wind_gust', side(), 0.3 + amb.wind * 0.5, 0.85 + Math.random() * 0.3);
+  if (amb.night < 0.3 && amb.rain < 0.3 && due('bird', 5000, 16000)) sound.playFar('bird', side(), 0.18 + Math.random() * 0.2, 0.9 + Math.random() * 0.25);
+}
+/** Thunder after a lightning flash: the farther, the later and the softer (the flash is the sky's, so a random distance). */
+function thunder(): void {
+  const d = Math.random();
+  setTimeout(() => { if (amb.on) sound.playFar('thunder', Math.random() * 1.4 - 0.7, 0.95 - d * 0.5, 0.92 + Math.random() * 0.12); }, 300 + d * 3200);
+}
+/** Hoofbeats of a horse moving at v m/s (imad 2026-11-27: "horse running and galloping"): a 4-beat walk, a 2-beat trot, gallop strides. */
+const hoofPh = new Map<number, { ph: number; seen: number; beat: number }>();
+function hooves(id: number, x: number, y: number, v: number, size: number, dt: number, mine: boolean): void {
+  let h = hoofPh.get(id);
+  const now = performance.now();
+  if (!h) { h = { ph: Math.random(), seen: now, beat: 0 }; hoofPh.set(id, h); if (hoofPh.size > 64) for (const [k, o] of hoofPh) if (now - o.seen > 5000) hoofPh.delete(k); }
+  h.seen = now;
+  if (v < 0.3 || dt <= 0) { h.ph = 0.9; return; }
+  if (!mine && Math.hypot(x - focusX(), y - focusY()) > 24) return;
+  const walk = v < 2.3, trot = !walk && v < 3.9;
+  const cycle = walk ? Math.max(0.9, 1.9 / v) : trot ? Math.max(0.5, 2.1 / v) : Math.max(0.42, Math.min(0.78, 3.5 / v)); // seconds a stride
+  const beats = walk ? 4 : trot ? 2 : 1;
+  h.ph += dt / cycle * beats;
+  if (h.ph < 1) return;
+  h.ph -= Math.floor(h.ph);
+  const hard = /road|rock|rubble|floor|wreck/.test(tileName[tileUnder(x, y)] ?? ''), rate = (hard ? 1.1 : 0.95) / Math.sqrt(Math.max(0.6, size));
+  const vol = (mine ? 1 : 0.8) * (walk ? 0.45 : trot ? 0.65 : 0.9);
+  if (beats === 1) sound.play('gallop', mine ? undefined : x, mine ? undefined : y, vol, rate * (0.96 + Math.min(0.12, (v - 5) * 0.015)));
+  else { h.beat = (h.beat + 1) % 4; sound.play('hoof', mine ? undefined : x, mine ? undefined : y, vol * (h.beat % 2 ? 0.8 : 1), rate); }
 }
 function blocked(x: number, y: number): boolean {
   const r = body.radius * 0.9;
@@ -1172,7 +1241,8 @@ function updatePlay(dt: number, now: number): void {
   const moving = Math.abs(pvx) + Math.abs(pvy) > 0.01;
   if (moving) {
     stepDist += Math.hypot(pvx, pvy) * dt;
-    if (stepDist > (run ? 0.9 : 0.68)) { stepDist = 0; sound.play(stepUnder(predX, predY), undefined, undefined, run ? 0.6 : 0.42); }
+    if (rd) stepDist = 0; // on horseback the hooves speak (hooves() in the draw loop)
+    else if (stepDist > (run ? 0.9 : 0.68)) { stepDist = 0; sound.play(stepUnder(predX, predY), undefined, undefined, run ? 0.6 : 0.42); }
   }
   if (Math.abs(pvx) + Math.abs(pvy) > 0.3) moveAng = Math.atan2(pvy, pvx);
   // Controls + my place: on change, every 100 ms while moving, once more when I stop.
@@ -2168,7 +2238,7 @@ function draw(now: number, dt: number): void {
   if (mode !== 'world' || !g3) return;
   buildOne();
   sound.lx = focusX(); sound.ly = focusY(); sound.yaw = yaw; sound.topView = g3.view === 'top';
-  sound.tick(dt); ambience(now);
+  sound.tick(dt); ambience(now); sprinkle(now);
   if (trip && how !== 'play') { trip = null; fade(false, 0); }
   if (trip && trip.phase === 'out' && now - trip.at >= FADE_MS) { // black: switch to the next map now, so its ground loads during the ride
     if (trip.to !== map) setMap(trip.to);
@@ -2245,7 +2315,10 @@ function draw(now: number, dt: number): void {
       else if (now > nextCry[k]!) {
         const zed = kind[i] === Kind.Threat;
         nextCry[k] = now + (zed ? 5000 + Math.random() * 7000 : 9000 + Math.random() * 14000);
-        sound.play(zed ? (Math.hypot(x - fx, y - fy) < 2.5 ? 'zombie_attack' : 'zombie_groan') : ANIMAL_CRY[atype[i]!] ?? 'bird', x, y, zed ? 0.9 : 0.7);
+        let cry = zed ? (Math.hypot(x - fx, y - fy) < 2.5 ? 'zombie_attack' : 'zombie_groan') : ANIMAL_CRY[atype[i]!] ?? 'bird';
+        if (!zed && atype[i] === 5 && Math.random() < 0.3) cry = 'horse'; // mostly snorts and blows, a neigh now and then
+        if (!zed && atype[i] === 3 && isNight() && Math.hypot(x - fx, y - fy) > 10 && Math.random() < 0.6) cry = 'wolf_howl';
+        sound.play(cry, x, y, zed ? 0.9 : 0.7);
         if (cuesOn) cues.heard(eid[i]!, zed ? '🧟' : CUE_ICON[atype[i]!] ?? '🐾', x, y, now, zed ? 4 : 3);
       } else if (cuesOn) cues.move(eid[i]!, x, y);
     }
@@ -2255,6 +2328,7 @@ function draw(now: number, dt: number): void {
       if (riding[i] && me >= 0 && Math.hypot(nx[i]! - nx[me]!, ny[i]! - ny[me]!) < 1.2) { hx = predX; hy = predY; hf = face[me]!; hv = spd[me]!; } // my own horse is where I am on this screen
       if (g3.horses.ready) g3.horses.add(eid[i]!, hx, hy, hf, hv, sub[i]!, sc, (alook[i]! >> 3) & 3, alook[i]! >> 5, (hi?.[3] ?? 0) === 1, tsec, dt);
       else g3.animals.add(5, hx, hy, hf, phase[i]! * 1.4, Math.min(1, hv / 1.6));
+      hooves(eid[i]!, hx, hy, hv, sc, dt, hx === predX && hy === predY);
       continue;
     }
     if (kind[i] === Kind.Animal) { // the animated model when it has loaded (not the boar yet), else the low-poly set
@@ -2613,7 +2687,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), sndEnd: () => sound.seekEnd(), sndPlayers: () => sound.players(), amb: () => ({ ...amb }), flash: () => thunder(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
     MyPC.ready();
   },
   onStart() {

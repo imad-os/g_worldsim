@@ -236,12 +236,26 @@ export class NetServer {
       if (rel.endsWith('/')) rel += 'index.html';
       const root = resolve(dir), file = normalize(join(root, rel));
       if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) break;
-      res.writeHead(200, {
+      const size = statSync(file).size;
+      const head: Record<string, string | number> = {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
         'access-control-allow-origin': '*',
         'cache-control': 'no-cache',
         'x-content-type-options': 'nosniff',
-      });
+        'accept-ranges': 'bytes',
+      };
+      // Byte ranges (2026-11-27): the TV's sound loops start each pass from a random place, which needs a seekable stream.
+      const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+      if (m && (m[1] || m[2])) {
+        let a = m[1] ? +m[1] : Math.max(0, size - +m[2]!), b = m[1] && m[2] ? +m[2] : size - 1;
+        b = Math.min(b, size - 1);
+        if (a > b || a >= size) { res.writeHead(416, { 'content-range': `bytes */${size}` }); res.end(); return; }
+        res.writeHead(206, { ...head, 'content-range': `bytes ${a}-${b}/${size}`, 'content-length': b - a + 1 });
+        if (req.method === 'HEAD') { res.end(); return; }
+        createReadStream(file, { start: a, end: b }).pipe(res);
+        return;
+      }
+      res.writeHead(200, { ...head, 'content-length': size });
       if (req.method === 'HEAD') { res.end(); return; }
       createReadStream(file).pipe(res);
       return;

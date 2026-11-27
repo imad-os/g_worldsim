@@ -190,7 +190,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Wiring in app.ts: footsteps by the tile under me (`STEP_OF`), answers from the server (`DID_SOUND`), zombie groans / attack and
   animal calls from where they are (`nextCry`), hurt when my health drops, menu sounds (`Menu.onSound`), ambience by hour / map
   and the nearest campfire (`ambience()`). Settings > Sound (`MyPC.save('sound')`: on, master, effects, ambience, menus).
-  Missing recordings: deer, wolf howl, sleep, voices, baby, laugh. Proof `node tools/sound-proof.mjs`.
+  Missing recordings: sleep, voices, baby, laugh. Proof `node tools/sound-proof.mjs`.
+- **Ambience overhaul (imad 2026-11-27: "fire badly repeating, rain / wind / night must be continuous", horses, animals)**: beds are 45-80 s
+  recordings (CC0 felix.blume / richwise, Oculus Audio Pack CC BY 4.0, 0 A.D. CC BY-SA 3.0: credits in docs/audio/CREDITS.md + manifest),
+  made by `tools/audio/fetch.sh` + `python3 -I tools/audio/build.py` (sources in .cache/audio). `Sound` loops = TWO streamed players per loop,
+  the next starts from a random place 3 s before the end, equal-power crossfade (`<audio loop>` gapped at the seam); the server's static files
+  now answer byte ranges (seeking). app.ts `ambience()` blends day / night over dawn and dusk, woods vs town, rain hushes birds; `sprinkle()`
+  layers fire pops from the fire, owls / far howls at night (`playFar`), gusts, birds; `World3D.onFlash` -> thunder. `hooves()`: walk 4 beats,
+  trot 2, gallop strides by speed for every horse drawn, my own while riding (no footsteps on horseback). Wolf howl / deer synthesised.
+  Proof `ADMIN_TOKEN=... node tools/ambience-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.sndEnd / sndPlayers / amb / flash`).
 - Panel chat (imad 2026-11-20): the Talk box keeps what is typed while answers arrive (`draft`; `addChat` redraws only the messages).
 
 ## Marry and divorce by words (imad 2026-11-20)
