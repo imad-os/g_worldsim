@@ -21,11 +21,12 @@ import { Sound, SOUND_DEFAULTS, type SoundPrefs } from './audio.js';
 import { loadItems, iconStyle } from './gfx/items.js';
 import { DEATH_SECS } from './gfx/animals.js';
 import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
+import { TradeUi, ts as tradeText } from './tradeui.js';
 import { QuestUi } from './questui.js';
 import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
 import { Compass, SoundCues, Names, AutoRide, ChatLog, type CompassRow } from './nav.js';
 import { publishedServer, sameServer } from './published.js';
-import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind, type WeatherInfo } from '@worldsim/protocol';
+import { MARK_KINDS, MARK_ICON, NPCS, TRADE_NEAR, type MapMark, type MarkKind, type WeatherInfo } from '@worldsim/protocol';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
 const sound = new Sound();
@@ -413,6 +414,7 @@ function onMsg(m: ServerMsg): void {
       if (m.kind === 'wchat') { const d = m.data as { name: string; text: string; sys: number }; chatLog.add(d.name, d.text, !!d.sys); }
       if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
       if (m.kind === 'quest' || m.kind === 'clanVote') quests.notice(m.kind, m.data);
+      if (m.kind === 'trade') trade.notice(m.data);
       if (m.kind === 'me') {
         const hp = (m.data as { hp?: number }).hp ?? 100;
         if (lastHp >= 0 && hp < lastHp - 1) sound.play('hurt');
@@ -1373,6 +1375,16 @@ function updateHints(): void {
 
 // ------------------------------------------------------------ actions
 /** Nearest person (agent) to my character within r metres, or -1 (entity id). */
+/** Other players' characters (played by hand) within r metres: [entity id, name, metres], nearest first. */
+function nearPlayers(r: number): [number, string, number][] {
+  const x = focusX(), y = focusY(), out: [number, string, number][] = [];
+  for (let i = 0; i < CAP; i++) {
+    if (eid[i] === -1 || kind[i] !== Kind.Player || eid[i] === meId) continue;
+    const d = Math.hypot(nx[i]! - x, ny[i]! - y);
+    if (d <= r) out.push([eid[i]!, names.names.get(eid[i]!) ?? `#${eid[i]}`, d]);
+  }
+  return out.sort((a, b) => a[2] - b[2]);
+}
 function nearestPerson(r: number): number {
   const x = focusX(), y = focusY();
   let best = -1, bd = r;
@@ -1438,7 +1450,11 @@ function doAction(a: ActionId, pressed: boolean): void {
   }
   if (a === 'talk') {
     if (nearestNpc(3.5)) { quests.talkToNpc(); return; } // a town teacher: quests (and clans at the registrar)
-    if (nearestPerson(3.5) < 0) { note(t('dNobodyNear'), 2000); return; }
+    if (nearestPerson(3.5) < 0) {
+      const pl = nearPlayers(3.5)[0];
+      if (pl) { trade.ask(pl[0]); return; } // next to another player: Talk asks them to trade
+      note(t('dNobodyNear'), 2000); return;
+    }
     // Next to someone: say it (My PC's speech to text, when the player turned it on) or type it (My PC's keyboard);
     // empty = just say hello. They may do what you ask.
     send({ t: Msg.Do, a: 'hold' }); // they stop and face me while I talk / type
@@ -1576,6 +1592,7 @@ function onSttText(e: { text: string }): void {
 
 function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: unknown; list?: [number, string, string][]; name?: string; x?: number; y?: number }): void {
   if (quests.did(d as never)) return;
+  if (trade.did(d as never)) return;
   if (d.code === 'compass') { compass.set(((d as unknown as { places?: CompassRow[] }).places ?? []), compassName); return; }
   if (d.code === 'rideDests') { rideDests = (d as unknown as { dests?: [string, string, string, number][] }).dests ?? []; return; }
   if (d.a === 'rideTo') {
@@ -1753,7 +1770,8 @@ function bindText(a: ActionId): string {
 }
 
 function buildPage(id: string): Page {
-  { const qp = quests.page(id); if (qp) return qp; } // quests, NPC talk, clan (questui.ts)
+  { const qp = quests.page(id); if (qp) return qp; }
+  { const tp = trade.page(id); if (tp) return tp; } // trading with another player (tradeui.ts) // quests, NPC talk, clan (questui.ts)
   const rows: Row[] = [];
   switch (id) {
     case 'map': return { id, title: t('mMap'), rows, big: true, html: mapScreen.html(), grid: mapScreen };
@@ -1807,7 +1825,7 @@ function buildPage(id: string): Page {
     case 'gear': return { id, title: t('gearTitle'), rows, big: true, html: gearScreen.html(), grid: gearScreen };
     case 'root': {
       rows.push({ id: 'resume', label: t('mResume') });
-      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'bag', label: t('bagTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true }, ...quests.rootRows());
+      if (how === 'play') rows.push({ id: 'me', label: t('mMe'), sub: true }, { id: 'actions', label: t('mActions'), sub: true }, { id: 'build', label: t('bTitle'), sub: true }, { id: 'bag', label: t('bagTitle'), sub: true }, { id: 'inv', label: t('invTitle'), sub: true }, { id: 'gear', label: t('mGear'), sub: true }, { id: 'fight', label: t('mFight'), sub: true }, { id: 'goto', label: t('mGoTo'), sub: true }, ...quests.rootRows(), trade.rootRow());
       if (personTarget() >= 0) rows.push({ id: 'person', label: how === 'play' ? t('mNearby') : t('mPerson'), sub: true });
       if (how === 'watch') rows.push(...(meId >= 0 ? [{ id: 'mine', label: t('mFollowMe') }] : []), { id: 'next', label: t('mNextPerson') }, { id: 'map', label: t('mNextMap') });
       rows.push({ id: 'worldmap', label: t('mMap') });
@@ -1939,6 +1957,7 @@ function buildPage(id: string): Page {
       if (how === 'play' && info && info.id === infoFor) {
         if (meChar?.partner?.id === info.id) rows.push({ id: 'child', label: t('tryChild') }, { id: 'divorce', label: t('askDivorce') });
         else if (!meChar?.partner) rows.push({ id: 'court', label: t('askPartner') }, { id: 'marry', label: t('askMarry') });
+        if (info.isPlayer) rows.push({ id: 'trade', label: `🤝 ${tradeText('who')}` });
         if (info.isPlayer && meChar?.partner?.id !== info.id && !meChar?.family?.some((f) => f.id === info!.id)) rows.push({ id: 'kin:child', label: t('askChild') }, { id: 'kin:sibling', label: t('askSibling') }, { id: 'kin:parent', label: t('askParent') });
       }
       if (how === 'watch') rows.push({ id: 'next', label: t('mNextPerson') });
@@ -1975,6 +1994,7 @@ function buildPage(id: string): Page {
 
 function pickRow(page: string, row: string): void {
   if (quests.pick(page, row, () => menu.back())) return;
+  if (trade.pick(page, row, () => menu.back())) return;
   if (page === 'root') {
     if (row === 'resume') menu.close();
     else if (row === 'actions' || row === 'settings' || row === 'controls') menu.push(row);
@@ -2090,6 +2110,7 @@ function pickRow(page: string, row: string): void {
     else if (row === 'court') send({ t: Msg.Do, a: 'court', text: String(info?.id ?? -1) });
     else if (row === 'marry' || row === 'divorce') { send({ t: Msg.Do, a: row, text: String(info?.id ?? -1) }); menu.close(); }
     else if (row === 'child') send({ t: Msg.Do, a: 'child' });
+    else if (row === 'trade') { trade.ask(info?.id ?? -1); menu.back(); }
     else if (row.startsWith('kin:')) send({ t: Msg.Do, a: 'kinAsk', text: `${info?.id ?? -1}:${row.slice(4)}` });
     else if (row === 'next') { followNext(); window.setTimeout(() => { askInfo(follow, true); menu.refresh(); }, 300); }
   } else if (page === 'settings') {
@@ -2148,6 +2169,26 @@ const quests = new QuestUi({
   note: (text, ms) => note(text, ms),
   keyboard: (label, cb) => { if (!MyPC.text?.keyboard) return; void (MyPC.text.keyboard({ value: '', kind: 'text', label, ok: 'OK' }) as Promise<string | null>).then((v) => { if (v) cb(v); }); },
   thing: (k) => thing(k),
+});
+/** Trading with another player (tradeui.ts; the server keeps the trade in ops/trade.ts). */
+const trade = new TradeUi({
+  send: (m) => send(m as never),
+  show: (p) => { if (!menu.open) menu.show(p); else if (menu.page !== p) menu.push(p); else menu.refresh(); },
+  refresh: (p) => { if (menu.open && menu.page === p) menu.refresh(); },
+  page: () => (menu.open ? menu.page : ''),
+  close: () => menu.close(),
+  note: (text, ms) => note(text, ms),
+  thing: (k) => thing(k),
+  upText: (lv, q) => `+${lv} ${t(('qual' + q) as Key)}`,
+  bag: () => {
+    const out: Record<string, number> = {};
+    for (const [k, n] of Object.entries(meNeeds?.inv ?? {})) if (n > 0 && k !== 'food') out[k] = n;
+    const food = (meNeeds?.carry ?? 0) + (meNeeds?.inv?.food ?? 0);
+    if (food > 0) out.food = food;
+    return out;
+  },
+  near: () => nearPlayers(TRADE_NEAR),
+  sound: (id) => sound.play(id),
 });
 menu.onSound = (id) => sound.play(id);
 /** The TV's map (mapui.ts) and the mark being changed on it. */

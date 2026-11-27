@@ -41,6 +41,7 @@ import { ErrorLog } from './ops/errors.js';
 import { Chats } from './ai/chatroom.js';
 import { MapView } from './ops/mapview.js';
 import { Waypoints } from './ops/waypoints.js';
+import { Trades } from './ops/trade.js';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
@@ -302,6 +303,7 @@ export class App {
         const id = String(text ?? '');
         return id ? this.waypoints.route(name, player, id) : { ok: true, code: 'rideDests', dests: this.waypoints.dests(name, player) };
       }
+      if (a === 'trade') return this.trades.act(player, name, String(text ?? 'view')); // a trade with another player (ops/trade.ts)
       if (a === 'roster') return { ok: true, code: 'roster', list: this.roster(name) };
       if (a === 'quests') return { ok: true, code: 'quests', list: w.quests.rows(e.id(player)) };
       if (a === 'npc') { // talk to the town teacher next to me: take / hand in a quest (the registrar also founds clans)
@@ -580,6 +582,7 @@ export class App {
     this.thoughts = new Thoughts(w, (m) => w.maps[m]?.def.name ?? '');
     this.timers.push(setInterval(() => { if (!this.loop.paused) try { this.thoughts.maybeSample(); } catch (err) { this.log.warn('thoughts', { err: String(err) }); } }, 5000));
 
+    this.timers.push(setInterval(() => { try { this._trades?.check(); } catch (err) { this.log.warn('trade check', { err: String(err) }); } }, 2000)); // trades close when the two walk apart / leave
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
     this.sampleHistory();
     this.timers.push(setInterval(() => this.sampleHistory(), 60_000));
@@ -681,6 +684,16 @@ export class App {
   /** The TV's map and each player's marks on it (ops/mapview.ts). */
   get mapView(): MapView { if (!this._mapView) { this._mapView = new MapView(this.world, this.db); this._mapView.planner = () => this.net.characters(); } return this._mapView; }
   private _way: Waypoints | null = null;
+  /** Trading between two players (ops/trade.ts). */
+  get trades(): Trades {
+    if (!this._trades) {
+      const t = this._trades = new Trades(this.world);
+      t.online = (i) => { const n = this.net.characters().find(([, k]) => k === i)?.[0]; return !!n && this.net.online(n); };
+      t.notice = (i, kind, data) => this.net.noticeTo(i, kind, data);
+    }
+    return this._trades;
+  }
+  private _trades?: Trades;
   /** The compass bar and riding by yourself (ops/waypoints.ts). */
   get waypoints(): Waypoints { return this._way ??= new Waypoints(this.world, (n) => this.mapView.marks(n)); }
   private readonly hitAt = new Map<string, number>();

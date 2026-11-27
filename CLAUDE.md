@@ -1038,3 +1038,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Spreading over the maps** (imad 2026-11-27, "make it rare"): `sim/migrate.ts` (`World.migrate`), daily 9:00 pressure per non-wild map (food a head,
   crowd > 16, trees); >= 0.4 prompt line + news; >= 0.6 and travel open: one household (single / couple, no kids < 14, not leader / player) per map
   every 2+ days moves to a map 0.4 better (task skill `settle`, `Homes.leave`). Events migrate / settled. Test migrate.test.ts.
+
+## Trading between players (imad 2026-11-27)
+- `ops/trade.ts` `Trades` (`App.trades`, memory only), shapes in protocol `trade.ts`. Do `trade`: `ask:<id>` (a Kind.Player online within
+  `TRADE_NEAR` 6 m; asking back opens at once), `yes:/no:<id>`, `put:<item>:<n>` (n < 0 takes back; food = hands + bag), `ok:1|0`, `cancel`, `view`.
+  Any offer change clears both accepts; both accepted = `swap()` checks again (still has it, `Survival.capOf` room) and moves all or nothing;
+  a gear item's level / quality goes with the giver's LAST one (kept by the receiver only if better). Closes when apart > 14 m, a side leaves / goes
+  autopilot (check every 2 s). Notice `trade` (TradeView or invite), event `trade`. TV `client/src/tradeui.ts` (pages tradeWho / tradeInvite /
+  trade / tradeAdd, 4 languages): game menu > Trade with a player, Talk (Y) next to a player with no person near, person page row.
+  Test trade.test.ts; proof `ADMIN_TOKEN=... node tools/trade-proof.mjs <server> <sdk.js> <outdir>` (two TVs).

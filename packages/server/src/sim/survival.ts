@@ -462,7 +462,9 @@ export class Survival {
   }
   add(i: number, k: string, n: number): void {
     if (n > 0 && this.dropTo && this.dropTo.i === i) { const g = this.dropTo; if (this.dropAt(g.m, g.x, g.y, k, n)) return; }
-    const v = this.inv(i); v[k] = Math.max(0, Math.min(k === 'arrows' ? 30 : CAP, (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
+    const v = this.inv(i); v[k] = Math.max(0, Math.min(this.capOf(k), (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
+  /** How many of one thing a bag holds. */
+  capOf(k: string): number { return k === 'arrows' ? 30 : CAP; }
   private use(i: number, need: Inv): void { for (const [k, n] of Object.entries(need)) this.add(i, k, -n!); }
 
   /** Make a tool now (materials are used up). True or why not. */

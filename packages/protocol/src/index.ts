@@ -9,3 +9,4 @@ export * from './marks.js';
 export * from './items.js';
 export * from './weather.js';
 export * from './drops.js';
+export * from './trade.js';
