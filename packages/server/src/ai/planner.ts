@@ -361,28 +361,31 @@ export class Planner {
     const system = 'You decide what survivors in a post-apocalyptic world want to do next. Stay in character, be practical, '
       + 'keep lines short and natural. Answer ONLY with JSON: {"people":[{"name":"...","goal":"...","with":"name or empty",'
       + '"why":"short reason","say":"one short line they say aloud, or empty","mood":"one word","memory":"their updated long-term memory, '
-      + 'at most 300 characters, or empty when nothing new happened to them"}]}. Pick each goal from that person\'s own "Goals now" list.';
+      + 'at most 300 characters, or empty when nothing new happened to them"}]}. Exactly one entry per person asked about, nobody else. '
+      + '"goal" = one item copied word for word from that person\'s own "Goals now" list, without the words in brackets (e.g. "talk", '
+      + '"gather wood"); the other person goes in "with" (e.g. {"goal":"talk","with":"Sami"}), never in "goal". "mood" = one word such as calm.';
     const ex: Exchange = { at: Date.now(), kind: 'plan', who: ids.map((id) => this.name(id)).join(', '), prompt, reply: '', ms: 0 };
-    let applied = 0;
+    let applied = 0, seen = 0;
     try {
       const r = await this.ai.generate({ system, prompt, json: true, maxTokens: 220 * slots.length + 100, temperature: 0.8 });
       ex.reply = r.text.slice(0, 6000); ex.ms = r.ms;
       const j = parseJsonReply<{ people?: unknown[] }>(r.text.replace(/<think>[\s\S]*?<\/think>/gi, ''));
       const list = Array.isArray(j?.people) ? j!.people : Array.isArray(j) ? (j as unknown[]) : null;
       if (!list) throw new Error('the answer had no "people" list');
-      applied = this.applyPlans(ids, list);
+      const got = this.applyPlansN(ids, list);
+      applied = got.n; seen = got.seen;
       this.counts.batches++; this.counts.plans += applied;
       // A slow model: fewer people per request (a shorter prompt and answer), more again once it answers quickly.
       if (r.ms > 60_000) this.batchNow = Math.max(1, this.batchSize() - 1);
       else if (r.ms < 20_000 && this.batchSize() < this.cfg.batch) this.batchNow++;
-      if (!applied) throw new Error('no usable plan in the answer');
+      if (!seen) throw new Error(`no entry for ${ids.map((x) => this.name(x)).join(', ')} in the answer`);
     } catch (err) {
       ex.err = err instanceof Error ? err.message : String(err);
       this.counts.failures++;
       this.logger.debug('planner failed', { err: ex.err });
       if (err instanceof AiError && err.code === 'timeout') { this.counts.timeouts++; this.batchNow = Math.max(1, Math.floor(this.batchSize() / 2)); }
       // Nobody waits on a failed request: they live on the built-in brain and are asked again in about half an hour.
-      if (!applied) for (const id of ids) { const m = this.mind(id); if (m) m.lastPlan = Math.min(m.lastPlan, w.gameSec - this.cfg.everyGameHours * HOUR + 1800); }
+      if (!seen) for (const id of ids) { const m = this.mind(id); if (m) m.lastPlan = Math.min(m.lastPlan, w.gameSec - this.cfg.everyGameHours * HOUR + 1800); }
     } finally {
       this.busy = false;
       this.keep(ex);
@@ -390,25 +393,36 @@ export class Planner {
     return applied;
   }
 
-  private applyPlans(ids: number[], list: unknown[]): number {
+  /**
+   * Apply a batch answer. Small models write goals loosely (imad 2026-11-27: "no usable plan in the answer" for most requests):
+   * "talk to Ghita ", "talk with Hafsa" (with "Lea" in "with"), "talk (say with whom)" copied as listed, "None", a person twice,
+   * people who were not asked, moods like "+5". Each entry is read as well as it can be (`readGoal`); the first entry per person
+   * counts; "none" / an unknown goal = they carry on with the built-in brain (still an answer). n = plans applied, seen = people
+   * of the batch the answer had an entry for.
+   */
+  applyPlansN(ids: number[], list: unknown[]): { n: number; seen: number } {
     const w = this.w, e = w.e;
     let n = 0;
+    const done = new Set<number>();
+    const norm = (x: unknown) => String(x ?? '').toLowerCase().replace(/[^\p{L}\p{N}' -]+/gu, ' ').replace(/\s+/g, ' ').trim();
     for (const raw of list) {
       if (!raw || typeof raw !== 'object') continue;
       const p = raw as Record<string, unknown>;
-      const name = String(p.name ?? '').trim().toLowerCase();
-      const id = ids.find((x) => this.name(x).toLowerCase() === name) ?? (list.length === 1 && ids.length === 1 ? ids[0] : undefined);
-      if (id === undefined) continue;
-      const i = e.slot(id), mind = this.mind(id)!;
-      if (i < 0) continue;
-      const goal = String(p.goal ?? '').trim().toLowerCase();
-      const act = GOALS[goal];
-      const withName = String(p.with ?? '').trim().toLowerCase();
-      let withId = -1;
-      if (withName) for (const [oid, op] of w.profiles) if (op.name.toLowerCase() === withName && e.slot(oid) >= 0 && oid !== id) { withId = oid; break; }
-      if (typeof p.mood === 'string' && p.mood.trim()) mind.mood = p.mood.trim().slice(0, 30);
-      if (typeof p.memory === 'string' && p.memory.trim()) mind.summary = p.memory.trim().slice(0, 400);
-      const work = WORK_GOALS[goal];
+      const name = norm(p.name);
+      let id = ids.find((x) => norm(this.name(x)) === name);
+      if (id === undefined && name) id = ids.find((x) => name.split(' ').includes(norm(this.name(x))));
+      if (id === undefined && list.length === 1 && ids.length === 1) id = ids[0];
+      if (id === undefined || done.has(id)) continue;
+      const i = e.slot(id), mind = this.mind(id);
+      if (i < 0 || !mind) continue;
+      done.add(id);
+      const g = this.readGoal(id, p.goal, p.with);
+      const mood = typeof p.mood === 'string' || typeof p.mood === 'number' ? String(p.mood).trim() : '';
+      if (mood && /\p{L}/u.test(mood)) mind.mood = mood.slice(0, 30);
+      if (typeof p.memory === 'string' && p.memory.trim() && !/^(none|empty|n\/a|-)$/i.test(p.memory.trim())) mind.summary = p.memory.trim().slice(0, 400);
+      const goal = g.goal ?? '', withId = g.with;
+      const work = goal ? WORK_GOALS[goal] : undefined;
+      const act = goal ? GOALS[goal] : undefined;
       if (work && !w.profileOf(i)?.mind?.task) {
         mind.plan = { act: goal, why: String(p.why ?? '').slice(0, 160), until: w.gameSec + this.cfg.everyGameHours * HOUR };
         if (w.tasks.start(i, goal, 'myself', work.map((st) => ({ ...st })))) n++;
@@ -421,7 +435,46 @@ export class Planner {
       const say = typeof p.say === 'string' ? cleanLine(p.say, this.name(id)) : '';
       if (say) this.say(i, say);
     }
-    return n;
+    return { n, seen: done.size };
+  }
+
+  /**
+   * A goal as the model wrote it -> one of GOALS / WORK_GOALS (null = no change), and whom with. Accepts the label as listed
+   * ("talk (say with whom)"), a name after it ("talk to Ghita", "talk Nizar"), close wordings ("hunt" = go hunting, "find food" =
+   * forage, "get water" = drink); a person named in the goal wins over a "with" that names someone else.
+   */
+  readGoal(id: number, goalRaw: unknown, withRaw: unknown): { goal: string | null; with: number } {
+    const w = this.w, e = w.e;
+    const clean = (x: unknown) => String(x ?? '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^\p{L}\p{N}' -]+/gu, ' ').replace(/\s+/g, ' ').trim();
+    const g = clean(goalRaw);
+    const person = (txt: string): number => {
+      const t = ` ${txt.replace(/'s\b/g, '')} `;
+      if (txt.length < 2) return -1;
+      let best = -1, bl = 0;
+      for (const [oid, op] of w.profiles) {
+        if (oid === id || e.slot(oid) < 0) continue;
+        const nm = op.name.toLowerCase();
+        if (nm.length > bl && t.includes(` ${nm} `)) { best = oid; bl = nm.length; }
+      }
+      return best;
+    };
+    const inGoal = person(g), inWith = person(clean(withRaw));
+    const withId = inGoal >= 0 ? inGoal : inWith;
+    if (!g || /^(none|nothing|no change|n a|na|idle|-)$/.test(g)) return { goal: null, with: -1 };
+    if (GOALS[g] !== undefined || WORK_GOALS[g]) return { goal: g, with: withId };
+    const first = g.split(' ')[0]!;
+    if (GOALS[first] !== undefined) return { goal: first, with: withId };
+    for (const k of Object.keys(WORK_GOALS)) if (g.startsWith(k) || (g.length >= 6 && k.startsWith(g))) return { goal: k, with: withId };
+    const SYN: [RegExp, string][] = [
+      [/\b(chat|speak|visit|meet|greet|play|company|comfort)\b/, 'talk'], [/\b(water|thirsty)\b/, 'drink'], [/\bhunt/, 'go hunting'],
+      [/\b(find|look for|search for|gather|get|pick|collect)\b.*\b(food|berries|meat)\b/, 'forage'], [/\b(food|hungry|meal)\b/, 'eat'],
+      [/\b(nap|bed|asleep)\b/, 'sleep'], [/\b(relax|sit|wait|stay)\b/, 'rest'], [/\b(walk|stroll|look around)\b/, 'wander'],
+      [/\b(wood|logs|firewood|chop)\b/, 'gather wood'], [/\b(stone|rocks)\b/, 'gather stone'], [/\bfire\b/, 'feed the fire'],
+      [/\bexplor/, 'explore around'], [/\b(ruins|loot)\b/, 'search the ruins'],
+    ];
+    for (const [re, k] of SYN) if (re.test(g)) return { goal: k === 'eat' && this.w.survival.foodOf(e.slot(id)) <= 0 ? 'forage' : k, with: withId };
+    if (withId >= 0) return { goal: 'talk', with: withId }; // "help Sami", "be with Lina": go to them
+    return { goal: null, with: -1 };
   }
 
   /**

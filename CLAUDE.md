@@ -978,6 +978,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   the dead as a count; Near: 6 nearest; Recent: 6, repeats as (xN).
 - `Planner.nothingToDecide` (no call): under 7, asleep 21-05, in a task, desperate thirst / hunger, fleeing / fighting; never when urgent or
   3 plan intervals past. Slow model: `batchNow` -1 after a > 60 s answer, halves on a timeout, +1 after < 20 s; a failed batch retries in ~30 game min.
+- **Loose answers are read (imad 2026-11-27: "99 % of the requests: no usable plan")**: the goals are listed as "talk (say with whom)" and models wrote
+  that, "talk to Ghita", "None", a person twice. `Planner.readGoal` (brackets dropped, first word, work-goal prefixes, synonyms, a name in the goal wins
+  over `with`, "help X" = talk) + `applyPlansN` (first entry per person, strangers skipped); only an answer with NO entry for the batch is an error.
+  System prompt shows the exact form. Test planreply.test.ts.
 - E12 in research/EXPERIMENTS.md (`experiment-prompts.ts`, fake model): 20.2k -> 8.9k chars a call, tokens -64 %, planned tasks ok 1 % -> 74 %. Test prompts.test.ts.
 
 ## Thoughts page (imad 2026-11-27: "see what people think, not every person; whether a rule / tweak changes their thoughts, quickly")
