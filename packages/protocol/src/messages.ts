@@ -154,6 +154,7 @@ export type AdminCmd =
   | { cmd: 'serverRestart' }
   | { cmd: 'serverBuild'; restart?: boolean }
   | { cmd: 'serverUpdate'; restart?: boolean }
+  | { cmd: 'serverDeploy'; restart?: boolean }
   | { cmd: 'backups' }
   | { cmd: 'backupMake' }
   | { cmd: 'backupRestore'; file: string }

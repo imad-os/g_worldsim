@@ -10,7 +10,12 @@ import type { Db } from '../persist/db.js';
 import type { Logger } from '../log.js';
 
 export interface BackupInfo { file: string; bytes: number; at: number; why: string }
-export interface Job { what: 'build' | 'update'; state: 'running' | 'done' | 'failed'; log: string; at: number; end?: number }
+export interface Job { what: 'build' | 'update'; state: 'running' | 'done' | 'failed'; log: string; at: number; end?: number; before?: string; after?: string }
+/** data/deploy.json: the last build / deploy job (it outlives the restart) and how the restart went (written by tools/relaunch.mjs). */
+export interface Deploy {
+  job?: Job;
+  restart?: { at: number; why: string; state: 'asked' | 'stopping' | 'starting' | 'up' | 'rolledBack' | 'failed'; log?: string; end?: number; pid?: number; from?: string; to?: string; who?: string };
+}
 
 const KEEP = 15;
 const SAFE_NAME = /^[\w.-]+\.sqlite$/;
@@ -97,6 +102,21 @@ export class Control {
     return file;
   }
 
+  // ------------------------------------------------------------ the last deploy and restart
+
+  get deployFile(): string { return join(this.dataDir, 'deploy.json'); }
+  lastDeploy(): Deploy | null {
+    try { return JSON.parse(readFileSync(this.deployFile, 'utf8')) as Deploy; } catch { return null; }
+  }
+  private saveDeploy(d: Deploy): void {
+    try { mkdirSync(this.dataDir, { recursive: true }); writeFileSync(this.deployFile, JSON.stringify(d, null, 1)); } catch (err) { this.log.warn('deploy.json not written', { err: String(err) }); }
+  }
+  /** A restart is on its way (the helper fills in the rest). A restart with no job of its own clears the old job's lines. */
+  noteRestart(why: string, who: string): void {
+    const job = this.job && this.job.end && Date.now() - this.job.end < 60_000 ? this.job : undefined;
+    this.saveDeploy({ job, restart: { at: Date.now(), why: `${why} by ${who}`, state: 'asked', who } });
+  }
+
   // ------------------------------------------------------------ info and log
 
   async info(): Promise<Record<string, unknown>> {
@@ -109,7 +129,7 @@ export class Control {
       uptimeSec: Math.round(process.uptime()), rssMb: Math.round(m.rss / 1e6), heapMb: Math.round(m.heapUsed / 1e6),
       dbBytes: size(this.dbFile) + size(this.dbFile + '-wal'), backups: this.backups().length,
       git: { commit, branch, subject, changed: changes ? changes.split('\n').filter(Boolean).map((l) => l.trim().replace(/^\S+\s+/, '')) : [] },
-      job: this.job, restorePending: existsSync(join(this.dataDir, 'restore.json')),
+      job: this.job, lastDeploy: this.lastDeploy(), restorePending: existsSync(join(this.dataDir, 'restore.json')),
     };
   }
 
@@ -152,6 +172,8 @@ export class Control {
     const a = await run(process.execPath, [tsc, '-b', 'packages/protocol', 'packages/server'], this.root);
     out.push(`$ tsc -b packages/protocol packages/server (exit ${a.code})`, a.out);
     if (a.code !== 0) return false;
+    // The server's own check at start (fresh.ts) compares the sources with this stamp: written, it does not compile again.
+    try { writeFileSync(join(this.root, 'packages', 'server', 'dist', '.built'), new Date().toISOString()); } catch { /* ok */ }
     const b = await run(process.execPath, ['tools/build-client.mjs'], this.root);
     out.push(`$ node tools/build-client.mjs (exit ${b.code})`, b.out);
     return b.code === 0;
@@ -168,11 +190,14 @@ export class Control {
       try {
         if (what === 'update') {
           const before = (await run('git', ['rev-parse', 'HEAD'], this.root, 10_000)).out;
+          if (/^[0-9a-f]{7,40}$/.test(before)) job.before = before;
           // Built bundles (docs/) are made again below: their local copies never block the pull. Changes the panel's agent
           // committed locally are replayed on top of GitHub's (rebase); a conflict stops and leaves everything as it was.
           await run('git', ['checkout', '--', 'docs'], this.root, 30_000);
           const p = await run('git', ['-c', 'user.name=World agent', '-c', 'user.email=agent@worldsim.local', 'pull', '--rebase', '--autostash'], this.root, 120_000);
           out.push(`$ git pull --rebase --autostash (exit ${p.code})`, p.out); flush();
+          job.after = (await run('git', ['rev-parse', 'HEAD'], this.root, 10_000)).out;
+          if (p.code === 0) out.push(job.after === before ? 'already up to date: nothing new on GitHub' : `code ${before.slice(0, 7)} -> ${job.after.slice(0, 7)}`);
           if (p.code !== 0) { const ab = await run('git', ['rebase', '--abort'], this.root, 30_000); out.push(ab.code === 0 ? 'rebase aborted: nothing changed' : ''); throw new Error('git pull failed'); }
           const lock = await run('git', ['diff', '--name-only', before, 'HEAD', '--', 'package-lock.json', 'package.json', 'packages/*/package.json'], this.root, 10_000);
           if (lock.out.trim()) {
@@ -192,7 +217,9 @@ export class Control {
       }
       flush();
       job.end = Date.now();
-      this.log.info(`${what} ${job.state}`);
+      this.saveDeploy({ job });
+      if (job.state === 'failed') this.log.warn(`${what === 'update' ? 'deploy' : 'rebuild'} failed: the server keeps running the old code`, { log: job.log.slice(-1500) });
+      else this.log.info(`${what} ${job.state}`);
       then(job.state === 'done');
     })();
     return job;

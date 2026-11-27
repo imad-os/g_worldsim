@@ -27,7 +27,7 @@ function Log($m) {
   if ((Test-Path $log) -and (Get-Item $log).Length -gt 1MB) { Move-Item $log "$log.old" -Force }
   Add-Content -Path $log -Value ("{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m)
 }
-function ServerPid { (Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -like '*packages/server/dist/main.js*' } | Select-Object -First 1).ProcessId }
+function ServerPid { (Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -match 'packages[\\/]server[\\/]dist[\\/]main\.js' } | Select-Object -First 1).ProcessId }
 function Ok($url, $headers = @{}) {
   try { $r = Invoke-WebRequest -UseBasicParsing -Headers $headers -TimeoutSec 15 $url; return ($r.StatusCode -eq 200 -and $r.Content -match '"ok":true') } catch { return $false }
 }
@@ -61,8 +61,10 @@ Set-Content $state $fails
 Log "public link failed ($fails in a row), server ok locally (pid $pidNow)"
 if ($fails -ge 2) {
   & $node tools/stop.mjs *> $null
-  for ($i = 0; $i -lt 30 -and (Get-Process -Id $pidNow -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
-  if (Get-Process -Id $pidNow -ErrorAction SilentlyContinue) { Stop-Process -Id $pidNow -Force }
+  if ($pidNow) {
+    for ($i = 0; $i -lt 30 -and (Get-Process -Id $pidNow -ErrorAction SilentlyContinue); $i++) { Start-Sleep 1 }
+    if (Get-Process -Id $pidNow -ErrorAction SilentlyContinue) { Stop-Process -Id $pidNow -Force }
+  } else { for ($i = 0; $i -lt 30 -and (Ok $localUrl); $i++) { Start-Sleep 1 } }
   StartServer 'public link down twice (tunnel)'
   Set-Content $state 0
 }

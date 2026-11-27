@@ -114,7 +114,7 @@ export class App {
   private stopping = false;
   onStopRequest: () => void = () => {};
   /** Stop cleanly and start again (main.ts starts a new server process). */
-  onRestartRequest: () => void = () => {};
+  onRestartRequest: (why: string, before?: string) => void = () => {};
   control!: Control;
   agent!: Agent;
   analysis!: Analysis;
@@ -555,6 +555,14 @@ export class App {
     await this.net.listen();
     // A restart from the panel paused the PC's watchdog: up again, it may watch again.
     if (existsSync(join(dataDir, 'restart.flag'))) { rmSync(join(dataDir, 'restart.flag'), { force: true }); rmSync(join(dataDir, 'watchdog.pause'), { force: true }); }
+    // A deploy whose new code did not start was rolled back by tools/relaunch.mjs (it writes that once this server answers):
+    // put it in the error log too, once.
+    this.timers.push(setTimeout(() => {
+      const r = this.control.lastDeploy()?.restart;
+      if (!r || (r.state !== 'rolledBack' && r.state !== 'failed') || this.db.getMeta('deploy_reported') === String(r.at)) return;
+      this.db.setMeta('deploy_reported', String(r.at));
+      this.log.error(r.state === 'rolledBack' ? 'deploy rolled back: the new code did not start' : 'restart: the server did not come back at first', { source: 'server', log: (r.log ?? '').slice(-2000) });
+    }, 20_000));
     this.agent = new Agent(ROOT, this.db, dbFile, this.control, {
       ai: () => this.agentAi(), brainName: () => this.agentBrain()?.name ?? 'none',
       scope: (print) => this.agentScope(print), data: () => this.agentData(), snapshot: () => this.snapshot(), secrets: () => this.secretList(),
@@ -650,11 +658,13 @@ export class App {
     return { people, agents, overview: this.overview(), maps: w.maps.map((m) => ({ index: m.index, id: m.def.id, name: m.def.name, w: m.def.w, h: m.def.h })), meta };
   }
   /** Restart: the PC's watchdog is paused meanwhile (it would start a second server), the new process lifts the pause. */
-  private restartSoon(who: string): { ok: true; restarting: true } {
+  /** `before` = the commit from before a deploy's pull: the relaunch helper goes back to it when the new code does not start. */
+  private restartSoon(who: string, why = 'restart', before?: string): { ok: true; restarting: true } {
     const d = resolve(this.cfg.dataDir);
     try { writeFileSync(join(d, 'watchdog.pause'), `restart from the panel by ${who}`); writeFileSync(join(d, 'restart.flag'), String(Date.now())); } catch { /* tests, read-only */ }
-    this.log.warn('restart asked', { who });
-    setTimeout(() => this.onRestartRequest(), 300);
+    this.log.warn('restart asked', { who, why });
+    this.control.noteRestart(why, who);
+    setTimeout(() => this.onRestartRequest(`${why} by ${who}`, before), 300);
     return { ok: true, restarting: true };
   }
   private ownerOnly(owner: boolean): void { if (!owner) throw new Error('only the owner (or the admin token) can do this'); }
@@ -1519,7 +1529,7 @@ export class App {
       case 'coderUndo': {
         this.ownerOnly(owner);
         const r = await this.agent.undo(fixed(c.id, 1, 1e9, 'id'));
-        if (r.restart) this.restartSoon(who);
+        if (r.restart) this.restartSoon(who, 'agent edit');
         return { ...r, ...this.agent.view() };
       }
       case 'coderReset': this.ownerOnly(owner); this.agent.reset(); return this.agent.view();
@@ -1535,14 +1545,17 @@ export class App {
       case 'serverInfo': return { ...(await this.control.info()), owner };
       case 'serverLog': return this.control.logTail(c.lines !== undefined ? fixed(c.lines, 1, 2000, 'lines') : 300, String(c.level ?? 'info'), this.log.recent).map((l) => ({ ...l, msg: this.agent.redact(l.msg), data: this.agent.redact(l.data) }));
       case 'serverRestart': this.ownerOnly(owner); return this.restartSoon(who);
-      case 'serverBuild': case 'serverUpdate': {
+      // Rebuild = compile the code already on the PC; Deploy (serverDeploy, old name serverUpdate) = git pull, npm install
+      // when the packages changed, compile, restart. A failed step stops there (the server keeps running, the log says why).
+      case 'serverBuild': case 'serverUpdate': case 'serverDeploy': {
         this.ownerOnly(owner);
-        const job = this.control.startJob(c.cmd === 'serverBuild' ? 'build' : 'update', (ok) => { if (ok && c.restart) this.restartSoon(who); });
+        const what = c.cmd === 'serverBuild' ? 'build' : 'update';
+        const job = this.control.startJob(what, (ok) => { if (ok && c.restart) this.restartSoon(who, what === 'build' ? 'rebuild' : 'deploy', this.control.job?.before); });
         return { job };
       }
       case 'backups': return this.control.backups();
       case 'backupMake': this.snapshot(); return { made: this.control.backup('manual'), list: this.control.backups() };
-      case 'backupRestore': { this.ownerOnly(owner); this.control.scheduleRestore(String(c.file)); return this.restartSoon(who); }
+      case 'backupRestore': { this.ownerOnly(owner); this.control.scheduleRestore(String(c.file)); return this.restartSoon(who, 'backup restore'); }
       case 'backupDelete': this.ownerOnly(owner); this.control.deleteBackup(String(c.file)); return this.control.backups();
       case 'overview': return this.overview();
       case 'history': return c.range ? this.history.get(String(c.range)) : this.history.recent.slice(-1440); // no range = the old answer (last 24 h of minutes)

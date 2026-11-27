@@ -353,6 +353,21 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   off with friends and a home of their own; rival clans get tense (`tension` 0-10). Quarrels (`quarrel`, 8 people a second): tension >= 4, dislike <= -2 or "on edge" (hungry, grumpy...) start a duel
   (`Brain.duelMove` / `duelEnd`): small hits, loser yields. Panel People page "Clans" card; clan line in every prompt. Territory = a home point only (one camp per map for now).
 
+## Restart, rebuild, deploy from the panel (imad 2026-11-27: "rebuild and restart takes the server down", "I need a deploy button")
+- The server no longer starts its own replacement as a child (that child could die with it on Windows, or fail unseen while the watchdog was
+  paused 15 min). `run.ts onRestartRequest(why, before)` first starts `tools/relaunch.mjs` on its own (`ops/relaunch.ts`: Windows = WMI
+  `Win32_Process.Create` via PowerShell so it is nobody's child, else / fallback a detached child), then a clean stop (30 s cap) and exit.
+  The helper waits for the old pid (60 s, then kills it), starts the server the watchdog's way (`packages/server/dist/main.js` relative,
+  data/stdout.log / stderr.log), waits for /health (300 s), and on a deploy whose new code dies goes back with `git reset --keep <before>`
+  and starts that (fresh.ts recompiles). One retry, then gives up and removes watchdog.pause at once. Log data/relaunch.log; outcome in
+  data/deploy.json { job, restart { state asked | stopping | starting | up | rolledBack | failed, log, from, to } } (`Control.lastDeploy`,
+  serverInfo `lastDeploy`); a rollback / failure also goes to the error log once (meta `deploy_reported`).
+- Panel Server page: Restart, Rebuild and restart (= compile the code already on the PC: tsc + build-client; fetches nothing; the server
+  compiles itself at start anyway), **Deploy** (admin `serverUpdate` / `serverDeploy`: git pull --rebase --autostash, npm install if
+  package files changed, build, restart; a failed step keeps the old server running with the log shown). The page follows the restart
+  (other pid = back) and shows the job + restart logs. watchdog.ps1 / restart.ps1 match the server's command line with either slash.
+  Test relaunch.test.ts; proof `ADMIN_TOKEN=... node tools/deploy-proof.mjs <server> <outdir> [click]`.
+
 ## Panel AI agent and server controls (imad 2026-11-25)
 - **AI agent** (`ops/agent.ts`, panel page "AI agent" = `panel/src/coder.ts`, admin `coder*` commands, OWNER ONLY = admin token or a Firebase
   owner; `AdminHandler` gets `owner`): the owner asks in words; the model answers JSON and may LOOK freely (`read` files with line ranges,

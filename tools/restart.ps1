@@ -19,7 +19,7 @@ try { $cfg = Get-Content (Join-Path $repo 'worldsim.config.json') -Raw | Convert
 $port = if ($cfg.port) { $cfg.port } else { 8787 }
 $health = "http://127.0.0.1:$port/health"
 function Say($m) { Write-Host $m; Add-Content -Path (Join-Path $data 'watchdog.log') -Value ("{0}  restart.ps1: {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) }
-function ServerPids { @(Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -like '*packages/server/dist/main.js*' } | ForEach-Object { $_.ProcessId }) }
+function ServerPids { @(Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -match 'packages[\\/]server[\\/]dist[\\/]main\.js' } | ForEach-Object { $_.ProcessId }) }
 function Up { try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 $health; return ($r.Content -match '"ok":true') } catch { return $false } }
 
 Set-Content $pause (Get-Date -Format o)   # the watchdog leaves the server alone meanwhile
