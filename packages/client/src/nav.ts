@@ -201,3 +201,67 @@ export class ChatLog {
   /** Lines older than a minute grow faint (called now and then). */
   tick(now: number): void { for (const r of this.rows) { const old = now - r.at > 60_000; if (old !== r.el.classList.contains('old')) r.el.classList.toggle('old', old); } }
 }
+
+/**
+ * Where a sound comes from (imad 2026-11-27: "a zombie sound on my right, out of sight: show its icon on that side; on screen: don't"):
+ * a heard zombie / animal off screen gets its icon on the screen's edge, the way it lies from where I look, with a small arrow outwards.
+ * Fades after a few seconds; follows the thing while it is still heard. Built once (a pool), per frame only transform / opacity.
+ */
+export class SoundCues {
+  private readonly box: HTMLDivElement;
+  private readonly pool: { el: HTMLDivElement; ic: HTMLSpanElement; ar: HTMLSpanElement; icon: string }[] = [];
+  private readonly cues: { id: number; icon: string; x: number; y: number; until: number; d: number }[] = [];
+  private readonly pt = { x: 0, y: 0 };
+  constructor(max = 6) {
+    this.box = document.createElement('div'); this.box.id = 'cues';
+    for (let k = 0; k < max; k++) {
+      const el = document.createElement('div'); el.className = 'cue'; el.hidden = true;
+      const ar = document.createElement('span'); ar.className = 'ca';
+      const ic = document.createElement('span'); ic.className = 'ci';
+      el.append(ar, ic); this.box.appendChild(el);
+      this.pool.push({ el, ic, ar, icon: '' });
+    }
+    document.body.appendChild(this.box);
+  }
+  /** A sound was heard from thing `id` (its icon) at (x, y). */
+  heard(id: number, icon: string, x: number, y: number, now: number, secs = 3.5): void {
+    const c = this.cues.find((q) => q.id === id);
+    if (c) { c.x = x; c.y = y; c.until = now + secs * 1000; c.icon = icon; return; }
+    if (this.cues.length >= 12) this.cues.shift();
+    this.cues.push({ id, icon, x, y, until: now + secs * 1000, d: 0 });
+  }
+  /** Keep a cue on a thing that moves (called with its drawn place while it is on this screen's list). */
+  move(id: number, x: number, y: number): void { for (const c of this.cues) if (c.id === id) { c.x = x; c.y = y; } }
+  hide(): void { for (const p of this.pool) if (!p.el.hidden) p.el.hidden = true; }
+
+  /**
+   * (fx, fy) = me, `top` = the camera looks north, else along `yaw` (forward = (sin yaw, -cos yaw)); `project` false = off screen.
+   */
+  draw(now: number, fx: number, fy: number, top: boolean, yaw: number, hear: number, project: (x: number, h: number, z: number, out: { x: number; y: number }) => boolean): void {
+    for (let k = this.cues.length - 1; k >= 0; k--) if (this.cues[k]!.until < now) this.cues.splice(k, 1);
+    const W = innerWidth, H = innerHeight, m = Math.max(34, W * 0.035);
+    let n = 0;
+    const show = this.cues.filter((c) => { c.d = Math.hypot(c.x - fx, c.y - fy); return c.d < hear && c.d > 1.5 && !project(c.x, 1, c.y, this.pt); })
+      .sort((a, b) => a.d - b.d);
+    for (const c of show) {
+      if (n >= this.pool.length) break;
+      const dx = c.x - fx, dy = c.y - fy;
+      // On-screen direction: right and up from the middle of the screen.
+      let sx: number, sy: number;
+      if (top) { sx = dx; sy = dy; }
+      else { const r = dx * Math.cos(yaw) + dy * Math.sin(yaw), f = dx * Math.sin(yaw) - dy * Math.cos(yaw); sx = r; sy = -f; }
+      const l = Math.hypot(sx, sy) || 1; sx /= l; sy /= l;
+      // Out from the middle to the edge (inset by m).
+      const hw = W / 2 - m, hh = H / 2 - m, t = Math.min(Math.abs(sx) > 1e-4 ? hw / Math.abs(sx) : 1e9, Math.abs(sy) > 1e-4 ? hh / Math.abs(sy) : 1e9);
+      const px = W / 2 + sx * t, py = H / 2 + sy * t;
+      const p = this.pool[n++]!;
+      if (p.icon !== c.icon) { p.icon = c.icon; p.ic.textContent = c.icon; }
+      const fade = Math.min(1, (c.until - now) / 800), near = 1 - 0.55 * Math.min(1, c.d / hear);
+      p.el.style.transform = `translate(${Math.round(px)}px, ${Math.round(py)}px) translate(-50%, -50%) scale(${(0.8 + 0.35 * near).toFixed(2)})`;
+      p.el.style.opacity = (fade * (0.45 + 0.55 * near)).toFixed(2);
+      p.ar.style.transform = `rotate(${Math.atan2(sy, sx).toFixed(3)}rad)`;
+      if (p.el.hidden) p.el.hidden = false;
+    }
+    for (let k = n; k < this.pool.length; k++) if (!this.pool[k]!.el.hidden) this.pool[k]!.el.hidden = true;
+  }
+}
