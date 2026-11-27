@@ -905,7 +905,10 @@ function stick(): [number, number] {
   }
   let ax = MyPC.gamepad ? MyPC.gamepad.axis(0) : 0, ay = MyPC.gamepad ? MyPC.gamepad.axis(1) : 0;
   if (Math.hypot(ax, ay) < 0.18) { ax = 0; ay = 0; }
-  if (held.left || padHeld.left) ax = -1; if (held.right || padHeld.right) ax = 1; if (held.up || padHeld.up) ay = -1; if (held.down || padHeld.down) ay = 1;
+  // A controller's D-pad is buttons for actions (imad 2026-11-27): only the left stick walks. It still moves the model while placing,
+  // and stands in for the stick on an old My PC without MyPC.gamepad (directions are all it sends then).
+  const pd = placing || !MyPC.gamepad;
+  if (held.left || pd && padHeld.left) ax = -1; if (held.right || pd && padHeld.right) ax = 1; if (held.up || pd && padHeld.up) ay = -1; if (held.down || pd && padHeld.down) ay = 1;
   const l = Math.hypot(ax, ay);
   if (l > 1) { ax /= l; ay /= l; }
   return [ax, ay];
@@ -926,8 +929,8 @@ function viewStick(dt: number): [number, number] {
   if (Math.abs(rx) < 0.2) rx = 0;
   const turn = rx * Math.abs(rx) + (held.right ? 1 : 0) - (held.left ? 1 : 0);
   yaw += turn * (aimOn ? 1.3 : 2.4) * dt; // drawing the bow: slower, finer turns
-  // The left stick (and a controller's D-pad) walks / runs along where I look and steps sideways; it never turns the camera.
-  if (!ax && !ay) { ax = (padHeld.right ? 1 : 0) - (padHeld.left ? 1 : 0); ay = (padHeld.down ? 1 : 0) - (padHeld.up ? 1 : 0); }
+  // The left stick walks / runs along where I look and steps sideways; it never turns the camera (the D-pad is action buttons).
+  if (!ax && !ay && !gp) { ax = (padHeld.right ? 1 : 0) - (padHeld.left ? 1 : 0); ay = (padHeld.down ? 1 : 0) - (padHeld.up ? 1 : 0); }
   const fwd = -ay + (held.up ? 1 : 0) - (held.down ? 1 : 0), side = ax;
   const fx = Math.sin(yaw), fy = -Math.cos(yaw);
   let mx = fx * fwd - fy * side, my = fy * fwd + fx * side;
@@ -2293,9 +2296,10 @@ function askInfo(id: number, now = false): void {
 }
 
 /** A button the player pressed while choosing one for an action. */
+let capturedAt = -1e9;
 function captured(kindOf: 'pad' | 'remote', b: number | string): void {
   const a = capture!;
-  capture = null;
+  capture = null; capturedAt = performance.now();
   const side = kindOf === 'pad' ? binds.pad : binds.remote;
   // One button = one action: take it from the action that had it.
   for (const o of ACTIONS) if ((side as Record<string, unknown>)[o] === b) delete (side as Record<string, unknown>)[o];
@@ -2667,6 +2671,7 @@ function stopLoop(): void {
 const DIRS = { left: 1, right: 1, up: 1, down: 1 } as const;
 /** Arrows / D-pad / stick as directions: the menu when it is open, else moving. */
 function direction(d: keyof typeof DIRS, pressed: boolean, repeat?: boolean, fromPad = false): void {
+  if (fromPad && (capture || performance.now() - capturedAt < 400)) return; // a D-pad button being mapped: not a step in the menu too
   if (rp && !menu.open) { if (pressed) { if (d === 'left' || d === 'right') rp.seek(d === 'left' ? -5 : 5); else if (!repeat) rp.faster(d === 'up'); } return; }
   if (menu.open) {
     // The map reads the controller's stick itself (smooth); its D-pad and the remote's arrows step.
@@ -2724,8 +2729,11 @@ function onRemote(name: string, pressed: boolean, repeat: boolean): void {
 /** Controller buttons (by letter: 0 = A). The D-pad and the stick come through onInput as directions. */
 function onPad(i: number, pressed: boolean): void {
   if (pressed) sound.unlock();
-  if (i >= 12 && i <= 16) return; // D-pad (directions) and Home (My PC's)
+  if (i === 16) return; // Home (My PC's)
   if (capture) { if (pressed) captured('pad', i); return; }
+  // The D-pad also comes through onInput as directions: menus, the wheel, placing and replays step with those. In the world it is
+  // four buttons the player maps to actions (imad 2026-11-27).
+  if (i >= 12 && i <= 15 && (mode !== 'world' || menu.open || wheel.open || placing || rp)) return;
   if (mode !== 'world') { if (pressed && i === 0) screenOk(); return; }
   if (rp && !menu.open) { if (pressed) { if (i === 0) rp.toggle(); else if (i === 1 || padAction(binds, i) === 'menu') stopReplay(); } return; }
   if (menu.open) {

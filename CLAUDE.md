@@ -70,7 +70,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **The game's own menu** (`ui.ts Menu`, pages root / actions / person / settings / controls); My PC's menu has only
   "Game menu" + server. Opens with the remote's Back (twice quickly = My PC's menu) or the bound menu button (+ by default).
 - **Button mapping** (Buttons page): OK on an action, then press any controller button (`MyPC.gamepad`) or remote button
-  (`MyPC.buttons`, `keys: ['buttons']`); saved `MyPC.save('binds')`; defaults in `DEFAULT_BINDS`. Arrows / D-pad / Home / Back
+  (`MyPC.buttons`, `keys: ['buttons']`); saved `MyPC.save('binds')`; defaults in `DEFAULT_BINDS`. Arrows / Home / Back
   are never mapped. Hints are built from the binds and the pad's printed names.
 - **Orders (imad 2026-11-20: "he said I'm coming but stays")**: wishes are only +0.32 bonuses; an ORDER is obeyed
   (`Brain.order` come/goto/follow/bring/stay/stop/act; bring = fetch the nearest food if empty-handed, then hand 1 over (event `give`); `Act.Go` = 10, only thirst > 92 / hunger > 95 interrupt). Chat answers are JSON
@@ -1135,6 +1135,10 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - PvP is a switch (Actions page, How to fight, wheel item `pvp`, old saved wheels' `attackPerson` -> `pvp`). Server: with it on, Do `hit` also
   hits the nearer person in front (`personFront` / `personHit`), Do `shoot` hits a person on the line (players only with their PvP on too);
   off = never a person. Do `hitperson` stays for older TVs. Test server.test "players"; proof `ADMIN_TOKEN=... node tools/interact-proof.mjs <server> <sdk.js> <outdir>`.
+- **The D-pad is 4 action buttons (imad 2026-11-27, app 0.15.5)**: in the world only the left stick walks (`stick()` / `viewStick()` read padHeld
+  only while placing or on a My PC without `MyPC.gamepad`); gamepad buttons 12-15 go through `padAction` like any button and can be mapped on
+  the Buttons page (16 = Home stays My PC's). Menus, the wheel, placing and replays still step with the D-pad (onInput directions); a D-pad press
+  being captured does not also step the menu (`capturedAt`). Unbound by default. Proof `ADMIN_TOKEN=... node tools/dpad-proof.mjs <server> <sdk.js> <outdir>`.
 ## Bodies, looks, moves (imad 2026-11-27, app 0.15.0)
 - protocol `look.ts`: one packed look per person (skin, woman, 8 hair styles, 8 hair colours, build slim / average / broad / heavy, top 16 / trousers 8
   colours, beard none / moustache / short / full, elder). Server `sim/looks.ts lookCode` (no dice: id hash + sex, age (beard 18+, grey 55+), strength
