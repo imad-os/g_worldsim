@@ -62,7 +62,13 @@ export interface Horse {
   until: number;
   /** Tamed: where it lives now (it roams round here); set where it was left or where it came to its owner. */
   hx?: number; hy?: number;
+  /** What happened to it (imad 2026-11-27: "keep a history, show it when I call it"): [game second, code, arg] (last 20). */
+  log?: HorseNote[];
 }
+/** One line of a horse's history: [game second, code, arg]. Codes: tamed / mount / left / road / called / came / gaveUp (arg = map id), wild, old (arg = age), gone. */
+export type HorseNote = [number, string, string?];
+/** A horse its owner lost (died, ran wild, vanished): kept so the owner can be told what happened. */
+export interface LostHorse { name: string; q: number; at: number; why: string; log: HorseNote[] }
 interface Herd { id: number; map: number; lead: number; gx: number; gy: number; until: number }
 
 const QSTATS = [ // per quality: [speed lo, hi], [stamina lo, hi], [intel lo, hi], [size lo, hi]
@@ -92,6 +98,8 @@ export class Horses {
   /** A called horse's way to its owner (not saved: it finds it again). */
   private routes = new Map<number, { pts: number[]; k: number; gx: number; gy: number; at: number; since: number }>();
   private finders: Pathfinder[] = [];
+  /** Horses each owner (entity id) lost, newest last (3 kept), saved. */
+  readonly lost = new Map<number, LostHorse[]>();
   /** Who tried to tame which horse last (cooldown, real sim seconds). */
   private readonly tryAt = new Map<number, number>();
 
@@ -234,6 +242,7 @@ export class Horses {
       this.leaveHerd(e.id(a), h);
       h.owner = me; h.trust[k] = 1; h.fear = 0; h.mode = 'wait'; h.until = now + 20; h.hx = e.x[a]!; h.hy = e.y[a]!;
       this.skill.set(me, (this.skill.get(me) ?? 0) + 10);
+      this.note(h, 'tamed', this.mapId(a));
       w.emit('tamed', { id: me, horse: e.id(a), name: h.name, quality: QUALITY[h.q], chance: +ch.toFixed(2) });
       return { code: 'tamed', name: h.name, chance: ch };
     }
@@ -249,6 +258,30 @@ export class Horses {
       return { code: 'kicked', chance: ch, trust: h.trust[k], name: h.name };
     }
     return { code: 'tameFail', chance: ch, trust: h.trust[k], name: h.name };
+  }
+  /** A line in the horse's history. */
+  private note(h: Horse, code: string, arg?: string): void {
+    const l = h.log ??= [];
+    const last = l[l.length - 1];
+    if (last && last[1] === code && last[2] === arg && this.w.gameSec - last[0] < 600) { last[0] = this.w.gameSec; return; } // the same thing again soon: one line
+    l.push(arg === undefined ? [Math.round(this.w.gameSec), code] : [Math.round(this.w.gameSec), code, arg]);
+    if (l.length > 20) l.splice(0, l.length - 20);
+  }
+  private mapId(i: number): string { const m = this.w.e.map[i]!; return m === NO_MAP ? '' : this.w.maps[m]?.def.id ?? ''; }
+  /** Its owner lost horse h (why: old / wild / gone): remembered for them. */
+  private loseIt(owner: number, h: Horse, why: string): void {
+    if (owner < 0) return;
+    const l = this.lost.get(owner) ?? [];
+    l.push({ name: h.name, q: h.q, at: Math.round(this.w.gameSec), why, log: (h.log ?? []).slice(-10) });
+    if (l.length > 3) l.splice(0, l.length - 3);
+    this.lost.set(owner, l);
+    this.w.emit('horseLost', { id: owner, name: h.name, why });
+  }
+  /** The history of my horse(s) for the TV: every horse I own + the ones I lost. */
+  history(i: number): { horses: { name: string; q: number; map: string; log: HorseNote[] }[]; lost: LostHorse[] } {
+    const e = this.w.e, me = e.id(i);
+    const horses = this.mine(i).map((s) => { const h = this.h.get(e.id(s))!; return { name: h.name, q: h.q, map: this.mapId(s), log: (h.log ?? []).slice(-8) }; });
+    return { horses, lost: this.lost.get(me) ?? [] };
   }
   private leaveHerd(id: number, h: Horse): void {
     const hd = this.herds.get(h.herd);
@@ -276,6 +309,7 @@ export class Horses {
     w.detachBody(a);
     this.riding[i] = 1; this.riding[a] = 2;
     e.x[a] = e.x[i]!; e.y[a] = e.y[i]!;
+    this.note(h, 'mount', this.mapId(a));
     w.emit('mount', { id: h.rider, horse: e.id(a), name: h.name });
     return 'mounted';
   }
@@ -298,6 +332,7 @@ export class Horses {
     const s = w.freeSpot(m, e.x[a]! + Math.cos(e.angle[a]! + 1.6) * 1.2, e.y[a]! + Math.sin(e.angle[a]! + 1.6) * 1.2, 30, this.rng) ?? { x: e.x[a]!, y: e.y[a]! };
     w.attachBody(a, m, s.x, s.y);
     e.tx[a] = s.x; e.ty[a] = s.y; e.speed[a] = 0; h.hx = s.x; h.hy = s.y;
+    this.note(h, 'left', w.maps[m]!.def.id);
   }
   /** The speed of rider i given what they asked for (walk / run). */
   rideSpeed(i: number, want: number): number {
@@ -335,13 +370,13 @@ export class Horses {
     for (const s of free) { if (e.map[s] !== m) continue; const d = Math.hypot(e.x[s]! - x, e.y[s]! - y); if (d < hd) { hd = d; here = s; } }
     if (here >= 0) {
       const h = this.h.get(e.id(here))!;
-      if (hd <= CALL_NEAR) return { ok: false, code: 'walkOver', name: h.name, dist: Math.round(hd) };
+      if (hd <= CALL_NEAR) return { ok: false, code: 'walkOver', name: h.name, dist: Math.round(hd), hist: this.history(i) };
       this.call(here, i);
-      return { ok: true, code: 'called', name: h.name, dist: Math.round(hd) };
+      return { ok: true, code: 'called', name: h.name, dist: Math.round(hd), hist: this.history(i) };
     }
     const away = free.find((s) => e.map[s] !== NO_MAP);
-    if (away !== undefined) return { ok: false, code: 'otherMap', name: this.h.get(e.id(away))!.name, map: this.w.maps[e.map[away]!]!.def.id };
-    return { ok: false, code: 'noHorse' };
+    if (away !== undefined) return { ok: false, code: 'otherMap', name: this.h.get(e.id(away))!.name, map: this.w.maps[e.map[away]!]!.def.id, hist: this.history(i) };
+    return { ok: false, code: 'noHorse', hist: this.history(i) };
   }
   /** Horse a is called by its owner i: it runs to them by a real path (`come`). */
   call(a: number, i: number): void {
@@ -349,6 +384,7 @@ export class Horses {
     if (!h || h.rider >= 0) return;
     h.mode = 'come'; h.until = 0; h.fear = 0;
     this.routes.set(this.w.e.id(a), { pts: [], k: 0, gx: NaN, gy: NaN, at: -1e9, since: this.t });
+    this.note(h, 'called', this.mapId(a));
     this.w.emit('horseCalled', { id: this.w.e.id(i), horse: this.w.e.id(a), name: h.name });
   }
   /** Real seconds the ride through gate (portal index) pi takes: 5-15, its own for each gate. */
@@ -520,7 +556,7 @@ export class Horses {
     // Tamed (imad 2026-11-25: "not follow me, do whatever it wants"): it lives on its own round its home spot, comes when called.
     if (h.owner >= 0) {
       const o = e.slot(h.owner);
-      if (o < 0 && !w.profiles.get(h.owner)?.player) { h.owner = -1; h.mode = 'graze'; this.routes.delete(e.id(i)); this.joinHerd(i, h); return; } // the owner died: wild again
+      if (o < 0 && !w.profiles.get(h.owner)?.player) { this.note(h, 'wild'); this.loseIt(h.owner, h, 'wild'); h.owner = -1; h.mode = 'graze'; this.routes.delete(e.id(i)); this.joinHerd(i, h); return; } // the owner died: wild again
       if (h.hx === undefined || h.hy === undefined) { h.hx = x; h.hy = y; }
       if (h.mode === 'come') { if (this.come(i, h, o)) return; }
       if (h.mode === 'follow') h.mode = 'graze'; // old saves: no more following
@@ -584,11 +620,12 @@ export class Horses {
   private come(i: number, h: Horse, o: number): boolean {
     const w = this.w, e = w.e, id = e.id(i), x = e.x[i]!, y = e.y[i]!, now = this.t;
     const r = this.routes.get(id);
-    if (o < 0 || e.map[o] !== e.map[i] || !r || now - r.since > 150) { this.routes.delete(id); h.mode = 'graze'; h.until = now; return false; }
+    if (o < 0 || e.map[o] !== e.map[i] || !r || now - r.since > 150) { if (r) this.note(h, 'gaveUp', this.mapId(i)); this.routes.delete(id); h.mode = 'graze'; h.until = now; return false; }
     const ox = e.x[o]!, oy = e.y[o]!, d = Math.hypot(ox - x, oy - y);
     if (d < 3) { // here: it stops by its owner and waits to be ridden
       this.routes.delete(id); h.mode = 'wait'; h.until = now + 90; h.hx = x; h.hy = y;
       e.speed[i] = 0; e.tx[i] = x; e.ty[i] = y; e.act[i] = Act.Idle; e.angle[i] = Math.atan2(oy - y, ox - x);
+      this.note(h, 'came', this.mapId(i));
       w.emit('horseCame', { id: h.owner, horse: id, name: h.name });
       return true;
     }
@@ -679,7 +716,7 @@ export class Horses {
         }
         continue;
       }
-      if (e.map[a] !== e.map[r]) { e.map[a] = e.map[r]!; e.flags[a] = e.flags[a]! & ~EFlag.Transit; }
+      if (e.map[a] !== e.map[r]) { e.map[a] = e.map[r]!; e.flags[a] = e.flags[a]! & ~EFlag.Transit; this.note(h, 'road', this.mapId(a)); }
       e.x[a] = e.x[r]!; e.y[a] = e.y[r]!; e.vx[a] = e.vx[r]!; e.vy[a] = e.vy[r]!; e.angle[a] = e.angle[r]!;
       e.tx[a] = e.x[a]!; e.ty[a] = e.y[a]!;
       e.flags[a] = (e.flags[a]! & ~EFlag.Moving) | (e.flags[r]! & EFlag.Moving);
@@ -697,6 +734,7 @@ export class Horses {
   /** A horse that is gone (hunted, removed): forget it, its rider gets off. */
   private forget(id: number, h: Horse): void {
     if (h.rider >= 0) { const r = this.w.e.slot(h.rider); if (r >= 0) this.riding[r] = 0; }
+    if (h.owner >= 0) { this.note(h, 'gone'); this.loseIt(h.owner, h, 'gone'); } // its owner is told
     this.h.delete(id);
     if (h.herd >= 0) { const hd = this.herds.get(h.herd); if (hd && hd.lead === id) { const m = this.members(hd.id); if (m.length) hd.lead = this.w.e.id(m[0]!); else this.herds.delete(hd.id); } }
   }
@@ -723,9 +761,13 @@ export class Horses {
     const perHour = 0.6 / Math.max(1, w.yearSec / HOUR);
     for (const [id, h] of [...this.h]) {
       const i = e.slot(id);
-      if (i < 0 || e.map[i] === NO_MAP) continue;
+      if (i < 0 || !this.isHorse(i)) { if (h.owner >= 0) { this.note(h, 'gone'); this.loseIt(h.owner, h, 'gone'); } this.h.delete(id); continue; } // removed some other way: its owner is told
+      if (e.map[i] === NO_MAP) continue;
       const age = this.ageYears(h);
+      // Old age, tamed horses too (imad 2026-11-27 kept it): a year is one game day by default, so a tamed horse may die after a
+      // few days of play; its owner is told what happened when they call it (history).
       if (age > 22 + (h.q * 3) && this.rng.chance((age - 22) * 0.1 * perHour * 10)) { // old age
+        if (h.owner >= 0) { this.note(h, 'old', String(Math.floor(age))); this.loseIt(h.owner, h, 'old'); }
         w.emit('death', { id, cause: 'old age', horse: h.name, map: w.maps[e.map[i]!]!.def.id });
         if (h.rider >= 0) this.dismount(e.slot(h.rider));
         this.h.delete(id); w.remove(i, 'old age');
@@ -788,15 +830,16 @@ export class Horses {
   }
 
   // ------------------------------------------------------------------ saving
-  save(): unknown { return { h: [...this.h], herds: [...this.herds.values()], skill: [...this.skill], nextHerd: this.nextHerd }; }
+  save(): unknown { return { h: [...this.h], herds: [...this.herds.values()], skill: [...this.skill], nextHerd: this.nextHerd, lost: [...this.lost] }; }
   load(s: unknown): void {
-    this.h.clear(); this.herds.clear(); this.skill.clear();
-    const d = s as { h?: [number, Horse][]; herds?: Herd[]; skill?: [number, number][]; nextHerd?: number } | undefined;
+    this.h.clear(); this.herds.clear(); this.skill.clear(); this.lost.clear();
+    const d = s as { h?: [number, Horse][]; herds?: Herd[]; skill?: [number, number][]; nextHerd?: number; lost?: [number, LostHorse[]][] } | undefined;
     if (!d) return;
+    for (const [k, v] of d.lost ?? []) if (Array.isArray(v)) this.lost.set(k, v);
     const e = this.w.e;
     for (const [id, h] of d.h ?? []) {
       const i = e.slot(id);
-      if (i < 0 || !this.isHorse(i)) continue;
+      if (i < 0 || !this.isHorse(i)) { if (h.owner >= 0) { this.note(h, 'gone'); this.loseIt(h.owner, h, 'gone'); } continue; }
       h.mode = h.rider >= 0 ? 'follow' : 'graze'; h.until = 0; h.fear = 0; // a call in progress is not saved
       this.h.set(id, h);
     }

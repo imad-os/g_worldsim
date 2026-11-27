@@ -1355,6 +1355,19 @@ function doAction(a: ActionId, pressed: boolean): void {
   send({ t: Msg.Do, a }); // drink, eat, pickup, sleep
 }
 
+/** A horse's history from the server (Horses.history): my horses and the ones I lost. */
+type HorseNote = [number, string, string?];
+type HorseHist = { horses: { name: string; q: number; map: string; log: HorseNote[] }[]; lost: { name: string; q: number; at: number; why: string; log: HorseNote[] }[] };
+const HIST_KEY: Record<string, Key> = { tamed: 'hhTamed', mount: 'hhMount', left: 'hhLeft', road: 'hhRoad', called: 'hhCalled', came: 'hhCame', gaveUp: 'hhGaveUp', wild: 'hhWild', old: 'hhOld', gone: 'hhGone' };
+function histLines(log: HorseNote[], n: number): string {
+  return log.slice(-n).reverse().map(([at, code, arg]) => `${gameTime(at, t('day'))} · ${HIST_KEY[code] ? tf(HIST_KEY[code]!, arg ? mapName(arg) : '') : code}`).join('\n');
+}
+/** The last lines of that horse's history under a horse message. */
+function horseHist(h: HorseHist | undefined, name: string | undefined, n: number): string {
+  const log = h?.horses.find((x) => x.name === name)?.log?.filter((x, k, l) => !(k === l.length - 1 && x[1] === 'called')); // "is coming" already says it was called
+  return log?.length ? '\n' + histLines(log, n) : '';
+}
+
 /** Attack: always a hit with the melee weapon (or fists) on what is in front. The bow shoots only when the Aim button is let go
  *  (imad 2026-11-27: "after a bow shot, Attack shot an arrow again: wrong, Attack uses the sword, the bow only on Aim release"). */
 function attack(): void {
@@ -1562,8 +1575,16 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     if (d.code === 'tamed') { note(tf('hTamed', d.name ?? ''), 6000); sound.play('ui_ok'); return; }
     if (d.code === 'tameFail' || d.code === 'kicked') { note(tf(d.code === 'kicked' ? 'hKicked' : 'hFail', d.name ?? '', String(hd.trust ?? 0)), 3500); if (d.code === 'kicked') sound.play('hurt'); return; }
     const hx = d as typeof d & { dist?: number; map?: string };
-    if (d.code === 'walkOver') { note(tf('hWalkOver', d.name ?? '', String(hx.dist ?? '')), 3500); return; }
-    if (d.code === 'otherMap') { note(tf('hOtherMap', d.name ?? '', mapName(hx.map ?? '')), 3500); return; }
+    const hist = (d as { hist?: HorseHist }).hist;
+    if (d.code === 'walkOver') { note(tf('hWalkOver', d.name ?? '', String(hx.dist ?? '')) + horseHist(hist, d.name, 2), 6000); return; }
+    if (d.code === 'otherMap') { note(tf('hOtherMap', d.name ?? '', mapName(hx.map ?? '')) + horseHist(hist, d.name, 3), 7000); return; }
+    if (d.code === 'called') { note(tf('hCalled', d.name ?? '') + horseHist(hist, d.name, 2), 6000); return; }
+    if (d.code === 'noHorse' && hist) { // no horse near and none to call: what happened to mine (imad 2026-11-27)
+      const lost = hist.lost[hist.lost.length - 1];
+      if (lost) note(tf(lost.why === 'old' ? 'hLostOld' : lost.why === 'wild' ? 'hLostWild' : 'hLostGone', lost.name, gameTime(lost.at, t('day'))) + '\n' + t('hHistory') + '\n' + histLines(lost.log, 4), 12000);
+      else note(t('hNoHorseYet'), 3500);
+      return;
+    }
     if (d.code === 'came') { note(tf('hCame', d.name ?? ''), 3500); sound.play('ui_ok'); return; }
     if ((d.a === 'horse' || d.a === 'take' || d.a === 'use') && HC[d.code]) { note(tf(HC[d.code]!, d.name ?? ''), d.code === 'mounted' ? 4500 : 2500); return; }
   }

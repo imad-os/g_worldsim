@@ -224,3 +224,45 @@ test('horses: a tamed horse lives on its own, comes when called from far (a real
   assert.equal(w.horses.riding[pl], 1, 'still on its back');
   assert.ok(h.owner === e.id(pl));
 });
+
+test('horses: a history per horse; an owner is told what happened to a horse that died or vanished, across a restart', () => {
+  const w = mk('horse-history');
+  w.populate();
+  run(w, 2);
+  const m = woods(w), e = w.e;
+  const [hid, h] = [...w.horses.h].find(([id]) => w.e.map[w.e.slot(id)] === m)!;
+  const a = e.slot(hid);
+  const pl = w.spawnPlayer(m, e.x[a]! + 1.5, e.y[a]!);
+  w.playerProfile(pl, 'tester');
+  const pr = w.profileOf(pl)!; pr.traits.courage = 1; pr.traits.intelligence = 1; pr.traits.speed = 1;
+  let r: Record<string, unknown> = {};
+  for (let k = 0; k < 40 && r.code !== 'tamed'; k++) { e.x[a] = e.x[pl]! + 1.2; e.y[a] = e.y[pl]!; w.bodies[a]?.setPosition({ x: e.x[a]!, y: e.y[a]! }); r = w.horses.playerAct(pl); run(w, 60); }
+  assert.equal(r.code, 'tamed');
+  e.x[a] = e.x[pl]! + 1.2; e.y[a] = e.y[pl]!; w.bodies[a]?.setPosition({ x: e.x[a]!, y: e.y[a]! });
+  assert.equal(w.horses.playerAct(pl).code, 'mounted');
+  assert.equal(w.horses.playerAct(pl).code, 'dismounted');
+  assert.deepEqual(h.log!.map((l) => l[1]), ['tamed', 'mount', 'left']);
+  assert.equal(h.log![0]![2], 'woods');
+  // The history rides along in the snapshot.
+  const w2 = mk('horse-history'); restore(w2, serialize(w));
+  assert.deepEqual(w2.horses.h.get(hid)!.log!.map((l) => l[1]), ['tamed', 'mount', 'left']);
+  // Old age (kept for tamed horses, imad 2026-11-27): the owner's next call says so, with the history.
+  h.born = w.gameSec - 40 * w.yearSec;
+  for (let k = 0; k < 60 && w.horses.h.has(hid); k++) run(w, 20 * 60 * 2);
+  assert.ok(!w.horses.h.has(hid), 'died of old age');
+  const nr = w.horses.playerAct(pl) as { code: string; hist: { lost: { name: string; why: string; log: [number, string, string?][] }[] } };
+  assert.equal(nr.code, 'noHorse');
+  assert.equal(nr.hist.lost[0]!.name, h.name); assert.equal(nr.hist.lost[0]!.why, 'old');
+  assert.deepEqual(nr.hist.lost[0]!.log.map((l) => l[1]), ['tamed', 'mount', 'left', 'old']);
+  // Kept across a restart too.
+  const w3 = mk('horse-history'); restore(w3, serialize(w));
+  assert.equal(w3.horses.lost.get(e.id(pl))![0]!.why, 'old');
+  // A horse removed some other way (not by the horse code): its owner learns it is gone.
+  const [hid2, h2] = [...w.horses.h].find(([, x]) => x.owner < 0)!;
+  h2.owner = e.id(pl);
+  w.remove(e.slot(hid2), 'test');
+  assert.equal(e.slot(hid2), -1);
+  run(w, 20 * 60 * 6);
+  assert.ok(!w.horses.h.has(hid2), 'forgotten');
+  assert.equal(w.horses.lost.get(e.id(pl))!.at(-1)!.why, 'gone');
+});
