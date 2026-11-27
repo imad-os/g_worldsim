@@ -19,7 +19,7 @@ const S = {
     lastVote: 'Last vote: {0} won', ordered: 'Your order went to {0} members.', joined: 'You joined {0}.', left: 'You left {0}.', founded: 'You founded {0}.',
     refused: '{0} would not take you.', atReg: 'Clans are founded with Odile, the registrar in town: talk to her.', leadAlready: 'You already lead a clan.', noVote: 'There is no vote now.',
     tooSoon: 'There was a vote a short while ago.', notLeader: 'Only the leader gives the clan orders.', clanNone: 'No such clan.', others: 'Other clans here', none: 'none',
-    clanHelp: 'Members vote for their leader: mostly by influence (what each one did for the people), partly by how they feel. The leader gives orders; loyal members follow them. You can change clan at any time.', order0: 'Leader\'s order: {0}', rivals: 'Rivals: {0}' },
+    clanHelp: 'Members vote for their leader: mostly by influence (what each one did for the people), partly by how they feel. The leader gives orders; loyal members follow them. You can change clan at any time.', order0: 'Leader\'s order: {0}', rivals: 'Rivals: {0}', war: 'Declare war', peace: 'Make peace', warOn: 'War on the {0}!', peaceOn: 'Peace with the {0}.', warNo: 'Not done: {0}', atWar: 'At war with {0}', warHelp: 'At war, members of the two clans fight when they meet (nobody dies of it) and each duel won counts. The side 5 duels behind asks for peace; a war ends after 3 days anyway.' },
   fr: { quests: 'Quêtes', again: 'Reparle-moi pour la quête suivante.', clan: 'Clan', qHelp: 'Parle aux maîtres de la ville (Parler à côté d\'eux) : ils donnent les quêtes dans l\'ordre, et tu rends chacune à celui qui l\'a donnée.',
     done: 'faite', active: 'en cours', ready: 'faite : à rendre', next: 'suivante', locked: 'verrouillée', from: 'de {0}', goSee: 'Va voir {0}.', handIn: 'Rends-la à {0}.',
     taken: 'Quête prise : {0}', handed: 'Quête finie : {0} (+{1} points)', progress: '{0} : {1} / {2}', readyNote: '{0} : fait ! Retourne voir {1}.', noNpc: 'Personne à qui parler ici.',
@@ -29,7 +29,7 @@ const S = {
     lastVote: 'Dernier vote : {0} a gagné', ordered: 'Ton ordre est allé à {0} membres.', joined: 'Tu as rejoint {0}.', left: 'Tu as quitté {0}.', founded: 'Tu as fondé {0}.',
     refused: '{0} ne veut pas de toi.', atReg: 'Les clans se fondent avec Odile, en ville : parle-lui.', leadAlready: 'Tu diriges déjà un clan.', noVote: 'Pas de vote en ce moment.',
     tooSoon: 'Un vote a eu lieu il y a peu.', notLeader: 'Seul le chef donne des ordres au clan.', clanNone: 'Ce clan n\'existe pas.', others: 'Autres clans ici', none: 'aucun',
-    clanHelp: 'Les membres élisent leur chef : surtout par influence (ce que chacun a fait pour les siens), en partie par sentiments. Le chef donne des ordres ; les membres loyaux les suivent. Tu peux changer de clan à tout moment.', order0: 'Ordre du chef : {0}', rivals: 'Rivaux : {0}' },
+    clanHelp: 'Les membres élisent leur chef : surtout par influence (ce que chacun a fait pour les siens), en partie par sentiments. Le chef donne des ordres ; les membres loyaux les suivent. Tu peux changer de clan à tout moment.', order0: 'Ordre du chef : {0}', rivals: 'Rivaux : {0}', war: 'Déclarer la guerre', peace: 'Faire la paix', warOn: 'Guerre contre les {0} !', peaceOn: 'Paix avec les {0}.', warNo: 'Pas fait : {0}', atWar: 'En guerre contre {0}', warHelp: 'En guerre, les membres des deux clans se battent quand ils se croisent (personne n\'en meurt) et chaque duel gagné compte. Le camp qui a 5 duels de retard demande la paix ; une guerre finit de toute façon après 3 jours.' },
   es: { quests: 'Misiones', again: 'Háblame otra vez para la siguiente misión.', clan: 'Clan', qHelp: 'Habla con los maestros del pueblo (Hablar a su lado): dan las misiones en orden y entregas cada una a quien te la dio.',
     done: 'hecha', active: 'en curso', ready: 'hecha: entrégala', next: 'siguiente', locked: 'bloqueada', from: 'de {0}', goSee: 'Ve a ver a {0}.', handIn: 'Entrégala a {0}.',
     taken: 'Misión aceptada: {0}', handed: 'Misión cumplida: {0} (+{1} puntos)', progress: '{0}: {1} / {2}', readyNote: '{0}: ¡hecho! Vuelve con {1}.', noNpc: 'No hay nadie con quien hablar aquí.',
@@ -39,7 +39,7 @@ const S = {
     lastVote: 'Última votación: ganó {0}', ordered: 'Tu orden llegó a {0} miembros.', joined: 'Te uniste a {0}.', left: 'Dejaste {0}.', founded: 'Fundaste {0}.',
     refused: '{0} no te acepta.', atReg: 'Los clanes se fundan con Odile, en el pueblo: habla con ella.', leadAlready: 'Ya diriges un clan.', noVote: 'No hay votación ahora.',
     tooSoon: 'Hubo una votación hace poco.', notLeader: 'Solo el líder da órdenes al clan.', clanNone: 'Ese clan no existe.', others: 'Otros clanes aquí', none: 'ninguno',
-    clanHelp: 'Los miembros eligen a su líder: sobre todo por influencia (lo que cada uno hizo por los suyos), en parte por sentimientos. El líder da órdenes; los leales las siguen. Puedes cambiar de clan cuando quieras.', order0: 'Orden del líder: {0}', rivals: 'Rivales: {0}' },
+    clanHelp: 'Los miembros eligen a su líder: sobre todo por influencia (lo que cada uno hizo por los suyos), en parte por sentimientos. El líder da órdenes; los leales las siguen. Puedes cambiar de clan cuando quieras.', order0: 'Orden del líder: {0}', rivals: 'Rivales: {0}', war: 'Declarar la guerra', peace: 'Hacer la paz', warOn: '¡Guerra contra los {0}!', peaceOn: 'Paz con los {0}.', warNo: 'No hecho: {0}', atWar: 'En guerra con {0}', warHelp: 'En guerra, los miembros de los dos clanes pelean al cruzarse (nadie muere por ello) y cada duelo ganado cuenta. El bando con 5 duelos de desventaja pide la paz; una guerra termina tras 3 días de todos modos.' },
   ar: { quests: 'المهام', again: 'تحدث معي مرة أخرى للمهمة التالية.', clan: 'العشيرة', qHelp: 'تحدث مع معلمي البلدة (تحدث بجانبهم): يعطون المهام بالترتيب، وتسلّم كل مهمة لمن أعطاك إياها.',
     done: 'منجزة', active: 'قيد التنفيذ', ready: 'منجزة: سلّمها', next: 'التالية', locked: 'مقفلة', from: 'من {0}', goSee: 'اذهب إلى {0}.', handIn: 'سلّمها إلى {0}.',
     taken: 'مهمة جديدة: {0}', handed: 'أنجزت المهمة: {0} (+{1} نقطة)', progress: '{0}: {1} / {2}', readyNote: '{0}: تم! عد إلى {1}.', noNpc: 'لا أحد للتحدث معه هنا.',
@@ -49,7 +49,7 @@ const S = {
     lastVote: 'آخر تصويت: فاز {0}', ordered: 'وصل أمرك إلى {0} أعضاء.', joined: 'انضممت إلى {0}.', left: 'غادرت {0}.', founded: 'أسست {0}.',
     refused: '{0} لا يقبلك.', atReg: 'تُؤسَّس العشائر عند أوديل في البلدة: تحدث معها.', leadAlready: 'أنت تقود عشيرة بالفعل.', noVote: 'لا يوجد تصويت الآن.',
     tooSoon: 'جرى تصويت قبل قليل.', notLeader: 'القائد وحده يعطي الأوامر للعشيرة.', clanNone: 'هذه العشيرة غير موجودة.', others: 'عشائر أخرى هنا', none: 'لا شيء',
-    clanHelp: 'ينتخب الأعضاء قائدهم: بالنفوذ أساسًا (ما قدّمه كل واحد لقومه)، وبالمشاعر جزئيًا. القائد يعطي الأوامر ويتبعها الأوفياء. يمكنك تغيير عشيرتك متى شئت.', order0: 'أمر القائد: {0}', rivals: 'الخصوم: {0}' },
+    clanHelp: 'ينتخب الأعضاء قائدهم: بالنفوذ أساسًا (ما قدّمه كل واحد لقومه)، وبالمشاعر جزئيًا. القائد يعطي الأوامر ويتبعها الأوفياء. يمكنك تغيير عشيرتك متى شئت.', order0: 'أمر القائد: {0}', rivals: 'الخصوم: {0}', war: 'إعلان الحرب', peace: 'عقد السلام', warOn: 'الحرب على {0}!', peaceOn: 'السلام مع {0}.', warNo: 'لم يتم: {0}', atWar: 'في حرب مع {0}', warHelp: 'في الحرب يتقاتل أفراد العشيرتين عند اللقاء (لا يموت أحد) وكل مبارزة رابحة تُحسب. الطرف المتأخر بخمس مبارزات يطلب السلام، وتنتهي الحرب بعد 3 أيام على أي حال.' },
 } as const;
 type K = keyof typeof S.en;
 const lang = (): Lang => (['en', 'fr', 'es', 'ar'].includes(getLang()) ? getLang() : 'en') as Lang;
@@ -61,7 +61,7 @@ const npcName = (k: string) => npcDef(k)?.name ?? k;
 interface NpcTalk { npc: string; name: string; say: L; quest?: string; state?: string; n?: number; need?: number; next?: string; reward?: { xp: number; items?: Record<string, number>; food?: number } }
 interface Member { id: number; name: string; respect: number; influence?: number }
 interface MyClan { id: number; name: string; leader: number; leaderName: string; me: number; lead: boolean; approval: number; loyalty: number; members: Member[]; influence?: number; callMin?: number; vote: { end: number; why: string; cands: { id: number; name: string }[]; my: number } | null; result: { winner: string } | null; order: string; rivals: { name: string; tension: number }[]; now: number }
-interface ClanInfo { mine: MyClan | null; others: { id: number; name: string; leader: string; n: number; approval: number }[]; nearReg: boolean }
+interface ClanInfo { mine: MyClan | null; others: { id: number; name: string; leader: string; n: number; approval: number; tension?: number; war?: [number, number] | null }[]; nearReg: boolean }
 
 export interface QuestCtx {
   send: (m: Record<string, unknown>) => void;
@@ -128,9 +128,14 @@ export class QuestUi {
             + `<p class="dim">${esc(s('members'))}: ${m.members.map((x) => `${esc(x.name)} (${x.influence ?? x.respect})`).join(', ')}</p>`
             + (m.influence !== undefined ? `<p class="dim">${esc(s('myInf', String(m.influence), String(m.callMin ?? 40)))}</p>` : '')
             + (m.result ? `<p class="dim">${esc(s('lastVote', m.result.winner))}</p>` : '')
-            + (m.rivals.length ? `<p class="dim">${esc(s('rivals', m.rivals.map((r) => `${r.name} ${r.tension}/10`).join(', ')))}</p>` : '');
+            + (m.rivals.length ? `<p class="dim">${esc(s('rivals', m.rivals.map((r) => `${r.name} ${r.tension}/10`).join(', ')))}</p>` : '')
+            + (c.others.some((x) => x.war) ? `<p><b>${esc(s('atWar', c.others.filter((x) => x.war).map((x) => `${x.name} (${x.war![0]}-${x.war![1]})`).join(', ')))}</b></p><p class="dim">${esc(s('warHelp'))}</p>` : '');
           if (m.vote) rows.push({ id: 'vote', label: s('vote'), sub: true, value: m.vote.my >= 0 ? m.vote.cands.find((x) => x.id === m.vote!.my)?.name ?? '' : '' });
-          if (m.lead) rows.push({ id: 'order', label: s('order') });
+          if (m.lead) {
+            rows.push({ id: 'order', label: s('order') });
+            if (c.others.some((x) => !x.war)) rows.push({ id: 'war', label: s('war'), sub: true });
+            for (const x of c.others.filter((o) => o.war)) rows.push({ id: 'p:' + x.id, label: s('peace'), value: x.name });
+          }
           else if (!m.vote) rows.push({ id: 'call', label: s('callVote') });
           rows.push({ id: 'quit', label: s('quit') });
         } else html = `<p>${esc(s('noClan'))}</p>`;
@@ -144,6 +149,10 @@ export class QuestUi {
         for (const o of this.clan?.others ?? []) rows.push({ id: 'j:' + o.id, label: o.name, value: `${o.leader} · ${o.n} · ${o.approval} %` });
         rows.push({ id: 'back', label: s('close') });
         return { id, title: s('join'), rows };
+      case 'clanWar':
+        for (const o of (this.clan?.others ?? []).filter((x) => !x.war)) rows.push({ id: 'w:' + o.id, label: o.name, value: `${o.leader} · ${o.n}${o.tension ? ` · ${o.tension}/10` : ''}` });
+        rows.push({ id: 'back', label: s('close') });
+        return { id, title: s('war'), rows, text: s('warHelp') };
       case 'clanVote':
         for (const k of this.clan?.mine?.vote?.cands ?? []) rows.push({ id: 'v:' + k.id, label: k.name, value: this.clan!.mine!.vote!.my === k.id ? '●' : '' });
         rows.push({ id: 'back', label: s('close') });
@@ -165,6 +174,8 @@ export class QuestUi {
     }
     if (page === 'clan') {
       if (row === 'join') { c.push('clanJoin'); return true; }
+      if (row === 'war') { c.push('clanWar'); return true; }
+      if (row.startsWith('p:')) { c.send({ t: Msg.Do, a: 'clan', text: 'peace:' + row.slice(2) }); return true; }
       if (row === 'vote') { c.push('clanVote'); return true; }
       if (row === 'quit') { c.send({ t: Msg.Do, a: 'clan', text: 'quit' }); return true; }
       if (row === 'call') { c.send({ t: Msg.Do, a: 'clan', text: 'call' }); return true; }
@@ -174,6 +185,7 @@ export class QuestUi {
       return false;
     }
     if (page === 'clanJoin') { if (row.startsWith('j:')) { c.send({ t: Msg.Do, a: 'clan', text: 'join:' + row.slice(2) }); back(); } else back(); return true; }
+    if (page === 'clanWar') { if (row.startsWith('w:')) { c.send({ t: Msg.Do, a: 'clan', text: 'war:' + row.slice(2) }); back(); } else back(); return true; }
     if (page === 'clanVote') { if (row.startsWith('v:')) { c.send({ t: Msg.Do, a: 'clan', text: 'vote:' + row.slice(2) }); back(); } else back(); return true; }
     return false;
   }
@@ -196,6 +208,7 @@ export class QuestUi {
     const msg: Partial<Record<string, string>> = {
       clanJoined: s('joined', name), clanLeft: s('left', name), clanFounded: s('founded', name), clanVoted: s('voted', name), clanOrdered: s('ordered', String(d.n ?? 0)),
       clanRefused: s('refused', name), clanAtRegistrar: s('atReg'), clanLeadAlready: s('leadAlready'), clanNoVote: s('noVote'), clanTooSoon: s('tooSoon'), clanNotLeader: s('notLeader'), clanLowInfluence: s('lowInf', String(d.n ?? 0), String(d.need ?? 40)),
+      clanWarOn: s('warOn', name), clanPeaceOn: s('peaceOn', name), clanWarNo: s('warNo', String(d.why ?? '')),
       clanNone: s('clanNone'), clanVoteOn: s('voteOn', this.clan?.mine?.vote?.cands.map((x) => x.name).join(' / ') ?? '', '120'),
     };
     if (msg[d.code]) c.note(msg[d.code]!, 3500);

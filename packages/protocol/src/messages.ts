@@ -42,6 +42,7 @@ export type AdminCmd =
   | { cmd: 'clans' }
   | { cmd: 'campPlan' }
   | { cmd: 'clanVote'; id: number }
+  | { cmd: 'clanWar'; a?: number; b?: number; on?: boolean; auto?: boolean }
   | { cmd: 'quests' }
   | { cmd: 'joinWorld'; name: string }
   | { cmd: 'approveMine'; code: string }

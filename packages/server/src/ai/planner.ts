@@ -15,6 +15,7 @@
 import { Convo, smallTalk } from './convo.js';
 import { kidTalk, kidVoice } from '../sim/family.js';
 import { Act, EFlag, Kind, RECIPES_ALL, CONFIRM, HUT_NEED } from '@worldsim/protocol';
+import { warWords } from '../sim/clans.js';
 import { KNOW_HOW, ownText } from '../sim/knowhow.js';
 import type { Ai } from './llm.js';
 import { parseJsonReply } from './llm.js';
@@ -582,7 +583,7 @@ export class Planner {
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
         + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), destroy {"what": "hut" | "lamp" | "bed" | "palisade" | "fire" | "field" | ""} (pull down something YOU built, or whose owner is dead; never someone else\'s), '
         + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}, npc {"what": "guide" | "smith" | "hunter" | "warden" | "registrar"} (walk to a town teacher and talk: take or hand in a quest), '
-        + 'clan {"what": "join <clan name>" | "quit" | "found" | "vote", "who"} (join walks to its leader and asks; found = at Odile the registrar; vote for "who" in an election). If a request needs something you have no skill for, combine these skills into a plan. '
+        + 'clan {"what": "join <clan name>" | "quit" | "found" | "vote" | "war <clan name>" | "peace <clan name>", "who"} (join walks to its leader and asks; found = at Odile the registrar; vote for "who" in an election). If a request needs something you have no skill for, combine these skills into a plan. '
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
         + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'
         + '{"do":"talk","who":"found","times":2},{"do":"court","who":"found"}]}. '
@@ -658,6 +659,16 @@ export class Planner {
       }
     }
     let did = '';
+    // War and peace between clans (imad 2026-11-27: "I ordered a leader to start a clan war and nothing happened"): a leader told to does it
+    // at once, from the model's clan step or, when it gave none, from the words themselves (the owner is obeyed, others when the answer agrees).
+    const warStep = steps.find((s) => s.do === 'clan' && warWords(s.what ?? ''));
+    const warKind = warStep ? warWords(warStep.what ?? '') : text && !steps.length && (owner || loyalBoss || agreed || !usedAi) ? w.clans.warNet(i, text) : '';
+    if (warKind) {
+      const r = w.clans.warOrder(i, warKind, `${warStep?.what ?? ''} ${text ?? ''}`, owner ? 'owner' : from);
+      did = r.ok ? r.text : `${warKind}: not done, ${r.text}`;
+      steps = steps.filter((s) => s !== warStep);
+      if (!r.ok && !usedAi) reply = `I can't: ${r.text}.`;
+    }
     if (byHand && steps.some((s) => s.do === 'marry' || s.do === 'divorce')) { // a character played by hand does not walk: it is asked / done now
       const s0 = steps.find((s) => s.do === 'marry' || s.do === 'divorce')!;
       const r = await this.wedNow(i, s0.do as 'marry' | 'divorce', s0.who ?? -1);

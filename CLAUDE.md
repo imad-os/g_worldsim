@@ -931,3 +931,19 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   @gltf-transform/functions@4 @gltf-transform/extensions@4 pngjs@7 jpeg-js@0.4`): parts merged into one mesh with vertex colours, only
   used clips, still channels dropped, quantized (~70-300 KB each). The bear had no skeleton: rigged + its clips made in the script.
 - Proof `ADMIN_TOKEN=... node tools/animals-proof.mjs <server> <sdk.js> <outdir>` (`?dev` `__dev.beasts()`).
+
+## Clan wars, changing clan (imad 2026-11-27: "how can I start a clan war? I ordered a leader, nothing happened, tension 10/10"; "can people change clans?")
+- There were no wars at all: tension only made quarrels likelier, and a model's clan step "war X" fell through to `join` (walked to the enemy's leader).
+  Also duels ended after 40 GAME seconds (1.3 s at clockScale 30), so they never got to blows: now 40 sim seconds (`Duel.t0` ticks).
+- `Clans.wars` (`War` { a, b, start, by, why, wins, raidAt }, saved with `peaceAt`, `autoWar`): `declareWar` / `makePeace` / `warOrder(i, 'war'|'peace', words, by)`
+  (only the clan's leader; foe = clan named, a leader named, else the tensest). Ways in: words to a leader (Planner.chat: the model's clan step
+  `war <clan>` / `peace <clan>`, or `Clans.warNet` keyword net for the owner / loyal / agreeing: needs a real war word or a clan named), panel People >
+  Clans (Declare war select + Make peace, "Leaders may start wars by themselves" = admin `clanWar { a, b, on }` / `{ auto }`), TV Clan page for a
+  player leader (Do `clan` `war:<id>` / `peace:<id>`, page `clanWar`, strings in questui.ts), task skill clan. Auto: tension >= 9.5, both 3+ members,
+  2 days after a peace, 3 % x leader courage an hour.
+- At war (`warFight` in quarrel, every 40 game min each, 9 m, not near zombies, adults only, never kin): duels (non-lethal) that count in `wins`;
+  hourly by day 08-17 every 5 h a war party (bravest free adults, up to 6) goes to an enemy (`raid`, event `clanRaid`); 5 duels behind = the AI leader
+  sues for peace (35 % an hour), `WAR_DAYS` 3 = peace anyway; tension held at 10, after peace 3. Events clanWar / clanPeace (world + clan chat news).
+- Changing clan (`Clans.reconsider`, hourly per AI member): partner in another clan (the less loyal one moves, 20 %/h), a clan fitting > 1.2 better at
+  loyalty < 0.4 or > 3 better at < 0.7; war against family lowers loyalty. They walk to the other leader and ask (event `clanMove`, then clanSwitch).
+  Test clanwar.test.ts.

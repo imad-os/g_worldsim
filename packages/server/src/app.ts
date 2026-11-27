@@ -65,7 +65,7 @@ const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysi
 const READ_BARE = new Set<string>(['weather', 'autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant', 'lyingIn',
   'build', 'craft', 'hunt', 'land', 'store', 'loot', 'zombie', 'zombies', 'fight', 'heal', 'repair', 'task', 'camp', 'teleport', 'give',
-  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'alarm', 'destroy', 'reset', 'door']);
+  'quest', 'questDone', 'clanJoin', 'clanSwitch', 'clanVote', 'clanVoteStart', 'clanOrder', 'clanRebel', 'clanWar', 'clanPeace', 'clanRaid', 'clanMove', 'alarm', 'destroy', 'reset', 'door']);
 
 /** Warnings that only say what happened (the server log keeps them): not problems for the error log. */
 const NOT_PROBLEMS = new Set(['restart asked', 'restarting', 'agent action', 'restore scheduled for the next start', 'database restored from a backup']);
@@ -1422,13 +1422,23 @@ export class App {
           founder: c.founder !== undefined ? nm(c.founder) : '', approval: w.clans.approval(c), order: c.order ?? '', lastVote: c.lastVote ?? c.at,
           vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => nm(k)), votes: c.vote.ballots.length } : null,
           result: c.result ? { at: c.result.at, winner: nm(c.result.winner), old: nm(c.result.old), tally: c.result.tally.map(([k, n]) => [nm(k), n]) } : null,
-          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10, influence: w.influence.of(id) })), callMin: CALL_MIN, rivals: w.clans.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })) })), now: w.gameSec };
+          members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10, influence: w.influence.of(id) })), callMin: CALL_MIN, rivals: w.clans.rivals(c).map((r) => ({ id: r.clan.id, name: r.clan.name, tension: Math.round(r.tension * 10) / 10 })),
+          wars: w.clans.wars.filter((x) => x.a === c.id || x.b === c.id).map((x) => { const me = x.a === c.id ? 0 : 1, f = w.clans.byId(me ? x.a : x.b); return { id: f?.id ?? -1, name: f?.name ?? '', won: x.wins[me], lost: x.wins[1 - me], since: x.start, by: x.by === 'owner' ? 'the owner' : x.by, why: x.why }; }) })),
+          now: w.gameSec, autoWar: w.clans.autoWar };
       }
       case 'clanVote': { // the owner calls an election in a clan
         const cl = w.clans.byId(fixed(c.id, 0, 1e6, 'id'));
         if (!cl) throw new Error('no such clan');
         if (!w.clans.callVote(cl, 'the voice from the sky asked for a vote')) throw new Error('a vote is already on (or too few members)');
         return { ok: true, end: cl.vote!.end };
+      }
+      case 'clanWar': { // the owner makes clan a declare war on clan b (on: true) or make peace (on: false); { auto } = leaders may start wars by themselves
+        if (typeof c.auto === 'boolean') { w.clans.autoWar = c.auto; if (c.a === undefined) return { ok: true, autoWar: w.clans.autoWar }; }
+        const A = w.clans.byId(fixed(c.a, 0, 1e6, 'a')), B = w.clans.byId(fixed(c.b, 0, 1e6, 'b'));
+        if (!A || !B) throw new Error('no such clan');
+        const r = c.on === false ? w.clans.makePeace(A, B, 'owner', 'the voice from the sky asked for peace') : w.clans.declareWar(A, B, 'owner', 'the voice from the sky ordered it');
+        if (r !== true) throw new Error(r);
+        return { ok: true };
       }
       case 'quests': { // the town's teachers and everyone's quests
         const people: { id: number; name: string; player: boolean; done: number; cur: string; n: number; need: number; ready: boolean }[] = [];

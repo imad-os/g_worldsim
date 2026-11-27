@@ -270,6 +270,8 @@ export class Chats {
         if (c && d.text) this.post(`clan:${c.id}`, Number(d.id), String(d.text));
         break;
       }
+      case 'clanWar': { this.post('world', -1, `War! The ${String(d.clan)} clan declared war on the ${String(d.foe)}.`, true); for (const n of [d.clan, d.foe]) { const c = w.clans.clans.find((x) => x.name === n); if (c) this.post(`clan:${c.id}`, -1, n === d.clan ? `We are at war with the ${String(d.foe)}.` : `The ${String(d.clan)} declared war on us.`, true); } break; }
+      case 'clanPeace': { if (d.clan && d.foe) this.post('world', -1, `Peace between the ${String(d.clan)} and the ${String(d.foe)}${d.winner ? ` (the ${String(d.winner)} won)` : ''}.`, true); break; }
       case 'clanJoin': { const c = w.clans.clans.find((x) => x.name === d.clan), p = person(d.id); if (c && p) this.post(`clan:${c.id}`, -1, `${p.name} joined the clan.`, true); break; }
       case 'clanVote': { const c = w.clans.clans.find((x) => x.name === d.clan), p = person(d.winner); if (c && p) this.post(`clan:${c.id}`, -1, `Election over: ${p.name} leads the clan${Number(d.old) === Number(d.winner) ? ' again' : ''} (${d.votes} votes).`, true); break; }
     }

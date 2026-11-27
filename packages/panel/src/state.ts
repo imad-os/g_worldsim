@@ -95,6 +95,10 @@ export function describe(e: { kind: string; data: Record<string, unknown> }): st
     case 'clan': return `${who(d.leader)} founded the clan ${d.clan}${d.map ? ' in ' + d.map : ''}`;
     case 'clanJoin': return `${who(d.id)} joined ${d.clan}${d.n ? ' (' + d.n + ' members)' : ''}`;
     case 'clanLeave': return `${who(d.id)} left ${d.clan}${d.why ? ' (' + d.why + ')' : ''}`;
+    case 'clanWar': return `War: ${d.clan} declared war on ${d.foe}${d.by === 'owner' ? ' (your order)' : ''}`;
+    case 'clanPeace': return `Peace: ${d.clan} and ${d.foe}${d.winner ? ` (${d.winner} won ${Array.isArray(d.wins) ? Math.max(...(d.wins as number[])) + ' to ' + Math.min(...(d.wins as number[])) : ''})` : ''}`;
+    case 'clanRaid': return `${d.clan} sent ${d.n} raiders against ${d.foe}`;
+    case 'clanMove': return `${who(d.id)} wants to move from ${d.from} to ${d.clan} (${d.why})`;
     case 'clanSwitch': return `${who(d.id)} moved from ${d.from} to ${d.clan}`;
     case 'clanOrder': return `${who(d.id)} (${d.clan}) ordered: “${d.text}”`;
     case 'clanLeader': return `${who(d.id)} leads ${d.clan ?? 'the clan'} now`;
@@ -123,7 +127,7 @@ export const KINDS: Record<string, [string, string]> = {
 export function groupOf(kind: string): string {
   if (['birth', 'death', 'partner', 'pregnant', 'spawn', 'remove'].includes(kind)) return 'life';
   if (['divorce', 'grown', 'leftHome', 'lyingIn', 'dream'].includes(kind)) return 'life';
-  if (['talk', 'say', 'give', 'rule', 'clan', 'clanJoin', 'clanLeave', 'clanSwitch', 'clanOrder', 'clanLeader', 'clanVote', 'clanVoteStart', 'leader'].includes(kind)) return 'social';
+  if (['talk', 'say', 'give', 'rule', 'clan', 'clanJoin', 'clanLeave', 'clanSwitch', 'clanOrder', 'clanLeader', 'clanVote', 'clanVoteStart', 'clanWar', 'clanPeace', 'clanRaid', 'clanMove', 'leader'].includes(kind)) return 'social';
   if (['build', 'craft', 'store', 'loot', 'repair', 'heal', 'task', 'camp', 'hunt', 'reward', 'levelup', 'quest', 'questDone', 'questReady', 'explore', 'tamed', 'guard'].includes(kind)) return 'work';
   if (['zombie', 'zombies', 'fight', 'replay', 'duel', 'duelEnd', 'bitten', 'flee'].includes(kind)) return 'danger';
   if (['travel', 'arrive', 'teleport'].includes(kind)) return 'travel';
