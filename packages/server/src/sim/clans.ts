@@ -12,6 +12,14 @@ import { Act, Kind } from '@worldsim/protocol';
 import { CALL_MIN } from './influence.js';
 import type { World } from './world.js';
 import { NO_MAP } from './entities.js';
+import { ageOf } from './people.js';
+
+/** A clan with more members than this gets a camp of its own (imad 2026-11-26), away from the map's first camp. */
+export const CLAN_CAMP_AT = 20;
+/** Everyone belongs to a clan (imad 2026-11-26: "force them to choose a clan"): an adult with none after this long is taken in by the best one. */
+const CHOOSE_WITHIN = 12 * 3600;
+/** From this age people choose a clan themselves; younger ones are in their parents' clan. */
+const CLAN_AGE = 16;
 
 /** Damage of one hit between people (imad 2026-11-21): strong weapon on someone with no weapon at most 30, a weapon on an armed person 10,
  *  bare hands on someone in armour 3. `weapon` = the weapon's damage (0 = none), `armed` = the victim carries one, `def` = their armour (0..0.5). */
@@ -30,6 +38,8 @@ export interface Clan {
   vote?: Vote; lastVote?: number; result?: { at: number; winner: number; tally: [number, number][]; old: number };
   /** The leader's last word to the clan (an order of the day) and when. */
   order?: string; orderAt?: number;
+  /** The clan's own camp (imad 2026-11-26: past CLAN_CAMP_AT members): centre in metres, map index, when it was founded. Members build their huts there. */
+  camp?: { x: number; y: number; m: number; at: number };
 }
 interface Duel { a: number; b: number; start: number; hitAt: number; hurt: [number, number] }
 
@@ -78,6 +88,8 @@ export class Clans {
   private nextHour = 0;
   private scan = 0;
   private lastAt = new Map<number, number>();
+  /** Since when (game seconds) an adult has been in no clan. */
+  private unaligned = new Map<number, number>();
   /** The App says whether a player's character has PvP on. */
   pvpOn: (i: number) => boolean = () => false;
   onChange: () => void = () => {};
@@ -182,15 +194,23 @@ export class Clans {
           else this.found(m, lid);
         }
       }
+      // Nobody founds the first clan (no camp leader): the most influential adult does, so everyone has a clan to choose.
+      if (!here.length && !this.foundTask(-1)) {
+        const lid = w.survival.leader[m] ?? -1;
+        if (lid < 0 || e.slot(lid) < 0 || !this.auto(e.slot(lid))) { const f = this.byInfluence(adults.filter((id) => this.auto(e.slot(id)) && this.grown(id)), { members: adults } as Clan)[0]; if (f !== undefined) this.found(m, f); }
+      }
       for (const id of adults) {
         const i = e.slot(id);
         if (!this.auto(i)) continue;
         const mine = this.clanOf(id);
-        // The unaligned look for a clan; the unhappy look for a better one. Joining is walking to the leader and asking.
-        if (!mine || (id !== mine.leader && (this.loyal.get(id) ?? 0.5) < 0.4)) {
-          let best: Clan | undefined, bs = mine ? this.fit(id, mine) + 1.2 : -0.5;
-          for (const c of this.clans) if (c.map === m && c.id !== mine?.id && c.members.length) { const f = this.fit(id, c); if (f > bs) { bs = f; best = c; } }
-          if (best && this.free(i) && w.rng.chance(mine ? 0.25 : 0.6)) w.tasks.start(i, `${mine ? 'move to' : 'join'} the ${best.name} clan`, 'myself', [{ do: 'clan', what: 'join', who: best.leader }]);
+        if (!mine && !this.grown(id)) { this.kidClan(id); continue; } // children are in their parents' clan
+        if (!mine) { this.choose1(i, m); continue; }
+        this.unaligned.delete(id);
+        // The unhappy look for a better one. Joining is walking to the leader and asking.
+        if (id !== mine.leader && (this.loyal.get(id) ?? 0.5) < 0.4) {
+          let best: Clan | undefined, bs = this.fit(id, mine) + 1.2;
+          for (const c of this.clans) if (c.map === m && c.id !== mine.id && c.members.length) { const f = this.fit(id, c); if (f > bs) { bs = f; best = c; } }
+          if (best && this.free(i) && w.rng.chance(0.25)) w.tasks.start(i, `move to the ${best.name} clan`, 'myself', [{ do: 'clan', what: 'join', who: best.leader }]);
         }
       }
       for (const c of this.clans.filter((x) => x.map === m)) {
@@ -204,6 +224,7 @@ export class Clans {
           if (l < 0.12 && f < -0.5 && this.auto(i)) { if (this.free(i)) w.tasks.start(i, `quit the ${c.name} clan`, 'myself', [{ do: 'clan', what: 'quit' }]); else this.leave(c, id, 'lost faith in the leader'); }
         }
         if (c.members.length >= 6 && this.clans.filter((x) => x.map === m).length < 3) this.maybeSplit(c);
+        this.campCheck(c);
         this.elections(c);
         this.leaderOrder(c);
       }
@@ -217,7 +238,88 @@ export class Clans {
     }
     this.onChange();
   }
-  private foundTask(i: number): boolean { const t = this.w.profileOf(i)?.mind?.task as { steps?: { do: string; what?: string }[] } | undefined; return !!t?.steps?.some((s) => s.do === 'clan' && s.what === 'found'); }
+  private grown(id: number): boolean { const p = this.w.profiles.get(id); return !!p && (!!p.player || ageOf(p, this.w.gameSec, this.w.yearSec) >= CLAN_AGE); }
+  /** A child goes into a parent's clan (the mother's first), without a word. */
+  private kidClan(id: number): void {
+    const p = this.w.profiles.get(id);
+    for (const par of p?.parents ?? []) { const c = this.clanOf(par); if (c) { this.join(c, id, 0.7); return; } }
+  }
+  /**
+   * An adult in no clan must choose one (imad 2026-11-26): they walk to the leader of the clan that fits them best and ask (any clan here,
+   * however little they like it); someone who could not get there within CHOOSE_WITHIN is taken in by the best clan that accepts them; if
+   * no clan here takes them, they found a clan of their own.
+   */
+  private choose1(i: number, m: number): void {
+    const w = this.w, e = w.e, id = e.id(i);
+    if (!this.unaligned.has(id)) this.unaligned.set(id, w.gameSec);
+    const ok = this.clans.filter((c) => c.map === m && c.members.length && this.accepts(c, id)).sort((a, b) => this.fit(id, b) - this.fit(id, a));
+    const t = w.profileOf(i)?.mind?.task as { steps?: { do: string }[] } | undefined, onIt = !!t?.steps?.some((s) => s.do === 'clan');
+    if (!ok.length) {
+      if (!onIt && this.free(i) && this.clans.filter((c) => c.map === m).length < 6) w.tasks.start(i, 'found a clan of my own', 'myself', [{ do: 'clan', what: 'found' }]);
+      return;
+    }
+    const best = ok[0]!;
+    if (w.gameSec - this.unaligned.get(id)! >= CHOOSE_WITHIN) {
+      if (onIt) w.tasks.stop(i);
+      this.join(best, id, 0.45 + Math.max(0, this.rel(id, best.leader)) * 0.08);
+      w.emit('clanChosen', { id, clan: best.name, why: 'everyone must belong to a clan' });
+      return;
+    }
+    if (!onIt && this.free(i)) w.tasks.start(i, `join the ${best.name} clan`, 'myself', [{ do: 'clan', what: 'join', who: best.leader }]);
+  }
+
+  // ------------------------------------------------------------------ the clan's own camp
+  /**
+   * Past CLAN_CAMP_AT members a clan needs a camp of its own (imad 2026-11-26), unless it is the clan of the map's first camp (the clan of
+   * the camp leader, else the biggest): a site 45-90 m from every other camp with water, wood and room is picked (Survival.campSite), the
+   * clan's home moves there, the leader is sent to light its fire, and from then on its members build their huts round it
+   * (Survival.campFor) and every prompt about them says where it is.
+   */
+  private campCheck(c: Clan): void {
+    const w = this.w, e = w.e, sv = w.survival, m = c.map;
+    if (c.camp || c.members.length <= CLAN_CAMP_AT) return;
+    const main = sv.campOf(m);
+    if (!main) return; // the map's first camp is founded by the usual work; it then belongs to the main clan
+    if (this.mainClan(m)?.id === c.id) return;
+    const others = [main, ...this.clans.filter((x) => x.camp && x.camp.m === m).map((x) => x.camp!)];
+    const tm = w.maps[m]!.tiles;
+    let site: { x: number; y: number } | null = null;
+    for (let k = 0; k < 12 && !site; k++) {
+      const a = (k / 12) * Math.PI * 2 + (c.id % 12) * 0.5, d = 55 + (k % 3) * 12;
+      const x = main.x + Math.cos(a) * d, y = main.y + Math.sin(a) * d;
+      if (x < 12 || y < 12 || x > tm.w - 12 || y > tm.h - 12) continue;
+      const s = sv.campSite(m, x, y);
+      if (s && others.every((o) => Math.hypot(o.x - s.x, o.y - s.y) >= 45)) site = s;
+    }
+    if (!site) return;
+    c.camp = { x: site.x, y: site.y, m, at: w.gameSec };
+    c.hx = site.x; c.hy = site.y;
+    w.emit('clanCamp', { clan: c.name, map: w.maps[m]!.def.id, x: Math.round(site.x), y: Math.round(site.y), n: c.members.length });
+    for (const id of c.members) {
+      const p = w.profiles.get(id);
+      if (!p || p.player) continue;
+      p.mind ??= { notes: [], summary: '', mood: 'calm', rel: {}, lastPlan: w.gameSec - 1e9 };
+      p.mind.notes.push({ at: w.gameSec, text: `The ${c.name} clan grew past ${CLAN_CAMP_AT} and has its own camp now, at (${Math.round(site.x)}, ${Math.round(site.y)}). Our new huts go there.` });
+      if (p.mind.notes.length > 12) p.mind.notes.splice(0, p.mind.notes.length - 12);
+    }
+    const L = e.slot(c.leader);
+    if (L >= 0 && e.kind[L] === Kind.Agent) {
+      w.speak(L, `${c.name}! We are too many for one camp. Our own camp will be at (${Math.round(site.x)}, ${Math.round(site.y)}): build your huts there.`);
+      if (this.free(L)) w.tasks.start(L, 'light the fire of our clan\'s camp', 'myself', [{ do: 'build', what: 'campfire' }]);
+    }
+  }
+  /** The clan the map's first camp belongs to: the camp leader's, else the biggest one there. */
+  mainClan(m: number): Clan | undefined {
+    const lid = this.w.survival.leader[m] ?? -1, lc = lid >= 0 ? this.clanOf(lid) : undefined;
+    if (lc && lc.map === m && !lc.camp) return lc;
+    return this.clans.filter((c) => c.map === m && !c.camp).sort((a, b) => b.members.length - a.members.length)[0];
+  }
+  /** The camp of person id's clan, when it has one of its own on map m (else null: the map's camp is theirs). */
+  campOf(id: number, m: number): { x: number; y: number } | null {
+    const c = this.clanOf(id);
+    return c?.camp && c.camp.m === m ? { x: c.camp.x, y: c.camp.y } : null;
+  }
+  private foundTask(i: number): boolean { if (i < 0) return false; const t = this.w.profileOf(i)?.mind?.task as { steps?: { do: string; what?: string }[] } | undefined; return !!t?.steps?.some((s) => s.do === 'clan' && s.what === 'found'); }
 
   // ------------------------------------------------------------------ elections
   private elections(c: Clan): void {
@@ -510,19 +612,20 @@ export class Clans {
         influence: this.inf(id), callMin: CALL_MIN,
         vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => ({ id: k, name: this.name(k) })), my: c.vote.ballots.find(([v]) => v === id)?.[1] ?? -1 } : null,
         result: c.result ? { winner: this.name(c.result.winner), old: this.name(c.result.old), tally: c.result.tally.map(([k, n]) => [this.name(k), n]) } : null,
-        order: c.order ?? '', rivals: this.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension) })), now: w.gameSec,
+        order: c.order ?? '', camp: c.camp ? { x: Math.round(c.camp.x), y: Math.round(c.camp.y) } : null, rivals: this.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension) })), now: w.gameSec,
       }, others, nearReg,
     };
   }
   /** The clan line of every prompt about a person. */
   promptText(i: number): string {
     const w = this.w, id = w.e.id(i), c = this.clanOf(id);
-    if (!c) { const n = this.clans.filter((x) => x.map === w.e.map[i]).map((x) => x.name); return n.length ? `You are in no clan. Clans here: ${n.join(', ')} (skill clan {"what":"join <name>"}).` : 'There is no clan here yet: Odile the registrar in town founds them (skill clan {"what":"found"}).'; }
+    if (!c) { const n = this.clans.filter((x) => x.map === w.e.map[i]).map((x) => x.name); return n.length ? `You are in no clan, and everyone must belong to one: choose now. Clans here: ${n.join(', ')} (skill clan {"what":"join <name>"}).` : 'There is no clan here yet, and everyone must belong to one: Odile the registrar in town founds them (skill clan {"what":"found"}).'; }
     const r = this.rivals(c).map((x) => `${x.clan.name} (tension ${Math.round(x.tension)}/10)`);
     const lead = c.leader === id;
     return `Clan: ${c.name}, ${lead ? 'you are its elected leader (your members follow your orders)' : `led by ${this.name(c.leader)} (elected; approval ${this.approval(c)}%)`}, ${c.members.length} members; your loyalty ${Math.round(this.loyalty(id) * 100)}%.`
       + (c.order ? ` The leader's order: "${c.order}".` : '') + (c.vote ? ` An election is on: ${c.vote.cands.map((k) => this.name(k)).join(' or ')}.` : '')
-      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + ' You may quit or change clan (skill clan).';
+      + (c.camp ? ` Your clan has its own camp at (${Math.round(c.camp.x)}, ${Math.round(c.camp.y)}): your home and huts belong there.` : c.members.length > CLAN_CAMP_AT - 4 ? ` Past ${CLAN_CAMP_AT} members a clan gets a camp of its own.` : '')
+      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + ' You may change clan (skill clan), but everyone must belong to one.';
   }
 
   // ------------------------------------------------------------------ every second: fights

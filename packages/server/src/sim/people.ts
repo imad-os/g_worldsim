@@ -33,6 +33,8 @@ export interface Profile {
   pregnant?: { father: number; due: number };
   /** A new mother's week at home with her newborn (imad 2026-11-26): until (game seconds) and the baby's entity id (sim/family.ts). */
   lyingIn?: { until: number; baby: number };
+  /** Game seconds when they came of age and left the parents' hut (sim/homes.ts GROWN, imad 2026-11-26). */
+  leftHome?: number;
   /** What they carry besides food: wood, stone, scrap, axe, spear (milestone 8, sim/survival.ts). */
   inv?: import('./survival.js').Inv;
   /** The owner's strict rules for this person (at most 5, sim/rules.ts). */

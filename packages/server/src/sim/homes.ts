@@ -16,6 +16,12 @@ import type { World } from './world.js';
  */
 /** imad 2026-11-25: a person may build at most 2 huts on a map. */
 export const HUTS_PER_MAP = 2;
+/**
+ * Grown up (imad 2026-11-26: "my house is crowded with family; kids stay in the parents' hut as long as they are children, everyone
+ * who became an adult can't enter it, make them aware so they build their own"): from 18 a son or daughter no longer lives in, nor
+ * goes into, the parents' hut. A home is for its household only: the owner, the partner and their children under GROWN.
+ */
+export const GROWN = 18;
 
 export interface Home { m: number; out: number; dir: number; owner: number; by: number; since: number }
 
@@ -67,7 +73,7 @@ export class Homes {
     return { x: r.x0 + r.s / 2, y: r.y0 + r.s / 2 };
   }
 
-  /** Family by blood or marriage: partners, parents and children, brothers and sisters. */
+  /** Family by blood or marriage: partners, parents and children, brothers and sisters (who counts as family, not who may go in). */
   family(a: number, b: number): boolean {
     if (a === b) return true;
     const pa = this.w.profiles.get(a), pb = this.w.profiles.get(b);
@@ -76,10 +82,32 @@ export class Homes {
     if (pa.parents.includes(b) || pb.parents.includes(a)) return true;
     if (pa.parents.some((x) => pb.parents.includes(x))) return true;
     if (Object.keys(pa.kin ?? {}).length && this.w.family.related(a, b)) return true; // family chosen between players (sim/family.ts)
-    // A partner's children (step-children) live with them too.
     if (pa.partner >= 0 && pb.parents.includes(pa.partner)) return true;
     if (pb.partner >= 0 && pa.parents.includes(pb.partner)) return true;
     return false;
+  }
+  /** Is this person a child (under GROWN), alive or not? */
+  private young(id: number): boolean {
+    const p = this.w.profiles.get(id);
+    return !!p && !p.player && ageOf(p, this.w.gameSec, this.w.yearSec) < GROWN;
+  }
+  /**
+   * The household of the hut owned by `owner`: the owner, the partner and the children (or step-children) under GROWN. Grown sons and
+   * daughters, brothers, sisters and parents are family but live in homes of their own (imad 2026-11-26).
+   */
+  household(owner: number, b: number): boolean {
+    if (owner === b) return true;
+    const po = this.w.profiles.get(owner), pb = this.w.profiles.get(b);
+    if (!po || !pb) return false;
+    if (po.partner === b || pb.partner === owner) return true;
+    const kid = pb.parents.includes(owner) || (po.partner >= 0 && pb.parents.includes(po.partner));
+    return kid && this.young(b);
+  }
+  /** A grown son or daughter of this hut's owner or partner (shut out since they came of age). */
+  grownChild(h: Home, id: number): boolean {
+    const po = this.w.profiles.get(h.owner), p = this.w.profiles.get(id);
+    if (!po || !p || p.player) return false;
+    return (p.parents.includes(h.owner) || (po.partner >= 0 && p.parents.includes(po.partner))) && !this.young(id);
   }
   /** May this person (slot) go into the hut that tile k belongs to? */
   mayEnter(i: number, m: number, k: number): boolean {
@@ -87,7 +115,7 @@ export class Homes {
     if (!h || h.owner < 0) return true;
     const kind = this.w.e.kind[i];
     if (kind !== Kind.Agent && kind !== Kind.Player) return true;
-    return this.family(h.owner, this.w.e.id(i));
+    return this.household(h.owner, this.w.e.id(i));
   }
   /**
    * A step from tile `from` to tile `to` that a closed door stops: into a hut (its doorway or room) from outside it, when
@@ -102,14 +130,14 @@ export class Homes {
     return !this.mayEnter(i, m, to);
   }
 
-  /** The hut a person lives in: their own, else their family's (partner first, then parents). */
+  /** The hut a person lives in: their own, else their household's (the partner's first, then a parent's while they are a child). */
   homeOf(id: number): Home | undefined {
     let fam: Home | undefined;
     const p = this.w.profiles.get(id);
     for (const h of this.list) {
       if (h.owner === id) return h;
-      if (h.owner >= 0 && !fam && this.family(h.owner, id)) fam = h;
-      else if (h.owner >= 0 && p && h.owner === p.partner) fam = h;
+      if (h.owner >= 0 && p && h.owner === p.partner) fam = h;
+      else if (h.owner >= 0 && !fam && this.household(h.owner, id)) fam = h;
     }
     return fam;
   }
@@ -155,8 +183,6 @@ export class Homes {
       // One per household: a partner already counted is the same family.
       const p = w.profiles.get(id)!;
       if (p.partner >= 0 && seen.has(p.partner)) continue;
-      // A grown child still lives with the parents until they marry.
-      if (p.partner < 0 && p.parents.some((x) => this.homeOf(x))) continue;
       seen.add(id); out.push(id);
     }
     return out;
@@ -168,6 +194,7 @@ export class Homes {
   hourly(): void {
     const w = this.w;
     this.sync();
+    this.comeOfAge();
     for (const h of this.list) {
       if (h.owner < 0) continue;
       const p = w.profiles.get(h.owner);
@@ -187,6 +214,40 @@ export class Homes {
       }).sort((a, b) => b.score - a.score);
       for (const h of free) { const x = want.shift(); if (!x) break; this.give(h, x.id, 'the camp gave it to us'); }
     }
+  }
+  /**
+   * Sons and daughters who turned GROWN leave the parents' hut (imad 2026-11-26): once, a memory note and a line in every prompt tell them
+   * they must build a hut of their own (or move into a free one); the camp's plans count them as a household without a home. Anyone
+   * inside a hut that is not theirs to enter (a grown child, a guest left in when a door shut) is put out in front of its door.
+   */
+  comeOfAge(): void {
+    const w = this.w, e = w.e;
+    for (const h of this.list) {
+      if (h.owner < 0) continue;
+      for (const [id, p] of w.profiles) {
+        if (p.died !== undefined || p.leftHome !== undefined || !this.grownChild(h, id)) continue;
+        p.leftHome = w.gameSec;
+        if (this.ownsOne(id)) continue;
+        p.mind ??= { notes: [], summary: '', mood: 'calm', rel: {}, lastPlan: w.gameSec - 1e9 };
+        p.mind.notes.push({ at: w.gameSec, text: `I am grown up now: my parents' hut is not my home any more and its door stays shut to me. I must build a hut of my own (or move into a free one).` });
+        if (p.mind.notes.length > 12) p.mind.notes.splice(0, p.mind.notes.length - 12);
+        w.emit('leftHome', { id, name: p.name, owner: h.owner });
+      }
+    }
+    for (let i = 0; i < e.hi; i++) {
+      if ((e.kind[i] !== Kind.Agent && e.kind[i] !== Kind.Player) || e.map[i]! >= w.maps.length) continue;
+      const tm = w.maps[e.map[i]!]!.tiles, k = Math.floor(e.y[i]!) * tm.w + Math.floor(e.x[i]!), h = this.at(e.map[i]!, k);
+      if (!h || h.owner < 0 || this.mayEnter(i, h.m, k) || k === this.doorOf(h)) continue;
+      const W = tm.w;
+      w.place(i, h.m, (h.out % W) + 0.5, Math.floor(h.out / W) + 0.5);
+      w.emit('blocked', { id: e.id(i), why: 'door', put: 'out' });
+    }
+  }
+  /** Grown up and still without a hut of their own: what every prompt about them says. */
+  private grownText(id: number): string {
+    const p = this.w.profiles.get(id);
+    if (!p || p.player || p.leftHome === undefined) return '';
+    return ' You are grown up: your parents\' hut is closed to you. Build a hut of your own (skill build {"what":"hut"}) or move into a free one; when you marry, your partner lives with you.';
   }
   private ownsOne(id: number): boolean { return this.list.some((h) => h.owner === id); }
 
@@ -276,7 +337,7 @@ export class Homes {
   /** For the panel and prompts: who owns what. */
   describe(id: number): string {
     const h = this.homeOf(id);
-    if (!h) return 'No home yet (you sleep by the camp fire).';
+    if (!h) return 'No home yet (you sleep by the camp fire).' + this.grownText(id);
     const c = this.middle(h), own = h.owner === id, ow = this.w.profiles.get(h.owner);
     return (own ? `Your home: your hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}); only your family may go in.`
       : `Your home: ${ow?.name ?? 'your family'}'s hut at (${Math.floor(c.x)}, ${Math.floor(c.y)}).`) + ' ' + this.bedText(id);

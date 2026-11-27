@@ -788,3 +788,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - `panel/src/people.ts`: section tabs People / Clans / Camp plans / Quests / Dead / Everyone ever (`pTab`; clans, camp plans and quests were cards above the
   list and grew with the population), filter chips with counts (needs help, on an objective, children, expecting, single adults), Table (default, sortable
   headers, `pLay`) or compact Cards; phone = the table's rows turn into 2-line blocks; players' characters = slim rows. Desktop 2150 -> 1150 px for 16 people.
+
+## Grown children leave home, everyone in a clan, clan camps (imad 2026-11-26)
+- `Homes.household(owner, id)` (sim/homes.ts) decides who may go in and whose home it is: owner, partner, their children / step-children under
+  `GROWN` 18. Grown sons / daughters, siblings, parents and chosen kin are still `family()` but shut out. `Homes.comeOfAge()` (hourly): sets
+  `Profile.leftHome`, memory note "build a hut of my own", event `leftHome`; anyone inside a hut they may not enter is put in front of its door.
+  `describe` (every prompt) tells the grown and homeless to build or move in; `homeless()` counts them (colony plans their huts).
+- Clans (sim/clans.ts): everyone chooses (`choose1`): an unaligned adult (16+, AI only; players choose on the TV) walks to the best accepting clan;
+  after `CHOOSE_WITHIN` 12 game h they are taken in (event `clanChosen`); no clan accepts = found one. Children join a parent's clan (`kidClan`).
+  No camp leader = the most influential adult founds the first clan. Prompt: "everyone must belong to one".
+- `CLAN_CAMP_AT` 20: a clan with more members that is not `mainClan(m)` (camp leader's clan, else the biggest) gets `Clan.camp` 45-90 m from the
+  other camps (`campCheck`, `Survival.campSite`), event `clanCamp`, notes, the leader lights its fire. `Survival.campFor(i)` / `clans.campOf(id, m)`:
+  that clan's huts and fires go there (`hutSiteIn` with an origin). Walls / night watch / store stay at the map's first camp. Test society.test.ts.

@@ -137,6 +137,11 @@ export class Survival {
     this.owners.clear(); for (const [k, id] of (v as { own?: [string, number][] }).own ?? []) this.owners.set(k, id);
   }
   campOf(m: number): { x: number; y: number } | null { return this.camp[m] ?? null; }
+  /** The camp person (slot) i belongs to on their map: their clan's own camp when it has one (sim/clans.ts CLAN_CAMP_AT), else the map's. */
+  campFor(i: number): { x: number; y: number } | null {
+    const m = this.w.e.map[i]!;
+    return this.w.clans.campOf(this.w.e.id(i), m) ?? this.camp[m] ?? null;
+  }
   /** The circle the camp's wall follows (centre, radius in tiles), or null with no camp. */
   perimeter(m: number): { x: number; y: number; r: number } | null {
     const c = this.camp[m];
@@ -437,7 +442,8 @@ export class Survival {
     if (!this.has(i, RECIPES[what]!)) return `I need ${this.missing(i, what).map(([k, n]) => `${n} ${k}`).join(' and ')}`;
     const e = this.w.e, m = e.map[i]!;
     if (this.w.ai.siting && !this.camp[m] && x === undefined) { const cs = this.campSite(m, e.x[i]!, e.y[i]!); if (cs) this.setCamp(m, cs.x, cs.y); }
-    const camp = this.camp[m];
+    const own = this.w.clans.campOf(e.id(i), m); // a clan with a camp of its own builds there (imad 2026-11-26)
+    const camp = own ?? this.camp[m];
     // Near the camp when there is one (a village grows), else where they stand.
     const nearCamp = camp && (this.w.ai.goap || Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 150); // planned work is for the camp
     const cx = x ?? (nearCamp ? camp.x : e.x[i]!), cy = y ?? (nearCamp ? camp.y : e.y[i]!);
@@ -450,7 +456,7 @@ export class Survival {
     const W = this.w.maps[m]!.tiles.w;
     let x0: number, y0: number, dir = 0;
     if (this.w.ai.siting && camp) {
-      const hs = this.hutSite(m);
+      const hs = own ? this.hutSiteIn(m, { x: Math.floor(own.x), y: Math.floor(own.y), r: 16 }, own) ?? this.hutSiteIn(m, { x: Math.floor(own.x), y: Math.floor(own.y), r: 24 }, own) : this.hutSite(m);
       if (hs) { x0 = hs.x0; y0 = hs.y0; dir = hs.dir; }
       else { // no room inside the wall: outside, as before (it will not be protected)
         // Close first, so the wall that follows the huts (plannedRadius, up to 28) can still take it in; far only when nothing is near.
@@ -522,8 +528,8 @@ export class Survival {
     for (let r = p.r; r <= (this.walls[m] ? p.r : 28); r += 2) { const h = this.hutSiteIn(m, { ...p, r }); if (h) return h; }
     return null;
   }
-  private hutSiteIn(m: number, p: { x: number; y: number; r: number }): { x0: number; y0: number; dir: number } | null {
-    const w = this.w, tm = w.maps[m]!.tiles, camp = this.camp[m];
+  private hutSiteIn(m: number, p: { x: number; y: number; r: number }, origin?: { x: number; y: number }): { x0: number; y0: number; dir: number } | null {
+    const w = this.w, tm = w.maps[m]!.tiles, camp = origin ?? this.camp[m];
     if (!camp) return null;
     const keep = this.taken(m), cands: [number, number, number, number][] = [];
     const ok = (x: number, y: number, inner: boolean) => {
@@ -572,8 +578,10 @@ export class Survival {
     // Access: test the best few with a flood from the camp's centre, the new walls counted as standing.
     const c0 = walkableNear(tm, camp.x, camp.y, 4);
     if (c0 < 0) return null;
-    const targets = this.huts[m]!.filter((o) => o >= 0);
-    const st = this.stash[m];
+    // Another camp (a clan's own): only the huts round it must stay reachable from its centre.
+    const near = (k: number) => !origin || Math.hypot((k % tm.w) - p.x, ((k / tm.w) | 0) - p.y) <= p.r + 8;
+    const targets = this.huts[m]!.filter((o) => o >= 0 && near(o));
+    const st0 = this.stash[m], st = st0 && near(st0.t) ? st0 : null;
     for (const [, x0, y0, dir] of cands.slice(0, 8)) {
       const [dx, dy] = DIRS[dir]!, door = (y0 + H + dy * H) * tm.w + x0 + H + dx * H, out = door + dy * tm.w + dx;
       const wall = (k: number) => { const x = k % tm.w, y = (k / tm.w) | 0; return x >= x0 && y >= y0 && x < x0 + S && y < y0 + S && (x === x0 || y === y0 || x === x0 + S - 1 || y === y0 + S - 1) && k !== door; };
