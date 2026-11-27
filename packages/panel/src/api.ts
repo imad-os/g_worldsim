@@ -1,6 +1,7 @@
 import { Msg, CONFIRM, type ServerMsg, type AdminCmd, type ServerStats, type ServerBuild } from '@worldsim/protocol';
 import { Conn } from '../../client/src/conn.js';
 import { load, save } from './util.js';
+import { publishedServer, sameServer } from '../../client/src/published.js';
 
 /**
  * The link to the world server. The panel runs from GitHub Pages (or from the server itself at /panel/) and talks to the
@@ -25,6 +26,8 @@ export const listeners = {
   notice: (_kind: string, _data: unknown) => {},
   /** The server lacks a command this panel uses (it runs older code). */
   outdated: (_cmd: string) => {},
+  /** The address was replaced by the link the server published in Firestore. */
+  moved: (_url: string) => {},
 };
 /** Said instead of a bare "unknown command": what is wrong and what to do. */
 export function outdatedText(c: string): string {
@@ -47,14 +50,31 @@ export function setServer(url: string): string {
   save('server', u);
   return u;
 }
+/**
+ * The link the server published in Firestore (server/current), when it differs from the saved one: saved and returned
+ * ('' = nothing new). Asked only when there is no address or the saved one does not answer (imad 2026-11-27).
+ */
+export async function findServer(): Promise<string> {
+  if (onServer || new URLSearchParams(location.search).has('server')) return '';
+  const u = await publishedServer('firebase.json');
+  if (!u || sameServer(u, load('server', ''))) return '';
+  save('server', u);
+  return u;
+}
 export const token = () => load('token', '');
 export const isStaff = () => !account || account.role !== 'player';
 
 export function connect(server: string, tok: string | (() => Promise<string>)): void {
   conn?.close();
   const ws = server.replace(/^http/, 'ws') + '/ws';
-  conn = new Conn(ws, tok, 'panel');
-  conn.onState = (s, why) => listeners.state(s, why);
+  const me = conn = new Conn(ws, tok, 'panel');
+  let opened = false;
+  conn.onState = (s, why) => {
+    if (s === 'open') opened = true;
+    listeners.state(s, why);
+    // Not reached: the PC's tunnel may have a new address. Firestore has it (asked at most every 20 s).
+    if (s === 'closed' && !opened) void findServer().then((u) => { if (u && conn === me) { listeners.moved(u); connect(u, tok); } });
+  };
   conn.onMsg = (m: ServerMsg) => {
     switch (m.t) {
       case Msg.Welcome:

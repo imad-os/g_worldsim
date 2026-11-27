@@ -1,5 +1,5 @@
 import type { ServerStats } from '@worldsim/protocol';
-import { connect, disconnect, listeners, serverAddress, setServer, token, onServer, stats, build, missing, outdatedText } from './api.js';
+import { connect, disconnect, listeners, serverAddress, setServer, findServer, token, onServer, stats, build, missing, outdatedText } from './api.js';
 import { errorsScreen } from './errors.js';
 import { dashboard } from './dashboard.js';
 import { help, showHelp, closeHelp } from './help.js';
@@ -215,7 +215,9 @@ window.addEventListener('ws-signout', () => { save('token', ''); save('mode', ''
 window.addEventListener('ws-server', (e) => { const a = setServer(String((e as CustomEvent).detail)); disconnect(); ready = false; if (load<string>('mode', '') === 'fb') connect(a, async () => 'fb:' + (await fb.idToken())); else connect(a, token()); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && cur?.refresh) void Promise.resolve(cur.refresh()).catch(() => {}); });
 
-const addr = serverAddress(), tok = token();
+listeners.moved = (u) => { ($('sAddrIn') as HTMLInputElement).value = u; if (ready) $('srv').textContent = account ? `${account.email} · ${account.role}` : u.replace(/^https?:\/\//, ''); };
+// No address yet: the one the server published in Firestore (nothing to type).
+const addr = serverAddress() || (await findServer()), tok = token();
 showSignin(addr && (tok || load<string>('mode', '') === 'fb') ? 'Connecting…' : '');
 // Sign-in with Firebase only when the project's web config is published (docs/panel/firebase.json).
 void fb.config().then(async (c) => {

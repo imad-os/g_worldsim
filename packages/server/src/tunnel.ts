@@ -1,4 +1,8 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
+import { request as httpsRequest } from 'node:https';
+import { request as httpRequest } from 'node:http';
+import { lookup as osLookup, Resolver, type LookupAddress } from 'node:dns';
+import { isIP } from 'node:net';
 import type { Logger } from './log.js';
 
 /**
@@ -179,6 +183,43 @@ class TailscaleTunnel implements Tunnel {
   publicUrl(): string { return this.url; }
 }
 
+/**
+ * Public DNS for the health checks (imad 2026-11-27, switching to cloudflare-quick on Windows said "public address does not
+ * answer"): a trycloudflare.com name is brand new, the first ask comes before Cloudflare's DNS has it, and Windows then keeps
+ * "no such name" in its cache for minutes. Asking 1.1.1.1 / 8.8.8.8 directly skips that cache; the PC's own lookup is the fallback.
+ */
+const publicDns = new Resolver({ timeout: 3000, tries: 1 });
+publicDns.setServers(['1.1.1.1', '8.8.8.8']);
+type LookupCb = (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void;
+function freshLookup(host: string, opts: { all?: boolean }, cb: LookupCb): void {
+  publicDns.resolve4(host, (err, ips) => {
+    if (err || !ips?.length) { osLookup(host, opts as never, cb as never); return; }
+    if (opts.all) cb(null, ips.map((address) => ({ address, family: 4 })));
+    else cb(null, ips[0]!, 4);
+  });
+}
+
+/** GET <url>/health through `freshLookup`: true when it answers { ok: true }. */
+export function askHealth(url: string, timeoutMs: number): Promise<boolean> {
+  return new Promise((done) => {
+    let u: URL;
+    try { u = new URL('/health', url); } catch { done(false); return; }
+    const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, {
+      method: 'GET', timeout: timeoutMs, headers: { 'ngrok-skip-browser-warning': '1' },
+      ...(isIP(u.hostname) ? {} : { lookup: freshLookup as never }),
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c: string) => { if (body.length < 4096) body += c; });
+      res.on('end', () => { try { done((res.statusCode ?? 0) < 300 && !!(JSON.parse(body) as { ok?: boolean }).ok); } catch { done(false); } });
+      res.on('error', () => done(false));
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', () => done(false));
+    req.end();
+  });
+}
+
 class NoTunnel implements Tunnel {
   readonly name = 'none' as const;
   async start(): Promise<void> {}
@@ -249,12 +290,7 @@ export class TunnelManager {
   async check(): Promise<boolean> {
     const url = this.current.publicUrl();
     let ok = false;
-    if (url) {
-      try {
-        const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(8000), headers: { 'ngrok-skip-browser-warning': '1' } });
-        ok = r.ok && !!((await r.json()) as { ok?: boolean }).ok;
-      } catch { ok = false; }
-    }
+    if (url) ok = await askHealth(url, 8000);
     this.lastCheck = { at: Date.now(), ok, restarts: this.lastCheck.restarts };
     if (ok) { if (this.fails) this.log.info('tunnel answers again', { provider: this.current.name }); this.fails = 0; this.restartsInRow = 0; return true; }
     this.fails++;
@@ -286,13 +322,16 @@ export class TunnelManager {
 
   status(): TunnelStatus { return { ...this.current.status(), check: this.watchStatus() }; }
 
-  async healthy(url: string): Promise<boolean> {
-    for (let k = 0; k < 10; k++) {
-      try {
-        const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(4000), headers: { 'ngrok-skip-browser-warning': '1' } });
-        if (r.ok && ((await r.json()) as { ok?: boolean }).ok) return true;
-      } catch { /* not yet */ }
-      await sleep(1500);
+  /** Wait before the first check of a brand-new address (a trycloudflare.com name needs a few seconds to exist in DNS). */
+  firstWaitMs = 12_000;
+
+  /** Does a new public address reach this server? A new cloudflare-quick name is first given time to appear in DNS. */
+  async healthy(url: string, fresh = false): Promise<boolean> {
+    if (!url) return false;
+    if (fresh && this.firstWaitMs > 0) await sleep(this.firstWaitMs);
+    for (let k = 0; k < 12; k++) {
+      if (await askHealth(url, 5000)) return true;
+      await sleep(2000);
     }
     return false;
   }
@@ -306,7 +345,7 @@ export class TunnelManager {
     try {
       if (name !== 'none') {
         await next.start();
-        if (!(await this.healthy(next.publicUrl()))) throw new Error(`${name}: public address does not answer`);
+        if (!(await this.healthy(next.publicUrl(), name === 'cloudflare-quick'))) throw new Error(`${name}: public address does not answer`);
       }
       this.current = next;
       await old.stop();

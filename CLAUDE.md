@@ -20,6 +20,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Config `server` = the public link. Pairing: TV shows a code, panel approves, token per My PC profile (`MyPC.save('auth')`),
   server keeps a SHA-256 in SQLite `players`. Never a login form of our own (GUIDE: My PC owns accounts).
 - Tunnel adapters in `packages/server/src/tunnel.ts` (ngrok / tailscale / cloudflare / cloudflare-quick / none).
+- **The link finds itself (imad 2026-11-27: ngrok's free data ran out, cloudflare-quick's link changes at every start; "we use Firebase, this
+  must be automatic")**: `persist/link.ts` `LinkPublisher` writes every new tunnel link (TunnelManager.onUrl) to Firestore `server/current`
+  { url, provider, at, uid } (public read; rules `match /server/{doc}`: only the account that created it updates it, staff may delete it).
+  No service account: the server makes its own Firebase account once (email / password, else anonymous) in `data/firebase-link.json`.
+  One write per change, retries 1 / 5 / 15 / 30 min. TV (`client/src/published.ts`, app.ts `findServer`) and panel (api.ts `findServer`)
+  read it when they have no address or theirs does not answer (at most every 20 s), then save it. Health checks of a new address
+  (`askHealth`) ask 1.1.1.1 / 8.8.8.8 (Windows caches a not-yet-existing trycloudflare name as missing); a switch to cloudflare-quick
+  waits 12 s first. Proof `ADMIN_TOKEN=... node tools/link-proof.mjs <server> <sdk.js> <outdir>`.
 - **Never locked out (imad 2026-11-21, ERR_NGROK_3200: the server had been started from a Claude session and died with it)**:
   `TunnelManager` asks the public `/health` every minute; 3 misses in a row = stop + start the tunnel (waits grow to 10 min while it
   keeps failing; `tunnel` status carries `check`). On the PC the server is started ONLY by the Windows task "WorldSim Watchdog"
