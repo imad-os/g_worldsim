@@ -974,3 +974,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Admin `thoughts` (READS). Panel page Thoughts (`panel/src/thoughts.ts`): add a rule, "What it changed" (10 min before a mark vs every sample since,
   shares in points), right now, stacked drivers over time with dashed marks, groups with reasons / places / names / rule that held them, rules at work
   (a "never" rule the engine has no action for is flagged), knowledge feed. Test thoughts.test.ts; proof `node tools/thoughts-proof.mjs <outdir>` (dark).
+## Clan camps as territory (imad 2026-11-27: "every clan its own camp, defend it; at peace let them in for family / needs; aware, not walking into an enemy camp; warn first, small PvP damage")
+- `sim/territory.ts` (`World.territory`, saved `territory` = who is barred where). Camps = the map's first camp (owned by `Clans.mainClan`, radius = its
+  wall circle 14-30 m) + every clan's own camp (`CLAN_CAMP_AT` now 3: a clan of 4+ that is not the main one gets one, radius 18).
+- At peace a visitor walks in freely. At war (or tension 8+/10 with no family there: warn only, never strike) the nearest grown member (a guard first)
+  walks up and warns (event `clanWarn`, `trespass` { id, clan, map, x, y, r, war } for talks); AI intruders leave (raiders weigh their numbers vs the
+  defenders and courage), are barred `BAR_HOURS` 3 and remember it; still inside after `GRACE` 15 s = duel 'intruder' (`Clans.start`), the loser is
+  walked out. Players: warned, struck only with PvP on.
+- Awareness: `Brain.goTo` asks `territory.avoidFor(i)` (mask of camps closed to me, cached per set of camps) -> `Pathfinder.avoid` (x14 cost, string
+  pulling never cuts through) and `refuse` (a goal inside one = no way), except my own home there or a raid. `promptText` (in `Clans.promptText`)
+  names each camp: mine / open to visit / CLOSED.
+- Less aggression: `warFight` on open ground mostly walks away (`Brain.stepAway`, event `clanAvoid`; chance by courage, weapon, raid, numbers),
+  never inside a camp (the camp's rules apply). `PVP_MAX` 14 (was 30). Defence: each clan camp has its own night watch (and a day guard at war,
+  `Survival.postGuard`); the main watch skips clan-camp members; `Tactics.muster(m, i)` rallies at the person's own camp.
+- TV map: `places.clanCamps` rings (mine green, open grey, closed red dashed + ⚔). Test territory.test.ts.

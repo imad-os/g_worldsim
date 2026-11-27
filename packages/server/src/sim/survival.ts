@@ -1772,8 +1772,8 @@ export class Survival {
   /** Sleeping by a fire is warmer (the brain recovers faster). */
   warm(m: number, x: number, y: number): boolean { return this.fires.size > 0 && this.fireNear(m, x, y, FIRE_WARM) >= 0; }
   /** The camp's burnt-out fire (ashes) within 20 m of the camp: tile index, or -1. */
-  campAshes(m: number): number {
-    const c = this.camp[m], tm = this.w.maps[m]!.tiles;
+  campAshes(m: number, at?: { x: number; y: number }): number {
+    const c = at ?? this.camp[m], tm = this.w.maps[m]!.tiles;
     if (!c || this.T.ashes < 0) return -1;
     let best = -1, bd = 20;
     for (let y = Math.max(0, Math.floor(c.y - 20)); y <= Math.min(tm.h - 1, c.y + 20); y++) for (let x = Math.max(0, Math.floor(c.x - 20)); x <= Math.min(tm.w - 1, c.x + 20); x++) {
@@ -1981,7 +1981,7 @@ export class Survival {
     const w = this.w, e = w.e, camp = this.camp[m];
     if (!camp || !(hour >= 20 || hour < 5)) return;
     const people: number[] = [];
-    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === m && !(e.flags[i]! & 32)) people.push(i);
+    for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] === m && !(e.flags[i]! & 32) && !w.clans.campOf(e.id(i), m)) people.push(i); // a clan with its own camp guards that one (sim/territory.ts)
     if (people.length < 3) return;
     const threat = w.zombies.perNight > 0 || w.zombies.count(m) > 0 || w.zombies.plans.some((x) => x.map === w.maps[m]!.def.id);
     const want = threat && people.length >= 5 ? 2 : 1;
@@ -2004,7 +2004,18 @@ export class Survival {
       w.emit('guard', { id: e.id(i), map: w.maps[m]!.def.id });
     }
   }
-  private guardScore(i: number, lid: number): number {
+  /** Put person i on guard at (x, y) facing (fx, fy) for `hours` game hours (sim/territory.ts: a clan camp's watch). */
+  postGuard(i: number, m: number, x: number, y: number, fx: number, fy: number, hours: number): boolean {
+    const w = this.w, e = w.e;
+    if (this.jobs.has(e.id(i)) || !w.brain.job(i, x, y, fx, fy, Act.Idle)) return false;
+    this.jobs.set(e.id(i), { kind: 'guard', m, tx: Math.floor(x), ty: Math.floor(y), work: 0, n: w.gameSec + hours * HOUR });
+    this.ended.delete(e.id(i));
+    w.emit('guard', { id: e.id(i), map: w.maps[m]!.def.id });
+    return true;
+  }
+  /** Person id stands guard now. */
+  guarding(id: number): boolean { return this.jobs.get(id)?.kind === 'guard'; }
+    private guardScore(i: number, lid: number): number {
     const t = this.w.profileOf(i)?.traits;
     return (t?.courage ?? 0.5) * 1.2 + (t?.strength ?? 0.5) * 0.6 + (this.weapon(i)[1] > 0 ? 0.3 : 0) + (this.w.e.id(i) === lid ? 0.2 : 0) + this.w.rng.next() * 0.1;
   }

@@ -14,8 +14,8 @@ import type { World } from './world.js';
 import { NO_MAP } from './entities.js';
 import { ageOf } from './people.js';
 
-/** A clan with more members than this gets a camp of its own (imad 2026-11-26), away from the map's first camp. */
-export const CLAN_CAMP_AT = 20;
+/** A clan with more members than this gets a camp of its own (imad 2026-11-26: past 20; 2026-11-27: "every clan can have their own camp": from 4), away from the map's first camp. */
+export const CLAN_CAMP_AT = 3;
 /** Everyone belongs to a clan (imad 2026-11-26: "force them to choose a clan"): an adult with none after this long is taken in by the best one. */
 const CHOOSE_WITHIN = 12 * 3600;
 /** From this age people choose a clan themselves; younger ones are in their parents' clan. */
@@ -23,10 +23,12 @@ const CLAN_AGE = 16;
 
 /** Damage of one hit between people (imad 2026-11-21): strong weapon on someone with no weapon at most 30, a weapon on an armed person 10,
  *  bare hands on someone in armour 3. `weapon` = the weapon's damage (0 = none), `armed` = the victim carries one, `def` = their armour (0..0.5). */
+/** Most one hit between people can take (imad 2026-11-27: "small, to reduce the massacre"; was 30). */
+export const PVP_MAX = 14;
 export function pvpDamage(weapon: number, armed: boolean, def: number): number {
-  const base = weapon > 0 ? 30 * Math.min(1, weapon / 34) : 4;
+  const base = weapon > 0 ? PVP_MAX * Math.min(1, weapon / 34) : 3;
   const d = (armed && weapon > 0 ? base / 3 : base) * (1 - def);
-  return Math.max(1, Math.round(Math.min(30, d)));
+  return Math.max(1, Math.round(Math.min(PVP_MAX, d)));
 }
 
 /** A leader election: who stands, who voted for whom (voter id -> candidate id), when it closes (game seconds). */
@@ -174,6 +176,8 @@ export class Clans {
     }
     if (this.tension(A.id, B.id) >= 10) { if (!this.topSince.has(k)) this.topSince.set(k, w.gameSec); } else this.topSince.delete(k);
   }
+  /** Tension between clan `clan` and person id's clan goes up by d (sim/territory.ts: trespassing). */
+  bump(clan: number, id: number, d: number, cause: string): void { const c = this.of.get(id); if (c !== undefined && c !== clan) this.addTension(clan, c, d, cause); }
   /** Event hook: a killing between clans. */
   private watched = false;
   private watch(): void {
@@ -230,7 +234,7 @@ export class Clans {
     p.mind ??= { notes: [], summary: '', mood: 'calm', rel: {}, lastPlan: this.w.gameSec - 1e9 };
     p.mind.rel['#' + b] = Math.max(-5, Math.min(5, (p.mind.rel['#' + b] ?? 0) + d));
   }
-  private kin(a: number, b: number): boolean {
+  kin(a: number, b: number): boolean {
     return this.w.family.related(a, b); // blood, marriage and family roles chosen by players (sim/family.ts)
   }
   private lead(id: number): number {
@@ -880,11 +884,11 @@ export class Clans {
     return `Clan: ${c.name}, ${lead ? 'you are its elected leader (your members follow your orders)' : `led by ${this.name(c.leader)} (elected; approval ${this.approval(c)}%)`}, ${c.members.length} members; your loyalty ${Math.round(this.loyalty(id) * 100)}%.`
       + (c.order ? ` The leader's order: "${c.order}".` : '') + (c.vote ? ` An election is on: ${c.vote.cands.map((k) => this.name(k)).join(' or ')}.` : '')
       + (c.camp ? ` Your clan has its own camp at (${Math.round(c.camp.x)}, ${Math.round(c.camp.y)}): your home and huts belong there.` : c.members.length > CLAN_CAMP_AT - 4 ? ` Past ${CLAN_CAMP_AT} members a clan gets a camp of its own.` : '')
-      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + this.warText(c, lead) + ' You may change clan (skill clan), but everyone must belong to one.';
+      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + this.warText(c, lead) + w.territory.promptText(i) + ' You may change clan (skill clan), but everyone must belong to one.';
   }
   private warText(c: Clan, lead: boolean): string {
     const ws = this.wars.filter((x) => x.a === c.id || x.b === c.id).map((x) => { const mine = x.a === c.id ? 0 : 1, f = this.byId(x.a === c.id ? x.b : x.a); return `${f?.name ?? '?'} (duels won ${x.wins[mine]} to ${x.wins[1 - mine]})`; });
-    if (ws.length) return ` AT WAR with ${ws.join(', ')}: their members are your enemies (you fight them when you meet).${lead ? ' As leader you may end it (skill clan {"what":"peace <clan>"}).' : ''}`;
+    if (ws.length) return ` AT WAR with ${ws.join(', ')}: their members are your enemies: keep out of their camp, and on open ground walk away unless you are many or must defend someone; in your own camp warn them out first.${lead ? ' As leader you may end it (skill clan {"what":"peace <clan>"}).' : ''}`;
     return lead && this.clans.some((x) => x.id !== c.id && x.map === c.map) ? ' As leader you may declare war on a clan (skill clan {"what":"war <clan>"}) or make peace.' : '';
   }
 
@@ -942,9 +946,28 @@ export class Clans {
       if (d < bd) { bd = d; b = j; }
     }
     if (b < 0 || this.kin(id, e.id(b))) return false;
+    // In a camp the camp's rules apply (sim/territory.ts: warn first, then drive out); a member visiting family is let be.
+    if (w.territory.campAt(e.map[i]!, e.x[i]!, e.y[i]!, 2) || w.territory.campAt(e.map[b]!, e.x[b]!, e.y[b]!, 2)) return false;
     if (e.kind[b] === Kind.Player && !(this.pvpOn(b) && this.fightsPlayers(i))) return false;
-    const t = w.profileOf(i)!.traits;
-    if (!w.rng.chance(Math.min(0.9, 0.2 + t.courage * 0.5 + (w.survival.weapon(i)[1] > 0 ? 0.15 : 0)))) return false;
+    const t = w.profileOf(i)!.traits, armed = w.survival.weapon(i)[1] > 0;
+    this.lastAt.set(id, w.gameSec);
+    // Not too aggressive (imad 2026-11-27: "they should often choose to walk away"): on open ground most keep their distance. The bold,
+    // armed and healthy, or a war party on a raid, may go for it; outnumbered, almost nobody does.
+    let near = 0, foes = 0;
+    for (let j = 0; j < e.hi; j++) {
+      if (e.kind[j] !== Kind.Agent || e.map[j] !== e.map[i] || Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) > 14) continue;
+      const cj = this.of.get(e.id(j));
+      if (cj === c.id) near++; else if (cj !== undefined && this.warOf(c.id, cj)) foes++;
+    }
+    const raid = !!w.profileOf(i)?.mind?.task?.text.startsWith('raid the ');
+    const go = Math.max(0.02, Math.min(0.7, 0.04 + t.courage * 0.25 + (armed ? 0.1 : 0) + (raid ? 0.25 : 0) + (near - foes) * 0.05 - (e.hp[i]! < 80 ? 0.1 : 0)));
+    if (!w.rng.chance(go)) {
+      if (!w.brain.orderOf(i).kind && w.brain.stepAway(i, e.x[b]!, e.y[b]!, 16)) { // a job / an order (a guard at the post) holds its ground
+        if (w.rng.chance(0.5)) w.speak(i, foes > near ? 'Too many of them. Back off.' : 'Not worth the blood. Walk on.');
+        w.emit('clanAvoid', { id, foe: e.id(b) });
+      }
+      return true;
+    }
     this.start(i, b, 'war');
     return true;
   }
@@ -961,7 +984,7 @@ export class Clans {
     const ca = this.clanOf(ia), cb = this.clanOf(ib);
     if (ca && cb && ca.id !== cb.id) this.addTension(ca.id, cb.id, 1, 'fights');
     w.emit('duel', { a: ia, b: ib, why });
-    w.speak(a, why === 'a misunderstanding' ? 'What did you say?!' : why === 'war' ? `For the ${ca?.name ?? 'clan'}!` : 'Enough. Back off!');
+    w.speak(a, why === 'a misunderstanding' ? 'What did you say?!' : why === 'war' ? `For the ${ca?.name ?? 'clan'}!` : why === 'intruder' ? 'You were warned. Out of our camp!' : 'Enough. Back off!');
   }
   /** A player hit a person: they answer in kind (brave) or give way (timid). */
   hurtBy(victim: number, by: number): void {
@@ -1014,6 +1037,7 @@ export class Clans {
     const win = loser >= 0 ? e.id(loser) === d.a ? d.b : d.a : -1;
     if (win >= 0) { this.feel(e.id(loser), win, -0.5); const wi = e.slot(win); if (wi >= 0 && e.kind[wi] === Kind.Agent) w.speak(wi, 'Remember this.'); }
     w.emit('duelEnd', { a: d.a, b: d.b, why, winner: win });
+    w.territory.duelEnded(d.a, d.b, loser);
     // A duel won in a war counts for the winner's clan.
     const cw = win >= 0 ? this.of.get(win) : undefined, cl = win >= 0 ? this.of.get(e.id(loser)) : undefined, war = cw !== undefined && cl !== undefined ? this.warOf(cw, cl) : undefined;
     if (war) war.wins[war.a === cw ? 0 : 1]++;

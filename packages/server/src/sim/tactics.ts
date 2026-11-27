@@ -52,16 +52,18 @@ export class Tactics {
       this.bitN[i] = Math.min(255, this.bitN[i]! + 1); this.bitBy[i] = Number(ev.data.by);
     });
   }
-  private musterAt: { tick: number; p: { x: number; y: number; fire: boolean; n: number; ash: number } | null }[] = [];
+  private musterAt = new Map<string, { tick: number; p: { x: number; y: number; fire: boolean; n: number; ash: number } | null }>();
   /**
    * Stand together (imad 2026-11-26: "20 people attacked by 20 zombies must survive it easily"; the logs showed everyone who died was
-   * alone, running, often into the map's edge): while 3+ zombies are within 70 m of a map's camp, everyone near rallies at the
+   * alone, running, often into the map's edge): while 3+ zombies are within 70 m of a camp, everyone near rallies at the
    * camp's burning fire (zombies keep off it), else at the camp itself, and fights there as one group. The point, or null.
+   * With `i` (a person) it is that person's own camp: a clan with a camp of its own defends that one (imad 2026-11-27).
    */
-  muster(m: number): { x: number; y: number; fire: boolean; n: number; ash: number } | null {
-    const w = this.w, e = w.e, c = this.musterAt[m];
+  muster(m: number, i = -1): { x: number; y: number; fire: boolean; n: number; ash: number } | null {
+    const w = this.w, e = w.e;
+    const camp = i >= 0 ? w.survival.campFor(i) : w.survival.campOf(m);
+    const key = camp ? `${m}:${Math.round(camp.x)}:${Math.round(camp.y)}` : `${m}`, c = this.musterAt.get(key);
     if (c && w.tick - c.tick < 20) return c.p;
-    const camp = w.survival.campOf(m);
     let p: { x: number; y: number; fire: boolean; n: number; ash: number } | null = null;
     if (camp) {
       let n = 0;
@@ -72,7 +74,7 @@ export class Tactics {
         else {
           // No fire burning (by day): rally only if the old one can be lit again with a piece of wood (bag or store). Without a fire a crowd
           // of bare hands against 20 zombies loses (tried: 20 of 20 dead); scattered, people outrun them.
-          const a = w.survival.campAshes(m);
+          const a = w.survival.campAshes(m, camp);
           let wood = (w.survival.stash[m]?.wood ?? 0) > 0;
           for (let j = 0; j < e.hi && !wood && a >= 0; j++) if (e.kind[j] === Kind.Agent && e.map[j] === m && (w.survival.inv(j).wood ?? 0) > 0 && Math.hypot(e.x[j]! - camp.x, e.y[j]! - camp.y) < 90) wood = true;
           // (A fire made new on the spot was tried too: it is not up in time and the crowd dies round it, 8 and 13 of 20.)
@@ -81,7 +83,8 @@ export class Tactics {
         if (p && !c?.p) w.emit('muster', { map: w.maps[m]!.def.id, x: Math.round(p.x), y: Math.round(p.y), fire: p.fire, zombies: n });
       }
     }
-    this.musterAt[m] = { tick: w.tick, p };
+    if (this.musterAt.size > 64) this.musterAt.clear();
+    this.musterAt.set(key, { tick: w.tick, p });
     return p;
   }
 

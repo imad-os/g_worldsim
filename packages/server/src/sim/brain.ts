@@ -152,7 +152,12 @@ export class Brain {
     const w = this.w, e = w.e, pf = this.paths[e.map[i]!]!;
     if (!run && this.leashed(i, x, y)) return false; // a child does not go far from home on their own
     this.searches++;
+    // Clans at war keep out of each other's camps (sim/territory.ts): a goal inside one is refused, the way goes round them.
+    const av = w.territory.avoidFor(i);
+    if (av && w.territory.refuse(i, av, x, y)) { this.pN[i] = 0; return false; }
+    pf.avoid = av;
     const r = pf.find(e.x[i]!, e.y[i]!, x, y);
+    pf.avoid = null;
     if (r === 'none') { this.pN[i] = 0; return false; }
     const n = pf.outN;
     for (let k = 0; k < n; k++) this.pbuf[i * PMAX + k] = pf.out[k]!;
@@ -226,6 +231,31 @@ export class Brain {
     if (close) { this.stop(i); e.angle[i] = Math.atan2(fy - e.y[i]!, fx - e.x[i]!); }
     else if (!this.walking(i) || Math.hypot(this.gx[i]! - fx, this.gy[i]! - fy) > 1.5) this.goTo(i, fx, fy, true);
     this.schedule(i, 0, 10);
+  }
+  /** Walk (run = hurry) away from (fx, fy) until `d` metres from it (sim/territory.ts: told to leave a clan's camp, or keeping clear of an enemy). */
+  stepAway(i: number, fx: number, fy: number, d: number, run = false): boolean {
+    const w = this.w, e = w.e;
+    if (e.kind[i] !== Kind.Agent) return false;
+    const dx = e.x[i]! - fx, dy = e.y[i]! - fy, l = Math.hypot(dx, dy) || 1;
+    if (l >= d) return true;
+    const s = w.freeSpot(e.map[i]!, fx + (dx / l) * d, fy + (dy / l) * d, 8);
+    if (!s) return false;
+    this.ordKind[i] = 0;
+    if (e.flags[i]! & EFlag.Sleeping) e.flags[i] = e.flags[i]! & ~EFlag.Sleeping;
+    if (!this.goTo(i, s.x, s.y, run)) return false;
+    this.setAct(i, Act.Wander); e.target[i] = -1; e.goal[i] = -1;
+    this.schedule(i, 1);
+    return true;
+  }
+  /** Walk up to (x, y) and stand facing it (a guard speaking to an intruder). */
+  confront(i: number, x: number, y: number): void {
+    const w = this.w, e = w.e;
+    if (e.kind[i] !== Kind.Agent) return;
+    const d = Math.hypot(x - e.x[i]!, y - e.y[i]!);
+    if (d > 3) { if (!this.walking(i) || Math.hypot(this.gx[i]! - x, this.gy[i]! - y) > 2) this.goTo(i, x, y, d > 10); }
+    else { this.stop(i); e.angle[i] = Math.atan2(y - e.y[i]!, x - e.x[i]!); }
+    this.setAct(i, Act.Idle);
+    this.schedule(i, 0, 20);
   }
   /** The fight is over: the one who gave way walks off, the other calms down. */
   duelEnd(i: number, yielded: boolean, foe: number): void {
@@ -400,7 +430,7 @@ export class Brain {
       }
     }
     if (z < 0 && w.ai.instinct && !(e.flags[i]! & EFlag.Small)) { // the camp is under attack: everyone within 90 m comes to the rally point
-      const mu = T.muster(m);
+      const mu = T.muster(m, i);
       if (mu && Math.hypot(mu.x - e.x[i]!, mu.y - e.y[i]!) < 90) z = w.zombies.nearest(m, mu.x, mu.y, 90);
       // Asleep by the fire with nothing close: sleep on (the fire keeps them off).
       if (z >= 0 && asleep && mu?.fire && Math.hypot(mu.x - e.x[i]!, mu.y - e.y[i]!) < 5.5 && w.zombies.nearest(m, e.x[i]!, e.y[i]!, 8) < 0) { this.schedule(i, 3); return true; }
@@ -448,7 +478,7 @@ export class Brain {
       return true;
     }
     // A camp under attack: rally at the fire / the camp and fight there together (sim/tactics.ts muster).
-    const mu = w.ai.instinct && !protect && help < 0 ? T.muster(m) : null;
+    const mu = w.ai.instinct && !protect && help < 0 ? T.muster(m, i) : null;
     const ral = mu ? this.rally(i, z, th, mu, holding) : false;
     if (ral === null) { if (e.act[i] === Act.Flee || e.act[i] === Act.Fight) { this.stop(i); this.setAct(i, Act.Idle); e.target[i] = -1; } return false; } // safe enough to see to thirst / hunger first
     if (ral) return true;

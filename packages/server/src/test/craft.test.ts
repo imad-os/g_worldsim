@@ -188,12 +188,12 @@ test('zombie numbers are the owner\'s; people with bare hands fight back instead
   assert.ok(!e.alive(z2) || e.hp[z2]! < 90, 'the zombie was hurt');
 });
 
-test('PvP damage is small: 30 at most, about 10 weapon on armed, 3 bare on armour', async () => {
+test('PvP damage is small: 14 at most, about 5 weapon on armed, 2 bare on armour', async () => {
   const { pvpDamage } = await import('../sim/clans.js');
-  assert.equal(pvpDamage(34, false, 0), 30);
-  assert.ok(pvpDamage(34, true, 0) <= 10 && pvpDamage(34, true, 0) >= 9);
-  assert.equal(pvpDamage(0, false, 0.35), 3);
-  assert.ok(pvpDamage(22, false, 0) <= 30);
+  assert.equal(pvpDamage(34, false, 0), 14);
+  assert.ok(pvpDamage(34, true, 0) <= 5 && pvpDamage(34, true, 0) >= 4);
+  assert.equal(pvpDamage(0, false, 0.35), 2);
+  assert.ok(pvpDamage(22, false, 0) <= 14);
 });
 
 test('a door needs a doorway or a gate: never a door alone in the open', () => {

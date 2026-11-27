@@ -7,6 +7,8 @@ import type { TileMap } from './tilemap.js';
  * cheap: past it, the path goes to the explored tile closest to the goal.
  */
 const SQ2 = Math.SQRT2;
+/** Extra cost factor of an avoided tile: a long way round is taken first, but a goal inside still has a way. */
+const AVOID_X = 14;
 const DX = [1, -1, 0, 0, 1, 1, -1, -1];
 const DY = [0, 0, 1, -1, 1, -1, 1, -1];
 
@@ -26,6 +28,9 @@ export class Pathfinder {
   outN = 0;
   /** Nodes expanded by the last search (stats / tests). */
   expanded = 0;
+  /** Tiles to keep out of for the next search (1 = avoid: costs AVOID_X more, and string pulling never cuts through one), or null.
+   *  Set by the caller around one `find` (sim/territory.ts: the camps of clans at war with the walker). */
+  avoid: Uint8Array | null = null;
 
   constructor(private readonly t: TileMap, readonly maxNodes = 6000, maxOut = 64) {
     this.w = t.w; this.h = t.h;
@@ -84,7 +89,7 @@ export class Pathfinder {
         if (d >= 4 && (this.costAt(nx, cy) <= 0 || this.costAt(cx, ny) <= 0)) continue; // no corner cutting
         const ni = ny * W + nx;
         if (this.closed[ni] === st) continue;
-        const ng = this.g[cur]! + c * (d >= 4 ? SQ2 : 1);
+        const ng = this.g[cur]! + c * (d >= 4 ? SQ2 : 1) * (this.avoid && this.avoid[ni] ? AVOID_X : 1);
         if (this.seen[ni] === st && ng >= this.g[ni]!) continue;
         this.seen[ni] = st; this.g[ni] = ng; this.parent[ni] = cur;
         this.push(ni, ng + this.hdist(nx, ny, gtx, gty));
@@ -132,9 +137,11 @@ export class Pathfinder {
   clear(ax: number, ay: number, bx: number, by: number): boolean {
     const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
     const steps = Math.max(1, Math.ceil(len / 0.25));
-    const px = (-dy / (len || 1)) * 0.35, py = (dx / (len || 1)) * 0.35;
+    const px = (-dy / (len || 1)) * 0.35, py = (dx / (len || 1)) * 0.35, av = this.avoid, W = this.w;
+    const fromIn = !!av && av[Math.floor(ay) * W + Math.floor(ax)] === 1;
     for (let s = 0; s <= steps; s++) {
       const x = ax + (dx * s) / steps, y = ay + (dy * s) / steps;
+      if (av && !fromIn && av[Math.floor(y) * W + Math.floor(x)] === 1 && s < steps) return false;
       if (!this.walkable(Math.floor(x), Math.floor(y)) || !this.walkable(Math.floor(x + px), Math.floor(y + py)) ||
         !this.walkable(Math.floor(x - px), Math.floor(y - py))) return false;
     }

@@ -88,6 +88,9 @@ export class MapView {
     const home = w.survival.homes.homeOf(me);
     const homeAt = home && home.m === m ? w.survival.homes.middle(home) : null;
     const huts = w.survival.homes.list.filter((h) => h.m === m).map((h) => { const c = w.survival.homes.middle(h); return [r1(c.x), r1(c.y), h.owner === me ? 1 : h.owner >= 0 ? 2 : 0, h.owner >= 0 ? w.profiles.get(h.owner)?.name ?? '' : '']; });
+    // Clan camps (imad 2026-11-27: territory): [x, y, radius, clan, 0 mine | 1 open to me | 2 closed to me (at war / told to leave)].
+    const myClan = w.clans.clanOf(me)?.id;
+    const clanCamps = w.territory.camps(m).filter((c) => c.clan >= 0).map((c) => [r1(c.x), r1(c.y), Math.round(c.r), w.clans.byId(c.clan)?.name ?? '', c.clan === myClan ? 0 : w.territory.closedTo(me, c) ? 2 : 1]);
     const portals = w.portals.filter((p) => p.from === m).map((p) => [r1(p.x), r1(p.y), w.maps[p.dest]?.def.id ?? p.to]);
     return {
       ok: true, code: 'map',
@@ -97,7 +100,7 @@ export class MapView {
       places: {
         camp: camp ? [r1(camp.x), r1(camp.y)] : null, fires, home: homeAt ? [r1(homeAt.x), r1(homeAt.y)] : null, huts,
         store: stash ? at(stash.t) : null,
-        portals, npcs, horses, wild, people, players,
+        portals, npcs, horses, wild, people, players, clanCamps,
       },
       marks: this.marks(name),
     };

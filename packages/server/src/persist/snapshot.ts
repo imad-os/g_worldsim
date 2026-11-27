@@ -28,6 +28,7 @@ export function serialize(w: World, withTiles = true): Uint8Array {
     profiles: [...w.profiles],
     survival: w.survival.save(),
     clans: w.clans.save(),
+    territory: w.territory.save(),
     horses: w.horses.save(),
     lore: w.lore.save(),
     weather: w.weather.save(),
@@ -43,6 +44,7 @@ interface SnapData {
   profiles?: [number, import('../sim/people.js').Profile][];
   survival?: unknown;
   clans?: unknown;
+  territory?: unknown;
   horses?: unknown;
   lore?: unknown;
   weather?: unknown;
@@ -90,6 +92,7 @@ export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => v
   for (const [id, p] of s.profiles ?? []) { if (s.v === 1 && p.partner === 0) p.partner = -1; w.profiles.set(id, p); }
   w.survival.load(s.survival);
   w.clans.load(s.clans);
+  w.territory.load(s.territory);
   w.horses.load(s.horses);
   w.lore.load(s.lore);
   w.weather.load(s.weather);

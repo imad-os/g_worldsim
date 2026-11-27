@@ -21,7 +21,7 @@ w.land.setup();
 w.zombies.perNight = ZB;
 const acc = new Map<string, { t: number; max: number; n: number }>();
 const wrap = (o: any, name: string, label: string) => { const f = o[name].bind(o); o[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { const d = performance.now() - t0, r = acc.get(label) ?? { t: 0, max: 0, n: 0 }; r.t += d; r.n++; if (d > r.max) r.max = d; acc.set(label, r); } }; };
-for (const k of ['brain', 'life', 'weather', 'gear', 'survival', 'tasks', 'rules', 'clans', 'family', 'quests', 'lore', 'influence', 'zombies', 'animals', 'horses', 'replays']) { const o = (w as any)[k]; for (const fn of ['think', 'tick', 'update']) if (typeof o?.[fn] === 'function') wrap(o, fn, k + '.' + fn); }
+for (const k of ['brain', 'life', 'weather', 'gear', 'survival', 'tasks', 'rules', 'clans', 'territory', 'family', 'quests', 'lore', 'influence', 'zombies', 'animals', 'horses', 'replays']) { const o = (w as any)[k]; for (const fn of ['think', 'tick', 'update']) if (typeof o?.[fn] === 'function') wrap(o, fn, k + '.' + fn); }
 { const sv = (w as any).survival; for (const fn of ['regrow', 'ownPlans', 'rotDrops', 'quarter', 'autoHeal', 'regrowHerbs', 'init']) if (typeof sv[fn] === 'function') wrap(sv, fn, 'sv.' + fn); wrap(sv.homes, 'hourly', 'homes.hourly'); for (const fn of ['goapPass','pickLeader','watch']) if (typeof sv[fn] === 'function') wrap(sv, fn, 'sv.' + fn); }
 for (const m of (w as any).maps) { wrap(m.phys, 'step', 'phys.step'); wrap(m.phys, 'rebuildDirty', 'phys.rebuild'); wrap(m.grid, 'rebuild', 'grid'); }
 const perHalfDay = 20 * 3600 * 12 / 30;

@@ -11,6 +11,7 @@ import { randomProfile, PLAYER_AGE, type Profile } from './people.js';
 import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Clans } from './clans.js';
+import { Territory } from './territory.js';
 import { Family } from './family.js';
 import { Survival } from './survival.js';
 import { Gear } from './gear.js';
@@ -115,6 +116,8 @@ export class World {
   readonly purpose: Purpose;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
+  /** Clan camps as territory: visitors, intruders warned then driven out, enemy camps kept clear of (sim/territory.ts). */
+  readonly territory: Territory;
   /** Families: who is family, little ones and who looks after them (sim/family.ts). */
   readonly family: Family;
   /** A person says a line aloud (the planner sets it: viewers, memory of those near). */
@@ -177,6 +180,7 @@ export class World {
     this.influence = new Influences(this);
     this.purpose = new Purpose(this);
     this.clans = new Clans(this);
+    this.territory = new Territory(this);
     this.family = new Family(this);
     this.zombies = new Zombies(this);
     this.rules = new Rules(this);
@@ -546,7 +550,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
-    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); }
+    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.territory.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); }
     this.zombies.update();
     this.animals.update();
     this.horses.update();

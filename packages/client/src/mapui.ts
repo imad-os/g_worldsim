@@ -14,6 +14,8 @@ export interface MapPlaces {
   camp: [number, number] | null; fires: [number, number][]; home: [number, number] | null; huts: [number, number, number, string][];
   store: [number, number] | null; portals: [number, number, string][]; npcs: [number, number, string][]; horses: [number, number, string][]; wild?: [number, number, number][];
   people: [number, number][]; players: [number, number, string][];
+  /** Clan camps: [x, y, radius m, clan name, 0 mine | 1 open | 2 closed to me]. */
+  clanCamps?: [number, number, number, string, number][];
 }
 export interface MapData { map: { id: string; name: string; w: number; h: number; tiles?: Uint8Array }; maps: [string, string][]; me: [number, number, number] | null; places: MapPlaces; marks: MapMark[] }
 
@@ -212,6 +214,15 @@ export class MapScreen implements Grid {
       if (label) { g.font = `600 ${lf}px sans-serif`; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.strokeText(label, X(x), Y(y) + size * 0.85); g.fillStyle = col; g.fillText(label, X(x), Y(y) + size * 0.85); g.fillStyle = '#fff'; }
     };
     const dot = (x: number, y: number, r: number, fill: string, line = 'rgba(0,0,0,0.6)') => { g.beginPath(); g.arc(X(x), Y(y), r, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5; g.strokeStyle = line; g.stroke(); };
+    // Clan camps: a ring each (mine green, open grey, closed to me red and dashed) with the clan's name on top.
+    for (const [x, y, r, name, st] of p.clanCamps ?? []) {
+      g.beginPath(); g.arc(X(x), Y(y), r * k, 0, Math.PI * 2);
+      g.fillStyle = st === 0 ? 'rgba(110, 220, 130, 0.10)' : st === 2 ? 'rgba(255, 80, 70, 0.14)' : 'rgba(220, 220, 210, 0.07)'; g.fill();
+      g.lineWidth = 2; g.strokeStyle = st === 0 ? '#7fe08f' : st === 2 ? '#ff6a5c' : 'rgba(230, 225, 210, 0.6)';
+      if (st === 2) g.setLineDash([8, 6]);
+      g.stroke(); g.setLineDash([]);
+      icon(x, y - r, '', fs, (st === 2 ? '⚔ ' : '') + name, st === 0 ? '#bff5c8' : st === 2 ? '#ffb3aa' : '#e8e2d2');
+    }
     // Huts (every one built: mine gold, someone's brown, free ones grey), then the camp and its fires, the store.
     for (const [x, y, own, who] of p.huts) {
       const s = Math.max(fs * 0.55, 5 * k);
