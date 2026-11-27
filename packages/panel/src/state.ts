@@ -23,7 +23,7 @@ export const S = {
   people: [] as Person[], peopleAt: 0,
   profiles: [] as Profile[],
   ov: null as Overview | null, ovAt: 0,
-  hist: [] as number[][], histAt: 0,
+  hist: [] as number[][], histAt: 0, histRange: '',
   names: new Map<number, string>(),
 };
 
@@ -43,8 +43,12 @@ export async function overview(force = false): Promise<Overview> {
   if (force || !S.ov || Date.now() - S.ovAt > 2500) { S.ov = await cmd<Overview>({ cmd: 'overview' }); S.ovAt = Date.now(); }
   return S.ov;
 }
-export async function history(): Promise<number[][]> {
-  if (Date.now() - S.histAt > 30000) { S.hist = await cmd<number[][]>({ cmd: 'history' }); S.histAt = Date.now(); }
+/** Chart rows of a time range ('1d' .. 'all'); a server from before ranges answers its last 24 h whatever the range. */
+export async function history(range = '1d', force = false): Promise<number[][]> {
+  if (force || range !== S.histRange || Date.now() - S.histAt > (range === '1d' ? 30000 : 120000)) {
+    const r = await cmd<number[][] | { rows: number[][] }>({ cmd: 'history', range: range as '1d' });
+    S.hist = Array.isArray(r) ? r : r.rows; S.histAt = Date.now(); S.histRange = range;
+  }
   return S.hist;
 }
 export const who = (id: unknown) => S.names.get(Number(id)) ?? `#${Number(id) & 0xffff}`;
@@ -83,7 +87,33 @@ export function describe(e: { kind: string; data: Record<string, unknown> }): st
     case 'give': return `${who(d.id)} gave ${d.n ?? 1} ${d.item} to ${who(d.to)}${d.trade ? ' for ' + d.trade : ''}`;
     case 'hunt': return `${(d.id as number) >= 0 ? who(d.id) : 'Someone'} hunted a ${d.animal ?? 'animal'} in ${d.map}`;
     case 'land': return `The land changed in ${d.map}: ${d.what}`;
-    default: return `${e.kind}: ${JSON.stringify(d).slice(0, 120)}`;
+    case 'reward': return `${who(d.id)} earned ${d.xp} xp for “${d.text}”${d.from && d.from !== 'myself' ? ' (from ' + d.from + ')' : ''}`;
+    case 'levelup': return `${who(d.id)} reached level ${d.level}`;
+    case 'quest': return `${who(d.id)} took the quest “${d.title}” from ${d.npc}`;
+    case 'questDone': return `${who(d.id)} finished the quest “${d.title}” (+${d.xp} xp)`;
+    case 'questReady': return `${who(d.id)} can hand in “${d.title ?? 'a quest'}”`;
+    case 'clan': return `${who(d.leader)} founded the clan ${d.clan}${d.map ? ' in ' + d.map : ''}`;
+    case 'clanJoin': return `${who(d.id)} joined ${d.clan}${d.n ? ' (' + d.n + ' members)' : ''}`;
+    case 'clanLeave': return `${who(d.id)} left ${d.clan}${d.why ? ' (' + d.why + ')' : ''}`;
+    case 'clanSwitch': return `${who(d.id)} moved from ${d.from} to ${d.clan}`;
+    case 'clanOrder': return `${who(d.id)} (${d.clan}) ordered: “${d.text}”`;
+    case 'clanLeader': return `${who(d.id)} leads ${d.clan ?? 'the clan'} now`;
+    case 'clanVoteStart': return `${d.clan ?? 'A clan'} is voting for a leader`;
+    case 'clanVote': return `${d.clan ?? 'A clan'} voted: ${d.winner !== undefined ? who(d.winner) : 'done'}`;
+    case 'duel': return `${who(d.a)} and ${who(d.b)} came to blows${d.why ? ' (' + d.why + ')' : ''}`;
+    case 'duelEnd': return `${who(d.a)} and ${who(d.b)} stopped fighting${(d.winner as number) >= 0 ? ': ' + who(d.winner) + ' won' : ''}`;
+    case 'guard': return `${who(d.id)} keeps watch tonight in ${d.map}`;
+    case 'lyingIn': return `${who(d.id)} stays home ${d.days} days with the new baby`;
+    case 'divorce': return `${who(d.a)} and ${who(d.b)} split up`;
+    case 'grown': return `${who(d.id)} has grown up`;
+    case 'leftHome': return `${who(d.id)} left the family home`;
+    case 'leader': return `${who(d.id)} leads the camp in ${d.map ?? 'town'} now`;
+    case 'dream': return `${who(d.id)}'s dream came true${d.kind ? ' (' + d.kind + ')' : ''}`;
+    case 'explore': return `${who(d.id)} explored ${d.map ?? 'the land'}`;
+    case 'tamed': return `${who(d.id)} tamed a horse`;
+    case 'bitten': return `${who(d.id)} was bitten`;
+    case 'flee': return `${who(d.id)} ran from danger`;
+    default: return `${e.kind}: ${Object.entries(d).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ').slice(0, 120)}`;
   }
 }
 /** Event kinds grouped for the filters, with a colour each. */
@@ -92,9 +122,10 @@ export const KINDS: Record<string, [string, string]> = {
 };
 export function groupOf(kind: string): string {
   if (['birth', 'death', 'partner', 'pregnant', 'spawn', 'remove'].includes(kind)) return 'life';
-  if (['talk', 'say', 'give', 'rule'].includes(kind)) return 'social';
-  if (['build', 'craft', 'store', 'loot', 'repair', 'heal', 'task', 'camp', 'hunt'].includes(kind)) return 'work';
-  if (['zombie', 'zombies', 'fight', 'replay'].includes(kind)) return 'danger';
+  if (['divorce', 'grown', 'leftHome', 'lyingIn', 'dream'].includes(kind)) return 'life';
+  if (['talk', 'say', 'give', 'rule', 'clan', 'clanJoin', 'clanLeave', 'clanSwitch', 'clanOrder', 'clanLeader', 'clanVote', 'clanVoteStart', 'leader'].includes(kind)) return 'social';
+  if (['build', 'craft', 'store', 'loot', 'repair', 'heal', 'task', 'camp', 'hunt', 'reward', 'levelup', 'quest', 'questDone', 'questReady', 'explore', 'tamed', 'guard'].includes(kind)) return 'work';
+  if (['zombie', 'zombies', 'fight', 'replay', 'duel', 'duelEnd', 'bitten', 'flee'].includes(kind)) return 'danger';
   if (['travel', 'arrive', 'teleport'].includes(kind)) return 'travel';
   if (['admin', 'ruleSet', 'supply', 'land'].includes(kind)) return 'owner';
   return 'other';

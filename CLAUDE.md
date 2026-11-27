@@ -222,7 +222,8 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   with a bottom bar).
 - Hosted on GitHub Pages: https://imad-os.github.io/g_worldsim/panel/ (server address typed once, or `?server=<link>`), and by the
   server itself at `/panel/`. It talks only over the WebSocket admin protocol, so ngrok's browser warning page never shows.
-- Server reads for it: `overview`, `history` (one row a minute, 24 h, memory only), `mapTiles`, `live`, `people`, `replays`,
+- Server reads for it: `overview`, `history { range: 1d|1w|1m|6m|1y|all }` (`ops/history.ts`, SQLite table `history`: minutes 2 days, hours forever,
+  at most 360 points a range; no range = the old last-24-h array; panel `charts.ts rangeSeg` = one All / 1y / 6m / 1m / 1w / 1d choice for every chart, `ws_chartRange`), `mapTiles`, `live`, `people`, `replays`,
   `timeline { kind }`. Read-only admin commands are NOT written to the timeline (`READS` / `READ_BARE` in app.ts); changes are.
 - Dashboard widgets chosen in Settings (`ws_dash` in localStorage), theme / accent / compact / help buttons per browser.
 - Proof: `ADMIN_TOKEN=... node tools/panel-proof.mjs <server> <outdir>` (desktop + phone screenshots of every page;

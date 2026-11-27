@@ -36,7 +36,7 @@ function drawJob(j: Job | null): void {
 async function info(): Promise<void> {
   try {
     const i = await cmd<Info>({ cmd: 'serverInfo' });
-    const rows: [string, string][] = [['Code', `${esc(i.git.commit || '?')} on ${esc(i.git.branch || '?')}${i.git.subject ? ' · ' + esc(i.git.subject) : ''}`],
+    const rows: [string, string][] = [['Code', `${esc(i.git.commit || '?')} on ${esc(i.git.branch || '?')}${i.git.subject ? `<small class="subj" title="${esc(i.git.subject)}">${esc(i.git.subject.split(/[.:;]\s/)[0]!.slice(0, 90))}${i.git.subject.length > 90 ? '…' : ''}</small>` : ''}`],
       ['Local changes', i.git.changed.length ? `<span class="bad">${i.git.changed.length}</span> <span class="dim small">${esc(i.git.changed.slice(0, 6).join(', '))}${i.git.changed.length > 6 ? '…' : ''}</span>` : 'none'],
       ['Process', `pid ${i.pid} · Node ${esc(i.node)} · ${esc(i.platform)}`], ['Database', `${mb(i.dbBytes)} · ${i.backups} backup(s)`]];
     if (i.restorePending) rows.push(['Restore', '<span class="bad">waiting for the next start</span>']);

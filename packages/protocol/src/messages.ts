@@ -127,7 +127,7 @@ export type AdminCmd =
   | { cmd: 'chat'; id: number; text: string }
   // Control panel 2 (2026-11-20): the dashboard's overview and history, a map's tiles, what moves on a map, everyone who ever lived, past events.
   | { cmd: 'overview' }
-  | { cmd: 'history' }
+  | { cmd: 'history'; range?: '1d' | '1w' | '1m' | '6m' | '1y' | 'all' }
   | { cmd: 'mapTiles'; map: string }
   | { cmd: 'huts'; map?: string }
   | { cmd: 'lore' }

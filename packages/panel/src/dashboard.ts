@@ -1,6 +1,6 @@
 import type { ServerStats } from '@worldsim/protocol';
 import { cmd, stats } from './api.js';
-import { lineChart, bars, ring } from './charts.js';
+import { lineChart, bars, ring, rangeSeg, chartRange } from './charts.js';
 import { help } from './help.js';
 import { LiveMap } from './livemap.js';
 import { card, on, setHtml, type Screen } from './screen.js';
@@ -105,7 +105,7 @@ async function loadAll(first = false): Promise<void> {
     if (sel) sel.value = mapId;
     if (first) { await people(); lm.names = S.names; await lm.show(mapId); } else await lm.refresh(mapId);
   }
-  if (first || tick % 6 === 0) { await history(); charts(); }
+  if (first || tick % 6 === 0) { await history(chartRange()); charts(); }
   if (dashOn('feed') && (first || tick % 2 === 0)) await feed();
 }
 
@@ -123,9 +123,9 @@ export const dashboard: Screen = {
       ${w('acts', card('What people are doing', `<div id="dActs"></div>`, { help: help('acts') }))}
       ${w('feed', card('Latest events', `<div id="dFeed" class="feed"></div>`, { help: help('feed'), tools: `<a class="btn sm ghost" href="#/events">All</a>` }))}
       </div>` : ''}
-      ${w('needs', card('How people are', `<div id="dNeeds" class="chartbox"></div>`, { help: help('needsChart') }))}
-      ${w('pop', card('Population', `<div id="dPop" class="chartbox"></div>`, { help: help('popChart') }))}
-      ${w('server', card('Server load', `<div id="dSrv" class="chartbox"></div>`, { help: help('kpiServer') }))}
+      ${w('needs', card('How people are', `<div id="dNeeds" class="chartbox"></div>`, { help: help('needsChart'), tools: rangeSeg() }))}
+      ${w('pop', card('Population', `<div id="dPop" class="chartbox"></div>`, { help: help('popChart'), tools: rangeSeg() }))}
+      ${w('server', card('Server load', `<div id="dSrv" class="chartbox"></div>`, { help: help('kpiServer'), tools: rangeSeg() }))}
       ${w('maps', card('Maps', `<div id="dMaps"></div>`, { help: help('mapsTable'), cls: 'span2' }))}
       <p class="hint">${icon('settings')} Choose what this page shows in <a href="#/settings">Settings</a>.</p>
     </div>`;
@@ -143,4 +143,5 @@ export const dashboard: Screen = {
   leave() { lm = null; },
 };
 window.addEventListener('resize', () => lm?.draw());
+window.addEventListener('ws-range', () => { if (document.getElementById('dNeeds') || document.getElementById('dPop') || document.getElementById('dSrv')) void history(chartRange(), true).then(charts).catch(() => {}); });
 void ago;

@@ -20,4 +20,4 @@ export function on<K extends keyof HTMLElementEventMap>(sel: string, ev: K, fn: 
 export const val = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
 export const setHtml = (id: string, html: string) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 export const card = (title: string, body: string, opts: { help?: string; id?: string; cls?: string; tools?: string } = {}) =>
-  `<section class="card ${opts.cls ?? ''}"${opts.id ? ` id="${opts.id}"` : ''}><header><h3>${title}</h3>${opts.tools ?? ''}${opts.help ?? ''}</header><div class="card-b">${body}</div></section>`;
+  `<section class="card ${opts.cls ?? ''}"${opts.id ? ` id="${opts.id}"` : ''}><header><h3>${title}${opts.help ?? ''}</h3>${opts.tools ?? ''}</header><div class="card-b">${body}</div></section>`;

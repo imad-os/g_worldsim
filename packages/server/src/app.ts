@@ -35,6 +35,7 @@ import { compileRule, MAX_RULES, Rules, type Rule } from './sim/rules.js';
 import { Control } from './ops/control.js';
 import { Agent } from './ops/agent.js';
 import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
+import { History } from './ops/history.js';
 import { ErrorLog } from './ops/errors.js';
 import { Chats } from './ai/chatroom.js';
 import { MapView } from './ops/mapview.js';
@@ -152,6 +153,7 @@ export class App {
     Control.applyPendingRestore(dataDir, dbFile, this.log); // a backup chosen in the panel replaces the database (before it opens)
     this.db = new Db(dbFile);
     this.errors.attach(this.db);
+    this.history = new History(this.db);
     this.errors.onAdd = (r) => this.net?.notifyAdmins('error', { id: r.id, level: r.level, source: r.source, msg: r.msg, n: r.n, last: r.last });
     this.control = new Control(ROOT, dataDir, dbFile, () => this.db, this.log);
     this.snaps = new Snapshots(this.db, c.snapshotsKept);
@@ -762,16 +764,15 @@ export class App {
     };
   }
 
-  /** The dashboard's history: one sample a minute, the last 24 hours (memory only: starts again with the server). */
-  readonly hist: number[][] = [];
+  /** The dashboard's history: one sample a minute (2 days), one an hour forever (ops/history.ts). */
+  history!: History;
   sampleHistory(): void {
     const w = this.world, e = w.e;
     let n = 0, hu = 0, th = 0, ti = 0, lo = 0, hp = 0;
     for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Agent && e.map[i] !== NO_MAP) { n++; hu += e.hunger[i]!; th += e.thirst[i]!; ti += e.tired[i]!; lo += e.lonely[i]!; hp += e.hp[i]!; }
     const d = Math.max(1, n), m = this.monitor.sample(), r = (v: number) => Math.round(v * 10) / 10;
     // [time ms, game sec, people, hunger, thirst, tired, lonely, hp, zombies, animals, ticks/s, cpu %, ram MB]
-    this.hist.push([Date.now(), Math.round(w.gameSec), n, r(hu / d), r(th / d), r(ti / d), r(lo / d), r(hp / d), w.zombies.count(), w.animals.count(), Math.round(this.loop.ticksLastSec), Math.round(m.cpuPct), Math.round(m.rssMb)]);
-    if (this.hist.length > 1440) this.hist.splice(0, this.hist.length - 1440);
+    this.history.add([Date.now(), Math.round(w.gameSec), n, r(hu / d), r(th / d), r(ti / d), r(lo / d), r(hp / d), w.zombies.count(), w.animals.count(), Math.round(this.loop.ticksLastSec), Math.round(m.cpuPct), Math.round(m.rssMb)]);
   }
   /** The dashboard: who is alive, how they are, what each map holds. */
   overview(): Record<string, unknown> {
@@ -1544,7 +1545,7 @@ export class App {
       case 'backupRestore': { this.ownerOnly(owner); this.control.scheduleRestore(String(c.file)); return this.restartSoon(who); }
       case 'backupDelete': this.ownerOnly(owner); this.control.deleteBackup(String(c.file)); return this.control.backups();
       case 'overview': return this.overview();
-      case 'history': return this.hist;
+      case 'history': return c.range ? this.history.get(String(c.range)) : this.history.recent.slice(-1440); // no range = the old answer (last 24 h of minutes)
       case 'replays': return this.replayList();
       case 'lore': return w.lore.info(); // the Society page: what the people learned and fear
       case 'huts': return { huts: w.survival.homes.where(c.map ? mapOf(c.map) : undefined) };

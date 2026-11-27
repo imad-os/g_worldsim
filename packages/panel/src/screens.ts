@@ -1,7 +1,7 @@
 import type { ServerStats } from '@worldsim/protocol';
 import { RECIPES_ALL, CATEGORIES, WEAPONS, DEFENCE, PLACEABLE, ANIMAL_NAMES } from '@worldsim/protocol';
 import { cmd, stats, serverAddress, onServer, isStaff } from './api.js';
-import { lineChart } from './charts.js';
+import { lineChart, rangeSeg, chartRange } from './charts.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, type Screen } from './screen.js';
 import { S, overview, people, history, describe, groupOf, KINDS } from './state.js';
@@ -482,8 +482,8 @@ export const server: Screen = {
   render() {
     return `<div class="grid2">${card('Live', `<div id="sLive" class="stat"></div>`)}
       ${card('Internet link', `<div id="sTun" class="stat"></div>${row('Provider', `<select id="sProv"><option value="ngrok">ngrok</option><option value="cloudflare">Cloudflare (named)</option><option value="cloudflare-quick">Cloudflare (quick)</option><option value="tailscale">Tailscale</option><option value="none">None (this PC only)</option></select> <button class="btn sm" id="sSwitch">Switch</button>`)}`, { help: help('tunnel') })}
-      ${card('Speed of the simulation', `<div id="sChart" class="chartbox"></div>`, { cls: 'span2' })}
-      ${card('Memory', `<div id="sRam" class="chartbox"></div>`, { cls: 'span2' })}
+      ${card('Speed of the simulation', `<div id="sChart" class="chartbox"></div>`, { cls: 'span2', tools: rangeSeg() })}
+      ${card('Memory', `<div id="sRam" class="chartbox"></div>`, { cls: 'span2', tools: rangeSeg() })}
       ${card('This panel', `<div class="stat"><div class="statrow"><span>Server address</span><b>${esc(serverAddress())}</b></div><div class="statrow"><span>Panel opened from</span><b>${onServer ? 'the server itself' : esc(location.host)}</b></div>
         <div class="statrow"><span>Panel on GitHub</span><b><a href="https://imad-os.github.io/g_worldsim/panel/" target="_blank" rel="noopener">imad-os.github.io/g_worldsim/panel</a></b></div></div>`)}
       ${card('Save', `<button class="btn" id="sSnap">Save the world now</button>`, { help: help('snapshot') })}
@@ -499,9 +499,7 @@ export const server: Screen = {
   leave() { ctlLeave(); },
   async refresh() {
     void ctlRefresh();
-    const h = await history(), t = h.map((r) => r[0]!);
-    setHtml('sChart', lineChart([{ name: 'Ticks/s', color: '#22c55e', values: h.map((r) => r[10]!) }, { name: 'CPU %', color: '#f59e0b', values: h.map((r) => r[11]!) }], t, { min: 0 }));
-    setHtml('sRam', lineChart([{ name: 'RAM MB', color: '#8b5cf6', values: h.map((r) => r[12]!) }], t, { min: 0 }));
+    await srvCharts();
   },
   onStats(s: ServerStats) {
     setHtml('sLive', [['Ticks per second', `${s.tps.toFixed(0)}`], ['Tick time', `${s.tickMsAvg.toFixed(2)} ms (p95 ${s.tickMsP95.toFixed(2)}, max ${s.tickMsMax.toFixed(1)})`], ['CPU', `${s.cpuPct.toFixed(0)} %`],
@@ -511,6 +509,13 @@ export const server: Screen = {
     if (tn) setHtml('sTun', `<div class="statrow"><span>Provider</span><b>${esc(tn.provider)}</b></div><div class="statrow"><span>State</span><b class="${tn.state === 'up' ? 'ok' : 'bad'}">${esc(tn.state)}${tn.error ? ': ' + esc(tn.error) : ''}</b></div><div class="statrow"><span>Address</span><b>${tn.url ? `<a href="${esc(tn.url)}/panel/" target="_blank" rel="noopener">${esc(tn.url)}</a>` : '-'}</b></div>`);
   },
 };
+
+async function srvCharts(force = false): Promise<void> {
+  const h = await history(chartRange(), force), t = h.map((r) => r[0]!);
+  setHtml('sChart', lineChart([{ name: 'Ticks/s', color: '#22c55e', values: h.map((r) => r[10]!) }, { name: 'CPU %', color: '#f59e0b', values: h.map((r) => r[11]!) }], t, { min: 0 }));
+  setHtml('sRam', lineChart([{ name: 'RAM MB', color: '#8b5cf6', values: h.map((r) => r[12]!) }], t, { min: 0 }));
+}
+window.addEventListener('ws-range', () => { if (document.getElementById('sChart')) void srvCharts(true).catch(() => {}); });
 
 // ------------------------------------------------------------ settings (this device)
 export const settings: Screen = {
