@@ -50,6 +50,12 @@ await scene('town-third', 'town', 128, 128, 'third', 0.7);
 await scene('woods-top', 'woods', 96, 96, 'top', 0);
 await scene('woods-third', 'woods', 96, 96, 'third', 0.7);
 await scene('woods-first', 'woods', 96, 96, 'first', 2.4);
+if (process.env.NEWMAPS) { // the maps added 2026-11-27 (Ridgeford, Black Fir Forest, Willow Farms)
+  await scene('ridge-third', 'ridge', 96, 96, 'third', 0.7);
+  await scene('firs-third', 'firs', 96, 96, 'third', 0.7);
+  await scene('farms-top', 'farms', 66, 92, 'top', 0);
+  await scene('farms-third', 'farms', 66, 92, 'third', 0.7);
+}
 fs.writeFileSync(`${out}/${label}-${tier}.json`, JSON.stringify(rows, null, 1));
 await adm({ cmd: 'agentMove', id: me, map: 'town', x: 128, y: 128 });
 await browser.close(); ws.close();

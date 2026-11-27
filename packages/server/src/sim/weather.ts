@@ -97,6 +97,13 @@ export class Weather {
   }
   /** Is it cold enough on map m for the cold to hurt someone standing still? */
   cold(m = 0): boolean { return this.cfg.cold && this.temp(m) < COLD_BELOW; }
+  /** The lowest temperature (°C) of the coming hours on map m: now and every 2 hours on, with today's swing and the spell's offset. */
+  lowSoon(m = 0, hours = 8): number {
+    const h = this.w.brain.hour(), base = this.mean() + this.off + (this.w.wild(m) ? -1.5 : 0);
+    let low = Infinity;
+    for (let d = 0; d <= hours; d += 2) low = Math.min(low, base + this.amp * Math.cos((2 * Math.PI * (h + d - 15)) / 24));
+    return low;
+  }
   /** The lowest temperature of the coming hours (planning a fire): now and 6 hours on, with today's swing. */
   coldSoon(m = 0, hours = 6): boolean {
     if (!this.cfg.cold) return false;

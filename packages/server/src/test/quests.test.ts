@@ -10,12 +10,12 @@ const calm = (w: World, ids: number[]) => { for (const i of ids) { w.e.hunger[i]
 /** Put slot i right next to an NPC. */
 const nextTo = (w: World, i: number, key: string) => { const j = w.quests.npcSlot(key); w.place(i, w.e.map[j]!, w.e.x[j]! + 1.2, w.e.y[j]!); };
 
-test('quests: 5 NPCs stand in town (not people); a player takes, does and hands in quests in order', () => {
+test('quests: the NPCs stand in Old Town and Ridgeford (not people); a player takes, does and hands in quests in order', () => {
   const w = mk('quest-player');
   w.populate(); w.land.setup(); w.quests.setup();
   const e = w.e, town = w.mapIndex.get('town')!;
   assert.equal(w.quests.npcs.size, NPCS.length);
-  for (const [, id] of w.quests.npcs) { const j = e.slot(id); assert.equal(e.kind[j], Kind.Npc); assert.equal(e.map[j], town); assert.equal(w.profiles.has(id), false, 'an NPC is not a person'); }
+  for (const [k, id] of w.quests.npcs) { const j = e.slot(id), at = NPCS.find((n) => n.key === k)!.map; assert.equal(e.kind[j], Kind.Npc); assert.equal(e.map[j], at ? w.mapIndex.get(at) : town); assert.equal(w.profiles.has(id), false, 'an NPC is not a person'); }
   // Set up again (a restart): still 5, never 10.
   w.quests.setup();
   let n = 0; for (let i = 0; i < e.hi; i++) if (e.alive(i) && e.kind[i] === Kind.Npc) n++;
@@ -147,4 +147,46 @@ test('clans: an AI leader gives an order of the day and the members do it as a t
   assert.ok(ordered >= 1, `members took it (${ordered})`);
   const leaderName = w.profiles.get(cl.leader)!.name;
   assert.ok(people.some((i) => (w.profileOf(i)?.mind?.task as { from?: string } | undefined)?.from === leaderName), 'a task from the leader');
+});
+
+test('quests: after the first 10, Mara sends you north; Ridgeford\'s teachers give quests 12-20; an AI person takes the road there', () => {
+  const w = mk('quest-ridge');
+  w.populate(); w.land.setup(); w.quests.setup();
+  const e = w.e, town = w.mapIndex.get('town')!, ridge = w.mapIndex.get('ridge')!;
+  assert.equal(QUESTS.length, 20);
+  for (const k of ['mayor', 'healer', 'farmer', 'ranger', 'builder']) assert.equal(w.quests.npcMap(k), ridge, `${k} in Ridgeford`);
+  // Every quest's giver exists, and the chain goes on in order.
+  for (const q of QUESTS) assert.ok(w.quests.npcSlot(q.npc) >= 0, `${q.id}: ${q.npc}`);
+  const pl = w.spawnPlayer(town, 60, 60); w.playerProfile(pl, 'walker');
+  const id = e.id(pl);
+  w.quests.state(id).done = QUESTS.slice(0, 10).map((q) => q.id);
+  nextTo(w, pl, 'guide');
+  const t = w.quests.talk(pl, 'guide');
+  assert.equal(t.quest, 'q11'); assert.equal(t.state, 'taken');
+  nextTo(w, pl, 'mayor');
+  assert.equal(e.map[pl], ridge);
+  w.quests.talk(pl, 'mayor');
+  assert.equal(w.quests.state(id).cur?.ready, true, 'meeting the mayor counts');
+  nextTo(w, pl, 'guide'); assert.equal(w.quests.talk(pl, 'guide').state, 'handed');
+  nextTo(w, pl, 'mayor'); assert.equal(w.quests.talk(pl, 'mayor').quest, 'q12', 'the mayor gives the next one');
+  // Herbs for the healer count from a real gather event.
+  w.quests.state(id).cur = { id: 'q13', n: 0, at: w.gameSec };
+  for (let k = 0; k < 3; k++) w.emit('gather', { id, what: 'herb', n: 1 });
+  assert.equal(w.quests.state(id).cur?.ready, true);
+  // Words find the teacher.
+  assert.equal((w.quests.constructor as unknown as { keyFrom: (s: string) => string }).keyFrom('talk to Yasmin'), 'healer');
+  assert.equal((w.quests.constructor as unknown as { keyFrom: (s: string) => string }).keyFrom('Elder Mara'), 'guide');
+  // An AI person in Old Town with q12 next walks the road to Ridgeford (travel open) and takes it.
+  w.travelOpen = true; w.land.block(false); w.zombies.perNight = 0;
+  const a = agentsOn(w, town).find((i) => !(e.flags[i]! & 32))!, A = e.id(a);
+  w.quests.state(A).done = QUESTS.slice(0, 11).map((q) => q.id);
+  for (const i of agentsOn(w, town)) w.tasks.stop(i);
+  w.gameSec += ((8 - w.brain.hour() + 24) % 24) * 3600;
+  assert.ok(w.quests.planFor(a), 'a task to Ridgeford');
+  let took = false;
+  w.listeners.push((x) => { if (x.kind === 'quest' && x.data.id === A && x.data.quest === 'q12') took = true; });
+  const end = w.gameSec + 8 * 3600;
+  while (w.gameSec < end && !took) { calm(w, [a]); w.step(); }
+  assert.ok(took, `took q12 in Ridgeford (map ${w.maps[e.map[a]!]?.def.id}, task ${JSON.stringify(w.profileOf(a)?.mind?.task?.text)})`);
+  assert.equal(e.map[a], ridge);
 });

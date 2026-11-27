@@ -1292,17 +1292,19 @@ export class Brain {
         // My own home (or my family's) first: people know where they live (imad 2026-11-25).
         const h = homes.homeOf(e.id(i));
         if (h && h.m === m && !this.mayStayOut(i, Math.hypot(homes.middle(h).x - e.x[i]!, homes.middle(h).y - e.y[i]!))) t = this.homeSpot(i); // anywhere on the map: outside is risky (only worn out or badly hurt and far)
-        // A cold night (sim/weather.ts): where the cold would still bite (no hut, or a hut without a bed and no warm clothes), by a burning fire instead.
-        if (w.weather.coldSoon(m, 8)) {
-          const here = t >= 0 ? w.weather.warmthAt(i, m, (t % W) + 0.5, ((t / W) | 0) + 0.5) : w.weather.warmthAt(i, m, e.x[i]!, e.y[i]!);
-          const worst = { ...here, drain: (COLD_BELOW - Math.min(COLD_BELOW, w.weather.mean() - 6)) * 2 * here.exposure };
-          if (worst.drain > 3) { const f = this.fireSpot(i, 260); if (f >= 0) t = f; }
-        }
         if (t < 0 && camp && Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!) < 120) {
           t = this.nearestSpot(this.shelterSpots[m]!, W, camp.x, camp.y, 14, rng.next() * 3, mine);
           if (t < 0) { const s = w.freeSpot(m, camp.x + rng.range(-2.5, 2.5), camp.y + rng.range(-2.5, 2.5), 8); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }
         }
         if (t < 0) t = this.nearestSpot(this.shelterSpots[m]!, W, e.x[i]!, e.y[i]!, 30, rng.next() * 6, mine);
+        // A cold night (sim/weather.ts): where the cold would still bite at the place picked (no hut, a ruin's floor, or a hut without a bed and no
+        // warm clothes), by a burning fire instead. Judged at the place they would sleep, not where they stand (standing by the fire, a ruin's open
+        // floor 6 m away looked fine and they froze there, 2026-11-27).
+        if (w.weather.coldSoon(m, 8)) {
+          const here = t >= 0 ? w.weather.warmthAt(i, m, (t % W) + 0.5, ((t / W) | 0) + 0.5) : w.weather.warmthAt(i, m, e.x[i]!, e.y[i]!);
+          const worst = { ...here, drain: (COLD_BELOW - Math.min(COLD_BELOW, w.weather.lowSoon(m, 8))) * 2 * here.exposure }; // the night's real low (the season's mean - 6 missed a snow spell)
+          if (worst.drain > 3) { const f = this.fireSpot(i, 260); if (f >= 0) t = f; }
+        }
         { // a small child sleeps next to the parent looking after them
           const g = this.guardian(i);
           if (g >= 0) { const s = w.freeSpot(m, e.x[g]! + rng.range(-1.5, 1.5), e.y[g]! + rng.range(-1.5, 1.5), 4); if (s) t = Math.floor(s.y) * W + Math.floor(s.x); }

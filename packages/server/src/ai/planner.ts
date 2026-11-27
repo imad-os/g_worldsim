@@ -723,7 +723,7 @@ export class Planner {
         + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '
         + '(put it in the camp\'s store), take {"what","times"} (from the store), loot {"times"} (search ruins), farm {} (plant berries), repair {} (mend a hut wall), destroy {"what": "hut" | "lamp" | "bed" | "palisade" | "fire" | "field" | ""} (pull down something YOU built, or whose owner is dead; never someone else\'s), '
-        + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}, npc {"what": "guide" | "smith" | "hunter" | "warden" | "registrar"} (walk to a town teacher and talk: take or hand in a quest), '
+        + 'heal {"who"}, give {"who","what"}, trade {"who","what","get"}, npc {"what": "guide" | "smith" | "hunter" | "warden" | "registrar" | "mayor" | "healer" | "farmer" | "ranger" | "builder"} (walk to a teacher and talk: take or hand in a quest; the last five live in Ridgeford), '
         + 'clan {"what": "join <clan name>" | "quit" | "found" | "vote" | "war <clan name>" | "peace <clan name>", "who"} (join walks to its leader and asks; found = at Odile the registrar; vote for "who" in an election). If a request needs something you have no skill for, combine these skills into a plan. '
         + 'Use "me" for the one speaking to you and "found" for the person found by the step before. '
         + 'Example for "go find a wife": {"say":"Alright, I\'ll look around.","task":"find a wife","plan":[{"do":"find","what":"single woman"},'

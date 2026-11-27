@@ -243,7 +243,7 @@ test('life: in one game day 5 people drink, find food, sleep and talk; nobody di
     assert.ok(!t.isSolidAt(e.x[i]!, e.y[i]!) || t.get(Math.floor(e.x[i]!), Math.floor(e.y[i]!)) === 6, 'not inside a wall');
   }
   let items = 0;
-  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Item) items++;
+  for (let i = 0; i < e.hi; i++) if (e.kind[i] === Kind.Item && e.map[i]! < 2) items++; // town + woods (the farms bear more of their own)
   // The spawn cap is 84; fields people plant grow berries on top of it.
   assert.ok(items > 10 && items <= 100, `food on the maps ${items}`);
 });

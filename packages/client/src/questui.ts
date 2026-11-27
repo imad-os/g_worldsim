@@ -1,5 +1,5 @@
 /**
- * The TV's quest and clan screens (imad 2026-11-25): talking to a town teacher (NPC), the Quests page (the 10 tutorial quests:
+ * The TV's quest and clan screens (imad 2026-11-25): talking to a town teacher (NPC), the Quests page (20 quests, Old Town then Ridgeford:
  * done / in hand / next / locked, with progress), the Clan page (my clan, its leader and approval, members by respect, the
  * election with my ballot, join / quit / call a vote / found at the registrar / give my clan an order as its leader).
  * Kept apart from app.ts: app.ts only asks this module for a page, a pick, a server answer or a notice.

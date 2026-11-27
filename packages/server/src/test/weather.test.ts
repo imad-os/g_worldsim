@@ -126,6 +126,7 @@ test('a cold night: people sleep by the burning camp fire, not out in the frost;
   const fireTile = sv.fireNear(town, s.x0 + 2.5, s.y0 + 4.5, 3);
   assert.ok(fireTile >= 0);
   const fuel = () => { const k = `${town}:${fireTile}`; sv.fires.set(k, Math.max(sv.fires.get(k)!, w.gameSec + 10 * HOUR)); };
+  fuel(); // the clock was moved on to 20:00: the new fire has its fuel counted from now (else it reads as burnt down when they lie down)
   for (const i of people) { e.nextThink[i] = w.tick + 1; }
   let deaths = 0;
   w.listeners.push((ev) => { if (ev.kind === 'death' && ev.data.cause === 'cold') deaths++; });

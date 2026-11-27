@@ -48,10 +48,11 @@ export class Quests {
   setup(): void {
     const w = this.w, e = w.e;
     this.npcs.clear();
-    const m = w.startMap() >= 0 ? w.startMap() : 0;
-    const def = w.maps[m]?.def;
+    const start = w.startMap() >= 0 ? w.startMap() : 0;
+    const mapOf = (n: (typeof NPCS)[number]) => (n.map !== undefined ? w.mapIndex.get(n.map) ?? -1 : start);
     const used = new Set<number>();
     for (const n of NPCS) {
+      const m = mapOf(n);
       for (let i = 0; i < e.hi; i++) {
         if (!e.alive(i) || e.kind[i] !== Kind.Npc || e.sub[i] !== n.look || e.map[i] !== m || used.has(i)) continue;
         used.add(i); this.npcs.set(n.key, e.id(i)); e.tx[i] = e.x[i]!; e.ty[i] = e.y[i]!; e.speed[i] = 1;
@@ -59,11 +60,12 @@ export class Quests {
       }
     }
     for (let i = 0; i < e.hi; i++) if (e.alive(i) && e.kind[i] === Kind.Npc && !used.has(i)) w.remove(i, 'npc');
-    if (!def) return;
-    this.map = m;
-    const cx = def.w / 2, cy = def.h / 2;
+    if (!w.maps[start]) return;
+    this.map = start;
     for (const n of NPCS) {
-      if (this.npcs.has(n.key)) continue;
+      const m = mapOf(n), def = w.maps[m]?.def;
+      if (this.npcs.has(n.key) || !def) continue;
+      const cx = def.w / 2, cy = def.h / 2;
       const s = w.freeSpot(m, cx + n.dx, cy + n.dy, 200);
       if (!s) continue;
       const i = w.spawnNpc(m, s.x, s.y, n.look);
@@ -71,6 +73,16 @@ export class Quests {
     }
   }
   npcSlot(key: string): number { const id = this.npcs.get(key as NpcKey); return id === undefined ? -1 : this.w.e.slot(id); }
+  /** The map a teacher stands on (-1: not there). */
+  npcMap(key: string): number { const j = this.npcSlot(key); return j < 0 ? -1 : this.w.e.map[j]!; }
+  /** A teacher's key from words: the key itself, their name, or what they do ('' = none). */
+  static keyFrom(words: string): NpcKey | '' {
+    const t = words.toLowerCase().replace(/[^a-z ]/g, '');
+    const k = NPCS.find((n) => t.includes(n.key) || t.includes(n.name.toLowerCase().split(' ').find((x) => x.length > 3 && !['elder', 'warden', 'mayor', 'ranger', 'the'].includes(x)) ?? '#'));
+    if (k) return k.key;
+    return /elder|mara/.test(t) ? 'guide' : /joren|forge/.test(t) ? 'smith' : /sela|hunt/.test(t) ? 'hunter' : /bram|guard/.test(t) ? 'warden' : /odile|clan|regist/.test(t) ? 'registrar'
+      : /ines|ridge/.test(t) ? 'mayor' : /yasmin|heal|herb/.test(t) ? 'healer' : /tobias|farm|field/.test(t) ? 'farmer' : /idris|explor|horse/.test(t) ? 'ranger' : /nadia|build|wall/.test(t) ? 'builder' : '';
+  }
   /** The NPC key of an entity id ('' = not an NPC). */
   keyOf(id: number): NpcKey | '' { for (const [k, v] of this.npcs) if (v === id) return k; return ''; }
   /** Nearest NPC to slot i within r metres: its key, or ''. */
@@ -87,7 +99,7 @@ export class Quests {
   }
   list(): { key: NpcKey; id: number; name: string; x: number; y: number; map: string }[] {
     const e = this.w.e;
-    return [...this.npcs].map(([key, id]) => { const j = e.slot(id); return { key, id, name: npcDef(key)!.name, x: j >= 0 ? Math.round(e.x[j]!) : 0, y: j >= 0 ? Math.round(e.y[j]!) : 0, map: this.w.maps[this.map]?.def.id ?? '' }; });
+    return [...this.npcs].map(([key, id]) => { const j = e.slot(id); return { key, id, name: npcDef(key)!.name, x: j >= 0 ? Math.round(e.x[j]!) : 0, y: j >= 0 ? Math.round(e.y[j]!) : 0, map: this.w.maps[j >= 0 ? e.map[j]! : this.map]?.def.id ?? '' }; });
   }
 
   // ------------------------------------------------------------------ a person's quests
@@ -98,7 +110,7 @@ export class Quests {
   }
   /** The next quest to take (none = all done or one in hand). */
   /** Person i (an AI on the quest map, teachers standing) has a quest left to take: the camp plan's filler leaves them to it. */
-  wants(i: number): boolean { const e = this.w.e; return this.map >= 0 && this.npcs.size > 0 && e.map[i] === this.map && !!this.next(e.id(i)); }
+  wants(i: number): boolean { const e = this.w.e, q = this.map >= 0 && this.npcs.size > 0 ? this.next(e.id(i)) : undefined; return !!q && this.npcMap(q.npc) === e.map[i]; }
   next(id: number): QuestDef | undefined { const s = this.state(id); return s.cur ? undefined : QUESTS.find((q) => !s.done.includes(q.id)); }
   rows(id: number): QuestRow[] {
     const s = this.state(id), nx = this.next(id);
@@ -189,7 +201,7 @@ export class Quests {
     if (learned.length) parts.push(`Lessons you learned from the town's teachers (use them): ${learned.join(' ')}`);
     const q = s.cur ? questDef(s.cur.id) : undefined;
     if (q) parts.push(`Your quest now: "${q.title.en}" for ${npcDef(q.npc)!.name} (${s.cur!.ready ? 'done: go back to hand it in' : `${s.cur!.n}/${q.need[0]!.n}: ${q.ask.en}`}).`);
-    else if (this.next(this.w.e.id(i))) parts.push(`${npcDef(this.next(this.w.e.id(i))!.npc)!.name} in town has a quest for you (skill npc).`);
+    else if (this.next(this.w.e.id(i))) { const k = this.next(this.w.e.id(i))!.npc, m = this.npcMap(k); parts.push(`${npcDef(k)!.name} in ${this.w.maps[m]?.def.name ?? 'town'} has a quest for you (skill npc).`); }
     return parts.join('\n');
   }
 
@@ -206,14 +218,20 @@ export class Quests {
     if (this.map < 0 || !this.npcs.size) return;
     const hour = w.brain.hour();
     if (hour < 7 || hour > 19) return; // quests by day; nights are for the fire and the hut
-    if (w.zombies.count(this.map) > 0) return;
     for (let i = 0; i < e.hi; i++) {
-      if (e.kind[i] !== Kind.Agent || e.map[i] !== this.map || e.map[i] === NO_MAP) continue;
+      if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP) continue;
       const p = w.profileOf(i);
       if (!p || ageOf(p, w.gameSec, w.yearSec) < 14 || p.mind?.task || w.survival.busy(e.id(i))) continue;
+      const s = this.state(e.id(i)), q = s.cur ? questDef(s.cur.id) : this.next(e.id(i));
+      if (!q) continue;
+      // The giver on another map (Ridgeford's teachers): only with the roads open, never from the wild, with an hour's margin
+      // before dusk, and rarely (a day's trip, not a rush).
+      const gm = this.npcMap(q.npc), here = e.map[i]!, away = gm !== here;
+      if (gm < 0 || w.zombies.count(here) > 0 || w.zombies.count(gm) > 0) continue;
+      if (away && (!w.travelOpen || w.wild(here) || hour > 13 || !w.routeMaps(here, gm)?.length)) continue;
       if (e.hunger[i]! > 65 || e.thirst[i]! > 65 || e.tired[i]! > 80 || e.hp[i]! < 45) continue;
       if (w.clans.duelling(i) || w.rules.forbidden(i, 'npc')) continue;
-      if (!w.rng.chance(0.35)) continue;
+      if (!w.rng.chance(away ? 0.08 : 0.35)) continue;
       this.planFor(i);
     }
   }
