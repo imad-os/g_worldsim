@@ -205,7 +205,7 @@ function personHtml(d: Detail): string {
     <div class="ph-act">${d.alive ? `<button class="btn" id="xPlan">${icon('ai')} Plan now</button><button class="btn ghost" id="xMove">${icon('map')} To the town centre</button>${(d as { player?: string | null }).player ? '' : '<button class="btn danger ghost" id="xKill">Kill</button>'}` : ''}</div></div>
     <div class="tabs" id="xTabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${ptab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   let body = '';
-  if (ptab === 'overview') body = !d.alive ? card('Died', `<p>${p.died !== undefined ? gameTime(p.died) : ''}: ${esc(p.cause ?? '')}</p>`) : `<div class="grid2">
+  if (ptab === 'overview') body = !d.alive ? card('Died', `<p>${p.died !== undefined ? gameTime(p.died) : ''}: ${esc(p.cause ?? '')}</p>`) : `<div class="grid2 masonry">
     ${card('Needs', `<div class="needs"><span>Food</span>${meter(d.hunger)}<b>${Math.round(100 - d.hunger)}%</b><span>Water</span>${meter(d.thirst)}<b>${Math.round(100 - d.thirst)}%</b><span>Rest</span>${meter(d.tired)}<b>${Math.round(100 - d.tired)}%</b><span>Company</span>${meter(d.lonely)}<b>${Math.round(100 - d.lonely)}%</b><span>Health</span>${meter(d.hp, false)}<b>${Math.round((d.hp / (d.hpMax || 100)) * 100)}%</b></div>`)}
     ${card('Now', `<p><i class="dotc" style="background:${ACT_COLORS[d.act]}"></i> <b>${esc(ACTS[d.act] ?? '')}</b>${d.talkingTo ? ' with ' + esc(d.talkingTo) : ''}</p>
       ${d.goal ? goalHtml(d.goal, esc) : ''}${d.order ? `<p>Told to <b>${esc(d.order)}</b></p>` : ''}
@@ -373,7 +373,8 @@ function dreamHtml(d: DreamInfo): string {
 }
 function influenceHtml(v: number | undefined, log: { t: number; d: number; why: string }[] | undefined): string {
   if (v === undefined) return '<p class="dim">Unknown (the server is older).</p>';
-  const rows = (log ?? []).map((x) => `<div class="ev"><span class="tag ${x.d > 0 ? 'ok' : 'bad'}">${x.d > 0 ? '+' : ''}${x.d}</span> <span>${esc(x.why)}</span></div>`).join('');
+  const line = (x: { d: number; why: string }) => `<div class="ev"><span class="tag ${x.d > 0 ? 'ok' : 'bad'}">${x.d > 0 ? '+' : ''}${x.d}</span> <span>${esc(x.why)}</span></div>`, all = log ?? [];
+  const rows = all.slice(0, 4).map(line).join('') + (all.length > 4 ? `<details class="more" data-keep="inf"${openMore.has('inf') ? ' open' : ''}><summary>${all.length - 4} more</summary>${all.slice(4).map(line).join('')}</details>` : '');
   return `<p><b>${v}</b> / 100 ${v >= 40 ? '<span class="tag ok">can call a clan election</span>' : '<small class="dim">(40 needed to call a clan election)</small>'}</p><div class="meter good"><i style="width:${v}%"></i></div>${rows ? `<div class="feed">${rows}</div>` : '<p class="dim">Nothing done yet that changed it.</p>'}`;
 }
 function killsHtml(k: { animals: Record<string, number>; zombies: number; people: number; beaten: number } | undefined): string {

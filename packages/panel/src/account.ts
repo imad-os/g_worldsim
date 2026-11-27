@@ -2,7 +2,7 @@ import { account, cmd, setAccountName } from './api.js';
 import * as fb from './fb.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, type Screen } from './screen.js';
-import { ago, esc, gameTime, icon, meter, toast } from './util.js';
+import { ago, esc, gameTime, icon, meter, toast, paged } from './util.js';
 
 const err = (e: unknown) => toast(String((e as Error).message ?? e), 'err');
 
@@ -110,7 +110,7 @@ export const usersScreen: Screen = {
       return `<tr><td>${who}${uid === account?.uid ? ' <small class="dim">(you)</small>' : ''}</td><td>${esc(email)}</td><td>${sel}</td>
         <td>${a?.online ? '<span class="tag ok">playing</span>' : a?.lastSeen ? ago(a.lastSeen) : '-'}</td><td>${a?.tv ? icon('tv') : ''}</td></tr>`;
     });
-    setHtml('uList', (fsErr ? `<p class="bad small">${esc(fsErr)}</p>` : '') + (rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Player</th><th>Email</th><th>Role</th><th>Last seen</th><th>TV</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+    setHtml('uList', (fsErr ? `<p class="bad small">${esc(fsErr)}</p>` : '') + (rows.length ? paged('users', rows, 20, (rs) => `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Player</th><th>Email</th><th>Role</th><th>Last seen</th><th>TV</th></tr></thead><tbody>${rs.join('')}</tbody></table></div>`, () => void this.refresh!())
       : '<div class="empty">Nobody has signed in yet.</div>'));
     on('#uList select[data-link]', 'change', async (el) => {
       const s = el as HTMLSelectElement;

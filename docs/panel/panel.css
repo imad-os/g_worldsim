@@ -333,3 +333,11 @@ details.more{margin:4px 0}details.more>summary{cursor:pointer;color:var(--acc);f
   .tbl-wrap>.tbl:not(.pal) td.small{min-width:160px}
   .tbl-wrap{-webkit-overflow-scrolling:touch;scrollbar-width:thin}
 }
+/* cards of different heights packed in columns (person overview) instead of rows with holes */
+.grid2.masonry{display:block;columns:2 400px;column-gap:var(--gap)}.grid2.masonry>.card{break-inside:avoid;margin-bottom:var(--gap);display:block}
+@media (max-width:900px){
+  .ph-act{width:100%;flex-wrap:nowrap;overflow-x:auto}.ph-act .btn{min-height:34px;padding:6px 10px;font-size:13.5px}
+  .card-b .row{flex-wrap:wrap}.card-b .row>input{min-width:150px}.card-b .row>select{flex:1 1 150px;min-width:0}
+  .top h1{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}.top h1 .hq{vertical-align:-4px}
+  .toolbar .seg{max-width:100%;overflow-x:auto;flex-wrap:nowrap}.toolbar .seg button{white-space:nowrap}
+}

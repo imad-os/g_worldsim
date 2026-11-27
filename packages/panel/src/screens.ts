@@ -69,14 +69,7 @@ export const world: Screen = {
     });
     on('#wSup', 'click', async () => { try { const r = await cmd<{ n: number }>({ cmd: 'supply', map: val('wSupMap'), n: Number(val('wSupN') || 8) }); toast(`Dropped ${r.n} food`, 'ok'); } catch (e) { err(e); } });
     on('#wSnap', 'click', async () => { try { await cmd({ cmd: 'snapshot' }); toast('Saved', 'ok'); } catch (e) { err(e); } });
-    const s = stats;
-    if (s) {
-      (document.getElementById('wDiff') as HTMLInputElement).value = String(s.difficulty ?? 1); document.getElementById('wDiffV')!.textContent = String(s.difficulty ?? 1);
-      { const n = document.getElementById('wDiffN') as HTMLInputElement | null; if (n && document.activeElement !== n) n.value = String(s.difficulty ?? 1); }
-      (document.getElementById('wYear') as HTMLSelectElement).value = String(s.yearDays ?? 1);
-      (document.getElementById('wMax') as HTMLInputElement).value = String(s.maxPopulation ?? 14);
-      (document.getElementById('wSpeedN') as HTMLInputElement).value = String(s.speed);
-    }
+    fillWorld(stats);
     await this.refresh!();
   },
   async refresh() {
@@ -87,6 +80,7 @@ export const world: Screen = {
     this.onStats?.(stats!);
   },
   onStats(s: ServerStats) {
+    if (s && (document.getElementById('wMax') as HTMLInputElement | null)?.value === '') fillWorld(s);
     if (!s) return;
     setHtml('wClock', `${S.ov ? gameTime(S.ov.gameSec) : ''}<small>${s.paused ? 'Paused' : `Speed x${s.speed}${Math.abs(s.effSpeed - s.speed) > 0.5 ? ` (running x${s.effSpeed.toFixed(1)})` : ''}`}</small>`);
     for (const b of document.querySelectorAll<HTMLElement>('#wSpeed button')) b.classList.toggle('on', Number(b.dataset.v) === s.speed);
@@ -116,6 +110,15 @@ const ANIMAL_INFO: [string, string, string, string][] = [
   ['Rabbit', '12', 'Runs away', '1 meat, 1 leather'], ['Deer', '40', 'Runs away', '3 meat, 2 leather'], ['Boar', '55', 'Fights back when hurt (bite 7)', '3 meat, 1 leather, 1 claw'],
   ['Wolf', '45', 'Bites at night or when hurt (bite 9)', '1 meat, 1 leather, 2 claws'], ['Bear', '120', 'Attacks within 5 m (bite 16)', '5 meat, 3 leather, 3 claws'],
 ];
+/** The World page's fields from the server's numbers (also when they arrive after the page opened: they stayed empty on a fresh sign-in). */
+function fillWorld(s: ServerStats | null): void {
+  if (!s) return;
+  (document.getElementById('wDiff') as HTMLInputElement).value = String(s.difficulty ?? 1); document.getElementById('wDiffV')!.textContent = String(s.difficulty ?? 1);
+  { const n = document.getElementById('wDiffN') as HTMLInputElement | null; if (n && document.activeElement !== n) n.value = String(s.difficulty ?? 1); }
+  (document.getElementById('wYear') as HTMLSelectElement).value = String(s.yearDays ?? 1);
+  (document.getElementById('wMax') as HTMLInputElement).value = String(s.maxPopulation ?? 14);
+  (document.getElementById('wSpeedN') as HTMLInputElement).value = String(s.speed);
+}
 export const zombies: Screen = {
   title: 'Zombies & animals', icon: 'zombie', help: 'zombies', every: 4,
   render() {
@@ -429,7 +432,7 @@ export const players: Screen = {
   title: 'Players & TVs', icon: 'tv', help: 'players', every: 5,
   render() {
     return `<div class="grid2">${card('How TVs join', `${row('TVs join by themselves', `<label class="switch"><input type="checkbox" id="plAuto"><i></i></label>`, help('autoJoin'))}<p class="dim small" id="plAutoTxt"></p>`, { help: help('autoJoin') })}
-      ${card('TVs waiting', `<div id="plPairs"></div>`, { help: help('pairings'), id: 'pairCard' })}${card('Players', `<div id="plList"></div>`, { help: help('players'), cls: 'span2' })}</div>`;
+      ${card('TVs waiting', `<div id="plPairs"></div>`, { help: help('pairings'), id: 'pairCard' })}${card('Players', `<div id="plList"></div>`, { help: help('players'), cls: 'span2', tools: searchBox('pl') })}</div>`;
   },
   async mount() {
     on('#plAuto', 'change', async (el) => { try { const r = await cmd<{ on: boolean }>({ cmd: 'autoJoin', on: (el as HTMLInputElement).checked }); autoTxt(r.on); toast(r.on ? 'TVs now join by themselves' : 'Each TV now waits for your approval', 'ok'); } catch (e) { err(e); } });
@@ -442,8 +445,9 @@ export const players: Screen = {
     const focus = document.activeElement?.id;
     if (!focus?.startsWith('pn_')) setHtml('plPairs', pairs.length ? pairs.map((p) => `<div class="pair"><div><div class="code">${esc(p.code)}</div><small class="dim">${esc(p.dev || 'device')} · ${ago(p.at)}</small></div>
       <div class="row"><input id="pn_${esc(p.code)}" value="${esc(p.name)}" placeholder="Player name"><button class="btn primary" data-ok="${esc(p.code)}">Approve</button><button class="btn ghost" data-no="${esc(p.code)}">Deny</button></div></div>`).join('') : '<div class="empty">No TV is waiting.</div>');
-    setHtml('plList', list.length ? list.map((p) => { const ch = all.find((x) => x.player && x.name.toLowerCase() === p.name.toLowerCase()); return `<div class="li"><div><b>${esc(p.name)}</b> ${ch?.online ? '<span class="tag ok">online</span>' : '<span class="tag">away</span>'}<br><small class="dim">${esc(p.dev)} · last seen ${ago(p.lastSeen)}${ch ? ` · ${esc(ch.map ?? 'on the road')} (${Math.round(ch.x)}, ${Math.round(ch.y)})` : ''}</small></div>
-      <div class="row"><label class="switch sm" title="Sees what people think, over their heads"><input type="checkbox" data-seer="${esc(p.name)}"${p.seer ? ' checked' : ''}><i></i><span>Sees thoughts</span></label>${p.fromEnv ? '<span class="tag">.env</span>' : `${p.noTv ? '' : `<button class="btn sm ghost" data-rm="${esc(p.name)}" title="Unlink the TV only: the character stays">Unlink TV</button>`}<button class="btn sm danger" data-del="${esc(p.name)}" title="TV link, character, bag and place: gone (a backup is made first)">Delete</button>`}</div></div>`; }).join('') : '<div class="empty">No players yet.</div>');
+    const plq = qOf('pl'), shown = list.filter((p) => !plq || p.name.toLowerCase().includes(plq));
+    setHtml('plList', !list.length ? '<div class="empty">No players yet.</div>' : !shown.length ? '<div class="empty">Nobody matches.</div>' : paged('pl', shown, 15, (sl) => sl.map((p) => { const ch = all.find((x) => x.player && x.name.toLowerCase() === p.name.toLowerCase()); return `<div class="li"><div><b>${esc(p.name)}</b> ${ch?.online ? '<span class="tag ok">online</span>' : '<span class="tag">away</span>'}<br><small class="dim">${esc(p.dev)} · last seen ${ago(p.lastSeen)}${ch ? ` · ${esc(ch.map ?? 'on the road')} (${Math.round(ch.x)}, ${Math.round(ch.y)})` : ''}</small></div>
+      <div class="row"><label class="switch sm" title="Sees what people think, over their heads"><input type="checkbox" data-seer="${esc(p.name)}"${p.seer ? ' checked' : ''}><i></i><span>Sees thoughts</span></label>${p.fromEnv ? '<span class="tag">.env</span>' : `${p.noTv ? '' : `<button class="btn sm ghost" data-rm="${esc(p.name)}" title="Unlink the TV only: the character stays">Unlink TV</button>`}<button class="btn sm danger" data-del="${esc(p.name)}" title="TV link, character, bag and place: gone (a backup is made first)">Delete</button>`}</div></div>`; }).join(''), () => void this.refresh!()));
     on('[data-ok]', 'click', async (b) => { const code = b.dataset.ok!; try { const r = await cmd<{ name: string }>({ cmd: 'approve', code, name: val('pn_' + code) }); toast(`TV approved as ${r.name}`, 'ok'); void this.refresh!(); } catch (e) { err(e); } });
     on('[data-no]', 'click', async (b) => { try { await cmd({ cmd: 'deny', code: b.dataset.no! }); void this.refresh!(); } catch (e) { err(e); } });
     on('[data-rm]', 'click', async (b) => { if (!confirm(`Remove ${b.dataset.rm}? That TV will have to pair again.`)) return; try { await cmd({ cmd: 'revoke', name: b.dataset.rm! }); toast('Removed', 'ok'); void this.refresh!(); } catch (e) { err(e); } });

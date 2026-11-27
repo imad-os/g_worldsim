@@ -13,7 +13,7 @@ let q = '', level = '', source = '';
 function buildCard(): string {
   const b = build;
   const rows: [string, string][] = b
-    ? [['Running code', `${esc(b.commit || '?')}${b.subject ? ' · ' + esc(b.subject) : ''}`], ['Started', `${new Date(b.started).toLocaleString()} (${ago(b.started)})`], ['Commands it knows', String(b.cmds.length)]]
+    ? [['Running code', `${esc(b.commit || '?')}${b.subject ? `<small class="subj" title="${esc(b.subject)}">${esc(b.subject.split(/[.:;]\s/)[0]!.slice(0, 90))}${b.subject.length > 90 ? '…' : ''}</small>` : ''}`], ['Started', `${new Date(b.started).toLocaleString()} (${ago(b.started)})`], ['Commands it knows', String(b.cmds.length)]]
     : [['Running code', '<span class="bad">an older server (from before the error log): it does not say which build it runs</span>']];
   if (missing.size) rows.push(['Missing for this panel', `<span class="bad">${[...missing].map(esc).join(', ')}</span>`]);
   return `<div class="stat">${rows.map(([k, v]) => `<div class="statrow"><span>${k}</span><b>${v}</b></div>`).join('')}</div>`;
