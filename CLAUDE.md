@@ -514,7 +514,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   job 'dig'. Category `healing`: `medkit` = 3 herb + 1 leather; `MEDKIT_HEAL` 45. Do `medkit` (bag / wheel item heal) -> `Survival.useMedkit`
   (healed / noMedkit / fullHp); AI people below 55 % use theirs (`autoHeal`, every 20 ticks); hourly own plan: a kind person picks herbs and makes
   a kit when nobody free has one. Icons herb / medkit baked from KayKit (waterplant, box_small + bottle). Proof `ADMIN_TOKEN=... node tools/bag-proof.mjs <server> <sdk.js> <outdir>`.
-- Proof scripts: admin `mapTiles` lists `names` / `solid` from tile id 1 (index = id - 1). Moving a played character with `agentMove` may take
+- Proof scripts: admin `mapTiles` `names` / `solid` are indexed BY TILE ID (`names[0]` = '', `names.indexOf('tree')` = the tree id). Moving a played character with `agentMove` may take
   a few tries (the TV's own prediction wins at first): ask again until `__dev.me()` is there.
 
 ## Quests, NPCs, deep clans (imad 2026-11-25, app 0.11.1)
@@ -841,3 +841,19 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   the hand springs back, bow lowers after 0.55 s). First person: `Hands` draws it at half size in the left fist, the right fist on the nock.
   Third / top view: `People.add(.., live)` for me skips the baked bow and `World3D.myBowAt` puts the LiveBow in that hand (raised when drawing,
   hanging otherwise). Everyone else keeps the baked model. Proof `ADMIN_TOKEN=... node tools/bowdraw-proof.mjs <server> <sdk.js> <outdir>`.
+
+## Map icons, card, wheel sleep, sound cues, compass, attack, horse history, drops (imad 2026-11-27, app 0.14.9-0.14.16)
+- TV map icons sized from the map box (`base`) x `ICON_ZOOM` per zoom step. `#card` bottom right above `#top`. Compass 1.5x, distances 2vw.
+- Sleep: the stick that picked a wheel item is latched (`stickLatch`) until it returns to the middle; players are never woken for being rested
+  (`Brain.playerNeeds`), only by a move / A / Sleep.
+- `nav.ts SoundCues` (`#cues`, Settings > Where sounds come from, `MyPC.save('cues')`): a heard zombie / animal (26 m) off screen = its icon
+  on that screen edge with an arrow; `__dev.cues()`.
+- Attack = always melee (`attack()` in app.ts sends Do `hit` only); the bow shoots only on Aim release.
+- Horses: `Horse.log` (HorseNote [gameSec, code, arg], 20) + `Horses.lost` (owner id -> last 3 LostHorse, saved); Do `horse` answers carry
+  `hist` (`Horses.history`), the TV shows the last lines / what happened (`horseHist`, i18n7 hh*). Old age kept for tamed horses (imad's choice).
+- **Drops** (protocol `drops.ts`, `Survival.ground / dropAt / pickDrops / drops`, saved `drops`): a character played by hand (Kind.Player)
+  gets chop / mine / herbs, kills (`Animals.hit`) and pull-downs (`pullDown` -> `pullDown0`, boxes too) as piles on the ground (Kind.Item,
+  sub = DROP_BASE 100 + kind); A picks up every pile within 2 m (code `pickedDrop`); piles rot after 2 game days; AI people (and autopilot)
+  still fill their bag and never forage piles (`nearestItem(.., piles)`). TV draws logs / lumps / bundles / herbs (world3d `drop`). Test drops.test.ts.
+- `tools/tv-base.mjs` = shared start of TV proofs (pairs, `adm`, `dev`, `did`, optional fake pad `__axis` / `__btn`). The local server stops
+  accepting new TVs after ~20 proof runs (clients cycle "client left"): restart it between runs.

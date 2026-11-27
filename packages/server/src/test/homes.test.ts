@@ -192,11 +192,14 @@ test('pulling down: only your own building, or one whose owner is dead; an admin
   // The owner may: the lamp goes back into the bag, the hut gives back half its materials and the home is gone.
   assert.equal(sv.destroyAt(me, s.x0 + 7, s.y0 + 8), 'destroyed');
   assert.notEqual(tm.get(s.x0 + 7, s.y0 + 8), tileId(w, 'lamp'));
-  assert.equal(sv.inv(me).lamp, 1);
+  assert.equal(sv.inv(me).lamp ?? 0, 0, 'a player\'s pull-down drops it on the ground (imad 2026-11-27)');
+  assert.equal(sv.pickDrops(me, 30).got.lamp, 1); assert.equal(sv.inv(me).lamp, 1);
   assert.equal(sv.destroyAt(me, s.x0 + 3, s.y0 + 6), 'destroyed');
   assert.equal(sv.huts[town]!.length, 0); assert.equal(sv.homes.homeOf(e.id(me)), undefined);
   assert.equal(w.profileOf(me)!.home, undefined);
   for (let yy = 0; yy < 7; yy++) for (let xx = 0; xx < 7; xx++) assert.ok(!sv.builtTile(tm.get(s.x0 + xx, s.y0 + yy)), 'all its tiles are ground again');
+  assert.equal(sv.inv(me).wood ?? 0, 0, 'on the ground first');
+  sv.pickDrops(me, 30);
   assert.equal(sv.inv(me).wood, 10); assert.equal(sv.inv(me).stone, 5); assert.equal(sv.inv(me).leather, 2);
   // An AI person's hut: nobody else may, until the owner is dead.
   const ai = [...Array(e.hi).keys()].find((i) => e.kind[i] === Kind.Agent)!;

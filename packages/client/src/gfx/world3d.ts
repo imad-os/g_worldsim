@@ -1,7 +1,7 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, PointLight, Color, Fog, Mesh, Group,
   PlaneGeometry, MeshLambertMaterial, MeshPhongMaterial, MeshBasicMaterial, TorusGeometry, CircleGeometry, SphereGeometry,
-  InstancedMesh, Matrix4, Vector3, Frustum, BoxGeometry, ConeGeometry, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
+  InstancedMesh, Matrix4, Vector3, Frustum, BoxGeometry, ConeGeometry, Quaternion, Euler, CylinderGeometry, IcosahedronGeometry, DodecahedronGeometry, MeshLambertMaterial as Lam, PCFSoftShadowMap, PCFShadowMap, NeutralToneMapping, AdditiveBlending, DynamicDrawUsage, DoubleSide,
   type BufferGeometry,
 } from 'three';
 import { People } from './people.js';
@@ -11,7 +11,10 @@ import { gateMesh, type GateSpec } from './gate.js';
 import { Precip } from './weather.js';
 import { patchShadows } from './shadows.js';
 import type { ChunkGeo } from './chunkmesh.js';
-import { CHUNK_TILES } from '@worldsim/protocol';
+import { CHUNK_TILES, DROP_BASE, dropKindOf } from '@worldsim/protocol';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+/** Colours of dropped piles by kind. */
+const DROP_COLOR: Record<string, number> = { stone: 0x9a9690, brick: 0xa8553c, ore: 0x4f5f78, scrap: 0x8c6a4e, leather: 0xb07a45, claw: 0xece0c4, meat: 0xb8423c, food: 0xc4523f, water: 0x5aa8e0, other: 0x9a7448 };
 import { Anims } from './anims.js';
 import { Hands } from './hands.js';
 import { LiveBow, BowShot } from './bow.js';
@@ -71,6 +74,10 @@ export class World3D {
   // Items: canned food (1), berry bush (2), anything else = a small crate.
   private cans: InstancedMesh; private bushes: InstancedMesh; private berries: InstancedMesh; private crates: InstancedMesh;
   private nCan = 0; private nBush = 0; private nCrate = 0;
+  /** Piles a player's work dropped (protocol drops.ts): logs, lumps (stone, brick, ore, scrap), bundles (leather, claws, meat, food...), herbs. */
+  private logs!: InstancedMesh; private lumps!: InstancedMesh; private bundles!: InstancedMesh; private herbs!: InstancedMesh;
+  private nLog = 0; private nLump = 0; private nBundle = 0; private nHerb = 0;
+  private readonly dc = new Color();
   private q = new Quaternion(); private eu = new Euler(); private v3 = new Vector3(); private s3 = new Vector3();
   private groundMat = new MeshLambertMaterial({ vertexColors: true });
   private propMat = new MeshLambertMaterial({ vertexColors: true });
@@ -160,6 +167,12 @@ export class World3D {
     this.berries = inst(new IcosahedronGeometry(0.075, 0), 0xe0203a, 256 * 6);
     this.precip = new Precip(this.scene, tier);
     this.crates = inst(new CylinderGeometry(0.2, 0.2, 0.3, 4).rotateY(Math.PI / 4).translate(0, 0.15, 0), 0x9a7448, 128);
+    // Dropped piles: two crossed logs; a lump; a tied bundle; a leafy sprig. Colours per kind (instance colours, white base).
+    const logs = mergeGeometries([new CylinderGeometry(0.09, 0.09, 0.62, 7).rotateZ(Math.PI / 2).translate(0, 0.09, -0.07), new CylinderGeometry(0.08, 0.08, 0.56, 7).rotateZ(Math.PI / 2).rotateY(0.5).translate(0.02, 0.09, 0.08), new CylinderGeometry(0.075, 0.075, 0.5, 7).rotateZ(Math.PI / 2).rotateY(-0.3).translate(0, 0.24, 0)])!;
+    this.logs = inst(logs, 0x8a5a32, 128);
+    this.lumps = inst(mergeGeometries([new DodecahedronGeometry(0.16, 0).translate(-0.08, 0.13, 0), new DodecahedronGeometry(0.12, 0).translate(0.12, 0.1, 0.06), new DodecahedronGeometry(0.1, 0).translate(0.02, 0.09, -0.13)])!, 0xffffff, 128);
+    this.bundles = inst(new BoxGeometry(0.42, 0.18, 0.3).translate(0, 0.09, 0), 0xffffff, 128);
+    this.herbs = inst(new ConeGeometry(0.14, 0.32, 6).translate(0, 0.16, 0), 0x4f9a3a, 128);
   }
 
   /** The bow's aim: a line on the ground from my character, and a ring on the target it locks on. */
@@ -215,10 +228,11 @@ export class World3D {
     if (door) { a.position.set(door[0]!, 0.35, door[1]!); a.rotation.set(0, -door[2]!, 0); }
   }
 
-  beginItems(): void { this.nCan = this.nBush = this.nCrate = 0; }
+  beginItems(): void { this.nCan = this.nBush = this.nCrate = 0; this.nLog = this.nLump = this.nBundle = this.nHerb = 0; }
   item(x: number, z: number, type: number, id: number): void {
     const r = ((id * 2654435761) >>> 0) / 4294967296;
     this.m.compose(this.v3.set(x, 0, z), this.q.setFromEuler(this.eu.set(0, r * 6.28, 0)), this.s3.set(1, 1, 1));
+    if (type >= DROP_BASE) { this.drop(type); return; }
     if (type === 1 && this.nCan < 256) {
       this.cans.setMatrixAt(this.nCan++, this.m);
     } else if (type === 2 && this.nBush < 256) {
@@ -231,7 +245,18 @@ export class World3D {
       }
     } else if (this.nCrate < 128) this.crates.setMatrixAt(this.nCrate++, this.m);
   }
+  /** A dropped pile (this.m already placed): its shape and colour by kind. */
+  private drop(type: number): void {
+    const k = dropKindOf(type);
+    const col = DROP_COLOR[k] ?? 0x9a7448;
+    if (k === 'wood') { if (this.nLog < 128) this.logs.setMatrixAt(this.nLog++, this.m); return; }
+    if (k === 'herb') { if (this.nHerb < 128) this.herbs.setMatrixAt(this.nHerb++, this.m); return; }
+    if (k === 'stone' || k === 'brick' || k === 'ore' || k === 'scrap') { if (this.nLump < 128) { this.lumps.setColorAt(this.nLump, this.dc.setHex(col)); this.lumps.setMatrixAt(this.nLump++, this.m); } return; }
+    if (this.nBundle < 128) { this.bundles.setColorAt(this.nBundle, this.dc.setHex(col)); this.bundles.setMatrixAt(this.nBundle++, this.m); }
+  }
   endItems(): void {
+    this.logs.count = this.nLog; this.lumps.count = this.nLump; this.bundles.count = this.nBundle; this.herbs.count = this.nHerb;
+    for (const m of [this.logs, this.lumps, this.bundles, this.herbs]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     this.cans.count = this.nCan; this.bushes.count = this.nBush; this.berries.count = this.nBush * 6; this.crates.count = this.nCrate;
     for (const m of [this.cans, this.bushes, this.berries, this.crates]) m.instanceMatrix.needsUpdate = true;
   }

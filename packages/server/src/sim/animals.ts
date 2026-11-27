@@ -162,7 +162,7 @@ export class Animals {
     if (e.hp[a]! > 0) return null;
     const d = { ...ANIMALS[type]!.drops };
     if (by >= 0) {
-      w.survival.gain(by, d);
+      w.survival.ground(by, e.map[a]!, e.x[a]!, e.y[a]!, () => w.survival.gain(by, d)); // a player's kill: the meat, leather and claws lie where it fell
       this.kills.set(e.id(by), [w.gameSec, type]);
     }
     w.emit('hunt', { id: by >= 0 ? e.id(by) : -1, animal: ANIMAL_NAMES[type] ?? 'horse', map: w.maps[e.map[a]!]!.def.id, aid: id, prey: e.act[a] === Act.Fight ? e.target[a] : -1, near: e.act[a] === Act.Fight && e.slot(e.target[a]!) >= 0 ? Math.hypot(e.x[e.slot(e.target[a]!)]! - e.x[a]!, e.y[e.slot(e.target[a]!)]! - e.y[a]!) : 99, ...d });

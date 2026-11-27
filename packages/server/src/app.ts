@@ -453,8 +453,8 @@ export class App {
           if (an >= 0) return this.hitAnimal(player, an, w.zombies.damageOf(player));
         }
         if (e.flags[player]! & EFlag.Sleeping) return w.brain.playerDo(player, 'sleep'); // asleep: A gets up
-        if (w.brain.nearestItem(player, 1.4) < 0) { const bk = sv.boxNear(player, '', 2.2); if (bk >= 0) { const W = w.maps[e.map[player]!]!.tiles.w; return this.boxDo(player, `${bk % W},${(bk / W) | 0}`); } } // A next to my fridge / chest opens it
-        if (w.brain.nearestItem(player, 1.4) < 0) { // A next to a bed I may use: lie down in it (imad 2026-11-26)
+        if (w.brain.nearestItem(player, 1.4, true) < 0) { const bk = sv.boxNear(player, '', 2.2); if (bk >= 0) { const W = w.maps[e.map[player]!]!.tiles.w; return this.boxDo(player, `${bk % W},${(bk / W) | 0}`); } } // A next to my fridge / chest opens it
+        if (w.brain.nearestItem(player, 1.4, true) < 0) { // A next to a bed I may use: lie down in it (imad 2026-11-26)
           const bd = sv.bedNear(player, 1.8);
           if (bd >= 0) {
             const W = w.maps[e.map[player]!]!.tiles.w, bx = (bd % W) + 0.5, by = ((bd / W) | 0) + 0.5;

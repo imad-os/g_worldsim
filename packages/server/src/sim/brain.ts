@@ -1,4 +1,4 @@
-import { Act, ANIMAL_NAMES, COLD_BELOW, EFlag, Kind } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, COLD_BELOW, DROP_BASE, EFlag, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { Pathfinder } from './pathfind.js';
 import { ACT_RULE } from './rules.js';
@@ -887,7 +887,7 @@ export class Brain {
     const w = this.w, e = w.e;
     if (e.kind[i] !== Kind.Player || e.map[i] === NO_MAP) return { ok: false, code: 'nothing' };
     const m = e.map[i]!;
-    const item = () => { const t = this.nearestItem(i, 1.8); return t; };
+    const item = () => { const t = this.nearestItem(i, 1.8, true); return t; };
     if (a === 'use') {
       if (item() >= 0) a = 'pickup';
       else if (this.nearWater(m, e.x[i]!, e.y[i]!) && e.thirst[i]! > 5) a = 'drink';
@@ -908,6 +908,10 @@ export class Brain {
       case 'pickup': {
         const t = item();
         if (t < 0) return { ok: false, code: 'nothing' };
+        if (w.survival.isDrop(t)) { // piles my work dropped: everything within 2 m that fits
+          const r = w.survival.pickDrops(i, 2);
+          return Object.keys(r.got).length ? { ok: true, code: 'pickedDrop', got: r.got, left: r.left } as { ok: boolean; code: string } : { ok: false, code: 'full' };
+        }
         if (w.survival.foodRoom(i) <= 0) return { ok: false, code: 'full' }; // hands (5) and bag (20) both full
         const def = this.itemDef.get(e.sub[t]!), toBag = e.carry[i]! >= 5;
         w.remove(t, 'taken');
@@ -1530,11 +1534,12 @@ export class Brain {
     return best;
   }
 
-  nearestItem(i: number, r: number): number {
+  /** Nearest item within r m; `piles` = also piles a player's work dropped (AI people forage food only). */
+  nearestItem(i: number, r: number, piles = false): number {
     const e = this.w.e, m = e.map[i]!;
     let best = -1, bd = r * r;
     for (let j = 0; j < e.hi; j++) {
-      if (e.kind[j] !== Kind.Item || e.map[j] !== m) continue;
+      if (e.kind[j] !== Kind.Item || e.map[j] !== m || (!piles && e.sub[j]! >= DROP_BASE)) continue;
       const dx = e.x[j]! - e.x[i]!, dy = e.y[j]! - e.y[i]!;
       let d = dx * dx + dy * dy;
       if (d < bd && this.w.ai.instinct && this.w.lore.feared(i, m, e.x[j]!, e.y[j]!)) d *= 9; // food in a feared place: only when nothing else is near

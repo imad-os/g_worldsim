@@ -107,6 +107,8 @@ test('herbs and first-aid kits: herbs grow by trees, picking gives herbs, 3 herb
   w.place(i, m0, tx + 0.5, ty + 1.3);
   const r = sv.playerWork(i);
   assert.equal(r?.code, 'herbs');
+  assert.equal(sv.inv(i).herb ?? 0, 0, 'on the ground first (imad 2026-11-27)');
+  assert.ok((sv.pickDrops(i, 4).got.herb ?? 0) >= 1);
   assert.ok((sv.inv(i).herb ?? 0) >= 1);
   assert.equal(tm.get(tx, ty), T.grass, 'picked clean');
   sv.add(i, 'herb', 5); sv.add(i, 'leather', 1);

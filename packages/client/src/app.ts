@@ -1521,7 +1521,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.a === 'destroy') {
     const dd = d as typeof d & { tx?: number; ty?: number; check?: boolean; cells?: number[]; owner?: string };
     if (dd.check) { if (placing?.what === 'destroy') { destroyInfo = { tx: dd.tx ?? -1, ty: dd.ty ?? -1, code: d.code, cells: dd.cells ?? [], owner: dd.owner ?? '' }; placeNote(); } return; }
-    if (d.ok) { stopPlacing(); sound.play('ui_ok'); note(t('dsDone'), 2500); return; }
+    if (d.ok) { stopPlacing(); sound.play('ui_ok'); note(t('dsDone') + '\n' + t('dOnGround'), 3500); return; }
     if (placing) { placing.sent = false; destroyInfo = null; askDestroy(); }
     sound.play('ui_error');
     note(d.code === 'notYours' ? tf('dsNotYours', '?') : d.code === 'unknown' ? t('dsUnknown') : t(PLACE_CODE[d.code] ?? 'dsNothing'), 3000);
@@ -1599,9 +1599,10 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'buildNeed') { note(tf('buildNeed', needText(dd.need ?? {})), 3500); return; }
   if (dd.kept) { note(t('bKept'), 3500); return; }
   if (d.code === 'aHit') { note(tf('aHit', thing(d.item ?? '')) + arrows, 1500); return; }
-  if (d.code === 'aKilled') { note(tf('aKilled', thing(d.item ?? ''), gotText(dd.got)), 3500); return; }
+  if (d.code === 'aKilled') { note(tf('aKilled', thing(d.item ?? ''), gotText(dd.got)) + '\n' + t('dOnGround'), 4500); return; }
   if (d.code === 'mined' && !Object.keys(dd.got ?? {}).length) { note(t('dHard'), 1200); return; }
-  if (d.code === 'chopped' || d.code === 'mined' || d.code === 'herbs') { note(tf('dGot', gotText(dd.got)), 1500); return; }
+  if (d.code === 'chopped' || d.code === 'mined' || d.code === 'herbs') { note(tf('dDropped', gotText(dd.got)), 2200); return; }
+  if (d.code === 'pickedDrop') { sound.play('pickup'); note(tf('dPickedUp', gotText(dd.got)) + ((d as { left?: boolean }).left ? '\n' + t('dBagFullSome') : ''), 2500); return; }
   if (d.code === 'healed') { note(tf('dHealed', String((dd as { hp?: number }).hp ?? '')), 2500); bagScreen.fix(); menu.refresh(); return; }
   if (d.code === 'noMedkit' || d.code === 'fullHp') { note(t(d.code === 'noMedkit' ? 'dNoMedkit' : 'dFullHp'), 2500); return; }
   if (d.code === 'equipped') { note(t('dEquipped'), 1500); return; }

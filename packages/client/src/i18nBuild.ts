@@ -1,6 +1,7 @@
 /** Texts of aimed building, pulling down, homes and hard rocks (imad 2026-11-25) in en, fr, es, ar. */
 export const TB = {
   en: {
+    dDropped: 'On the ground: {0}. Press A next to it to pick it up.', dOnGround: 'It is on the ground: press A to pick it up.', dPickedUp: 'Picked up {0}.', dBagFullSome: 'Your bag is full: some is still on the ground.',
     iaOpen: 'Open the door', iaClose: 'Close the door', iaPick: 'Pick up', iaDrink: 'Drink', iaEat: 'Eat', iaChop: 'Chop the tree', iaMine: 'Break the rock',
     iaSearch: 'Search the rubble', iaMount: 'Get on your horse', iaTame: 'Tame the horse', iaOff: 'Get off the horse',
     doorLocked: 'Locked: only the family who lives here can open this door.', doorSomeone: 'Someone is standing in the doorway.',
@@ -18,6 +19,7 @@ export const TB = {
     meHut2: 'Build a hut here ({0})', needHut2: 'A hut needs {0}.',
   },
   fr: {
+    dDropped: 'Au sol : {0}. Appuie sur A à côté pour le ramasser.', dOnGround: 'C\'est au sol : appuie sur A pour le ramasser.', dPickedUp: 'Ramassé : {0}.', dBagFullSome: 'Ton sac est plein : il en reste au sol.',
     iaOpen: 'Ouvrir la porte', iaClose: 'Fermer la porte', iaPick: 'Ramasser', iaDrink: 'Boire', iaEat: 'Manger', iaChop: 'Couper l\'arbre', iaMine: 'Casser la roche',
     iaSearch: 'Fouiller les gravats', iaMount: 'Monter sur ton cheval', iaTame: 'Apprivoiser le cheval', iaOff: 'Descendre du cheval',
     doorLocked: 'Fermée à clé : seule la famille qui vit ici peut ouvrir cette porte.', doorSomeone: 'Quelqu\'un se tient dans l\'embrasure.',
@@ -35,6 +37,7 @@ export const TB = {
     meHut2: 'Construire une cabane ici ({0})', needHut2: 'Une cabane demande {0}.',
   },
   es: {
+    dDropped: 'En el suelo: {0}. Pulsa A al lado para recogerlo.', dOnGround: 'Está en el suelo: pulsa A para recogerlo.', dPickedUp: 'Recogido: {0}.', dBagFullSome: 'Tu bolsa está llena: queda algo en el suelo.',
     iaOpen: 'Abrir la puerta', iaClose: 'Cerrar la puerta', iaPick: 'Recoger', iaDrink: 'Beber', iaEat: 'Comer', iaChop: 'Talar el árbol', iaMine: 'Romper la roca',
     iaSearch: 'Buscar entre los escombros', iaMount: 'Montar tu caballo', iaTame: 'Domar el caballo', iaOff: 'Bajar del caballo',
     doorLocked: 'Cerrada: solo la familia que vive aquí puede abrir esta puerta.', doorSomeone: 'Hay alguien en la puerta.',
@@ -52,6 +55,7 @@ export const TB = {
     meHut2: 'Construir una cabaña aquí ({0})', needHut2: 'Una cabaña necesita {0}.',
   },
   ar: {
+    dDropped: 'على الأرض: {0}. اضغط A بجانبه لالتقاطه.', dOnGround: 'إنه على الأرض: اضغط A لالتقاطه.', dPickedUp: 'التقطت {0}.', dBagFullSome: 'حقيبتك ممتلئة: بقي بعضه على الأرض.',
     iaOpen: 'افتح الباب', iaClose: 'أغلق الباب', iaPick: 'التقط', iaDrink: 'اشرب', iaEat: 'كل', iaChop: 'اقطع الشجرة', iaMine: 'اكسر الصخرة',
     iaSearch: 'فتش الأنقاض', iaMount: 'اركب حصانك', iaTame: 'روض الحصان', iaOff: 'انزل عن الحصان',
     doorLocked: 'مقفل: فقط العائلة التي تسكن هنا تفتح هذا الباب.', doorSomeone: 'هناك شخص واقف في المدخل.',

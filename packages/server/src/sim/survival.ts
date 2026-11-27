@@ -1,4 +1,4 @@
-import { Act, ANIMAL_NAMES, Kind, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, HANDS, WATER_FILL, WATER_DRINK, boxHolds, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
+import { Act, ANIMAL_NAMES, Kind, dropSub, dropKindOf, HUT_NEED, HUT_SIZE, INSIDE_ONLY, BOX_CAP, HANDS, WATER_FILL, WATER_DRINK, boxHolds, RECIPES_ALL, RESOURCES, PLACEABLE, MEDKIT_HEAL, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf } from './people.js';
 import type { World } from './world.js';
@@ -18,6 +18,8 @@ export type Res = (typeof RES)[number];
 /** Materials, tools, weapons, clothes and things to put down, by name. */
 export type Inv = Partial<Record<string, number>>;
 export const CAP = 20;
+/** A pile on the ground (Survival.drops). */
+export interface Drop { what: string; n: number; at: number }
 /** Things made from a recipe (crafting, shared with the viewer: @worldsim/protocol craft.ts) plus the hut. */
 export const RECIPES: Record<string, Inv> = { hut: { ...HUT_NEED } };
 for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
@@ -111,7 +113,7 @@ export class Survival {
 
   /** What snapshots keep (fires, camps, crates, fields, huts). */
   save(): unknown {
-    return { colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget, own: [...this.owners], boxes: [...this.boxes], hsz: [...this.hutSz] };
+    return { drops: [...this.drops], colony: this.w.colony.save(), fires: [...this.fires], camp: this.camp, stash: this.stash, farms: [...this.farms], looted: [...this.looted], huts: this.huts, hutDir: this.hutDir, walls: this.walls, pinv: [...this.pinv], homes: this.homes.save(), res: this.resTarget, own: [...this.owners], boxes: [...this.boxes], hsz: [...this.hutSz] };
   }
   load(d: unknown): void {
     const v = d as { pinv?: [string, Inv][]; fires?: [string, number][]; camp?: ({ x: number; y: number } | null)[]; stash?: (Stash | null)[]; farms?: [string, number][]; looted?: [string, number][]; huts?: number[][] } | undefined;
@@ -127,6 +129,7 @@ export class Survival {
     this.huts.forEach((h, m) => { this.hutDir[m] = h.map((_, k) => vv.hutDir?.[m]?.[k] ?? 0); });
     vv.walls?.forEach((c, m) => { if (m < this.walls.length) this.walls[m] = c; });
     this.pinv.clear(); for (const [k, x] of v.pinv ?? []) this.pinv.set(k, x);
+    this.drops.clear(); for (const [k, x] of (v as { drops?: [number, Drop][] }).drops ?? []) if (this.w.e.slot(k) >= 0) this.drops.set(k, x);
     const vb = v as { boxes?: [string, Inv][]; hsz?: [string, number][] };
     this.boxes.clear(); for (const [k, x] of vb.boxes ?? []) this.boxes.set(k, x);
     this.hutSz.clear(); for (const [k, n] of vb.hsz ?? []) this.hutSz.set(k, n);
@@ -263,7 +266,7 @@ export class Survival {
     const e = this.w.e;
     for (const [k, n] of Object.entries(d)) {
       if (!n) continue;
-      if (k === 'meat') this.addFood(i, n);
+      if (k === 'meat') { const g = this.dropTo; if (g && g.i === i && this.dropAt(g.m, g.x, g.y, 'meat', n)) continue; this.addFood(i, n); }
       else this.add(i, k, n);
     }
   }
@@ -351,7 +354,9 @@ export class Survival {
     if (best < 0) return null;
     const tx = best % tm.w, ty = (best / tm.w) | 0, t = tm.tiles[best]!;
     if (t === this.T.tree && w.land.inRing(m, tx, ty)) return { code: 'tooThick' };
-    const got = this.take1(i, m, tx, ty, t);
+    // On the ground between the tile and me (a player played by hand picks it up: A).
+    const cx = tx + 0.5, cy = ty + 0.5, dd = Math.hypot(e.x[i]! - cx, e.y[i]! - cy) || 1, gx = cx + ((e.x[i]! - cx) / dd) * Math.min(0.9, dd * 0.6), gy = cy + ((e.y[i]! - cy) / dd) * Math.min(0.9, dd * 0.6);
+    const got = this.ground(i, m, gx, gy, () => this.take1(i, m, tx, ty, t));
     return { code: t === this.T.tree ? 'chopped' : t === this.T.herbs ? 'herbs' : 'mined', got, hard: t === this.T.rock };
   }
   /** One piece from a tree / rock / rubble tile (it wears down): what was got. */
@@ -375,7 +380,72 @@ export class Survival {
     for (const [k, n] of Object.entries(need)) if ((v[k as Res] ?? 0) < n!) out.push([k as Res, n! - (v[k as Res] ?? 0)]);
     return out;
   }
-  add(i: number, k: string, n: number): void { const v = this.inv(i); v[k] = Math.max(0, Math.min(k === 'arrows' ? 30 : CAP, (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
+  // ------------------------------------------------------------------ piles on the ground (protocol drops.ts)
+  /** Piles a player's work dropped: entity id -> what, how many, when (game s). Saved. */
+  readonly drops = new Map<number, Drop>();
+  /** While set, what person `i` gets lands on the ground at (x, y) instead of in their bag (`ground`). */
+  private dropTo: { i: number; m: number; x: number; y: number } | null = null;
+  /**
+   * What a player gets by `fn` (chopping, mining, a kill, pulling down) drops on the ground at (x, y) on map m, to pick up by hand
+   * (imad 2026-11-27: "the items drop on the ground and I pick them up, not into the bag by magic"). Only a character played by hand;
+   * AI people (and players on autopilot) still put it straight into their bag.
+   */
+  ground<T>(i: number, m: number, x: number, y: number, fn: () => T): T {
+    if (this.w.e.kind[i] !== Kind.Player || this.dropTo) return fn();
+    this.dropTo = { i, m, x, y };
+    try { return fn(); } finally { this.dropTo = null; }
+  }
+  /** A pile of n `what` at (x, y) (added to a pile of the same within 1.2 m). False when the world is full (then nothing dropped). */
+  dropAt(m: number, x: number, y: number, what: string, n: number): boolean {
+    const w = this.w, e = w.e, sub = dropSub(what);
+    for (const [id, d] of this.drops) {
+      const j = e.slot(id);
+      if (j < 0 || d.what !== what || e.map[j] !== m || Math.hypot(e.x[j]! - x, e.y[j]! - y) > 1.2) continue;
+      d.n += n; d.at = w.gameSec; return true;
+    }
+    const tm = w.maps[m]!.tiles;
+    let px = x + w.rng.range(-0.35, 0.35), py = y + w.rng.range(-0.35, 0.35);
+    if (tm.isSolidAt(px, py)) { px = x; py = y; }
+    if (tm.isSolidAt(px, py)) { const s = w.freeSpot(m, x, y, 4); if (s) { px = s.x; py = s.y; } }
+    if (e.room === 0) w.makeRoom(1);
+    const j = e.create(Kind.Item, m, px, py, 0.2);
+    if (j < 0) return false;
+    e.sub[j] = sub;
+    this.drops.set(e.id(j), { what, n, at: w.gameSec });
+    return true;
+  }
+  /** Is item slot j a pile (not food of the scenario)? */
+  isDrop(j: number): boolean { return dropKindOf(this.w.e.sub[j]!) !== '' && this.drops.has(this.w.e.id(j)); }
+  /** Player i picks up every pile within r m (as much as the bag / hands hold): what was got and whether some was left (full). */
+  pickDrops(i: number, r = 2): { got: Record<string, number>; left: boolean } {
+    const w = this.w, e = w.e, m = e.map[i]!, got: Record<string, number> = {};
+    let left = false;
+    for (const [id, d] of [...this.drops]) {
+      const j = e.slot(id);
+      if (j < 0) { this.drops.delete(id); continue; }
+      if (e.map[j] !== m || Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) > r) continue;
+      let took = 0;
+      if (d.what === 'meat' || d.what === 'food') took = this.addFood(i, d.n);
+      else { const before = this.inv(i)[d.what] ?? 0; this.add(i, d.what, d.n); took = (this.inv(i)[d.what] ?? 0) - before; }
+      if (took > 0) got[d.what] = (got[d.what] ?? 0) + took;
+      d.n -= took;
+      if (d.n <= 0) { this.drops.delete(id); w.remove(j, 'taken'); } else left = true;
+    }
+    if (Object.keys(got).length) w.emit('pickup', { id: e.id(i), item: Object.keys(got).join('+'), player: true, ground: true });
+    return { got, left };
+  }
+  /** Piles left lying 2 game days rot away; piles whose entity is gone are forgotten (hourly). */
+  private rotDrops(): void {
+    const w = this.w, e = w.e;
+    for (const [id, d] of [...this.drops]) {
+      const j = e.slot(id);
+      if (j < 0 || e.kind[j] !== Kind.Item) { this.drops.delete(id); continue; }
+      if (w.gameSec - d.at > 2 * 86400) { this.drops.delete(id); w.remove(j, 'rotted'); }
+    }
+  }
+  add(i: number, k: string, n: number): void {
+    if (n > 0 && this.dropTo && this.dropTo.i === i) { const g = this.dropTo; if (this.dropAt(g.m, g.x, g.y, k, n)) return; }
+    const v = this.inv(i); v[k] = Math.max(0, Math.min(k === 'arrows' ? 30 : CAP, (v[k] ?? 0) + n)); if (!v[k]) delete v[k]; }
   private use(i: number, need: Inv): void { for (const [k, n] of Object.entries(need)) this.add(i, k, -n!); }
 
   /** Make a tool now (materials are used up). True or why not. */
@@ -790,6 +860,13 @@ export class Survival {
   }
   /** Take it down: the ground comes back; a thing put down goes back into the bag, a hut gives back half its materials. */
   private pullDown(i: number, m: number, k: number): void {
+    const e = this.w.e, W = this.w.maps[m]!.tiles.w, h0 = this.homes.at(m, k);
+    // A player's pull-down drops what comes back on the ground (a hut: in front of its door, else where the piece stood).
+    const at = h0 ? h0.out : k, ax = (at % W) + 0.5, ay = ((at / W) | 0) + 0.5;
+    const dd = Math.hypot(e.x[i]! - ax, e.y[i]! - ay) || 1, gx = ax + ((e.x[i]! - ax) / dd) * Math.min(1, dd * 0.5), gy = ay + ((e.y[i]! - ay) / dd) * Math.min(1, dd * 0.5);
+    this.ground(i, m, gx, gy, () => this.pullDown0(i, m, k));
+  }
+  private pullDown0(i: number, m: number, k: number): void {
     const w = this.w, tm = w.maps[m]!.tiles, h = this.homes.at(m, k), W = tm.w;
     const what = h ? 'hut' : tm.tiles[k] === this.T.doorOpen ? 'door' : [...this.placeTile].find(([, t]) => t === tm.tiles[k])?.[0] ?? (tm.tiles[k] === this.T.farm ? 'field' : 'campfire');
     const cells = this.destroyCells(m, k);
@@ -1107,6 +1184,7 @@ export class Survival {
   foodRoom(i: number): number { return Math.max(0, HANDS - this.w.e.carry[i]!) + Math.max(0, CAP - (this.inv(i).food ?? 0)); }
   /** Food found / given / hunted: into the hands, the rest into the bag (imad 2026-11-26: "it says my hands are full (5)"). How many fitted. */
   addFood(i: number, n: number): number {
+    if (n > 0 && this.dropTo && this.dropTo.i === i) { const g = this.dropTo; if (this.dropAt(g.m, g.x, g.y, 'food', n)) return n; }
     const e = this.w.e, h = Math.min(n, Math.max(0, HANDS - e.carry[i]!));
     e.carry[i] = e.carry[i]! + h;
     const b = Math.min(n - h, Math.max(0, CAP - (this.inv(i).food ?? 0)));
@@ -1437,7 +1515,7 @@ export class Survival {
     if (w.gameSec >= this.nextHour) {
       const first = this.nextHour === 0;
       this.nextHour = w.gameSec + HOUR;
-      if (!first) { this.regrow(); this.homes.hourly(); this.ownPlans(); }
+      if (!first) { this.regrow(); this.homes.hourly(); this.ownPlans(); this.rotDrops(); }
       this.nextQuarter = w.gameSec + HOUR / 3;
     } else if (w.ai.goap && w.gameSec >= this.nextQuarter) { this.nextQuarter = w.gameSec + HOUR / 3; this.quarter(); }
   }

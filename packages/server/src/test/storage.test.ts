@@ -84,6 +84,7 @@ test('huts are 7 x 7; a fridge and a chest go only inside a hut; they keep food 
   // Pulling the hut down gives what was inside back.
   const before = sv.inv(pl).sword ?? 0;
   assert.equal(sv.destroyAt(pl, s.x0 + 1, s.y0), 'destroyed');
+  sv.pickDrops(pl, 30); // on the ground first (imad 2026-11-27)
   assert.equal(sv.inv(pl).sword ?? 0, before + 1, 'the chest\'s sword back in the bag');
   assert.equal(sv.boxesOf(town).length, 0);
 });
