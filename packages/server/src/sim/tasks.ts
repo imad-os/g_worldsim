@@ -2,6 +2,7 @@ import { Act, Kind } from '@worldsim/protocol';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf, TRAIT_KEYS } from './people.js';
 import { ADULT } from './life.js';
+import { Why } from './why.js';
 import type { World } from './world.js';
 
 /**
@@ -511,7 +512,12 @@ export class Tasks {
           // Game is scarce (5 leather for a hut, imad 2026-11-25): search for it for a few game hours before giving up.
           s.wait ??= w.gameSec;
           if (w.gameSec - s.wait > 5 * 3600) return 'I searched for hours and found no animals to hunt';
-          if (!b.walking(i)) { const a = w.rng.next() * Math.PI * 2, d = 25 + w.rng.next() * 35; b.goTo(i, e.x[i]! + Math.cos(a) * d, e.y[i]! + Math.sin(a) * d); }
+          if (!b.walking(i)) {
+            // Where game was seen (by them, or told in a talk: sim/aware.ts) first, else a random search.
+            const g = w.aware.game(i, w.survival.weapon(i)[1] >= 20);
+            if (g && Math.hypot(g.x - e.x[i]!, g.y - e.y[i]!) > 8 && b.goTo(i, g.x, g.y)) b.why(i, Why.Game, g.from);
+            else { const a = w.rng.next() * Math.PI * 2, d = 25 + w.rng.next() * 35; b.goTo(i, e.x[i]! + Math.cos(a) * d, e.y[i]! + Math.sin(a) * d); }
+          }
           return false;
         }
         if (r !== true) return r;

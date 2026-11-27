@@ -260,3 +260,32 @@ Before, the prompt said "No home yet" and offered "build a hut" while no leather
 failure marked the person urgent and planned them again (the loop that made the calls). Now that goal shows under "Not possible now"
 with the engine's reason. Huts finished by planned tasks: 2.3 -> 0.7 (the 2 came out of ~900 tries; the camp's own hut plans are
 unchanged). `npm run build && node packages/server/dist/experiment-prompts.js --days 3 --policy sensible`.
+
+## E13. Daily rhythm, awareness, talks that carry knowledge (2026-11-27)
+imad: "as smart as they can get... when I play I feel they are alive". `npm run experiment -- --days 4 --seeds exp-a,exp-b,exp-c --agents 8
+--arms goap+learn+siting+instinct+purpose,new` (the second arm adds `aware`: sim/aware.ts, sim/talk.ts, the evening / sleep rhythm). Means of 3 seeds:
+
+| metric | before | aware |
+|---|---|---|
+| awake between 0 and 5 h (share of people) | 0.63 | **0.23** |
+| idle (rest / wander / idle share of waking samples; the evening by the fire counts as rest) | 0.72 | 0.66 |
+| talks | 70 | **107** |
+| pieces of knowledge passed in talks | 0 | **203** |
+| joint plans agreed (hunts, wood) | 0 | 3 |
+| failure loops | 4.3 | 2 |
+| bites | 10.3 | 6.7 |
+| tasks done / ok rate | 247 / 0.89 | 224 / 0.88 |
+| huts | 3.3 | 2.3 |
+| fire hours (of 88) | 88 | 88 |
+| food kept | 60 | 63 |
+| deaths | 0 | 0 |
+| ms per tick | 0.137 | 0.112 |
+| snapshot kB | 60 | 73 |
+
+Tasks done fall by ~9 %: by hour, the loss is the night (0-6 h: 29 tasks before, 10 now: firewood and fire tending done by people
+awake at 3 am); daytime work is the same within noise. A first version let the fire go out at night (81 of 88 h): whoever sits by
+it at bedtime now puts a log on. Fewer huts in 4 days (2.3 vs 3.3, one seed built 1) is the open cost.
+With 2 zombies a night (2 seeds, 3 days): bites 22.5 -> 18.5, night awake 0.58 -> 0.36, no deaths either way.
+Night siege (20 people, 8 children, 20 zombies at 21:00, `runSiege`, 11 seeds): deaths 3 -> 1, people under 30 hp 17 -> 12 (one child died
+in one seed, none before); fathers fed a child in 8 of 11 runs (10 of 11 before), so the siege test moved from seed siege-g (0 feeds by a
+father in that seed) to s1.

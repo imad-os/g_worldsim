@@ -98,9 +98,13 @@ given seed, and costs no AI calls.
    memories ... Places you know: water 20 m north; danger (I was hurt) 35 m east") and by the reactive layer (wandering keeps
    away from where they were bitten in the last two days). Kept in `Profile.mind.mem`, saved in snapshots.
 
+7. **Awareness, the day's rhythm, talks that carry knowledge** (flag `aware`, 2026-11-27): see `PEOPLE_AI.md`. Sightings per
+   person (`sim/aware.ts`), news / places / tips / lore passed in talks and joint plans (`sim/talk.ts`), evenings by the fire and
+   sleeping through the night (`Brain.evening` / `sleepIn`), "why now" codes (`sim/why.ts`, `World.why`).
+
 ## Flags
 
-`new World(sc, { ..., ai: { goap, learn, siting, instinct } })`, all on by default (the server uses the defaults). Off = exactly the
+`new World(sc, { ..., ai: { goap, learn, siting, instinct, purpose, aware } })`, all on by default (the server uses the defaults). Off = exactly the
 old code paths, for controlled experiments (`npm run experiment`). Learning without `goap` does nothing.
 
 ## Files
@@ -111,6 +115,9 @@ old code paths, for controlled experiments (`npm run experiment`). Learning with
 | `sim/colony.ts` | drives, goals, allocation, actions from the world, learning, re-planning |
 | `sim/structures.ts` | flood fills, hut shape from walls, hut audit |
 | `sim/memory.ts` | short / long-term memory, recall, places |
+| `sim/aware.ts` | sightings: what each person saw or was told lately |
+| `sim/talk.ts` | talks that pass knowledge, help, joint plans, news |
+| `sim/why.ts` | "why now" codes for the panel's Thoughts screen |
 | `sim/brain.ts` | `fightOrFlight`, alarm shouts, foresight bonuses (instinct) |
 | `sim/survival.ts` | camp site, hut site, wall circle, reservations, the old work list (flags off) |
 | `src/experiment.ts` | the experiment runner and its metrics |

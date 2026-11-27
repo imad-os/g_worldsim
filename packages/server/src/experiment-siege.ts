@@ -67,7 +67,7 @@ export function runSiege(seed: string, hour: number, where: 'edge' | 'camp' | 'r
   const sc = loadScenario(resolve(ROOT, 'scenarios/post-apocalypse'));
   sc.agents.count = 20;
   sc.life!.maxPopulation = 40;
-  const w = new World(sc, { tickRate: 20, clockScale: 10, capacity: 4096, seed });
+  const w = new World(sc, { tickRate: 20, clockScale: 10, capacity: 4096, seed, ...(process.env.SIEGE_AWARE === '0' ? { ai: { aware: false } } : {}) });
   w.populate();
   w.land.setup();
   const { kids, parents } = makeFamilies(w);

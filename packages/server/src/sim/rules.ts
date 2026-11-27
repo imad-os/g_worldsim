@@ -44,7 +44,7 @@ export const MAX_RULES = 5;
 export const ACT_RULE: Record<number, string> = { 1: 'wander', 2: 'drink', 3: 'eat', 4: 'forage', 5: 'sleep', 6: 'talk', 7: 'travel', 11: 'gather', 12: 'build', 13: 'fight' };
 /** Every skill or action a rule can forbid. */
 export const RULE_ACTS = ['talk', 'goto', 'follow', 'court', 'child', 'bring', 'give', 'trade', 'heal', 'fight', 'travel', 'eat', 'drink',
-  'sleep', 'forage', 'collect', 'gather', 'craft', 'build', 'tend', 'loot', 'store', 'take', 'farm', 'repair', 'wander', 'hunt', 'tame'] as const;
+  'sleep', 'forage', 'collect', 'gather', 'craft', 'build', 'tend', 'loot', 'store', 'take', 'farm', 'repair', 'wander', 'hunt', 'tame', 'home'] as const;
 
 /** Words -> what they forbid. Order matters little: every match is added. */
 const VERBS: [RegExp, string[]][] = [
@@ -72,6 +72,8 @@ const VERBS: [RegExp, string[]][] = [
   [/\b(repair|fix|répare|repare|arregla)\b|أصلح|اصلح/, ['repair']],
   [/\b(wander|roam|err\w*|vagabond\w*|deambul\w*)\b|تجول/, ['wander']],
   [/\b(take from the store|steal|vole|roba)\b|اسرق/, ['take']],
+  // "never stay at home" (imad 2026-11-27): no resting or sitting at home by day / in the evening (sleep at night still goes home).
+  [/\b(stay (at |in )?(home|the house|the hut|inside|indoors)|stay in|rester? (à la maison|chez (toi|soi|lui|elle))|reste à la maison|quedarse en casa|quédate en casa|quedate en casa)\b|ابق في البيت|البقاء في البيت|تبقى في البيت|ابقى في البيت/, ['home']],
 ];
 const WHEN = /\b(when(ever)?|each time|every time|if you (see|meet)|quand|lorsque|chaque fois|si tu vois|cuando|cada vez|si ves)\b|عندما|لما|كلما|إذا رأيت|اذا رأيت|اذا شفت/;
 const SEE = /\b(see|meet|met|sees|vois|rencontre|ves|veas|encuentras)\b|ترى|تشوف|رأيت|شفت|تقابل/;

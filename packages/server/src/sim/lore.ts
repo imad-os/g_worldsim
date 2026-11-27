@@ -44,7 +44,13 @@ export class Lore {
   /** How much of the lore person i carries, 0..1: none under 3, taught as a child, all of it from 13. */
   knows(i: number): number {
     const a = this.w.family.ageOf(i);
-    return a < 3 ? 0 : a >= 13 ? 1 : (a - 3) / 10;
+    return a < 3 ? 0 : a >= 13 ? 1 : Math.min(1, (a - 3) / 10 + this.taughtOf(i));
+  }
+  /** Extra lore a child was told by adults in talks (sim/talk.ts), 0..1, kept with their profile. */
+  taughtOf(i: number): number { return (this.w.profileOf(i)?.mind as { taught?: number } | undefined)?.taught ?? 0; }
+  teach(i: number, k: number): void {
+    const m = this.w.profileOf(i)?.mind as { taught?: number } | undefined;
+    if (m) m.taught = Math.min(1, (m.taught ?? 0) + k);
   }
   private key(m: number, x: number, y: number): string { return `${m}:${Math.floor(x / CELL)}:${Math.floor(y / CELL)}`; }
   /** Fear of the place (x, y) on map m as person i knows it (the cell and its neighbours count half). */

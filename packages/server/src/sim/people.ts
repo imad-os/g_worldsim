@@ -97,6 +97,10 @@ export interface Mind {
   task?: import('./tasks.js').Task;
   /** The engine's memory of their life: short-term 10, long-term 100, places (sim/memory.ts). */
   mem?: import('./memory.js').Mem;
+  /** News they carry, first hand or heard (sim/talk.ts). */
+  heard?: import('./talk.js').News[];
+  /** Lore a child was told by adults (sim/lore.ts knows). */
+  taught?: number;
   /** How they keep the owner's orders to DO, by the rule's words (sim/rules.ts). */
   ruled?: Record<string, import('./rules.js').RuleLog>;
 }

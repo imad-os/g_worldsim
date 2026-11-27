@@ -120,6 +120,33 @@ export class Colony {
     const spu = me?.[2] || c?.[2] || 0;
     return [1 / Math.max(0.12, p), spu];
   }
+  /**
+   * A tip one person can give another (sim/talk.ts): a job i is good at (3+ successes, 75 %+) that j keeps failing at
+   * (2+ failures, under half) or never tried. Null when there is nothing to teach.
+   */
+  tipFor(i: number, j: number): { key: string; fails: number } | null {
+    if (!this.w.ai.learn) return null;
+    const a = this.know(i), b = this.know(j);
+    if (!a || !b) return null;
+    let best: { key: string; fails: number } | null = null, bv = 0;
+    for (const [key, [ok, bad]] of Object.entries(a)) {
+      if (ok < 3 || ok / (ok + bad) < 0.75) continue;
+      const t = b[key], tok = t?.[0] ?? 0, tbad = t?.[1] ?? 0;
+      if (t && (tbad < 2 || tok / (tok + tbad) >= 0.5) && tok + tbad > 0) continue;
+      const v = tbad + (t ? 0 : 0.5);
+      if (v > bv) { bv = v; best = { key, fails: tbad }; }
+    }
+    return best;
+  }
+  /** i taught j how they do `key`: j counts some of i's experience as their own (a better chance and pace next time). */
+  teach(i: number, j: number, key: string): void {
+    const a = this.know(i)?.[key], b = this.know(j);
+    if (!a || !b) return;
+    const r = (b[key] ??= [0, 0, 0]);
+    r[0] += Math.max(1, Math.round(a[0] * 0.3));
+    r[1] = Math.max(0, r[1] - 1);
+    if (!r[2] && a[2]) r[2] = a[2] * 1.2;
+  }
   /** What a person has learned, for the panel and the prompt: "chop wood 5/0 ~140 s". */
   describe(i: number): string {
     const k = this.know(i);

@@ -997,3 +997,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   holder unless 0.25 worse). Security: first guard / warner, +1 night guard, spears before a zombie night; resources: gives the day chore instead of
   the leader (`leaderOrder` boss); society: free hut for a homeless member, daily make-up of the worst pair, `Clans.ease` tension with clans at peace.
   Prompt line `towns.promptText`; TV Clan page shows the government + "Make our camp a town". Test towns.test.ts.
+
+## Awareness, rhythm, talks that carry knowledge (imad 2026-11-27, flag `ai.aware`, design in research/PEOPLE_AI.md, E13)
+- Rhythm (`Brain.bedtime` 21:30-22:30 / `wakeAt` 5:30-6:30 by id): evenings 19-bedtime rest scores 0.75 = sit by the camp fire (`fireSpot`, goal -6),
+  talk with a neighbour now and then, a log on at bedtime (`Survival.logOn`); `sleepIn` keeps them asleep till morning. imad: encourage, not
+  hard-code: needs, danger, alarms, a hungry child near, freezing under half hp still wake them.
+- `sim/aware.ts` (`World.aware`): sightings per person (6; zombies 3 h / dawn, beasts 6-8 h), own eyes every 5 s (grid, 18 m), bites / alarms,
+  talks (hop 1 = told, 2+ = rumour, vaguer). `risky` (wander / forage keep off), `alert` (wider watch), `game` (hunt steps walk there), prompt line.
+- `sim/talk.ts` (`World.talk`, on the `talk` event): up to 4 turns, each the most useful thing the listener lacks (danger, game, place, news, tip
+  = `Colony.tipFor` / `teach`, lore for kids = `Lore.teach`), lines to `Planner.convo` via `onLine` (built-in smallTalk only when nothing real).
+  imad: truth, rumours vaguer, enemies get no places / tips; talks between people never call the model (players' chats do, with all of it in
+  the prompt). Food for the starving; joint plans (`pact`: hunt / wood) by day, or by the fire for 7-10 the next morning (`Talk.plans`).
+  `Mind.heard` (10 news). Events `learned` { from, to, kind, what, text, map }, `pact` { a, b, what, text, map, tomorrow?, kept? }.
+- `World.why(i)` { src, text, at } (sim/why.ts, `Brain.why` codes) for the panel Thoughts screen (ops/thoughts.ts, another thread).
+- Rule word `home` ("never stay at home", 4 languages): rest by the fire / outside instead of at home (sleep at night still home).
+- Wall circle cap 28 -> 32 (a hut sited 26 m out needs 29). Tests talk.test.ts; siege test seed s1.

@@ -9,6 +9,7 @@ import { ANIMALS } from './animals.js';
 import { Tactics } from './tactics.js';
 import { FIRE_SAFE } from './zombies.js';
 import type { World } from './world.js';
+import { Why, type WhyCode } from './why.js';
 
 /**
  * The algorithmic layer of every agent (no LLM): needs, utility-based choice of an action, A* paths, and the
@@ -96,6 +97,7 @@ export class Brain {
     this.gx = new Float32Array(cap); this.gy = new Float32Array(cap); this.replans = new Uint8Array(cap);
     this.wishAct = new Int8Array(cap).fill(-1); this.wishWith = new Int32Array(cap).fill(-1); this.wishUntil = new Float64Array(cap);
     this.huntId = new Int32Array(cap).fill(-1); this.huntUntil = new Float64Array(cap); this.huntFar = new Float32Array(cap).fill(60);
+    this.whyCode = new Uint8Array(cap); this.whyArg = new Int32Array(cap).fill(-1); this.whyAt = new Float64Array(cap);
     this.ordKind = new Uint8Array(cap); this.ordWho = new Int32Array(cap).fill(-1); this.ordAct = new Int8Array(cap).fill(-1); this.ordUntil = new Float64Array(cap);
     this.tactics = new Tactics(w, cap);
     this.jobX = new Float32Array(cap); this.jobY = new Float32Array(cap); this.faceX = new Float32Array(cap); this.faceY = new Float32Array(cap);
@@ -178,6 +180,11 @@ export class Brain {
     const a = e.act[i]!;
     if (a === Act.Wander || a === Act.Rest || a === Act.Idle) e.nextThink[i] = Math.min(e.nextThink[i]!, this.w.tick + 1);
   }
+  /** "Why now" notes (sim/why.ts): code, entity id it is about, when (not saved). */
+  readonly whyCode: Uint8Array;
+  readonly whyArg: Int32Array;
+  readonly whyAt: Float64Array;
+  why(i: number, code: WhyCode, arg = -1): void { this.whyCode[i] = code; this.whyArg[i] = arg; this.whyAt[i] = this.w.gameSec; }
   wishOf(i: number): number { return this.wishUntil[i]! > this.w.gameSec ? this.wishAct[i]! : -1; }
 
   /**
@@ -408,7 +415,7 @@ export class Brain {
     const asleep = (e.flags[i]! & EFlag.Sleeping) !== 0;
     const fighting = e.act[i] === Act.Fight, fleeing = e.act[i] === Act.Flee;
     const wild = w.wild(m); // the woods: people keep their eyes open (imad 2026-11-26: "they should know it is very dangerous")
-    let z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? (wild ? 9 : 6) : wild || (w.ai.instinct && T.alert(i)) ? 14 : 10);
+    let z = w.zombies.nearest(m, e.x[i]!, e.y[i]!, fighting || fleeing ? 16 : asleep ? (wild ? 9 : 6) : wild || (w.ai.instinct && T.alert(i)) || w.aware.alert(i) ? 14 : 10);
     if (z < 0) z = w.animals.attacker(i); // a wolf or a bear going for them
     // A parent sees a zombie or a beast near their child (under 14): they go for it, even timid ones (imad 2026-11-25: "parents protect their kids").
     let protect = false;
@@ -1139,7 +1146,8 @@ export class Brain {
     const emp = w.profileOf(i)?.traits.empathy ?? 0.5;
     const sTalk = night ? 0 : curve(e.lonely[i]!, 20, 1.1) * (0.8 + emp * 0.5);
     const sWander = night ? 0.05 : 0.18;
-    const sRest = 0.1;
+    // Evenings by the fire (flag aware): after the day's work people sit together until bedtime, talk, tell what they saw.
+    const sRest = this.evening(i) && guard < 0 && e.tired[i]! < 92 ? 0.75 : 0.1;
     let sTravel = w.travelOpen && !night && guard < 0 ? 0.08 : 0;
     // The woods are deadly (imad 2026-11-26): no child ever goes; a child found there goes home; adults go by day only and leave before dark.
     if (w.travelOpen && w.wild(e.map[i]!)) {
@@ -1197,6 +1205,33 @@ export class Brain {
     const w = this.w, m = w.e.map[i]!;
     for (let pi = 0; pi < w.portals.length; pi++) if (w.portals[pi]!.from === m && !w.wild(w.portals[pi]!.dest)) return pi;
     return -1;
+  }
+
+  // ------------------------------------------------------------------ the day's rhythm (flag aware)
+  /** Person i's own hours (an early bird or a night owl, by id): bed at 21:30-22:30, up at 5:30-6:30. */
+  bedtime(i: number): number { return 21.5 + ((this.w.e.id(i) * 37) % 13) / 12; }
+  wakeAt(i: number): number { return 5.5 + ((this.w.e.id(i) * 53) % 13) / 12; }
+  /**
+   * Asleep at night: stay asleep until morning even when rested (imad 2026-11-27: people woke at 2-3 am fully rested and
+   * stood in the dark until dawn, a third of all their waking time). Needs, danger and the cold still wake them (above).
+   */
+  sleepIn(i: number): boolean {
+    if (this.w.ai.aware === false || this.w.e.kind[i] !== Kind.Agent) return false;
+    const h = this.hour();
+    if (!(h >= this.bedtime(i) - 1 || h < this.wakeAt(i))) return false;
+    // A hungry or thirsty child of theirs close by wakes them (a crying child is urgent, imad 2026-11-27).
+    const e = this.w.e;
+    for (const k of this.w.family.childrenOf(e.id(i))) {
+      const j = e.slot(k);
+      if (j >= 0 && e.map[j] === e.map[i] && this.w.family.ageOf(j) < 14 && (e.hunger[j]! > 70 || e.thirst[j]! > 75) && Math.abs(e.x[j]! - e.x[i]!) < 15 && Math.abs(e.y[j]! - e.y[i]!) < 15) return false;
+    }
+    return true;
+  }
+  /** The evening (19:00 to bedtime): time with the others by the camp's fire, or at home. */
+  evening(i: number): boolean {
+    if (this.w.ai.aware === false) return false;
+    const h = this.hour();
+    return h >= 19 && h < this.bedtime(i);
   }
 
   /** A mother in her week at home with a newborn, on her home's map, with nothing urgent: she keeps indoors (sim/family.ts). */
@@ -1292,8 +1327,18 @@ export class Brain {
         if (!this.wanderGo(i, 22)) return false;
         this.setAct(i, Act.Wander); this.schedule(i, 1); return true;
       case Act.Rest: {
+        if (this.evening(i) && !stay && this.guardian(i) < 0) { // the evening: by the camp's fire with the others (else at home, below)
+          const f = this.fireSpot(i, 150), W = w.maps[m]!.tiles.w;
+          if (f >= 0 && this.goTo(i, (f % W) + 0.5, ((f / W) | 0) + 0.5)) { this.setAct(i, Act.Rest, 0); e.goal[i] = -6; this.why(i, Why.Evening); this.schedule(i, 1); return true; }
+        }
         // Rest at home when it is near (imad 2026-11-25: "keep resting in their home except if some urgency").
-        const h = w.survival.homes.homeOf(e.id(i));
+        const h0 = w.survival.homes.homeOf(e.id(i)), noHome = !stay && !!h0 && w.rules.forbidden(i, 'home');
+        if (noHome) { // a rule: not at home ("never stay at home"): rest by the fire, else out in the open
+          const f = this.fireSpot(i, 150), W = w.maps[m]!.tiles.w;
+          if (f >= 0 && this.goTo(i, (f % W) + 0.5, ((f / W) | 0) + 0.5)) { this.setAct(i, Act.Rest, 0); e.goal[i] = -5; this.why(i, Why.Rule); this.schedule(i, 1); return true; }
+          if (w.survival.homes.inside(i, h0!) && this.wanderGo(i, 15)) { this.setAct(i, Act.Wander); this.why(i, Why.Rule); this.schedule(i, 1); return true; }
+        }
+        const h = noHome ? undefined : h0;
         if (h && h.m === m && !w.survival.homes.inside(i, h)) {
           const c = w.survival.homes.middle(h), d = Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!), t = this.homeSpot(i), W = w.maps[m]!.tiles.w;
           const night = this.hour() >= 20 || this.hour() < 6;
@@ -1378,7 +1423,9 @@ export class Brain {
           else this.outside[i] = 0;
         }
         const night = this.hour() >= 22 || this.hour() < 6;
-        if (e.tired[i]! > 3 || (night && e.tired[i]! > 0)) {
+        const sleepIn = e.tired[i]! <= 3 && !(night && e.tired[i]! > 0) && this.sleepIn(i);
+        if (sleepIn && this.whyCode[i] !== Why.SleepIn) this.why(i, Why.SleepIn);
+        if (e.tired[i]! > 3 || (night && e.tired[i]! > 0) || sleepIn) {
           const g = this.guardian(i);
           if (g >= 0 && e.act[g] !== Act.Sleep && Math.hypot(e.x[g]! - e.x[i]!, e.y[g]! - e.y[i]!) > 10 && e.tired[i]! < 70) { // mum left: up and after her
             this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i) }); this.choose(i, 0); return true;
@@ -1389,6 +1436,10 @@ export class Brain {
               this.setAct(i, Act.Sleep); e.flags[i] = e.flags[i]! & ~EFlag.Sleeping; w.emit('wake', { id: e.id(i), why: 'cold' });
               if (this.goTo(i, (t % W) + 0.5, ((t / W) | 0) + 0.5)) { this.schedule(i, 1); return true; }
             }
+          }
+          if (w.ai.aware !== false && this.chilled[i]! > 2 && e.hp[i]! < w.sc.agents.hp * 0.5 && !w.family.dependent(i)) { // critical: freezing where they lie, even by the fire: up and keep moving
+            this.setAct(i, Act.Idle); w.emit('wake', { id: e.id(i), why: 'cold' });
+            if (!this.wanderGo(i, 4)) this.choose(i, 0); return true;
           }
           if (this.outside[i] && e.tired[i]! < 55 && this.guardian(i) < 0) { // rested a little in the open: up and home to sleep safe
             const h = w.survival.homes.homeOf(e.id(i));
@@ -1432,6 +1483,20 @@ export class Brain {
         this.schedule(i, 1); return true; // the other one moved: follow
       }
       case Act.Rest:
+        if (e.goal[i] === -6) { // by the fire in the evening: sit, keep company, now and then talk with someone sitting there too
+          if (this.walking(i)) { this.schedule(i, 1); return true; }
+          if (!this.evening(i)) { w.survival.logOn(i, 10); e.goal[i] = -1; return false; } // bedtime: a log on for the night if it burns low
+          if (e.actT[i]! <= 0) {
+            w.survival.logOn(i, 4);
+            const j = this.nearestAgent(i, 6, 'talk');
+            if (j >= 0 && e.kind[j] === Kind.Agent && e.goal[j] !== -2 && w.rng.chance(0.45)) {
+              e.goal[i] = -1; this.setAct(i, Act.Talk); e.target[i] = e.id(j); this.why(i, Why.Talk, e.id(j)); this.schedule(i, 0); return true;
+            }
+            this.stop(i); this.setAct(i, Act.Rest, 40 + w.rng.next() * 60); e.goal[i] = -6;
+          }
+          if (this.company(i, 5) > 0) e.lonely[i] = Math.max(0, e.lonely[i]! - 2);
+          this.schedule(i, 2, this.ticksLeft(i)); return true;
+        }
         if (e.goal[i] === -5) { // on the way home to rest
           if (this.walking(i)) { this.schedule(i, 1); return true; }
           e.goal[i] = -1; this.stop(i); this.setAct(i, Act.Rest, 30 + this.w.rng.next() * 60); this.schedule(i, 2, this.ticksLeft(i)); return true;
@@ -1546,6 +1611,7 @@ export class Brain {
     for (let k = 0; k < 4; k++) {
       const s = w.freeSpot(m, e.x[i]! + w.rng.range(-r, r), e.y[i]! + w.rng.range(-r, r), 6);
       if (s && k < 3 && w.ai.instinct && (w.memory.feared(e.id(i), m, s.x, s.y) || w.lore.feared(i, m, s.x, s.y))) continue; // not where something bit them lately, nor where the people lost someone
+      if (s && k < 3 && w.aware.risky(i, m, s.x, s.y)) { this.why(i, Why.Avoid); continue; } // not towards a danger they saw or were told of
       if (s && this.goTo(i, s.x, s.y)) return true;
     }
     return false;
@@ -1573,6 +1639,7 @@ export class Brain {
       const dx = e.x[j]! - e.x[i]!, dy = e.y[j]! - e.y[i]!;
       let d = dx * dx + dy * dy;
       if (d < bd && this.w.ai.instinct && this.w.lore.feared(i, m, e.x[j]!, e.y[j]!)) d *= 9; // food in a feared place: only when nothing else is near
+      if (d < bd && this.w.aware.risky(i, m, e.x[j]!, e.y[j]!, 15)) d *= 9; // where zombies / beasts were seen lately
       if (d < bd) { bd = d; best = j; }
     }
     return best;

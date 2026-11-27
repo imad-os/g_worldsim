@@ -187,7 +187,7 @@ export class Survival {
       }
     }
     void tm;
-    return Math.min(28, Math.max(9, Math.ceil(r))); // 7 x 7 huts (imad 2026-11-26) need a wider circle in the town's blocks
+    return Math.min(32, Math.max(9, Math.ceil(r))); // 7 x 7 huts (a hut sited at the edge, 26 m out, needs 29) (imad 2026-11-26) need a wider circle in the town's blocks
   }
   /** Fix the wall's circle (the first piece is going up). */
   private freezeWall(m: number): void { if (this.w.ai.siting && !this.walls[m]) { const p = this.perimeter(m); if (p) this.walls[m] = p; } }
@@ -1806,6 +1806,22 @@ export class Survival {
     return true;
   }
   /** Hours of fuel left in a fire (0 = none). */
+  /**
+   * Sitting by the fire in the evening (flag aware): one who sees it burning low puts a log on before the night, from their
+   * bag or the camp's store. True if they did.
+   */
+  logOn(i: number, below = 8): boolean {
+    const w = this.w, e = w.e, m = e.map[i]!, t = this.fireNear(m, e.x[i]!, e.y[i]!, 4);
+    if (t < 0 || this.fuel(m, t) >= below) return false;
+    const st = this.stash[m];
+    if ((this.inv(i).wood ?? 0) >= 1) this.add(i, 'wood', -1);
+    else if (st && (st.wood ?? 0) >= 1 && this.campOf(m) && Math.hypot(this.campOf(m)!.x - e.x[i]!, this.campOf(m)!.y - e.y[i]!) < 20) st.wood--;
+    else return false;
+    const key = `${m}:${t}`;
+    this.fires.set(key, Math.min(w.gameSec + 24 * HOUR, this.fires.get(key)! + FIRE_ADD));
+    w.emit('tend', { id: e.id(i), map: w.maps[m]!.def.id });
+    return true;
+  }
   fuel(m: number, t: number): number { const u = this.fires.get(`${m}:${t}`); return u ? Math.max(0, (u - this.w.gameSec) / HOUR) : 0; }
 
   // ------------------------------------------------------------------ hourly

@@ -22,6 +22,9 @@ import { Memory } from './memory.js';
 import { Lore } from './lore.js';
 import { Influences } from './influence.js';
 import { Purpose } from './purpose.js';
+import { Aware } from './aware.js';
+import { Talk } from './talk.js';
+import { whyOf, type WhyNow } from './why.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
@@ -58,7 +61,7 @@ export interface WorldOptions {
  * research/ARCHITECTURE.md: goap = goal-driven planning of work, learn = people learn what works, siting = buildings planned under
  * constraints, instinct = survival instincts and fear (fight or flight by the odds, alarms, stalking game, foresight, memory of places).
  */
-export interface AiFlags { goap: boolean; learn: boolean; siting: boolean; instinct: boolean; /** Dreams, pastimes, expeditions (sim/purpose.ts). */ purpose?: boolean }
+export interface AiFlags { goap: boolean; learn: boolean; siting: boolean; instinct: boolean; /** Dreams, pastimes, expeditions (sim/purpose.ts). */ purpose?: boolean; /** Daily rhythm, awareness, talks that carry knowledge (sim/talk.ts, sim/aware.ts). */ aware?: boolean }
 
 /** Think intervals (ticks) per LOD level: 0 = busy / in danger ... 3 = asleep. */
 
@@ -115,6 +118,10 @@ export class World {
   /** Each person's influence, from what they do (sim/influence.ts). */
   readonly influence: Influences;
   readonly purpose: Purpose;
+  /** What each person has seen or been told lately (sim/aware.ts). */
+  readonly aware: Aware;
+  /** Talks that carry knowledge (sim/talk.ts). */
+  readonly talk: Talk;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
   /** Clan camps as territory: visitors, intruders warned then driven out, enemy camps kept clear of (sim/territory.ts). */
@@ -182,6 +189,8 @@ export class World {
     this.lore = new Lore(this);
     this.influence = new Influences(this);
     this.purpose = new Purpose(this);
+    this.aware = new Aware(this);
+    this.talk = new Talk(this);
     this.clans = new Clans(this);
     this.territory = new Territory(this);
     this.towns = new Towns(this);
@@ -554,7 +563,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
-    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.territory.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); }
+    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.territory.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); this.aware.update(); this.talk.update(); }
     this.zombies.update();
     this.animals.update();
     this.horses.update();
@@ -722,6 +731,8 @@ export class World {
   }
 
   /** The TV of player i shows the ride between maps: its clock starts now. */
+  /** Why person i does what they do now, where it is not plain from a task, an order or a need (sim/why.ts), else null. */
+  why(i: number): WhyNow | null { return whyOf(this, i); }
   gateShown(i: number): boolean {
     const g = this.e.alive(i) ? this.gate.get(this.e.id(i)) : undefined;
     if (!g || g.shown) return false;

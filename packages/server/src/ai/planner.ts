@@ -181,7 +181,14 @@ export class Planner {
   constructor(private w: World, private ai: Ai, private logger: Logger, cfg?: Partial<PlannerConfig>) {
     this.cfg = { ...PLANNER_DEFAULTS, ...cfg };
     w.speak = (i, text) => this.say(i, text);
-    w.listeners.push((ev) => { if (ev.kind === 'talk') this.smallTalk(Number(ev.data.a), Number(ev.data.b)); });
+    // Talks pass real knowledge (sim/talk.ts) and say it; the built-in small talk only when nothing real was said.
+    w.talk.onLine = (at, from, to, text) => this.convo.add(at, from, to, text);
+    w.listeners.push((ev) => {
+      if (ev.kind !== 'talk') return;
+      const a = Number(ev.data.a), b = Number(ev.data.b), l = w.talk.last;
+      if (l.tick === w.tick && l.a === a && l.b === b && l.n > 0) return;
+      this.smallTalk(a, b);
+    });
     // Tasks (step plans) speak through the planner and end in memory.
     w.tasks.onSay = (i, text) => this.say(i, text);
     w.rules.onSay = (i, text) => this.say(i, text);
@@ -524,6 +531,8 @@ export class Planner {
       ...(this.placeText(i, inBatch) ? [this.placeText(i, inBatch)] : []),
       w.weather.promptText(e.map[i]!),
       ...(w.lore.promptText(i) ? [w.lore.promptText(i)] : []),
+      ...(w.aware.promptText(i) ? [w.aware.promptText(i)] : []),
+      ...(w.talk.promptText(i) ? [w.talk.promptText(i)] : []),
       `Near: ${near.length ? nearText : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
       ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),

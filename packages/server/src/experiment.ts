@@ -22,7 +22,7 @@ const DAYS = Number(arg('days', '3')), SEEDS = arg('seeds', 'exp-a,exp-b,exp-c')
 const ZOMBIES = Number(arg('zombies', '0')), ARMS = arg('arms', 'old,new').split(','), OUT = arg('out', '');
 const CLOCK = 30, RATE = 20;
 
-const ALL: (keyof AiFlags)[] = ['goap', 'learn', 'siting', 'instinct', 'purpose'];
+const ALL: (keyof AiFlags)[] = ['goap', 'learn', 'siting', 'instinct', 'purpose', 'aware'];
 function flagsOf(arm: string): AiFlags {
   const on = arm === 'new' ? ALL : arm === 'old' ? [] : arm.split('+');
   const f = {} as AiFlags;
@@ -38,7 +38,7 @@ export interface RunResult {
   loops: number; built: Record<string, number>; gathered: number; crafted: number;
   huts: { n: number; functional: number; enclosed: number; reachable: number; protected: number };
   wall: { up: number; left: number }; fireHours: number; stock: number;
-  idle: number; talks: number; partners: number;
+  idle: number; talks: number; partners: number; learned: number; pacts: number; gifts: number; nightAwake: number;
   msPerTick: number; p95: number; searchesPerHour: number;
   fights: number; flees: number; bites: number; zombiesKilled: number; alarms: number;
   memory: { short: number; long: number; places: number }; snapshotKB: number;
@@ -53,7 +53,7 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
   w.zombies.perNight = zombies;
   const deaths: Record<string, number> = {}, built: Record<string, number> = {}, reasons: Record<string, number> = {};
   const byFrom: Record<string, [number, number]> = {}, texts: Record<string, number> = {};
-  let ok = 0, failed = 0, gathered = 0, crafted = 0, talks = 0, partners = 0, born = 0, loops = 0;
+  let ok = 0, failed = 0, gathered = 0, crafted = 0, talks = 0, partners = 0, born = 0, loops = 0, learned = 0, pacts = 0, gifts = 0;
   let fights = 0, flees = 0, bites = 0, zombiesKilled = 0, alarms = 0;
   const lastFail = new Map<string, number>();
   w.listeners.push((ev) => {
@@ -64,6 +64,8 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
       case 'gather': gathered++; break;
       case 'craft': crafted++; break;
       case 'talk': talks++; break;
+      case 'learned': learned++; if (d.kind === 'help') gifts++; break;
+      case 'pact': pacts++; break;
       case 'partner': partners++; break;
       case 'birth': born++; break;
       case 'fight': fights++; break;
@@ -91,7 +93,7 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
   const ticks = Math.round((days * 86400) / CLOCK * RATE), hourTicks = Math.round(3600 / CLOCK * RATE);
   const times = new Float64Array(ticks);
   const need = { hunger: 0, thirst: 0, tired: 0, lonely: 0, hp: 0 };
-  let samples = 0, idle = 0, awake = 0, fireHours = 0, searches = 0;
+  let samples = 0, idle = 0, awake = 0, fireHours = 0, searches = 0, nightN = 0, nightAwake = 0;
   const e = w.e;
   for (let k = 0; k < ticks; k++) {
     const a = performance.now();
@@ -102,6 +104,8 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
       for (let i = 0; i < e.hi; i++) {
         if (e.kind[i] !== Kind.Agent) continue;
         need.hunger += e.hunger[i]!; need.thirst += e.thirst[i]!; need.tired += e.tired[i]!; need.lonely += e.lonely[i]!; need.hp += e.hp[i]!; samples++;
+        const hr = ((w.gameSec / 3600 + 8) % 24 + 24) % 24;
+        if (hr >= 0 && hr < 5) { nightN++; if (e.act[i] !== Act.Sleep) nightAwake++; }
         if (e.act[i] !== Act.Sleep) { awake++; if (e.act[i] === Act.Idle || e.act[i] === Act.Rest || e.act[i] === Act.Wander) idle++; }
       }
       for (let m = 0; m < w.maps.length; m++) { const c = w.survival.campOf(m); if (c && w.survival.fireNear(m, c.x, c.y, 15) >= 0) fireHours++; }
@@ -144,7 +148,7 @@ export function runOnce(arm: string, seed: string, days = DAYS, agents = AGENTS,
     needs: { hunger: r1(need.hunger / n), thirst: r1(need.thirst / n), tired: r1(need.tired / n), lonely: r1(need.lonely / n), hp: r1(need.hp / n) },
     tasks: { started: ok + failed, ok, failed, okRate: Math.round((ok / Math.max(1, ok + failed)) * 100) / 100, byFrom, reasons, texts },
     loops, built, gathered, crafted, huts, wall, fireHours, stock,
-    idle: Math.round((idle / Math.max(1, awake)) * 100) / 100, talks, partners,
+    idle: Math.round((idle / Math.max(1, awake)) * 100) / 100, talks, partners, learned, pacts, gifts, nightAwake: Math.round((nightAwake / Math.max(1, nightN)) * 100) / 100,
     msPerTick: +(total / ticks).toFixed(4), p95: +times[Math.floor(ticks * 0.95)]!.toFixed(4), searchesPerHour: Math.round(searches / (days * 24)),
     fights, flees, bites, zombiesKilled, alarms, memory: mem, snapshotKB,
   };
@@ -162,7 +166,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     ['alive', (r) => r.alive], ['deaths', (r) => Object.values(r.deaths).reduce((s, x) => s + x, 0)], ['tasksOk', (r) => r.tasks.ok], ['tasksFailed', (r) => r.tasks.failed],
     ['okRate', (r) => r.tasks.okRate], ['loops', (r) => r.loops], ['huts', (r) => r.huts.n], ['hutsFunctional', (r) => r.huts.functional],
     ['wallUp', (r) => r.wall.up], ['fireHours', (r) => r.fireHours], ['gathered', (r) => r.gathered], ['crafted', (r) => r.crafted], ['stock', (r) => r.stock],
-    ['hunger', (r) => r.needs.hunger], ['thirst', (r) => r.needs.thirst], ['idle', (r) => r.idle], ['talks', (r) => r.talks], ['lonely', (r) => r.needs.lonely], ['msPerTick', (r) => r.msPerTick], ['searches/h', (r) => r.searchesPerHour],
+    ['hunger', (r) => r.needs.hunger], ['thirst', (r) => r.needs.thirst], ['idle', (r) => r.idle], ['talks', (r) => r.talks], ['learned', (r) => r.learned], ['pacts', (r) => r.pacts], ['gifts', (r) => r.gifts], ['awake0-5h', (r) => r.nightAwake], ['lonely', (r) => r.needs.lonely], ['msPerTick', (r) => r.msPerTick], ['searches/h', (r) => r.searchesPerHour],
     ['partners', (r) => r.partners], ['born', (r) => r.born], ['bites', (r) => r.bites], ['zombiesKilled', (r) => r.zombiesKilled], ['alarms', (r) => r.alarms],
     ['memShort', (r) => r.memory.short], ['memLong', (r) => r.memory.long], ['places', (r) => r.memory.places], ['snapshotKB', (r) => r.snapshotKB],
   ];

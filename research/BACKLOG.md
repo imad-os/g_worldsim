@@ -25,12 +25,12 @@ Value = what it changes in measured behaviour; cost = engineering + CPU. Done it
 1. **Perception cache per pass** (cost S). `Colony.actions` scans tiles and entities per plan (~1.2 ms per plan at 100
    people, a 43 ms pass at most). Cache nearest sources per person per pass, use the spatial grid for items. Keeps big
    worlds smooth.
-2. **Shared plans and roles** (cost M). Two people building one hut, a hunting party, a bucket chain to the store: a joint
+2. **Shared plans and roles** (cost M). *Started 2026-11-27: talks agree joint hunts and wood runs (sim/talk.ts); still to do: splitting one big job.* Two people building one hut, a hunting party, a bucket chain to the store: a joint
    goal split into sub-goals per person (HTN-style decomposition of a GOAP plan, or "help" actions that add to another's
    counters). Today crews only work in parallel.
 3. **Learned drive weights per camp** (cost M). Bandit over goal choices with the camp's outcomes (fire hours, hunger,
    deaths, bites) as reward, so camps develop different priorities ("culture"). Measure divergence across seeds.
-4. **Social drive in planning** (cost S). Loneliness and relationships as goals (visit a friend, eat together, teach a
+4. **Social drive in planning** (cost S). *Partly done 2026-11-27: evenings by the fire, tips copy know-how in talks.* Loneliness and relationships as goals (visit a friend, eat together, teach a
    skill: copy `know` entries between people who talk), so work and social life trade off by value, not by a threshold.
 5. **Smaller walls** (cost S). Welzl's minimum enclosing circle or a convex-hull wall around the footprint, gates where
    paths cross; measure pieces per protected hut.
