@@ -835,3 +835,9 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Horses (`Horses3D.add`): speed eased (5/s), gait with a margin (gallop in > 2.6 m/s, out < 2.1: the canter at 4.2 sat on the old 4.2 switch),
   a gait change keeps the point of the stride + 0.35 s fade, pace eased. Riders bounce with the horse's back instead of their own bob.
   `?dev` `__dev.gaits()`. Proof `ADMIN_TOKEN=... node tools/fpv-proof.mjs <server> <sdk.js> <outdir>` (writes gaits.json).
+- **A bow that really draws (imad 2026-11-27: "hold the bow right, pull the arrow on the string, release properly", my own character only)**:
+  `gfx/bow.ts` `LiveBow` (limbs that bend, string tip-nock-tip, arrow nocked on the left of the grip, a flying arrow after the shot) + `BowShot`
+  (timeline from Aim held / let go on this TV and the server's quick shot anim 6: draw 0..1 over 0.6 s, release = string snaps and shivers,
+  the hand springs back, bow lowers after 0.55 s). First person: `Hands` draws it at half size in the left fist, the right fist on the nock.
+  Third / top view: `People.add(.., live)` for me skips the baked bow and `World3D.myBowAt` puts the LiveBow in that hand (raised when drawing,
+  hanging otherwise). Everyone else keeps the baked model. Proof `ADMIN_TOKEN=... node tools/bowdraw-proof.mjs <server> <sdk.js> <outdir>`.

@@ -83,7 +83,7 @@ export class People {
     return (this.gear[k] = im);
   }
 
-  begin(): void { this.n = 0; this.nm = 0; this.nGlow = 0; for (const k of MODELS) this.gn[k] = 0; }
+  begin(): void { this.liveOn = false; this.n = 0; this.nm = 0; this.nGlow = 0; for (const k of MODELS) this.gn[k] = 0; }
 
   /**
    * One person. x, z = ground position; facing = rotation around up (0 = towards +z); phase / amp = walk cycle
@@ -91,7 +91,10 @@ export class People {
    * `reach` = arms held out in front (a zombie). `gear` = packed gear + move (protocol gear.ts), `at` = seconds since the move began.
    * `lying` may be a share 0..1 (lying down / getting up, imad 2026-11-26), `lift` = metres up (on top of a bed).
    */
-  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean | number, size = 1, reach = false, gear = 0, at = 0, seat = 0, lift = 0): void {
+  /** My own character's left hand this frame when it holds a bow (`live`): World3D draws the bow that really draws there. */
+  readonly liveHand = new Matrix4();
+  liveOn = false;
+  add(x: number, z: number, facing: number, phase: number, amp: number, look: PersonLook, lying: boolean | number, size = 1, reach = false, gear = 0, at = 0, seat = 0, lift = 0, live = false): void {
     if (this.n >= this.cap) return;
     const i = this.n++;
     const lie = typeof lying === 'number' ? lying : lying ? 1 : 0;
@@ -165,7 +168,8 @@ export class People {
     if (lie < 0.3 && !reach) {
       const held = HELD[gear & 7] ?? '', hq = (gear >> 3) & 7;
       const tool: Model | '' = anim === 2 ? 'axe' : anim === 3 ? 'sledge' : anim === 4 ? 'hammer' : anim === 6 ? 'bow' : (held as Model | '');
-      if (tool === 'bow') this.holdIn('bow', this.lhand, held === 'bow' ? hq : 0); // the bow in the other hand
+      if (tool === 'bow' && live) { this.liveHand.copy(this.lhand); this.liveOn = true; } // my own: the bow that draws (gfx/bow.ts)
+      else if (tool === 'bow') this.holdIn('bow', this.lhand, held === 'bow' ? hq : 0); // the bow in the other hand
       else if (tool) this.holdIn(tool, this.hand, tool === held ? hq : 0);
       if (((gear >> 22) & 1) && tool !== 'bow') { // a bow on the back
         const im = this.model('bow');

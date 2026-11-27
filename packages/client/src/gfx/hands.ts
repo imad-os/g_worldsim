@@ -3,6 +3,7 @@ import {
 } from 'three';
 import { itemGeo, itemsReady } from './items.js';
 import type { PersonLook } from './people.js';
+import { LiveBow, BowShot } from './bow.js';
 
 /**
  * First person (imad 2026-11-26: "it should show the hands of the player, and when mounting the hands and the horse's head"):
@@ -39,6 +40,8 @@ export interface HandsState {
   dt: number;
   /** The camera's vertical field of view (degrees): when it narrows (aiming) the hands keep their size on screen. */
   fov: number;
+  /** Aim held on this TV (known at once; the server's copy comes a frame or more later). */
+  aim?: boolean;
 }
 
 export class Hands {
@@ -56,6 +59,10 @@ export class Hands {
   /** Eased in when the view turns to first person / out of a menu (they rise into view). */
   private k = 0;
   private sway = { x: 0, y: 0 };
+  /** The bow that draws (gfx/bow.ts) and the shot's timeline: seconds since the string was let go (-1 = none), how far it was drawn, where the hand was. */
+  private bow = new LiveBow();
+  private shot = new BowShot();
+  private relPos = new Vector3();
 
   constructor(camera: Camera) {
     const fore = new CylinderGeometry(0.036, 0.046, 0.36, 8).rotateX(Math.PI / 2).translate(0, 0, 0.2); // from the wrist back to the elbow
@@ -74,6 +81,9 @@ export class Hands {
     const rein = new BoxGeometry(0.012, 0.012, 1).translate(0, 0, 0.5);
     this.reins = [new Mesh(rein, this.reinMat), new Mesh(rein, this.reinMat)];
     for (const r of this.reins) { r.frustumCulled = false; this.root.add(r); }
+    this.bow.g.visible = false;
+    this.bow.g.scale.setScalar(0.5); // a viewmodel: half size so the riser, the limbs and the string fit the screen at arm's length
+    this.root.add(this.bow.g);
     this.root.visible = false;
     this.root.renderOrder = 3;
     camera.add(this.root);
@@ -109,7 +119,7 @@ export class Hands {
     const body = (s.gear >> 10) & 3;
     this.skinMat.color.copy(s.look.skin);
     this.sleeveMat.color.copy(body === 2 ? this.tmp.copy(ARMOR).lerp(s.look.tunic, 0.25) : body === 1 ? this.tmp.copy(LEATHER).lerp(s.look.tunic, 0.35) : s.look.tunic);
-    const anim = (s.gear >> 15) & 7, aiming = anim === 6 && ((s.gear >> 23) & 1) === 1, at = s.at;
+    const anim = (s.gear >> 15) & 7, aiming = s.aim ?? (anim === 6 && ((s.gear >> 23) & 1) === 1), at = s.at;
     const held = HELD[s.gear & 7] ?? '', hq = (s.gear >> 3) & 7;
     let r = s.riding ? REIN_R : REST_R, l = s.riding ? REIN_L : REST_L;
     let tool: Tool | '' = anim === 2 ? 'axe' : anim === 3 ? 'sledge' : anim === 4 ? 'hammer' : anim === 6 ? 'bow' : (held as Tool | '');
@@ -139,10 +149,7 @@ export class Hands {
     } else if (anim === 5) { // talk: hands open in front, moving with the words
       r = mix(r, P(0.16, -0.2, -0.48, 0.35, 0.3, -0.4), 0.5 + 0.5 * Math.sin(at * 5.2));
       if (!s.riding) l = mix(l, P(-0.17, -0.22, -0.5, 0.35, -0.3, 0.4), 0.5 + 0.5 * Math.sin(at * 3.7 + 1));
-    } else if (aiming || anim === 6) { // the bow: held out ahead in the left hand, the string hand drawn back to the cheek (shoot = released)
-      const draw = aiming ? ease(at / 0.35) : at < 0.15 ? ease(at / 0.15) : 1 - ease((at - 0.15) / 0.12);
-      l = P(-0.07, -0.17, -0.6, 0.15, -0.2, 0);
-      r = mix(P(0.0, -0.16, -0.56, 0.2, 0.25, -1.4), P(0.1, -0.2, -0.38, 0.4, 0.9, -1.4), draw);
+    } else if (aiming || anim === 6) { // the bow: placed below with the string, once the arms are known
       reins = false; tool = 'bow';
     } else if (anim === 7) { // use: reach down ahead and pick up
       const p = Math.min(1, at / 0.6), k = Math.sin(p * Math.PI);
@@ -154,6 +161,13 @@ export class Hands {
     this.sway.x += (sw * 0.012 - this.sway.x) * ek; this.sway.y += (bob - this.sway.y) * ek;
     this.place(this.arm[0], r, this.sway.x, this.sway.y - rise);
     this.place(this.arm[1], l, -this.sway.x, this.sway.y - rise);
+    // The bow (imad 2026-11-27): gripped in the left fist, the arrow nocked; aiming pulls the string and the arrow back to the right
+    // hand under the chin, letting go snaps the string forward (it shivers), the arrow leaves and the hand springs back and out.
+    if (this.shot.busy) { tool = 'bow'; reins = false; } // the shot plays out whatever is in the hand now
+    const hasBow = tool === 'bow' && !(s.riding && !anim && !aiming && !this.shot.busy);
+    this.bow.g.visible = hasBow;
+    if (hasBow) this.drawBow(s, aiming, anim, at, hq, held === 'bow', rise);
+    else this.shot.reset();
     // The reins: from each fist forward and down to the horse's mouth.
     for (let k = 0; k < 2; k++) {
       const rm = this.reins[k]!;
@@ -166,20 +180,49 @@ export class Hands {
       rm.position.copy(a); rm.scale.set(1, 1, len);
       rm.quaternion.setFromUnitVectors(Hands.Z, this.v2.multiplyScalar(1 / len));
     }
-    // What is in the hands: the bow in the left, anything else in the right (a 2-handed tool sits in both).
+    // What is in the right hand (the bow is drawn above, in the left; a 2-handed tool sits in both).
     for (const k of TOOLS) { const m = this.tools[k]; if (m) m.visible = false; }
     const reinsHand = s.riding && !anim && tool !== 'bow'; // riding at rest: the weapon hangs at the side, out of sight
-    if (tool && !reinsHand) {
+    if (tool && tool !== 'bow' && !reinsHand) {
       const m = this.tool(tool);
       if (m) {
-        const hand = this.arm[tool === 'bow' ? 1 : 0];
+        const hand = this.arm[0];
         if (m.parent !== hand) hand.add(m);
         m.visible = true;
         (m as unknown as { mat: MeshLambertMaterial }).mat.color.copy(Q_TINT[tool === held ? hq : 0] ?? Q_TINT[0]!);
         m.position.set(0, 0, 0);
-        if (tool === 'bow') { m.rotation.set(-0.1, 0, 0); m.scale.setScalar(0.62); }
-        else { m.rotation.set(-1.3, 0, 0); m.scale.setScalar(tool === 'spear' ? 0.5 : 0.45); }
+        m.rotation.set(-1.3, 0, 0); m.scale.setScalar(tool === 'spear' ? 0.5 : 0.45);
       }
+    }
+  }
+
+  private drawBow(s: HandsState, aiming: boolean, anim: number, at: number, hq: number, mine: boolean, rise: number): void {
+    const sh = this.shot;
+    sh.step(aiming, anim, at, s.dt);
+    const { draw, up, arrowOn, vib, fly } = sh;
+    // Where the bow is: raised ahead (canted, top to the right) or lowered at my left side.
+    const sx = -this.sway.x, sy = this.sway.y - rise;
+    const lo = { x: -0.25, y: -0.31, z: -0.6, rx: 0.45, rz: -0.35 }, hi = { x: -0.1, y: -0.12, z: -0.68, rx: 0.02, rz: -0.15 };
+    const k = ease(up), g = this.bow.g;
+    g.position.set(lo.x + (hi.x - lo.x) * k + sx, lo.y + (hi.y - lo.y) * k + sy, lo.z + (hi.z - lo.z) * k);
+    g.rotation.set(lo.rx + (hi.rx - lo.rx) * k, 0.3 + 0.15 * k, lo.rz + (hi.rz - lo.rz) * k, 'ZXY'); // turned a little: the limbs' curve and the arrow show
+    this.bow.update(draw, vib, arrowOn, fly, Q_TINT[mine ? hq : 0]);
+    // The left fist round the grip, the forearm going back down to the left.
+    this.arm[1].position.copy(g.position);
+    this.arm[1].quaternion.setFromEuler(this.e.set(0.95 + 0.1 * (1 - k), -0.45 + 0.1 * (1 - k), g.rotation.z * 0.5, 'YXZ'));
+    // The right hand: on the string while it is drawn, springing back after the shot, then down to rest.
+    g.updateMatrix();
+    this.v.copy(this.bow.nock).applyMatrix4(g.matrix);
+    if (arrowOn) {
+      this.relPos.copy(this.v);
+      this.arm[0].position.set(this.v.x + 0.018, this.v.y - 0.026, this.v.z + 0.01);
+      this.arm[0].quaternion.setFromEuler(this.e.set(0.35, 0.6, -0.35, 'YXZ'));
+    } else if (sh.relT >= 0) {
+      const t = sh.relT, out = ease(t / 0.09), back = ease((t - 0.45) / 0.4);
+      const r = REST_R;
+      this.arm[0].position.set(this.relPos.x + 0.016 + 0.06 * out, this.relPos.y - 0.024 + 0.025 * out, this.relPos.z + 0.012 + 0.07 * out);
+      this.arm[0].position.lerp(this.v2.set(r.x + this.sway.x, r.y + sy, r.z), back);
+      this.arm[0].quaternion.setFromEuler(this.e.set(0.35 + (r.rx - 0.35) * back, 0.6 + (r.ry - 0.6) * back + 0.3 * out * (1 - back), -0.35 * (1 - back), 'YXZ'));
     }
   }
 

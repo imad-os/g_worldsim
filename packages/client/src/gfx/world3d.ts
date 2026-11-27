@@ -14,6 +14,7 @@ import type { ChunkGeo } from './chunkmesh.js';
 import { CHUNK_TILES } from '@worldsim/protocol';
 import { Anims } from './anims.js';
 import { Hands } from './hands.js';
+import { LiveBow, BowShot } from './bow.js';
 
 export type Tier = 'low' | 'mid' | 'high';
 
@@ -46,6 +47,12 @@ export class World3D {
   readonly anims: Anims;
   /** My own hands in first person (gfx/hands.ts), hung on the camera. */
   readonly hands: Hands;
+  /** My own character's bow in third person / from above (gfx/bow.ts): the string pulls back with the arrow, the shot snaps it. */
+  private myBow: LiveBow;
+  private myShot = new BowShot();
+  private bm = new Matrix4(); private bq1 = new Quaternion(); private bq2 = new Quaternion(); private bv = new Vector3(); private bs = new Vector3();
+  private static BOW_UP = new Matrix4().makeBasis(new Vector3(-1, 0, 0), new Vector3(0, 0, 1), new Vector3(0, 1, 0)); // raised: along the arm's up, string to me
+  private static BOW_DOWN = new Matrix4().makeRotationX(Math.PI); // hanging at my side
   /** First person: the eye's height (m), eased towards `eyeWant` (app.ts works it out from my size, seat, lying). */
   eyeWant = 1.65;
   private eyeH = 1.65;
@@ -132,6 +139,10 @@ export class World3D {
     this.anims = new Anims(this.scene, shadows);
     this.scene.add(this.camera); // for the hands hung on it
     this.hands = new Hands(this.camera);
+    this.myBow = new LiveBow(shadows);
+    this.myBow.g.visible = false;
+    this.myBow.g.matrixAutoUpdate = false;
+    this.scene.add(this.myBow.g);
     this.animals = new Animals3D(this.scene, 128, shadows);
     this.horses = new Horses3D(this.scene, shadows, tier === 'low' ? 10 : 18);
     this.horses.view = { frustum: this.frustum, eye: this.camera.position, shadowD: 40 };
@@ -408,6 +419,27 @@ export class World3D {
     this.camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(this.pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     if (this.horses.view) this.horses.view.shadowD = this.shadowR * 1.2;
+  }
+
+  /**
+   * After people.end(): my own character's bow, in the hand People saw this frame (or hidden). aim = Aim held on this TV, gear / at = my
+   * packed gear and the move's seconds, tint = its quality colour.
+   */
+  myBowAt(aim: boolean, gear: number, at: number, dt: number, tint?: Color): void {
+    const P = this.people;
+    if (!P.liveOn && !this.myShot.busy) { this.myBow.g.visible = false; this.myShot.reset(); return; }
+    if (!P.liveOn) { this.myBow.g.visible = false; return; }
+    const sh = this.myShot;
+    sh.step(aim, (gear >> 15) & 7, at, dt);
+    // In the fist (the arm's end), raised along the arm when drawing, hanging otherwise.
+    this.bm.copy(P.liveHand).multiply(this.m.makeTranslation(0, -0.42, 0.0));
+    this.bq1.setFromRotationMatrix(World3D.BOW_DOWN); this.bq2.setFromRotationMatrix(World3D.BOW_UP);
+    this.bq1.slerp(this.bq2, sh.up);
+    this.bm.multiply(this.m.compose(this.bv.set(0, 0, 0), this.bq1, this.bs.set(1, 1, 1)));
+    this.myBow.g.matrix.copy(this.bm);
+    this.myBow.g.matrixWorldNeedsUpdate = true;
+    this.myBow.g.visible = true;
+    this.myBow.update(sh.draw, sh.vib, sh.arrowOn, sh.fly, tint);
   }
 
   /** People this far from the camera or more are drawn by the simpler set (top view: nobody, everything on screen is close). */

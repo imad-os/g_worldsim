@@ -2217,7 +2217,7 @@ function draw(now: number, dt: number): void {
       if (asleep) g3.hands.hide();
       else {
         g3.hands.update({ look: atype[i]! > 0 ? playerLook(true, atype[i]!) : ME, gear: aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, at: aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000,
-          phase: phase[i]!, amp: Math.min(1, spd[i]! / 2.2), riding: seat > 0, bounce: seat > 0 ? seatBounce : 0, dt, fov: g3.camera.fov });
+          phase: phase[i]!, amp: Math.min(1, spd[i]! / 2.2), riding: seat > 0, bounce: seat > 0 ? seatBounce : 0, dt, fov: g3.camera.fov, aim: aimOn });
         handsOn = true;
       }
       myLook = atype[i]! > 0 ? playerLook(true, atype[i]!) : ME; myGear = gearOf[i]!;
@@ -2245,7 +2245,7 @@ function draw(now: number, dt: number): void {
     const seat = riding[i] ? riderSeat(x, y) : 0;
     if (i === me) { myLook = look; myGear = gearOf[i]!; }
     const PP = i === me ? P : g3.peopleFor(x, y); // far away: the simpler set
-    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, size, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat, lift);
+    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, size, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat, lift, i === me);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) PP.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (kind[i] === Kind.Npc) PP.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
     else if (eid[i] === follow) PP.marker(x, y, tsec, GOLD);
@@ -2256,6 +2256,8 @@ function draw(now: number, dt: number): void {
     g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
   }
   if (!handsOn) g3.hands.hide();
+  if (me >= 0) g3.myBowAt(aimOn, aimOn ? aimGear(gearOf[me]!) : gearOf[me]!, aimOn ? (now - aimAt) / 1000 : (now - animAt[me]!) / 1000, dt);
+  else g3.myBowAt(false, 0, 0, dt);
   P.end(); g3.peopleFar.end(); g3.endShots(); g3.endItems(); g3.animals.end(); g3.horses.end();
   g3.anims.update(now, dt, (tx, ty) => tileUnder(tx + 0.5, ty + 0.5), looks, menu.open && menu.page === 'box' && boxView ? [boxView.at[0]!, boxView.at[1]!] : null);
   if (aimOn && me >= 0) {
