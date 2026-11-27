@@ -963,3 +963,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - `Planner.nothingToDecide` (no call): under 7, asleep 21-05, in a task, desperate thirst / hunger, fleeing / fighting; never when urgent or
   3 plan intervals past. Slow model: `batchNow` -1 after a > 60 s answer, halves on a timeout, +1 after < 20 s; a failed batch retries in ~30 game min.
 - E12 in research/EXPERIMENTS.md (`experiment-prompts.ts`, fake model): 20.2k -> 8.9k chars a call, tokens -64 %, planned tasks ok 1 % -> 74 %. Test prompts.test.ts.
+
+## Thoughts page (imad 2026-11-27: "see what people think, not every person; whether a rule / tweak changes their thoughts, quickly")
+- `ops/thoughts.ts` (`App.thoughts`, memory only): every 30 real s (5 s timer, not while paused) each AI person = one driver (danger, order, rule, asked,
+  own, plan, need, social, work, travel, idle) + a label (task text with numbers as N, planner wish, need, "held back: <rule>") + place (home / hut / camp
+  30 m / out / wild). Samples keep counts only (720 = 6 h, top 15 labels, needs averages, rule refusals). Every non-read admin command = a mark
+  (`Thoughts.mark`, rules with their words; keys / tokens left out). Uses `World.why(i)` { src, text } when the smarter brain adds it; feed from
+  events `learned` / `pact` { from, to, kind, what, text, map } (conversations that carry knowledge).
+- `Rules.hits` (times each rule said no, by its words) + `Rules.lastHit(id, since)`: counted in `forbidden()`.
+- Admin `thoughts` (READS). Panel page Thoughts (`panel/src/thoughts.ts`): add a rule, "What it changed" (10 min before a mark vs every sample since,
+  shares in points), right now, stacked drivers over time with dashed marks, groups with reasons / places / names / rule that held them, rules at work
+  (a "never" rule the engine has no action for is flagged), knowledge feed. Test thoughts.test.ts; proof `node tools/thoughts-proof.mjs <outdir>` (dark).

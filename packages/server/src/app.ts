@@ -35,6 +35,7 @@ import { compileRule, MAX_RULES, Rules, type Rule } from './sim/rules.js';
 import { Control } from './ops/control.js';
 import { Agent } from './ops/agent.js';
 import { Analysis, LOG_TYPES, DEFAULT_TYPES } from './ops/analysis.js';
+import { Thoughts } from './ops/thoughts.js';
 import { History } from './ops/history.js';
 import { ErrorLog } from './ops/errors.js';
 import { Chats } from './ai/chatroom.js';
@@ -60,7 +61,7 @@ function byId(tiles: { id: number; name: string; color: number; solid?: boolean 
   for (const t of tiles) { colors[t.id] = t.color; names[t.id] = t.name; solid[t.id] = !!t.solid; }
   return { colors, names, solid };
 }
-const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'lore', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'campPlan', 'quests', 'chats', 'chatRead']);
+const READS = new Set<string>(['errors', 'analysis', 'analysisPreview', 'analysisAsk', 'coder', 'coderAudit', 'serverInfo', 'serverLog', 'backups', 'brains', 'brainModels', 'brainTest', 'accounts', 'stats', 'pairings', 'players', 'tunnel', 'ai', 'aiModels', 'agents', 'agent', 'overview', 'history', 'replays', 'mapTiles', 'huts', 'lore', 'thoughts', 'live', 'people', 'horses', 'timeline', 'aiLog', 'clans', 'campPlan', 'quests', 'chats', 'chatRead']);
 /** Commands that only read when they carry nothing but `cmd` (and `id`). */
 const READ_BARE = new Set<string>(['weather', 'autoJoin', 'rules', 'zombies', 'life', 'planner', 'animals', 'zombieAttack']);
 const LOGGED = new Set(['kin', 'clan', 'clanSplit', 'clanLeave', 'clanLeader', 'clanEnd', 'duel', 'duelEnd', 'guard', 'grown', 'reward', 'levelup', 'joined', 'replay', 'ruleSet', 'rule', 'spawn', 'remove', 'death', 'travel', 'arrive', 'destroyed', 'admin', 'talk', 'supply', 'birth', 'partner', 'say', 'pregnant', 'lyingIn',
@@ -118,6 +119,8 @@ export class App {
   control!: Control;
   agent!: Agent;
   analysis!: Analysis;
+  /** The panel's Thoughts page: what drives the people, all together, before / after each change (ops/thoughts.ts). */
+  thoughts!: Thoughts;
   /** Every warning / error the server meets (failed panel commands, its own log, crashes), kept in SQLite: panel page Errors. */
   readonly errors = new ErrorLog();
   /** The commit this process started from and the admin commands it knows (sent to the panel: an older server is told apart). */
@@ -574,6 +577,8 @@ export class App {
       redact: (s) => this.agent.redact(s), players: () => this.net.characters(),
     });
     this.errors.redact = (t) => this.agent.redact(t);
+    this.thoughts = new Thoughts(w, (m) => w.maps[m]?.def.name ?? '');
+    this.timers.push(setInterval(() => { if (!this.loop.paused) try { this.thoughts.maybeSample(); } catch (err) { this.log.warn('thoughts', { err: String(err) }); } }, 5000));
 
     this.timers.push(setInterval(() => this.snapshot(), c.snapshotEverySec * 1000));
     this.sampleHistory();
@@ -1176,7 +1181,7 @@ export class App {
     const fixed = (v: unknown, lo: number, hi: number, name: string) => num(v, lo, hi, name, [lo, hi]);
     const mapOf = (id: unknown) => { const m = w.mapIndex.get(String(id)); if (m === undefined) throw new Error('bad map'); return m; };
     const reads = READS.has(c?.cmd) || (READ_BARE.has(c?.cmd) && Object.keys(c).every((k) => k === 'cmd' || k === 'id'));
-    if (!reads) w.emit('admin', { who, cmd: c.cmd }); // only changes are logged (the panel polls the reads)
+    if (!reads) { w.emit('admin', { who, cmd: c.cmd }); this.thoughts?.mark(who, c as Record<string, unknown>); } // only changes are logged (the panel polls the reads)
     switch (c?.cmd) {
       case 'speed': this.loop.setSpeed(num(c.speed, 0.01, this.cfg.maxSpeed, 'speed', [0.001, 1e4]), force); return this.clock();
       case 'clockSpeed': { // how fast the game clock runs by day, by night and while every player sleeps (x on the usual clock)
@@ -1570,6 +1575,7 @@ export class App {
       case 'overview': return this.overview();
       case 'history': return c.range ? this.history.get(String(c.range)) : this.history.recent.slice(-1440); // no range = the old answer (last 24 h of minutes)
       case 'replays': return this.replayList();
+      case 'thoughts': return this.thoughts.info(); // what drives the people now, over time, and around each change
       case 'lore': return w.lore.info(); // the Society page: what the people learned and fear
       case 'huts': return { huts: w.survival.homes.where(c.map ? mapOf(c.map) : undefined) };
       case 'mapTiles': {

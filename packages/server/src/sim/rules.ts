@@ -223,7 +223,12 @@ export function classify(r: Rule, nameOf: (name: string) => number = () => -1): 
 export class Rules {
   /** Rules for everyone (meta `rules_all`). */
   all: Rule[] = [];
+  /** How often each rule said no (by its words), and the last rule that held each person back (entity id): the panel's Thoughts page. */
+  readonly hits = new Map<string, number>();
+  private held = new Map<number, { text: string; at: number }>();
   constructor(private w: World) {}
+  /** The rule that last held person `id` back, if it did after game second `since`. */
+  lastHit(id: number, since: number): string | undefined { const h = this.held.get(id); return h && h.at >= since ? h.text : undefined; }
 
   /** Every rule that applies to person i: everyone's, then their own. */
   of(i: number): Rule[] {
@@ -244,7 +249,11 @@ export class Rules {
     for (const r of list) {
       if (!r.forbid.includes(act)) continue;
       if (r.with < 0 && r.withName) continue; // about someone who is not here (yet): blocks nothing, never "everyone"
-      if (r.with >= 0 ? r.with === jid : true) return r.text;
+      if (r.with >= 0 ? r.with === jid : true) {
+        this.hits.set(r.text, (this.hits.get(r.text) ?? 0) + 1);
+        this.held.set(this.w.e.id(i), { text: r.text, at: this.w.gameSec });
+        return r.text;
+      }
     }
     return null;
   }

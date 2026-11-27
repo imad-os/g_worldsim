@@ -132,6 +132,7 @@ export type AdminCmd =
   | { cmd: 'mapTiles'; map: string }
   | { cmd: 'huts'; map?: string }
   | { cmd: 'lore' }
+  | { cmd: 'thoughts' }
   | { cmd: 'live'; map: string }
   | { cmd: 'people' }
   | { cmd: 'replays' }
