@@ -34,6 +34,7 @@ export function serialize(w: World, withTiles = true): Uint8Array {
     weather: w.weather.save(),
     zombies: w.zombies.perNight,
     land: w.land.done,
+    landMaps: [...w.land.doneMaps],
     maps: !withTiles ? [] : w.maps.map((m) => ({ id: m.def.id, w: m.tiles.w, h: m.tiles.h, tiles: m.tiles.tiles, hp: m.tiles.hp, ver: new Uint8Array(m.tiles.chunkVer.buffer.slice(0)) })),
   });
 }
@@ -50,8 +51,11 @@ interface SnapData {
   weather?: unknown;
   zombies?: number;
   land?: number;
+  landMaps?: string[];
   maps: { id: string; w: number; h: number; tiles: Uint8Array; hp: Uint8Array; ver: Uint8Array }[];
 }
+
+const LEGACY_LAND = ['town', 'woods'];
 
 /** Load a snapshot into a freshly built world (same scenario + seed). Throws on any mismatch. */
 export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => void): void {
@@ -98,6 +102,10 @@ export function restore(w: World, bytes: Uint8Array, tileDiffs?: (w: World) => v
   w.weather.load(s.weather);
   if (typeof s.zombies === 'number') w.zombies.perNight = s.zombies;
   w.land.done = s.land ?? 0;
+  w.land.doneMaps.clear();
+  // Snapshots from before `landMaps`: the ring and rocks were laid on every map the world had then (its saved maps; a cloud
+  // snapshot carries none, and those worlds had the two first maps, town and woods).
+  for (const id of s.landMaps ?? (s.land ? (s.maps.length ? s.maps.map((x) => x.id) : LEGACY_LAND) : [])) w.land.doneMaps.add(id);
   // Worlds from before profiles: give every agent one.
   for (let i = 0; i < w.e.hi; i++) if (w.e.kind[i] === Kind.Agent && !w.profiles.has(w.e.id(i))) w.profiles.set(w.e.id(i), randomProfile(w.rng, w.gameSec, w.livingNames(), w.yearSec));
 }

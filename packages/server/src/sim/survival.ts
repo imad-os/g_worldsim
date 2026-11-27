@@ -255,6 +255,15 @@ export class Survival {
       this.huts[mi] = Array.from({ length: Math.round(walls / 15) }, () => -1);
       this.hutDir[mi] = this.huts[mi]!.map(() => 0);
     });
+    // Old farms (generated farm tiles, Willow Farms): one in 16 still bears, like a field someone planted (berries every 12 h, staggered).
+    w.maps.forEach((mp, mi) => {
+      const tm = mp.tiles;
+      if (mp.def.gen.type !== 'farms' || !tm.base || this.T.farm < 0 || [...this.farms.keys()].some((k) => k.startsWith(mi + ':'))) return;
+      for (let k = 0; k < tm.base.length; k++) {
+        const x = k % tm.w, y = (k / tm.w) | 0;
+        if (tm.base[k] === this.T.farm && tm.tiles[k] === this.T.farm && x % 4 === 0 && y % 4 === 0) this.farms.set(`${mi}:${k}`, w.gameSec + ((x + y) % 12) * HOUR);
+      }
+    });
     this.homes.sync();
     this.lastTick = w.tick;
   }
@@ -1845,7 +1854,7 @@ export class Survival {
         if (tm.base) for (let k = 0; k < tm.base.length; k++) if (tm.base[k] === T.tree && !w.land.inRing(mi, k % tm.w, (k / tm.w) | 0)) base++;
         tg = this.resTarget[mi] = { tree: Math.max(n.tree, base), rock: 0 };
       }
-      tg.rock = mp.def.gen.type === 'wilds' ? ROCKS_WILD : ROCKS_TOWN; // rare, but never mined out for good
+      tg.rock = mp.def.life?.rocks ?? (mp.def.gen.type === 'wilds' ? ROCKS_WILD : ROCKS_TOWN); // rare, but never mined out for good
       // Trees: about 3 % of what is missing an hour (at least one try).
       const lackT = tg.tree - n.tree;
       for (let tries = lackT > 0 ? Math.min(40, 1 + Math.ceil(lackT * 0.03)) : 0, grown = 0; tries > 0 && grown < Math.max(1, Math.ceil(lackT * 0.03)); tries--) {
@@ -1909,7 +1918,7 @@ export class Survival {
     if (T.herbs < 0 || T.grass < 0 || T.tree < 0) return;
     let now = 0;
     for (let k = 0; k < tm.tiles.length; k++) if (tm.tiles[k] === T.herbs) now++;
-    const lack = (mp.def.gen.type === 'wilds' ? HERBS_WILD : HERBS_TOWN) - now;
+    const lack = (mp.def.life?.herbs ?? (mp.def.gen.type === 'wilds' ? HERBS_WILD : HERBS_TOWN)) - now;
     if (lack <= 0) return;
     const want = Math.max(1, Math.ceil(lack * 0.25));
     for (let s = 0, n = 0; s < 600 && n < want; s++) {

@@ -145,6 +145,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   nothing; other errors = keyboard), off / older My PC = `MyPC.text.keyboard` as before. `stt.on('text')` = the phone's mic button
   talks to the person next to me (push to talk); a result arriving both ways is sent once (`sendSpoken`). No mic / AI code in the app.
 
+## Five maps, one per town gate (imad 2026-11-27)
+- Old Town in the middle; each gate its own map (all 192 x 192): east `woods` Pine Woods, north `ridge` Ridgeford (second town, gen town
+  block 22 / road 3 / ruin 0.3 / ponds 2, ringed like the town with its own wrecks), south `firs` Black Fir Forest (wilds, `river: false`,
+  `lakes: 3`), west `farms` Willow Farms (gen `farms`, `danger: false`: lanes to the gates, fields of farm tiles (1 in 16 bears berries,
+  registered in `Survival.init`), farmsteads + barns, orchards, a lake, a quarry of rocks, wild horses on the pasture). The outer four are
+  linked in a ring (woods-north -> ridge east, woods-south -> firs east, ridge-west / firs-west -> farms); woods-east is gone.
+- New maps are APPENDED to the scenario (entity `map` indexes are saved). Per-map numbers: `MapDef.life` { animals, horses, rocks, herbs,
+  rockClusters } overrides the wilds / town defaults (animals.capOf, horses.capOf, survival rock / herb targets, land rocks).
+- `Land.doneMaps` (snapshot `landMaps`) = maps that already got their ring + rocks: a map added later gets them on its first start; older
+  snapshots count as their saved maps (cloud ones: town, woods). Map pictures: `node tools/map-dump.mjs <outdir>`.
+
 ## Animals, crafting, the land (imad 2026-11-20, app 0.8.0)
 - **Land** (`sim/land.ts`, run-time tile changes once, `land` in snapshots): the town is ringed by trees (`RING` 8 tiles, too thick
   to cut) with 4 roads out (one per side; the 4 town portals have `exit`, the woods portals `exitTo`, moved onto the roads at every

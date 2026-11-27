@@ -13,7 +13,8 @@ test('land: the town is ringed by trees with 4 roads out; wrecks block them whil
   w.populate();
   w.land.setup();
   const town = w.maps[w.mapIndex.get('town')!]!, tm = town.tiles, TREE = tileId(w, 'tree'), WRECK = tileId(w, 'wreck'), ROAD = tileId(w, 'road');
-  assert.equal(w.land.exits.length, 4);
+  assert.equal(w.land.exits.filter((x) => x.m === town.index).length, 4);
+  assert.equal(w.land.exits.filter((x) => x.m === w.mapIndex.get('ridge')).length, 3, 'Ridgeford: its own ring, 3 roads out');
   // Every edge tile is a tree, a wreck / road at an exit, or a building / water.
   let trees = 0, other = 0;
   for (let x = 0; x < tm.w; x++) for (const y of [1, tm.h - 2]) { const t = tm.get(x, y); if (t === TREE) trees++; else if (t !== ROAD && t !== WRECK) other++; }
@@ -21,7 +22,7 @@ test('land: the town is ringed by trees with 4 roads out; wrecks block them whil
   const wrecks = () => { let n = 0; for (const t of tm.tiles) if (t === WRECK) n++; return n; };
   assert.ok(wrecks() >= 4 * 6, `wrecks across the 4 roads (${wrecks()})`);
   // Town portals sit on their exit road, inside the ring.
-  for (const p of w.portals.filter((q) => q.exit)) {
+  for (const p of w.portals.filter((q) => q.exit && q.from === town.index)) {
     assert.equal(tm.get(Math.floor(p.x), Math.floor(p.y)), ROAD, `${p.id} on the road`);
     assert.ok(Math.min(p.x, p.y, tm.w - p.x, tm.h - p.y) < RING);
   }

@@ -59,7 +59,8 @@ test('purpose: with the roads open, a brave explorer goes into the woods by day 
   let ev: Record<string, unknown> | null = null, inWoods = false;
   w.listeners.push((x) => { if (x.kind === 'explore' && x.data.id === A) ev = x.data; });
   assert.ok(w.tasks.start(a, 'explore the Pine Woods', 'myself', [{ do: 'explore', what: 'woods', times: 2 }]));
-  assert.ok(until(w, () => { if (e.map[a] === woods) inWoods = true; return ev !== null || !p.mind?.task; }, 12));
+  // (a clan to join may put the expedition aside for a while: it goes on after)
+  assert.ok(until(w, () => { if (e.map[a] === woods) inWoods = true; return ev !== null; }, 12));
   assert.ok(inWoods, 'went into the woods');
   assert.ok(ev, `came back with a tale (${JSON.stringify(p.goals?.at(-1))})`);
   assert.equal((ev as unknown as { wild: boolean }).wild, true);

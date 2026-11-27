@@ -234,6 +234,48 @@
         "type": "wilds",
         "forest": 0.5
       }
+    },
+    {
+      "id": "ridge",
+      "name": "Ridgeford",
+      "w": 192,
+      "h": 192,
+      "gen": {
+        "type": "town",
+        "block": 22,
+        "road": 3,
+        "ruin": 0.3,
+        "ponds": 2
+      }
+    },
+    {
+      "id": "firs",
+      "name": "Black Fir Forest",
+      "w": 192,
+      "h": 192,
+      "gen": {
+        "type": "wilds",
+        "forest": 0.62,
+        "river": false,
+        "lakes": 3
+      }
+    },
+    {
+      "id": "farms",
+      "name": "Willow Farms",
+      "w": 192,
+      "h": 192,
+      "danger": false,
+      "gen": {
+        "type": "farms"
+      },
+      "life": {
+        "animals": 10,
+        "horses": 10,
+        "rocks": 36,
+        "herbs": 30,
+        "rockClusters": 8
+      }
     }
   ],
   "portals": [
@@ -254,21 +296,22 @@
       "map": "town",
       "x": 128,
       "y": 3,
-      "to": "woods",
-      "toX": 30,
-      "toY": 6,
+      "to": "ridge",
       "travel": 900,
       "r": 2,
-      "exit": "north"
+      "exit": "north",
+      "exitTo": "south",
+      "toX": 128,
+      "toY": 3
     },
     {
       "id": "town-south",
       "map": "town",
       "x": 128,
       "y": 252,
-      "to": "woods",
-      "toX": 160,
-      "toY": 185,
+      "to": "firs",
+      "toX": 96,
+      "toY": 8,
       "travel": 900,
       "r": 2,
       "exit": "south"
@@ -278,10 +321,10 @@
       "map": "town",
       "x": 3,
       "y": 128,
-      "to": "woods",
-      "toX": 185,
+      "to": "farms",
+      "toX": 182,
       "toY": 96,
-      "travel": 1200,
+      "travel": 900,
       "r": 2,
       "exit": "west"
     },
@@ -302,36 +345,129 @@
       "map": "woods",
       "x": 30,
       "y": 3,
-      "to": "town",
-      "toX": 128,
-      "toY": 8,
-      "travel": 900,
+      "to": "ridge",
+      "travel": 1200,
       "r": 2,
-      "exitTo": "north"
+      "exitTo": "east",
+      "toX": 30,
+      "toY": 3
     },
     {
       "id": "woods-south",
       "map": "woods",
       "x": 160,
       "y": 188,
-      "to": "town",
-      "toX": 128,
-      "toY": 248,
-      "travel": 900,
-      "r": 2,
-      "exitTo": "south"
+      "to": "firs",
+      "toX": 182,
+      "toY": 60,
+      "travel": 1200,
+      "r": 2
     },
     {
-      "id": "woods-east",
-      "map": "woods",
+      "id": "ridge-south",
+      "map": "ridge",
+      "x": 96,
+      "y": 188,
+      "to": "town",
+      "travel": 900,
+      "r": 2,
+      "exit": "south",
+      "exitTo": "north",
+      "toX": 96,
+      "toY": 188
+    },
+    {
+      "id": "ridge-east",
+      "map": "ridge",
+      "x": 188,
+      "y": 96,
+      "to": "woods",
+      "toX": 30,
+      "toY": 8,
+      "travel": 1200,
+      "r": 2,
+      "exit": "east"
+    },
+    {
+      "id": "ridge-west",
+      "map": "ridge",
+      "x": 3,
+      "y": 96,
+      "to": "farms",
+      "toX": 60,
+      "toY": 8,
+      "travel": 1200,
+      "r": 2,
+      "exit": "west"
+    },
+    {
+      "id": "firs-north",
+      "map": "firs",
+      "x": 96,
+      "y": 3,
+      "to": "town",
+      "travel": 900,
+      "r": 2,
+      "exitTo": "south",
+      "toX": 96,
+      "toY": 3
+    },
+    {
+      "id": "firs-east",
+      "map": "firs",
+      "x": 188,
+      "y": 60,
+      "to": "woods",
+      "toX": 160,
+      "toY": 185,
+      "travel": 1200,
+      "r": 2
+    },
+    {
+      "id": "firs-west",
+      "map": "firs",
+      "x": 3,
+      "y": 120,
+      "to": "farms",
+      "toX": 60,
+      "toY": 184,
+      "travel": 1200,
+      "r": 2
+    },
+    {
+      "id": "farms-east",
+      "map": "farms",
       "x": 188,
       "y": 96,
       "to": "town",
-      "toX": 8,
-      "toY": 128,
+      "travel": 900,
+      "r": 2,
+      "exitTo": "west",
+      "toX": 188,
+      "toY": 96
+    },
+    {
+      "id": "farms-north",
+      "map": "farms",
+      "x": 60,
+      "y": 3,
+      "to": "ridge",
       "travel": 1200,
       "r": 2,
-      "exitTo": "west"
+      "exitTo": "west",
+      "toX": 60,
+      "toY": 3
+    },
+    {
+      "id": "farms-south",
+      "map": "farms",
+      "x": 60,
+      "y": 188,
+      "to": "firs",
+      "toX": 8,
+      "toY": 120,
+      "travel": 1200,
+      "r": 2
     }
   ],
   "agents": {
@@ -371,7 +507,8 @@
         "food": 45,
         "spawn": {
           "maps": [
-            "town"
+            "town",
+            "ridge"
           ],
           "on": [
             "floor",
@@ -388,7 +525,10 @@
         "spawn": {
           "maps": [
             "town",
-            "woods"
+            "woods",
+            "ridge",
+            "firs",
+            "farms"
           ],
           "near": "tree",
           "max": 30,

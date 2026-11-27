@@ -206,7 +206,7 @@ export class Horses {
     if (out.length) this.herds.set(id, { id, map: m, lead: this.w.e.id(out[0]!), gx: x, gy: y, until: 0 });
     return out;
   }
-  private capOf(m: number): number { return this.w.maps[m]!.def.gen.type === 'wilds' ? CAP_WILDS : CAP_TOWN; }
+  private capOf(m: number): number { const d = this.w.maps[m]!.def; return d.life?.horses ?? (d.gen.type === 'wilds' ? CAP_WILDS : CAP_TOWN); }
   /** A clear spot far from people, near an edge when `edge` (a band wandering in). */
   private spot(m: number, edge: boolean): { x: number; y: number } | null {
     const w = this.w, e = w.e, mp = w.maps[m]!, W = mp.def.w, H = mp.def.h;
@@ -752,7 +752,7 @@ export class Horses {
       const cap = this.capOf(m), wild = this.count(m, true);
       if (wild < Math.ceil(cap / 2) && (first || this.rng.chance(0.25))) {
         const s = this.spot(m, !first);
-        if (s) { const n = Math.min(cap - wild, mp.def.gen.type === 'wilds' ? 3 + this.rng.int(5) : 3); if (n > 0) this.spawnHerd(m, s.x, s.y, n); }
+        if (s) { const n = Math.min(cap - wild, mp.def.gen.type === 'wilds' || cap > 6 ? 3 + this.rng.int(5) : 3); if (n > 0) this.spawnHerd(m, s.x, s.y, n); }
       }
     });
     if (first) return;

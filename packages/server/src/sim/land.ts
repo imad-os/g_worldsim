@@ -17,6 +17,11 @@ interface Exit { m: number; side: string; lo: number; hi: number; c: number }
 export class Land {
   /** 1 = the ring, exits and rocks were laid on this world (saved in snapshots). */
   done = 0;
+  /**
+   * The maps that already have their ring and rocks (saved as `landMaps`): a map added to the scenario later
+   * (imad 2026-11-27: Ridgeford, Black Fir Forest, Willow Farms) gets them on its first start, the old ones are left alone.
+   */
+  readonly doneMaps = new Set<string>();
   readonly exits: Exit[] = [];
   private readonly T: Record<string, number> = {};
   private readonly ringed = new Set<number>();
@@ -42,7 +47,10 @@ export class Land {
       const a = this.at(m, e.side, ARRIVE_AT, e.c);
       for (const q of w.portals) if (q.dest === m && q.exitTo === p.exit) { q.toX = a.x + 0.5; q.toY = a.y + 0.5; }
     }
-    if (!this.done) { this.ring(); this.rocks(); this.done = 1; }
+    const todo = new Set<number>();
+    w.maps.forEach((mp, m) => { if (!this.doneMaps.has(mp.def.id)) todo.add(m); });
+    if (todo.size) { this.ring(todo); this.rocks(todo); for (const m of todo) this.doneMaps.add(w.maps[m]!.def.id); }
+    this.done = 1;
     // Portal spots are always clear (a tree or a rock never stands on one).
     const clear = this.T.road ?? this.T.dirt!;
     for (const p of w.portals) {
@@ -159,9 +167,10 @@ export class Land {
   }
 
   /** The ring of trees round the town (open ground and roads become forest; buildings and water stay). */
-  private ring(): void {
+  private ring(todo: Set<number>): void {
     const T = this.T, open = new Set([T.grass, T.dirt, T.road, T.rubble, T.sand].filter((x) => x !== undefined));
     for (const m of this.ringed) {
+      if (!todo.has(m)) continue;
       const tm = this.w.maps[m]!.tiles;
       for (let y = 0; y < tm.h; y++) for (let x = 0; x < tm.w; x++) {
         if (Math.min(x, y, tm.w - 1 - x, tm.h - 1 - y) >= RING) continue;
@@ -173,12 +182,13 @@ export class Land {
   }
 
   /** Rocks to mine: clusters on open ground, many in the woods, a few in town. */
-  private rocks(): void {
+  private rocks(todo: Set<number>): void {
     const w = this.w, T = this.T, R = T.rock;
     if (R === undefined) return;
     const open = new Set([T.grass, T.dirt]);
     w.maps.forEach((mp, m) => {
-      const tm = mp.tiles, wild = mp.def.gen.type === 'wilds', n = wild ? 18 : 5; // rare (imad 2026-11-25)
+      if (!todo.has(m)) return;
+      const tm = mp.tiles, wild = mp.def.gen.type === 'wilds', n = mp.def.life?.rockClusters ?? (wild ? 18 : 5); // rare (imad 2026-11-25)
       let placed = 0;
       for (let tries = 0; placed < n && tries < n * 40; tries++) {
         const cx = RING + 3 + w.rng.int(tm.w - 2 * RING - 6), cy = RING + 3 + w.rng.int(tm.h - 2 * RING - 6);

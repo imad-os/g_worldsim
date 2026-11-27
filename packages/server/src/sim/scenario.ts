@@ -26,6 +26,11 @@ export interface MapDef {
   gen: { type: string; [k: string]: unknown };
   /** Dangerous for people (children never go); default: true for generated wilds. */
   danger?: boolean;
+  /**
+   * What lives and lies about on this map, when it differs from its kind (wilds / town): animal cap, wild horse cap,
+   * rocks kept (cap), herbs kept, rock clusters laid on a new world. Missing = the kind's numbers.
+   */
+  life?: { animals?: number; horses?: number; rocks?: number; herbs?: number; rockClusters?: number };
 }
 
 export interface PortalDef {

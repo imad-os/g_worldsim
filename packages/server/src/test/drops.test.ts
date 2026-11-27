@@ -32,7 +32,8 @@ test('drops: a player\'s chop and kill land on the ground as piles, A picks them
   sv.playerWork(pl);
   assert.equal(piles().filter((p) => p.what === 'wood').length, 1);
   const n = piles().find((p) => p.what === 'wood')!.n;
-  // AI people do not forage piles.
+  // AI people do not forage piles (berries that grew by this tree are not a pile: out of the way).
+  for (let j = 0; j < e.hi; j++) if (e.kind[j] === Kind.Item && e.map[j] === m && !sv.drops.has(e.id(j)) && Math.hypot(e.x[j]! - e.x[pl]!, e.y[j]! - e.y[pl]!) < 4) w.remove(j, 'test');
   assert.equal(w.brain.nearestItem(pl, 3), -1); assert.ok(w.brain.nearestItem(pl, 3, true) >= 0);
   // Saved with the world.
   const w2 = mk('drops'); restore(w2, serialize(w));

@@ -41,7 +41,7 @@ export class Animals {
   constructor(private w: World) {}
 
   /** The built-in cap of a map (woods 16, town 4). */
-  capOf(m: number): number { return this.w.maps[m]!.def.gen.type === 'wilds' ? CAP_WOODS : CAP_TOWN; }
+  capOf(m: number): number { const d = this.w.maps[m]!.def; return d.life?.animals ?? (d.gen.type === 'wilds' ? CAP_WOODS : CAP_TOWN); }
 
   /** Bring map m to the owner's counts now (spawn the missing far from people, remove the extra). Returns how many changed. */
   fill(m: number): number {
@@ -102,7 +102,7 @@ export class Animals {
   private spawnSome(first: boolean): void {
     const w = this.w, e = w.e;
     w.maps.forEach((mp, m) => {
-      const wild = mp.def.gen.type === 'wilds', cap = wild ? CAP_WOODS : CAP_TOWN;
+      const wild = mp.def.gen.type === 'wilds', cap = this.capOf(m);
       // The owner's counts: a few each hour towards them (all at once on the first hour).
       const want = this.want.get(mp.def.id);
       if (want) { for (let t = 0; t < WILD; t++) this.toward(m, t, want[t] ?? 0, first ? 99 : wild ? 2 : 1); return; }

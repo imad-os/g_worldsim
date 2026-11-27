@@ -136,7 +136,13 @@ test('clans: an AI leader gives an order of the day and the members do it as a t
   w.gameSec += ((9 - w.brain.hour() + 24) % 24) * 3600;
   let ordered = 0;
   w.listeners.push((x) => { if (x.kind === 'clanOrder') ordered = Number(x.data.n); });
-  for (let k = 0; k < 20 * 3600 * 2 / 30 && !cl.order; k++) { calm(w, people); for (const i of people.slice(1)) if (w.profileOf(i)?.mind?.task && !cl.order) w.tasks.stop(i); w.step(); }
+  // The camp leader may hand out the day's work in the same hour, and each member says yes by chance: an order nobody took is
+  // given again the next hour (the dice differ with every change to the world, so the test does not hang on one roll).
+  const C = cl as { order?: string; orderAt?: number };
+  for (let k = 0; k < 20 * 3600 * 6 / 30 && !(cl.order && ordered >= 1); k++) {
+    if (cl.order && ordered === 0) { C.order = undefined; C.orderAt = -1e9; }
+    calm(w, people); for (const i of people.slice(1)) if (w.profileOf(i)?.mind?.task && !cl.order) w.tasks.stop(i); w.step();
+  }
   assert.ok(cl.order, 'an order was given');
   assert.ok(ordered >= 1, `members took it (${ordered})`);
   const leaderName = w.profiles.get(cl.leader)!.name;

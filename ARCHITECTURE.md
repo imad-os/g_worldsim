@@ -12,7 +12,10 @@
 
 ## World
 - Units: metres. Tiles are 1 m; chunks are 32 x 32 tiles (streaming, colliders, persistence diffs).
-- Several maps per world (`town` 256 x 256 m, `woods` 192 x 192 m), generated from the world seed. Portals link
+- Several maps per world (`town` Old Town 256 x 256 m in the middle; round it, 192 x 192 m each: `woods` Pine Woods east,
+  `ridge` Ridgeford north (a second town), `firs` Black Fir Forest south (lakes, no river), `farms` Willow Farms west
+  (generator `farms`)), generated from the world seed. Each town gate leads to its own map and the four outer maps are
+  linked in a ring (woods - ridge - farms - firs - woods). Portals link
   maps; a traveller leaves the physics world, spends the portal's travel time (game seconds) in transit, then
   appears at the other end. `World.routeMaps(a, b)` gives the fastest chain of portals (agents know every map).
 - Entities are a struct-of-arrays of typed arrays with a fixed capacity, a free list and generation-tagged ids
