@@ -209,6 +209,7 @@ function personHtml(d: Detail): string {
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
     ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
     ${((q) => q ? card('Quests', `<p>${q.done} of ${q.all} done${q.cur ? ` · now <b>${esc(q.cur)}</b> ${q.ready ? '(done: hand it in)' : `${q.n}/${q.need}`}` : ''}</p>`) : '')((d as { quests?: { done: number; all: number; cur: string; n: number; need: number; ready: boolean } }).quests)}
+    ${(d as { dream?: DreamInfo | null }).dream ? card('Dream in life', dreamHtml((d as { dream: DreamInfo }).dream), { help: help('dream') }) : ''}
     ${card('Influence', influenceHtml(d.influence, d.influenceLog), { help: help('influence') })}
     ${card('Kills and fights', killsHtml(p.kills), { help: help('kills') })}
     ${card('Bag', `<div class="chips">${invChips(d.inv, d.carry)}</div>`)}
@@ -356,6 +357,13 @@ export const personScreen: Screen = {
 };
 
 /** The person page's kill counts: animals by kind, zombies, people killed, duels won. */
+interface DreamInfo { kind: string; text: string; pct: number; trips: number; wild: number; past: string[]; seen: { map: string; pct: number }[] }
+const DREAM_ICON: Record<string, string> = { explorer: '🧭', hunter: '🏹', builder: '🔨', provider: '🧺', healer: '🌿', leader: '👑', family: '👪', sage: '📜' };
+function dreamHtml(d: DreamInfo): string {
+  const seen = d.seen.map((s) => `<span class="chip">${esc(s.map)} ${s.pct}% seen</span>`).join('');
+  return `<p>${DREAM_ICON[d.kind] ?? ''} <b>${esc(d.kind[0]!.toUpperCase() + d.kind.slice(1))}</b>: ${esc(d.text)}</p>${meter(d.pct, false, 'Dream')}<p><b>${d.pct}%</b> of the way${d.trips ? ` · ${d.trips} expedition${d.trips > 1 ? 's' : ''}${d.wild ? `, ${d.wild} into the wild` : ''}` : ''}</p>
+    <div class="chips">${seen}</div>${d.past.length ? `<p class="dim">Came true before: ${d.past.map(esc).join(', ')}</p>` : ''}`;
+}
 function influenceHtml(v: number | undefined, log: { t: number; d: number; why: string }[] | undefined): string {
   if (v === undefined) return '<p class="dim">Unknown (the server is older).</p>';
   const rows = (log ?? []).map((x) => `<div class="ev"><span class="tag ${x.d > 0 ? 'ok' : 'bad'}">${x.d > 0 ? '+' : ''}${x.d}</span> <span>${esc(x.why)}</span></div>`).join('');

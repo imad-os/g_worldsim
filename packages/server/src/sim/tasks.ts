@@ -31,6 +31,8 @@ import type { World } from './world.js';
  *  clan what who       join (who = the clan's leader or the clan's name) / quit / found (at the registrar) / vote (who) / call (a vote)
  *  tame                walk calmly up to the nearest wild horse and tame it (sim/horses.ts: courage, intelligence, speed, level);
  *                      none on this map = take the road to the woods first (travel open, by day)
+ *  explore {what times} go and see places nobody has seen much of (what 'woods' = an expedition into the wild, 'near' = round
+ *                      the camp; times = places to look at), look round, come home and tell what is out there (sim/purpose.ts)
  *  ride {what}         get on my horse (call it when far) and ride to a place: 'home' / '' = my home's map, or a map by name
  */
 /** Food, wood, stone, scrap from free words (4 languages). */
@@ -67,7 +69,7 @@ export interface Step { gx?: number; gy?: number; key?: string; units?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -167,7 +169,7 @@ export class Tasks {
     return -1;
   }
   /** Walk (or ride) to the gate on the way to map `to` and take it. False = no road (or travel closed). */
-  private walkToMap(i: number, to: number, s: Step): boolean {
+  walkToMap(i: number, to: number, s: Step): boolean {
     const w = this.w, e = w.e, b = w.brain;
     if (!w.travelOpen) return false;
     const r = w.routeMaps(e.map[i]!, to);
@@ -215,7 +217,7 @@ export class Tasks {
         s.p0 = pr ? this.didCount(e.id(i), pr[0]) : 0;
         if (s.do === 'forage') s.n0 = this.didCount(e.id(i), 'eat');
       }
-      else if (w.gameSec - s.t0 > (s.do === 'hunt' || s.do === 'tame' || s.do === 'ride' ? 2 * MAX_STEP_SEC : MAX_STEP_SEC)) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
+      else if (w.gameSec - s.t0 > (s.do === 'hunt' || s.do === 'tame' || s.do === 'ride' || s.do === 'explore' ? 2 * MAX_STEP_SEC : MAX_STEP_SEC)) { if (s.key) w.colony.record(i, s.key, false, 0, 0); this.end(i, t, false, `${s.do} took too long`); continue; }
       let r = this.run(i, s, t);
       // Done only with proof: a hunt that killed nothing, a build with no new building, a drink never drunk is not done.
       if (r === true && !this.proved(i, s)) r = `I did not manage to ${s.do === 'bring' ? 'bring it' : s.do + (s.what ? ' ' + String(s.what).trim().slice(0, 40) : '')}`;
@@ -280,7 +282,8 @@ export class Tasks {
     // The owner's strict rules come first: a step they forbid ends the task (sim/rules.ts).
     if (first) {
       const rn = s.do === 'find' || s.do === 'stay' || s.do === 'rest' || s.do === 'say' ? '' : s.do;
-      const rule = rn ? w.rules.forbidden(i, rn, alive(s.who) ? e.slot(s.who!) : -1) : null;
+      const sj = alive(s.who) ? e.slot(s.who!) : -1;
+      const rule = rn ? (rn === 'talk' || rn === 'court' || rn === 'child' ? w.rules.between(i, sj, rn) : w.rules.forbidden(i, rn, sj)) : null; // talking takes two: their rules count too
       if (rule) return `I must not: "${rule}"`;
     }
     switch (s.do) {
@@ -314,6 +317,8 @@ export class Tasks {
       }
       case 'clan':
         return w.clans.step(i, s, first);
+      case 'explore': // an expedition: places nobody has seen much of, a look round, home with the tale (sim/purpose.ts)
+        return w.purpose.exploreStep(i, s, first);
       case 'follow': {
         if (!alive(s.who)) return 'they are not here any more';
         if (first) { b.order(i, 'follow', s.who!, -1, s.minutes ?? 60); s.phase = 1; return false; }

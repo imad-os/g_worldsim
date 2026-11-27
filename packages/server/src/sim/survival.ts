@@ -2031,6 +2031,7 @@ export class Survival {
     const w = this.w, e = w.e;
     const { all, free: ready } = this.freeOf(m);
     const n = w.colony.allocate(m, free.filter((i) => ready.includes(i)), all, hour, by);
+    w.purpose.pass(m, this.freeOf(m).free, hour); // the rest pursue their dreams or a pastime (sim/purpose.ts)
     const ls = lid >= 0 ? e.slot(lid) : -1;
     if (n >= 1 && ls >= 0 && e.map[ls] === m && (this.toldAt[m] ?? -1e9) < w.gameSec - 6 * HOUR) {
       this.toldAt[m] = w.gameSec;
@@ -2046,6 +2047,7 @@ export class Survival {
       if (!free.length) continue;
       const lid = this.leader[m] ?? -1, lname = lid >= 0 ? w.profiles.get(lid)?.name ?? '' : '';
       w.colony.allocate(m, free, this.freeOf(m).all, hour, (i) => (lid >= 0 && w.e.id(i) !== lid ? lname : 'myself'));
+      w.purpose.pass(m, this.freeOf(m).free, hour);
     }
   }
   /** The leader of map m by name ('' = none). */

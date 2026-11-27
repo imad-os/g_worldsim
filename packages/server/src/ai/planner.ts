@@ -51,7 +51,7 @@ const WORK_GOALS: Record<string, Step[]> = {
   'make a spear': [{ do: 'craft', what: 'spear' }], 'build a campfire': [{ do: 'build', what: 'campfire' }],
   'build a hut': [{ do: 'build', what: 'hut' }], 'feed the fire': [{ do: 'tend' }],
   'collect food and store it': [{ do: 'collect', what: 'food', times: 4 }, { do: 'store', what: 'food' }],
-  'go hunting': [{ do: 'hunt' }], 'tame a horse': [{ do: 'tame' }, { do: 'ride', what: 'home' }], 'ride my horse home': [{ do: 'ride', what: 'home' }],
+  'go hunting': [{ do: 'hunt' }], 'explore the woods': [{ do: 'explore', what: 'woods', times: 3 }], 'explore around': [{ do: 'explore', times: 2 }], 'tame a horse': [{ do: 'tame' }, { do: 'ride', what: 'home' }], 'ride my horse home': [{ do: 'ride', what: 'home' }],
   'make a bow': [{ do: 'craft', what: 'bow' }], 'make arrows': [{ do: 'craft', what: 'arrows' }], 'make a first-aid kit': [{ do: 'craft', what: 'medkit' }], 'make armour': [{ do: 'craft', what: 'armor' }], 'make clothes': [{ do: 'craft', what: 'clothes' }], 'make a sword': [{ do: 'craft', what: 'sword' }],
   'put a bed in a hut': [{ do: 'build', what: 'bed' }], 'put up a palisade': [{ do: 'build', what: 'palisade' }],
   'search the ruins': [{ do: 'loot', times: 3 }], 'plant a field': [{ do: 'farm' }], 'repair the huts': [{ do: 'repair' }],
@@ -436,7 +436,7 @@ export class Planner {
     const wp = w.survival.weapon(i), goal = w.tasks.describe(id);
     return `Stats (0-10): strength ${k(t.strength)}, speed ${k(t.speed)}, courage ${k(t.courage)}, intelligence ${k(t.intelligence)}, kindness ${k(t.empathy)}. Level ${levelOf(p.xp)} (${p.xp ?? 0} xp).`
       + ` Weapon: ${wp[1] > 0 ? wp[0] : 'bare hands'}. Defence ${Math.round(w.survival.defence(i) * 100)}%.${goal ? ` Working on: ${goal}.` : ''}`
-      + ` ${w.survival.homes.describe(id)} ${w.survival.homes.mapText(w.e.map[i]!, id)} ${w.influence.promptText(id)}`;
+      + ` ${w.survival.homes.describe(id)} ${w.survival.homes.mapText(w.e.map[i]!, id)} ${w.influence.promptText(id)} ${w.purpose.promptText(id)}`;
   }
   /** Family: married or single, children, parents, brothers and sisters, a baby on the way (they must know it to talk about it). */
   private familyText(i: number): string {
@@ -576,7 +576,7 @@ export class Planner {
         + 'a list of steps you can do, each {"do":"<skill>", ...}. Skills: goto {"who"}, find {"what": "single woman" | "single man" | "partner" | "food" | "water" | a name}, '
         + 'follow {"who","minutes"}, talk {"who","times"}, court {"who"} (get to know them as a partner), marry {"who"} (walk to them and ask them to marry you: they answer for themselves), divorce {"who"} (walk to them and say you want a divorce; empty = your partner), child {} (have a baby with your partner), '
         + 'bring {"who"} (bring food), give {"who"}, stay {"minutes"}, drink, eat, forage, sleep, rest, wander, say {"text"}, '
-        + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, tame {} (go to where wild horses live, walk calmly up to one and tame it), ride {"what": "home" | a place} (get on your horse, it comes when you whistle, and ride there: much faster than walking; after tame, add ride home), hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
+        + 'gather {"what": "wood" | "stone" | "scrap" | "ore" | "brick", "times"}, explore {"what": "woods" | "near" | "", "times"} (an expedition to places few have seen: woods = into the wild by day, near = round the camp; you come back and tell what you found: brave explorers are respected), tame {} (go to where wild horses live, walk calmly up to one and tame it), ride {"what": "home" | a place} (get on your horse, it comes when you whistle, and ride there: much faster than walking; after tame, add ride home), hunt {"what": "rabbit" | "deer" | "boar" | "wolf" | "bear" | "", "times"} (meat, leather, claws), '
         + 'craft {"what": "axe" | "spear" | "sword" | "bow" | "arrows" | "clothes" | "armor" | "helmet" | "medkit"}, '
         + 'build {"what": "campfire" | "hut" | "palisade" | "spikes" | "stonewall" | "door" | "window" | "bed" | "lamp"} (it gathers what is missing by itself), '
         + 'tend {} (put wood on the fire), collect {"what":"food","times"} (pick food up and keep it), store {"what": "food" | "wood" | "stone" | "scrap"} '

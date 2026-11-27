@@ -61,6 +61,10 @@ export interface Profile {
   auto?: boolean;
   /** Where their home is (sim/homes.ts): the middle of the hut they or their family own. */
   home?: { map: string; x: number; y: number };
+  /** A dream in life and its progress (sim/purpose.ts, imad 2026-11-27). */
+  dream?: import('./purpose.js').Dream;
+  /** The 24 m cells of each map they have seen (map id -> bit words, sim/purpose.ts). */
+  seen?: Record<string, number[]>;
   /** Gear chosen per slot and upgrades per item (sim/gear.ts). */
   gear?: import('@worldsim/protocol').GearState;
 }

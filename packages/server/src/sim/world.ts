@@ -19,6 +19,7 @@ import { CampPlan } from './campplan.js';
 import { Memory } from './memory.js';
 import { Lore } from './lore.js';
 import { Influences } from './influence.js';
+import { Purpose } from './purpose.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
 import { Zombies } from './zombies.js';
@@ -55,7 +56,7 @@ export interface WorldOptions {
  * research/ARCHITECTURE.md: goap = goal-driven planning of work, learn = people learn what works, siting = buildings planned under
  * constraints, instinct = survival instincts and fear (fight or flight by the odds, alarms, stalking game, foresight, memory of places).
  */
-export interface AiFlags { goap: boolean; learn: boolean; siting: boolean; instinct: boolean }
+export interface AiFlags { goap: boolean; learn: boolean; siting: boolean; instinct: boolean; /** Dreams, pastimes, expeditions (sim/purpose.ts). */ purpose?: boolean }
 
 /** Think intervals (ticks) per LOD level: 0 = busy / in danger ... 3 = asleep. */
 
@@ -111,6 +112,7 @@ export class World {
   readonly lore: Lore;
   /** Each person's influence, from what they do (sim/influence.ts). */
   readonly influence: Influences;
+  readonly purpose: Purpose;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
   /** Families: who is family, little ones and who looks after them (sim/family.ts). */
@@ -173,6 +175,7 @@ export class World {
     this.memory = new Memory(this);
     this.lore = new Lore(this);
     this.influence = new Influences(this);
+    this.purpose = new Purpose(this);
     this.clans = new Clans(this);
     this.family = new Family(this);
     this.zombies = new Zombies(this);
@@ -543,7 +546,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
-    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); }
+    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); }
     this.zombies.update();
     this.animals.update();
     this.horses.update();

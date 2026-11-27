@@ -22,7 +22,7 @@ const DAYS = Number(arg('days', '3')), SEEDS = arg('seeds', 'exp-a,exp-b,exp-c')
 const ZOMBIES = Number(arg('zombies', '0')), ARMS = arg('arms', 'old,new').split(','), OUT = arg('out', '');
 const CLOCK = 30, RATE = 20;
 
-const ALL: (keyof AiFlags)[] = ['goap', 'learn', 'siting', 'instinct'];
+const ALL: (keyof AiFlags)[] = ['goap', 'learn', 'siting', 'instinct', 'purpose'];
 function flagsOf(arm: string): AiFlags {
   const on = arm === 'new' ? ALL : arm === 'old' ? [] : arm.split('+');
   const f = {} as AiFlags;

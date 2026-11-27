@@ -253,6 +253,8 @@ export class Chats {
       case 'birth': { const k = person(d.id), m = person(d.mother), f = person(d.father); if (k) this.post('world', -1, `A baby is born: ${k.name}, child of ${m?.name ?? '?'}${f ? ' and ' + f.name : ''}.`, true); break; }
       case 'partner': if (d.wed) { const a = person(d.a), b = person(d.b); if (a && b) this.post('world', -1, `${a.name} and ${b.name} are married.`, true); } break;
       case 'divorce': { const a = person(d.a), b = person(d.b); if (a && b) this.post('world', -1, `${a.name} and ${b.name} are divorced.`, true); break; }
+      case 'dream': { const p = person(d.id); if (p && d.done) this.post('world', -1, `${p.name}'s dream came true: ${String(d.text)}.`, true); break; }
+      case 'explore': { const p = person(d.id); if (p && d.wild) this.post('world', -1, `${p.name} is back from an expedition into the ${String(d.name ?? d.map)}${Array.isArray(d.found) && d.found.length ? ': ' + (d.found as string[]).slice(0, 4).join(', ') : ''}.`, true); break; }
       case 'death': { const p = person(d.id); if (p && !p.player) this.post('world', -1, `${p.name} has died (${String(d.cause ?? 'unknown')}).`, true); break; }
       case 'leader': { const p = person(d.id); if (p) this.post('world', -1, `${p.name} now leads the camp of ${w.maps.find((m) => m.def.id === d.map)?.def.name ?? d.map}.`, true); break; }
       case 'alarm': { // a zombie / beast alarm: the one who shouted writes it, at most once a game hour per map

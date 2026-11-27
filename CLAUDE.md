@@ -857,3 +857,21 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   still fill their bag and never forage piles (`nearestItem(.., piles)`). TV draws logs / lumps / bundles / herbs (world3d `drop`). Test drops.test.ts.
 - `tools/tv-base.mjs` = shared start of TV proofs (pairs, `adm`, `dev`, `did`, optional fake pad `__axis` / `__btn`). The local server stops
   accepting new TVs after ~20 proof runs (clients cycle "client left"): restart it between runs.
+
+## Dreams, pastimes, expeditions (imad 2026-11-27: "they stand still in the camp all day like zombies; exploring the woods = the dream of the top, for the courageous")
+- `sim/purpose.ts` (`World.purpose`, flag `ai.purpose`, default on; own Rng). Every AI adult (16+) gets `Profile.dream` { kind, n, trips, wild, lastWild, past }
+  picked by traits: explorer (only courage >= 0.6), hunter, builder, provider, healer, leader, family, sage. Progress from real events (hunt / build /
+  store + give food / heal + medkit / questDone + talks with kids), influence (leader), children (family), share of each map's 24 m cells seen
+  (`Profile.seen` map id -> bit words, marked every 20 ticks for agents and players; wild maps count x3, goal 60 %). Come true = +12 influence, 100 xp,
+  memory, event `dream` (world chat news), a new dream. Prompt line `purpose.promptText` in `selfText`; panel person card "Dream in life" (`agentInfo.dream`).
+- `Purpose.pass(m, free, hour)` runs after `Colony.allocate` (goapPass + quarter, 07-19): free adults pursue the dream (75 %) or a pastime (visit a friend,
+  walk with the partner, play with a child, look round the camp, herbs, wood); children 3-13 play with each other, follow a parent, listen to an
+  adult. 15 game min between pursuits, 3 h after a failed one. Builders build the wall only once every household has a hut; hunters leave game to the
+  hut plans while huts are missing and the map has < 8 animals.
+- Task skill `explore { what: 'woods' | 'near' | '', times }`: unseen cells few others know, 60-80 m out, away from lore's feared places; look round
+  2-5 game min (trees / rocks / water / herbs / animals / wild horses -> memory places + the tale), home, tell it (`tasks.onSay`), event `explore`,
+  influence +3 (wild) / +0.3-0.8. Woods = through the gate by day (`mayGoWild`), only while travel is open, back by 15:00. Unreachable cells count as seen.
+- E11 in research/EXPERIMENTS.md (4 days, 8 people, 3 seeds): tasks done 103 -> 252, talks 14 -> 71, idle 0.82 -> 0.71, stock 27 -> 66, no deaths.
+  Test purpose.test.ts.
+- Guards are real people (night watch, `Survival.watch`: AI people on a 3-hour `guard` job by courage / strength / weapon); the 5 in the middle of
+  town (Mara, Joren, Sela, warden Bram, Odile) are NPCs (Kind.Npc, quest givers, no needs).

@@ -214,3 +214,24 @@ What the logs showed (every death was printed with its last 14 events and who wa
   them) and a fire made new on the spot (not up in time: 8 and 13 dead).
 - Day attacks with no fire yet are not better: people still scatter and a few hurt ones are caught later. Next: weapons
   before a planned attack (spears), huts with doors as a day shelter.
+
+## E11. Dreams, pastimes and expeditions (2026-11-27)
+imad: "they stand still in the camp all day, only eating, drinking and resting". `npm run experiment -- --days 4 --seeds exp-a,exp-b,exp-c
+--agents 8 --arms goap+learn+siting+instinct,new` (the second arm adds `purpose`, sim/purpose.ts). Means of 3 seeds, travel closed, no zombies:
+
+| metric | without dreams | with dreams |
+|---|---|---|
+| tasks done | 103 | 254 |
+| tasks failed | 20 | 29 (ok rate 0.84 -> 0.90) |
+| idle (Rest / Wander / Idle share of waking samples) | 0.82 | 0.72 |
+| talks | 14 | 77 |
+| loneliness | 23.0 | 18.2 |
+| food kept | 27 | 63 |
+| huts (functional) | 2 (1.7) | 3.3 (3.3) |
+| gathered | 303 | 495 |
+| deaths | 0 | 0 |
+| ms per tick | 0.154 | 0.145 |
+
+The idle share that is left is mostly children (who stay by a parent) and new mothers' week at home, plus walking legs of tasks
+counted as Wander. With travel open (scratch run, seed exp-a): 3 expeditions into the Pine Woods in 4 days, each back with
+"plenty of trees, rocks to mine, water, wild horses, wolves (danger)..."; no deaths.
