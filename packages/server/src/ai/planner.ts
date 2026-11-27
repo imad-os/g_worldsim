@@ -533,6 +533,7 @@ export class Planner {
       ...(w.lore.promptText(i) ? [w.lore.promptText(i)] : []),
       ...(w.aware.promptText(i) ? [w.aware.promptText(i)] : []),
       ...(w.talk.promptText(i) ? [w.talk.promptText(i)] : []),
+      ...(w.migrate.promptText(i) ? [w.migrate.promptText(i)] : []),
       `Near: ${near.length ? nearText : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
       ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),

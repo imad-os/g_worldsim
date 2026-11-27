@@ -1012,3 +1012,6 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - `World.why(i)` { src, text, at } (sim/why.ts, `Brain.why` codes) for the panel Thoughts screen (ops/thoughts.ts, another thread).
 - Rule word `home` ("never stay at home", 4 languages): rest by the fire / outside instead of at home (sleep at night still home).
 - Wall circle cap 28 -> 32 (a hut sited 26 m out needs 29). Tests talk.test.ts; siege test seed s1.
+- **Spreading over the maps** (imad 2026-11-27, "make it rare"): `sim/migrate.ts` (`World.migrate`), daily 9:00 pressure per non-wild map (food a head,
+  crowd > 16, trees); >= 0.4 prompt line + news; >= 0.6 and travel open: one household (single / couple, no kids < 14, not leader / player) per map
+  every 2+ days moves to a map 0.4 better (task skill `settle`, `Homes.leave`). Events migrate / settled. Test migrate.test.ts.

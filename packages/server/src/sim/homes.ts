@@ -173,6 +173,16 @@ export class Homes {
     w.emit('home', { id, name: p.name, map: mp.def.id, x: Math.floor(c.x), y: Math.floor(c.y), why });
   }
 
+  /** Person id moved away for good (sim/migrate.ts): the hut they owned on another map than `m` is free again. */
+  leave(id: number, m: number): void {
+    this.sync();
+    const p = this.w.profiles.get(id);
+    for (const h of this.list) if (h.owner === id && h.m !== m) {
+      h.owner = -1;
+      if (p) delete p.home;
+      this.w.emit('home', { id, name: p?.name ?? '', map: this.w.maps[h.m]!.def.id, left: true, why: 'moved away' });
+    }
+  }
   /** People on map m who are the head of a household with no home (no family member owns one). */
   homeless(m: number): number[] {
     const w = this.w, e = w.e, out: number[] = [], seen = new Set<number>();

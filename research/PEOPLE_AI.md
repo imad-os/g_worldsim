@@ -119,6 +119,20 @@ The Thoughts screen (ops/thoughts.ts, another module) reads it.
 fire, or out in the open, instead of at home, and the Thoughts screen counts each time the rule held them back. Sleeping at
 night still goes home (safety first; tell me if it should not).
 
+## Spreading over the maps (new, `sim/migrate.ts`)
+
+imad: "encourage them to spread over the maps for resources, hunts or crowded places; aware when resources get less because of a
+lot of people; make it rare". Once a game day at 9:00 every lived-in map that is not wild gets a pressure from food per head
+(on the ground, in the store, game x3: short under 3 a head), the crowd (over 16 people) and trees left to cut (under 15 a head,
+half weight). From 0.4 the people there know it: their prompts say "This place is under strain: food is short (1.2 a head),
+crowded (22 people). New Town has more to go round", and news of it spreads in talks. From 0.6, with travel open, on half the
+days and at most once every 2 days per map, ONE household moves to the best reachable map that is 0.4 better: a single adult
+or a couple with no children under 14, never the camp's leader, a new mother or a player; the bravest with the least to keep
+them (no home, grown and left home, low clan loyalty). They say why, walk through the gates (task skill `settle`), give up their
+old hut (`Homes.leave`) and start again there; those left behind hear "Sami and Lina left for New Town: food is short here".
+Events `migrate` { id, ids, from, to, why } and `settled` { id, map }. With one lived-in map (today's world until the new maps
+land) or travel closed, nobody moves.
+
 ## Performance
 
 All of this is server-side. Cloud container, 8 people, 4 game days: 0.12-0.13 ms a tick before and after (E13). The talk

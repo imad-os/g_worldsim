@@ -24,6 +24,7 @@ import { Influences } from './influence.js';
 import { Purpose } from './purpose.js';
 import { Aware } from './aware.js';
 import { Talk } from './talk.js';
+import { Migrate } from './migrate.js';
 import { whyOf, type WhyNow } from './why.js';
 import { Rules } from './rules.js';
 import { Replays } from './replays.js';
@@ -122,6 +123,8 @@ export class World {
   readonly aware: Aware;
   /** Talks that carry knowledge (sim/talk.ts). */
   readonly talk: Talk;
+  /** Crowding and scarcity per map; now and then a household moves (sim/migrate.ts). */
+  readonly migrate: Migrate;
   /** Clans and fights between people (sim/clans.ts). */
   readonly clans: Clans;
   /** Clan camps as territory: visitors, intruders warned then driven out, enemy camps kept clear of (sim/territory.ts). */
@@ -191,6 +194,7 @@ export class World {
     this.purpose = new Purpose(this);
     this.aware = new Aware(this);
     this.talk = new Talk(this);
+    this.migrate = new Migrate(this);
     this.clans = new Clans(this);
     this.territory = new Territory(this);
     this.towns = new Towns(this);
@@ -563,7 +567,7 @@ export class World {
     this.brain.think();
     this.life.tick();
     if (this.tick % 20 === 0 && this.fell.size) for (const [id, t] of this.fell) if (this.tick - t > 5 * this.opt.tickRate) this.fell.delete(id);
-    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.territory.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); this.aware.update(); this.talk.update(); }
+    if (this.tick % 20 === 0) { this.weather.update(); this.gear.update(); this.survival.update(); this.tasks.update(); this.rules.update(); this.clans.update(); this.territory.update(); this.family.update(); this.quests.update(); this.lore.update(); this.influence.update(); this.purpose.update(); this.aware.update(); this.talk.update(); this.migrate.update(); }
     this.zombies.update();
     this.animals.update();
     this.horses.update();

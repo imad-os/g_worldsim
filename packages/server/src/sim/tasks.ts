@@ -70,7 +70,7 @@ export interface Step { gx?: number; gy?: number; key?: string; units?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore', 'settle'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -458,6 +458,19 @@ export class Tasks {
         if (r.code === 'tooYoung') return 'I am too young';
         if ((s.n0 = (s.n0 ?? 0) + 1) >= 8) { b.order(i, 'stop', -1, -1, 0); return `${r.name ?? 'the horse'} would not let me tame it`; }
         return false;
+      }
+      case 'settle': { // move to another map for good (sim/migrate.ts): through the gates, then the old hut is let go
+        const to = w.mapIndex.get(String(s.what ?? '')) ?? this.mapFor(i, String(s.what ?? ''));
+        if (to === undefined || to < 0 || to >= w.maps.length) return 'I do not know that place';
+        if (e.map[i] !== to) {
+          if (w.wild(e.map[i]!) && !b.mayGoWild(i) && !w.travelOpen) return 'the roads are closed';
+          if (!this.walkToMap(i, to, s)) return 'I found no road there';
+          return false;
+        }
+        w.survival.homes.leave(e.id(i), to);
+        w.memory.add(e.id(i), 'move', 8, `settled in ${w.maps[to]!.def.name}`);
+        w.emit('settled', { id: e.id(i), map: w.maps[to]!.def.id });
+        return true;
       }
       case 'ride': {
         // Get on my horse (whistle for it when it is farther away) and ride to a place: "home" / "" = the map of my home (else the
