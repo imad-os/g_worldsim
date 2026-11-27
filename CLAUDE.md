@@ -800,3 +800,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - `CLAN_CAMP_AT` 20: a clan with more members that is not `mainClan(m)` (camp leader's clan, else the biggest) gets `Clan.camp` 45-90 m from the
   other camps (`campCheck`, `Survival.campSite`), event `clanCamp`, notes, the leader lights its fire. `Survival.campFor(i)` / `clans.campOf(id, m)`:
   that clan's huts and fires go there (`hutSiteIn` with an origin). Walls / night watch / store stay at the map's first camp. Test society.test.ts.
+
+## Tidy TV screen: compass colours, top-edge card, chat log (imad 2026-11-26, app 0.14.4)
+- Compass icons 2.5vw, each kind its own colour (`--c` per `.cp-i.<kind>` / `.mk-<mark kind>` in docs/index.html; marks are pins except star / danger).
+- `#card` flush with the top-right edge (top 0, right 0, 15vw, smaller text).
+- `#chatlog` (nav.ts `ChatLog`), bottom left, text only, last 4 lines (older than 1 min faint): Notice `say` (people near me) + Notice `wchat`
+  (world channel lines: `Chats` hook `world` -> `NetServer.toViewers`). `say` no longer uses the #note banner.
+- NPC lines go only to the player who talked (`Quests.onNpcSay(.., to)` -> `noticeTo`); an AI person taking a quest is silent.
+  Proof `ADMIN_TOKEN=... node tools/hud-proof.mjs <server> <sdk.js> <outdir>`.

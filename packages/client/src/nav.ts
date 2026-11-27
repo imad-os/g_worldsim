@@ -5,7 +5,7 @@
  * Everything here is built once; per frame only transforms / opacity change (Chromium 108, locked 60 fps).
  */
 
-/** White line icons (24 x 24 view box). */
+/** Line icons (24 x 24 view box), filled with each kind's own colour (index.html .cp-i.<kind>). */
 const ICON: Record<string, string> = {
   home: 'M3 11 12 3l9 8v10h-6v-6H9v6H3z',
   camp: 'M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-7 0 2 1 3 2 3 0-3 0-6 1-8z',
@@ -17,7 +17,8 @@ const ICON: Record<string, string> = {
   danger: 'M12 2 1 21h22zm-1 7h2v6h-2zm0 8h2v2h-2z',
 };
 function iconOf(kind: string): string {
-  if (kind.startsWith('mark:')) { const k = kind.slice(5); return ICON[k === 'star' || k === 'danger' || k === 'home' || k === 'camp' ? k : 'mark']!; }
+  // My own marks are pins in the mark's own colour (a marked "home" must not look like my real home); star and danger keep their shape.
+  if (kind.startsWith('mark:')) { const k = kind.slice(5); return ICON[k === 'star' || k === 'danger' ? k : 'mark']!; }
   return ICON[kind] ?? ICON.mark!;
 }
 const svg = (d: string) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
@@ -58,7 +59,7 @@ export class Compass {
     if (!same) {
       for (const it of this.items) it.el.remove();
       this.items = rows.map((row) => {
-        const el = document.createElement('div'); el.className = 'cp-i ' + (row[0].startsWith('mark:') ? 'mark' : row[0]);
+        const el = document.createElement('div'); el.className = 'cp-i ' + (row[0].startsWith('mark:') ? 'mark mk-' + row[0].slice(5) : row[0]);
         el.innerHTML = svg(iconOf(row[0]));
         el.title = names(row[0], row[1]);
         const d = document.createElement('span'); el.appendChild(d);
@@ -174,4 +175,29 @@ export class AutoRide {
     out[0] = (ax - x) / l; out[1] = (ay - y) / l;
     return 'go';
   }
+}
+
+/** The chat log at the bottom left (imad 2026-11-26): what people near me say + the world channel, text only, the last 4 lines. */
+export class ChatLog {
+  private readonly el: HTMLDivElement;
+  private rows: { el: HTMLDivElement; at: number }[] = [];
+  private last = '';
+  constructor(private readonly max = 4) {
+    this.el = (document.getElementById('chatlog') as HTMLDivElement | null) ?? document.body.appendChild(document.createElement('div'));
+    this.el.id = 'chatlog';
+  }
+  add(name: string, text: string, sys = false): void {
+    const key = `${name}|${text}`;
+    if (key === this.last) return; // the same line twice in a row (a say and its world post)
+    this.last = key;
+    const d = document.createElement('div');
+    if (sys) d.className = 'sys';
+    if (name && !sys) { const b = document.createElement('b'); b.textContent = `${name}: `; d.appendChild(b); }
+    d.appendChild(document.createTextNode(text));
+    this.el.appendChild(d);
+    this.rows.push({ el: d, at: performance.now() });
+    while (this.rows.length > this.max) this.rows.shift()!.el.remove();
+  }
+  /** Lines older than a minute grow faint (called now and then). */
+  tick(now: number): void { for (const r of this.rows) { const old = now - r.at > 60_000; if (old !== r.el.classList.contains('old')) r.el.classList.toggle('old', old); } }
 }

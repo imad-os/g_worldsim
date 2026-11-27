@@ -508,7 +508,8 @@ export class App {
     w.listeners.push((ev) => { if (ev.kind === 'blocked') { const i = w.e.slot(Number(ev.data.id)); if (i >= 0) this.net.noticeTo(i, 'blocked', ev.data.why ? { why: ev.data.why } : {}); } });
     this.planner.onSay = (i, text) => this.net.say(w.e.map[i]!, { id: w.e.id(i), name: this.nameOf(w.e.id(i)), text });
     // Quests (sim/quests.ts): the NPCs speak to the viewers of their map, lessons go into memory, players see their progress.
-    w.quests.onNpcSay = (j, nm, text) => this.net.say(w.e.map[j]!, { id: w.e.id(j), name: nm, text });
+    // NPC lines (imad 2026-11-26: "the NPCs' quests are spamming the world chat"): an AI person taking a quest is silent; a player hears only their own talk.
+    w.quests.onNpcSay = (j, nm, text, to) => this.net.noticeTo(to, 'say', { id: w.e.id(j), name: nm, text });
     w.quests.onLearn = (id, text) => this.planner.note(id, text, true);
     w.quests.onProgress = (i, d) => this.net.noticeTo(i, 'quest', d);
     w.clans.onVote = (c, open) => { for (const id of c.members) { const i = w.e.slot(id); if (i >= 0 && w.e.kind[i] === Kind.Player) this.net.noticeTo(i, 'clanVote', { open, clan: c.name }); } };
@@ -526,6 +527,7 @@ export class App {
       playerOf: (id) => w.profiles.get(id)?.player ?? '',
       aiReady: () => this.ai.status().ready,
       notify: (to, m) => this.net.noticeAccounts(to, 'chat', m),
+      world: (m) => this.net.toViewers('wchat', { name: m.name, text: m.text, sys: m.sys }),
     });
     this.planner.onTaskEnd = (id, from, text, ok, why) => this.chats.taskEnded(id, from, text, ok, why);
     // The owner's strict rules (sim/rules.ts): everyone's are in the database, each person's in their profile.

@@ -42,6 +42,8 @@ export interface ChatHooks {
   aiReady(): boolean;
   /** A new message: tell the panels of the players who can read it (`to` = player names; null = everyone). */
   notify(to: string[] | null, m: ChatMsg): void;
+  /** A world-channel line, for the TVs' chat log (bottom left). */
+  world?(m: ChatMsg): void;
 }
 
 export class Chats {
@@ -92,6 +94,7 @@ export class Chats {
       .run(m.chan, m.at, m.game, m.from, m.name, m.text, m.sys).lastInsertRowid);
     if (++this.writes % 50 === 0) this.db.sql.prepare('DELETE FROM chat_msgs WHERE chan = ? AND id <= (SELECT id FROM chat_msgs WHERE chan = ? ORDER BY id DESC LIMIT 1 OFFSET ?)').run(chan, chan, KEEP);
     this.h.notify(this.readers(chan), m);
+    if (chan === 'world') this.h.world?.(m);
     return m;
   }
   private marks(me: number): Record<string, number> { try { return JSON.parse(this.db.getMeta(`chat_read:${me}`) ?? '{}') as Record<string, number>; } catch { return {}; } }

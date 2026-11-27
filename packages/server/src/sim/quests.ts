@@ -29,8 +29,8 @@ export class Quests {
   readonly npcs = new Map<NpcKey, number>();
   private map = -1;
   private nextCheck = 0;
-  /** An NPC says a line (the App shows it to viewers of that map). */
-  onNpcSay: (npcSlot: number, name: string, text: string) => void = () => {};
+  /** An NPC says a line to person `to` (imad 2026-11-26: only the player who talked hears it, never the whole map). */
+  onNpcSay: (npcSlot: number, name: string, text: string, to: number) => void = () => {};
   /** A person learned something (planner memory). */
   onLearn: (id: number, text: string) => void = () => {};
   /** A player's character: quest progress for their TV. */
@@ -144,7 +144,7 @@ export class Quests {
       } else { out.state = 'elsewhere'; out.next = nx.npc; }
     }
     const j = this.npcSlot(key);
-    if (j >= 0) this.onNpcSay(j, def.name, out.say.en);
+    if (j >= 0) this.onNpcSay(j, def.name, out.say.en, i);
     return out;
   }
 

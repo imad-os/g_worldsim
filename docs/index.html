@@ -21,7 +21,7 @@
   #aimhud { position: fixed; left: 50%; bottom: 7vw; transform: translateX(-50%); display: flex; align-items: center; gap: 0.8vw; padding: 0.5vw 1.4vw 0.5vw 0.8vw; background: rgba(8, 10, 14, 0.7); border: 0.15vw solid rgba(255, 209, 102, 0.55); border-radius: 3vw; color: #ffe7a3; font-size: 1.4vw; z-index: 4; pointer-events: none; }
   #aimhud[hidden] { display: none; }
   /* The compass bar (imad 2026-11-26, "like Zelda's: a line with white icons"): JS moves the ticks / icons by translateX from the middle. */
-  #compass { position: fixed; left: 50%; top: 10px; width: 38vw; max-width: 900px; height: 4.3vw; transform: translateX(-50%); pointer-events: none; z-index: 3; overflow: hidden;
+  #compass { position: fixed; left: 50%; top: 10px; width: 38vw; max-width: 900px; height: 5.2vw; transform: translateX(-50%); pointer-events: none; z-index: 3; overflow: hidden;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
   #compass[hidden] { display: none; }
   #compass:before { content: ''; position: absolute; left: 0; right: 0; top: 1.25vw; height: 0.14vw; background: rgba(255, 255, 255, 0.75); box-shadow: 0 0 0.3vw rgba(0, 0, 0, 0.7); }
@@ -31,13 +31,16 @@
   .cp-t { top: 1.0vw; width: 0.12vw; height: 0.6vw; margin-left: -0.06vw; background: rgba(255, 255, 255, 0.55); }
   .cp-t.big { top: 0.85vw; height: 0.9vw; background: rgba(255, 255, 255, 0.8); }
   .cp-c { top: 1.65vw; width: 2vw; margin-left: -1vw; text-align: center; font: 700 1.15vw/1 system-ui, sans-serif; color: #fff; text-shadow: 0 0 0.3vw #000, 0 0.1vw 0.2vw #000; }
-  .cp-i { top: 0.15vw; width: 6vw; margin-left: -3vw; text-align: center; }
-  .cp-i svg { display: block; width: 1.9vw; height: 1.9vw; margin: 0 auto; fill: #fff; filter: drop-shadow(0 0 0.15vw rgba(0, 0, 0, 0.95)); }
+  /* Each kind of place has its own colour (imad 2026-11-26: "each with a unique colour, a bit bigger"); --c set per kind below. */
+  .cp-i { --c: #fff; top: 0; width: 6vw; margin-left: -3vw; text-align: center; }
+  .cp-i svg { display: block; width: 2.5vw; height: 2.5vw; margin: 0 auto; fill: var(--c); filter: drop-shadow(0 0 0.12vw #000) drop-shadow(0 0 0.1vw #000); }
   /* Distance from me in metres (imad 2026-11-26: "show how many meters away from me"): a dark pill over the letters so it always reads. */
   .cp-i { z-index: 2; }
-  .cp-i span { display: inline-block; margin-top: 0.15vw; padding: 0.12vw 0.4vw; border-radius: 0.6vw; background: rgba(10, 12, 16, 0.78); font: 700 1.0vw/1.1 system-ui, sans-serif; color: #fff; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .cp-i.home span, .cp-i.horse span { color: #ffd166; }
-  .cp-i.gate svg { width: 1.6vw; height: 1.6vw; margin-top: 0.15vw; opacity: 0.9; }
+  .cp-i span { display: inline-block; margin-top: 0.1vw; padding: 0.12vw 0.4vw; border-radius: 0.6vw; background: rgba(10, 12, 16, 0.78); font: 700 1.0vw/1.1 system-ui, sans-serif; color: var(--c); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cp-i.home { --c: #ffd166; } .cp-i.camp { --c: #ff8a3d; } .cp-i.gate { --c: #7fd3ff; } .cp-i.horse { --c: #d9a066; } .cp-i.partner { --c: #ff7eb6; }
+  .cp-i.mk-home { --c: #fff3c4; } .cp-i.mk-mine { --c: #b9c6d8; } .cp-i.mk-hunt { --c: #e8735a; } .cp-i.mk-wood { --c: #6fd36a; } .cp-i.mk-water { --c: #3fa9ff; }
+  .cp-i.mk-farm { --c: #d4ec5a; } .cp-i.mk-danger { --c: #ff4040; } .cp-i.mk-camp { --c: #ffb38a; } .cp-i.mk-star { --c: #c7a2ff; }
+  .cp-i.gate svg { width: 2.2vw; height: 2.2vw; margin-top: 0.15vw; }
   /* Names over heads. */
   #names { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
   .nm { position: absolute; left: 0; top: 0; padding: 0.1vw 0.55vw; border-radius: 0.6vw; background: rgba(8, 10, 14, 0.5); color: #fff; font: 600 1.05vw/1.25 system-ui, sans-serif; white-space: nowrap; text-shadow: 0 0.08vw 0.2vw #000; will-change: transform; }
@@ -49,8 +52,24 @@
   #aimhud b { font-size: 2.6vw; color: #ffd166; }
   #aimhud.none { border-color: rgba(255, 107, 107, 0.7); color: #ff9b9b; }
   #aimhud.none b { color: #ff6b6b; }
-  #card { position: fixed; top: 10px; right: 2vw; width: 22vw; padding: 1vw 1.2vw; background: rgba(8, 10, 14, 0.72); border-radius: 1vw; font-size: 1.25vw; line-height: 1.45; }
-  [dir="rtl"] #card { right: auto; left: 2vw; }
+  /* My card sits on the very top edge, small (imad 2026-11-26: "the top right black box takes too much space"). */
+  #card { position: fixed; top: 0; right: 0; width: 15vw; padding: 0.45vw 0.9vw 0.55vw; background: rgba(8, 10, 14, 0.6); border-radius: 0 0 0 0.8vw; font-size: 0.95vw; line-height: 1.3; }
+  [dir="rtl"] #card { right: auto; left: 0; border-radius: 0 0 0.8vw 0; }
+  #card .pn { font-size: 1.15vw; line-height: 1.2; }
+  #card .pbars { gap: 0.15vw; margin: 0.25vw 0 0.1vw; }
+  #card .nl { width: 4.2vw; font-size: 0.85vw; }
+  #card .nt { height: 0.5vw; }
+  #card .pa { margin: 0.15vw 0 0; }
+  #card .pa:empty { display: none; }
+  /* The chat log, bottom left (imad 2026-11-26): text only, last 4 lines, small. */
+  #chatlog { position: fixed; left: 1.2vw; bottom: 1.2vw; width: 36vw; pointer-events: none; z-index: 3; font: 500 1vw/1.35 system-ui, sans-serif; color: #f2f4f6;
+    text-shadow: 0 0 0.25vw #000, 0 0.08vw 0.15vw #000, 0 0 0.1vw #000; }
+  #chatlog div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity 1s; }
+  #chatlog b { color: #ffd166; font-weight: 700; }
+  #chatlog .sys { color: #9fd8ff; }
+  #chatlog .old { opacity: 0.55; }
+  [dir="rtl"] #chatlog { left: auto; right: 1.2vw; }
+  .replaying #chatlog, .menu-open #chatlog { display: none; }
   .pn { font-size: 1.7vw; font-weight: 600; }
   .ps, .pm { color: #c9d1d9; }
   .pa { color: #ffd166; margin: 0.3vw 0; }
@@ -227,8 +246,9 @@
 <div id="xhair" hidden></div>
 <div id="iahint" hidden></div>
 <div id="card" hidden></div>
+<div id="chatlog"></div>
 <div id="wheel" hidden></div>
 <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
-<script type="module" src="game.js?v=0.14.3"></script>
+<script type="module" src="game.js?v=0.14.4"></script>
 </body>
 </html>

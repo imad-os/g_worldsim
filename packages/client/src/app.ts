@@ -23,7 +23,7 @@ import { DEATH_SECS } from './gfx/animals.js';
 import { InvScreen, GearScreen, BagScreen, type InvCtx } from './invui.js';
 import { QuestUi } from './questui.js';
 import { MapScreen, MARK_KEY, type MapData } from './mapui.js';
-import { Compass, Names, AutoRide, type CompassRow } from './nav.js';
+import { Compass, Names, AutoRide, ChatLog, type CompassRow } from './nav.js';
 import { MARK_KINDS, MARK_ICON, NPCS, type MapMark, type MarkKind, type WeatherInfo } from '@worldsim/protocol';
 
 // ------------------------------------------------------------ sounds (imad 2026-11-20: real recordings, with options)
@@ -365,10 +365,11 @@ function onMsg(m: ServerMsg): void {
         const js = d ? slotOf.get(d.id) : undefined;
         note(!d ? t('nobody') : d.kind === Kind.Player ? t('metPlayer') : `${actName(js !== undefined ? sub[js]! : 0)}...`);
       }
-      if (m.kind === 'say') { // someone near you (or the one you follow) said something
+      if (m.kind === 'say') { // someone near you (or the one you follow) said something: the chat log, bottom left
         const d = m.data as { id: number; name: string; text: string };
-        note(`${d.name}: “${d.text}”`, 7000);
+        chatLog.add(d.name, d.text);
       }
+      if (m.kind === 'wchat') { const d = m.data as { name: string; text: string; sys: number }; chatLog.add(d.name, d.text, !!d.sys); }
       if (m.kind === 'did') onDid(m.data as { a: string; ok: boolean; code: string; item?: string });
       if (m.kind === 'quest' || m.kind === 'clanVote') quests.notice(m.kind, m.data);
       if (m.kind === 'me') {
@@ -796,7 +797,8 @@ function loadWheel(): void {
 function saveWheel(): void { MyPC.save('wheel', wheelIds); }
 let wheelEdit = '';
 // ------------------------------------------------------------ the compass bar, names over heads, riding by yourself (imad 2026-11-26)
-const compass = new Compass(), names = new Names();
+const compass = new Compass(), names = new Names(), chatLog = new ChatLog();
+setInterval(() => chatLog.tick(performance.now()), 5000);
 let namesOn = true, compassOn = true, compassAt = 0, rideDestsAt = 0;
 /** Where I can ride from here: [id, kind, label, metres (-1 = another map)] (Do `rideTo` ''). */
 let rideDests: [string, string, string, number][] = [];
