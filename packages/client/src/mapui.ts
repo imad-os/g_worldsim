@@ -35,6 +35,8 @@ export const MARK_KEY: Record<MarkKind, Key> = { home: 'mkHome', mine: 'mkMine',
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export class MapScreen implements Grid {
+  /** A canvas picture: left / right are the same in every language. */
+  readonly geo = true;
   data: MapData | null = null;
   marks: MapMark[] = [];
   /** The map shown ('' = where I am). */

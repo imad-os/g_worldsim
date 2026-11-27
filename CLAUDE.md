@@ -819,3 +819,9 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   Msg.You carries `secs` / `left` (reconnect resumes). Agents keep `p.travel` / horse gateSecs x clockScale. Not saved (restart = old `arrive`).
 - Tests woods-travel.test "the road between maps", horses.test; proof `ADMIN_TOKEN=... node tools/travel-proof.mjs <server> <sdk.js> <outdir>`
   (`?dev` `__dev.trip()`).
+
+## Right-to-left menus (imad 2026-11-26: "Arabic: left goes right")
+- In Arabic `document.dir = 'rtl'` mirrors the CSS-laid-out grid screens (bag, Bag & crafting, gear), so `Menu.input` swaps left / right for a page's
+  `grid` (`visual()` in ui.ts) unless the grid says `geo: true` (MapScreen: a canvas, same in every language). The quick wheel is placed by absolute
+  positions (not mirrored). Proof: Playwright `locale: 'ar'` (the SDK takes the language from the browser when standalone), press arrows, compare the
+  `.on` element's x.

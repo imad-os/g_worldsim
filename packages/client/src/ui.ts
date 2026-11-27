@@ -45,7 +45,15 @@ export const remoteName = (n: string) => REMOTE_NAMES[n] ?? (/^\d$/.test(n) ? n 
 // ------------------------------------------------------------ menu
 export interface Row { id: string; label: string; value?: string; sub?: boolean; dim?: boolean }
 /** `grid`: a screen with its own cursor (bag & crafting, gear): the arrows and OK go to it, Back still goes back. `big` = nearly full screen. */
-export interface Grid { move(d: 'up' | 'down' | 'left' | 'right'): void; ok(): void }
+/** `geo` = the screen draws its own picture (a canvas map): left / right stay as they are in right-to-left languages. Other grids are laid
+ *  out by CSS, which mirrors them in Arabic, so the menu swaps left / right for them (imad 2026-11-26: "left is going right"). */
+export interface Grid { move(d: 'up' | 'down' | 'left' | 'right'): void; ok(): void; geo?: boolean }
+/** True while the page is laid out right to left (Arabic). */
+export const isRtl = (): boolean => typeof document !== 'undefined' && document.documentElement.dir === 'rtl';
+/** Left / right as the player means them on screen -> the grid's own (logical) left / right. */
+export function visual<D extends string>(d: D, mirrored = isRtl()): D {
+  return (mirrored ? (d === 'left' ? 'right' : d === 'right' ? 'left' : d) : d) as D;
+}
 export interface Page { id: string; title: string; rows: Row[]; text?: string; html?: string; wide?: boolean; big?: boolean; grid?: Grid }
 
 export class Menu {
@@ -133,7 +141,7 @@ export class Menu {
   input(a: 'up' | 'down' | 'left' | 'right' | 'ok' | 'back'): void {
     if (!this.open) return;
     const g = this.cur?.grid;
-    if (g && a !== 'back') { this.onSound(a === 'ok' ? 'ui_ok' : 'ui_move'); if (a === 'ok') g.ok(); else g.move(a); this.refresh(); return; }
+    if (g && a !== 'back') { this.onSound(a === 'ok' ? 'ui_ok' : 'ui_move'); if (a === 'ok') g.ok(); else g.move(g.geo ? a : visual(a)); this.refresh(); return; }
     if (a === 'left' || a === 'right') return;
     const n = this.rows.length;
     this.onSound(a === 'up' || a === 'down' ? 'ui_move' : a === 'ok' ? 'ui_ok' : this.stack.length > 1 ? 'ui_back' : 'ui_close');
