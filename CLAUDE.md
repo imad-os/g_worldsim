@@ -1092,7 +1092,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   windows turn with the wall. Collision is still the whole tile.
 - **Roofs** (`client/src/gfx/roofs.ts`, `World3D.roofs`): rooms found from the tiles (a filled floor rectangle closed by thin walls / doors / windows;
   farm barns get them too), rescanned when a chunk mesh goes in (`roofScan`), dropped with the chunk. Gable roof, ridge along the door's wall,
-  shingle rows outside, boards inside (the ceiling), gable ends. Top view: the roof of the room I am in fades to `ROOF_FADE` 0.25 (imad's "0.8"
+  shingle rows outside, boards inside (the ceiling), gable ends. Top view: the roof of the room I am in fades to `ROOF_FADE` 0.2 (imad 2026-11-27: "almost hidden, just a hint it is there"; his "0.8"
   read as 80 % see-through: at 0.8 opacity you can't see yourself; say so if he wants it the other way). Third person indoors: the camera comes
   under the ceiling and stays inside the room (`World3D.follow`, `camB` / `camH` eased); first person sees the ceiling. Test house.test.ts;
   proof `ADMIN_TOKEN=... node tools/roof-proof.mjs <server> <sdk.js> <outdir>`.

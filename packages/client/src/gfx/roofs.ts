@@ -14,7 +14,7 @@ import { Shape, hash2, HOME_WALL_H, HOME_WALL_T, type Look } from './look.js';
  * ceiling. In third person the camera comes down under the ceiling and stays inside the room (World3D.room), as games do indoors.
  * One mesh (outer + inner) per roof; rooms are rescanned only when a chunk's tiles change.
  */
-export const ROOF_FADE = 0.25;
+export const ROOF_FADE = 0.2;
 /** The roof's pitch (rad), eave and gable overhangs (m), thickness (m). */
 const PITCH = (32 * Math.PI) / 180, EAVE = 0.45, GABLE = 0.3, THICK = 0.14, MAX_ROOM = 13;
 
