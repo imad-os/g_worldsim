@@ -26,6 +26,12 @@ export class Gear {
   constructor(private readonly w: World) {
     const cap = w.e.cap;
     this.anim = new Uint8Array(cap); this.seq = new Uint8Array(cap); this.until = new Float64Array(cap); this.aiming = new Uint8Array(cap);
+    // Picking something up shows on the TV: bend down, a hand to the ground, back up (imad 2026-11-27: "picking animations").
+    w.listeners.push((ev) => {
+      if (ev.kind !== 'pickup' || typeof ev.data.id !== 'number') return;
+      const i = w.e.slot(ev.data.id);
+      if (i >= 0 && this.until[i]! <= w.tick) this.play(i, 'use', 0.8);
+    });
   }
 
   state(i: number): GearState {
@@ -132,7 +138,7 @@ export class Gear {
       if (a === Act.Fight) anim = 'attack';
       else if (a === Act.Build) anim = 'build';
       else if (a === Act.Talk) anim = 'talk';
-      else if (a === Act.Gather) anim = this.nearTree(i) ? 'chop' : 'mine';
+      else if (a === Act.Gather) anim = this.gatherAnim(i); // a tree = chop, a rock = mine, rubble / herbs / a field = pick (bent down, hands at the ground)
     }
     const shooting = anim === 'shoot';
     const held = shooting ? 'bow' : wp || (bow && !wp ? 'bow' : '');
@@ -143,12 +149,18 @@ export class Gear {
       anim, seq: this.seq[i]!, back: !!bow && held !== 'bow', aim,
     });
   }
-  private nearTree(i: number): boolean {
-    const w = this.w, e = w.e, tm = w.maps[e.map[i]!]?.tiles, T = w.survival.T.tree;
-    if (!tm || T < 0) return false;
+  private gatherAnim(i: number): Anim {
+    const w = this.w, e = w.e, tm = w.maps[e.map[i]!]?.tiles, T = w.survival.T;
+    if (!tm) return 'mine';
     const cx = Math.floor(e.x[i]!), cy = Math.floor(e.y[i]!);
-    for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 1; x <= cx + 1; x++) if (tm.inside(x, y) && tm.get(x, y) === T) return true;
-    return false;
+    let rock = false;
+    for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 1; x <= cx + 1; x++) {
+      if (!tm.inside(x, y)) continue;
+      const t = tm.get(x, y);
+      if (T.tree >= 0 && t === T.tree) return 'chop';
+      if (T.rock >= 0 && t === T.rock) rock = true;
+    }
+    return rock ? 'mine' : 'use';
   }
 
   /** The next upgrade worth working for on this item: quality when the level allows it, else a level ('' = at its best). */

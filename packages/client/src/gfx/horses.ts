@@ -213,6 +213,18 @@ export class Horses3D {
     return b * scale;
   }
 
+  /** The ridden horse's gait for the rider's body (gfx/people.ts): gallop weight 0..1, trot / walk weight, and where in each stride (radians). */
+  readonly gait = { g: 0, w: 0, gp: 0, wp: 0 };
+  strideOf(id: number): { g: number; w: number; gp: number; wp: number } {
+    const h = this.live.get(id), o = this.gait;
+    o.g = o.w = o.gp = o.wp = 0;
+    if (!h) return o;
+    const g = h.acts.Gallop, w = h.acts.Walk;
+    if (g && g.isRunning()) { o.g = g.getEffectiveWeight(); o.gp = (g.time / g.getClip().duration) * Math.PI * 2; }
+    if (w && w.isRunning()) { o.w = w.getEffectiveWeight(); o.wp = (w.time / w.getClip().duration) * Math.PI * 2; }
+    return o;
+  }
+
   /** Proof / tuning (?dev): each horse's gait, eased speed, pace, gait changes and its last speeds (oldest first). */
   debug(): { id: number; cur: string; sp: number; ts: number; sw: number; raw: number[] }[] {
     return [...this.live].map(([id, h]) => ({ id, cur: h.cur, sp: h.sp, ts: h.ts, sw: h.sw, raw: Array.from({ length: Math.min(240, h.ri) }, (_, k) => h.raw[(h.ri - Math.min(240, h.ri) + k) % 240]!) }));

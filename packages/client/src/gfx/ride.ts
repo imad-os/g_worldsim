@@ -129,7 +129,7 @@ export class RideScene {
     if (onHorse) this.horses.add(1, sway, 0, 0, SPEED, 9, horse!.scale, horse!.q, horse!.coat, true, t, dt);
     this.horses.end();
     this.people.begin();
-    if (onHorse) this.people.add(sway, 0, 0, t * 6, 0.2, look, false, 1, false, gear, t, this.horses.seat(horse!.scale));
+    if (onHorse) { const g = this.horses.strideOf(1); this.people.add(sway, 0, 0, 0, 0, look, false, 1, false, gear, t, this.horses.seat(horse!.scale) + this.horses.bounce(1, horse!.scale), 0, false, 1, g.g, g.gp, g.w, g.wp); }
     else this.people.add(sway, 0, 0, (t * WALK * 4.2) % (Math.PI * 2), 0.75, look, false, 1, false, gear, t);
     this.people.end();
     // Dust: little puffs from the hooves, drifting back and fading.

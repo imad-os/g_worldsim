@@ -56,6 +56,8 @@ export interface Profile {
    *  whether they chose their look yet, and the AI autopilot while they are away. */
   player?: string;
   skin?: number;
+  /** A player's own choices of how they look besides sex and skin (protocol look.ts: hair style / colour, build, top, trousers, beard). */
+  look?: { hair: number; hairColour: number; build: number; top: number; pants: number; beard: number };
   sexAt?: number;
   chose?: boolean;
   auto?: boolean;

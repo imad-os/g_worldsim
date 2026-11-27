@@ -9,6 +9,7 @@ import {
   type ServerBuild,
 } from '@worldsim/protocol';
 import type { World } from '../sim/world.js';
+import { lookCode } from '../sim/looks.js';
 import type { Logger } from '../log.js';
 import { NO_MAP } from '../sim/entities.js';
 import type { Players } from '../persist/players.js';
@@ -56,6 +57,8 @@ interface Session {
   wxN?: number;
   /** Names this viewer already has (entity id -> name): only new ones are sent (Notice `names`, for names over heads). */
   names?: Map<number, string>;
+  /** Looks this viewer already has (entity id -> packed look, protocol look.ts): Notice `looks` sends only new / changed ones. */
+  looks?: Map<number, number>;
   list: Int32Array;  // slots known after the last frame
   listN: number;
   /** Frames since the last one sent (a quiet view still gets one a second: the clock moves on). */
@@ -344,7 +347,7 @@ export class NetServer {
       };
       this.sessions.set(s.id, s);
     } else {
-      s.ws = ws; s.goneAt = 0; s.chunks.clear(); s.known.fill(0); s.listN = 0; s.names = undefined;
+      s.ws = ws; s.goneAt = 0; s.chunks.clear(); s.known.fill(0); s.listN = 0; s.names = undefined; s.looks = undefined;
     }
     const w = this.world;
     this.send(s, {
@@ -776,6 +779,7 @@ export class NetServer {
       if (s.avatar >= 0 && this.ownsAvatar(s)) this.send(s, { t: Msg.Notice, kind: 'me', data: this.me(s.avatar) });
       if (s.view) { const hs = this.horses(s.view.map, s.view.x, s.view.y, s.view.r, s.avatar); if (hs.length || s.horsesSent) this.send(s, { t: Msg.Notice, kind: 'horses', data: hs }); s.horsesSent = hs.length > 0; }
       if (s.view) this.sendNames(s);
+      if (s.view) this.sendLooks(s);
       if (s.view) { // the season and the sky over the map I look at: when it changes, else every 10 s
         const wx = this.world.weather.info(s.view.map), key = `${wx.s}|${wx.day}|${wx.w}|${Math.round(wx.t)}`;
         if (key !== s.wxKey || (s.wxN = (s.wxN ?? 0) + 1) >= 10) { s.wxKey = key; s.wxN = 0; this.send(s, { t: Msg.Notice, kind: 'weather', data: wx }); }
@@ -798,6 +802,21 @@ export class NetServer {
       have.set(id, n); out.push([id, n]);
     }
     if (out.length) this.send(s, { t: Msg.Notice, kind: 'names', data: out });
+  }
+  /** How the people, players and teachers in view look (protocol look.ts), once each and again when it changes: [[id, code], ...]. */
+  private sendLooks(s: Session): void {
+    const w = this.world, e = w.e, v = s.view!, out: [number, number][] = [];
+    const have = s.looks ??= new Map();
+    if (have.size > 3000) have.clear();
+    for (let i = 0; i < e.hi && out.length < 120; i++) {
+      const k = e.kind[i];
+      if ((k !== Kind.Agent && k !== Kind.Player && k !== Kind.Npc) || e.map[i] !== v.map) continue;
+      if (Math.abs(e.x[i]! - v.x) > v.r || Math.abs(e.y[i]! - v.y) > v.r) continue;
+      const id = e.id(i), c = lookCode(w, i);
+      if (!c || have.get(id) === c) continue;
+      have.set(id, c); out.push([id, c]);
+    }
+    if (out.length) this.send(s, { t: Msg.Notice, kind: 'looks', data: out });
   }
   /** The name shown over someone's head (set by the app). */
   nameFor: (i: number) => string = (i) => this.world.profileOf(i)?.name ?? '';

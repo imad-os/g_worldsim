@@ -4,6 +4,8 @@ import {
 } from '@worldsim/protocol';
 import { Color } from 'three';
 import { t, tf, setLang, type Key } from './i18n.js';
+import { lookDraft, draftFrom, lookRows, lookHelp, lookSwatches, lookPick, lookText } from './lookui.js';
+import { packLook, unpackLook, defaultLook, lookFromOld, SKIN_TONES, HAIR_COLOURS, TOP_COLOURS, PANTS_COLOURS } from '@worldsim/protocol';
 import { RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, HUT_NEED, HUT_SIZE, HOUSE_NEED, DWELLINGS, isDwelling, INSIDE_ONLY, BOX_CAP, boxHolds, ANIMAL_NAMES, WEAPONS, matchRecipe, type Recipe } from '@worldsim/protocol';
 import { World3D, type Tier, type ChunkView } from './gfx/world3d.js';
 import { DynRes } from './gfx/dynres.js';
@@ -199,7 +201,7 @@ let roster: [number, string, string][] | null = null;
 /** Past events (recorded zombie attacks): the list (null = asked), the one playing, the map to go back to. */
 let past: ReplaySummary[] | null = null;
 /** My character as a person (the "Me" page): look, family, autopilot, rules, level. */
-interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number; influence?: number; influenceLog?: { d: number; why: string }[];
+interface MeChar { name: string; sex: 'f' | 'm'; skin: number; look?: { hair: number; hairColour: number; build: number; top: number; pants: number; beard: number }; chose: boolean; sexDays: number; auto: boolean; rules: string[]; max: number; xp: number; level: number; influence?: number; influenceLog?: { d: number; why: string }[];
   goal: { text: string; from: string; k: number; n: number; pct: number } | null; goals: { text: string; ok: boolean; xp: number }[];
   partner: { id: number; name: string } | null; children: Kid[]; expecting: number; expectingPct: number; traits: Record<string, number>; hp: number;
   horses?: { name: string; quality: string; speed: number; stamina: number; intel: number }[]; tame?: number; tamePower?: number;
@@ -207,7 +209,6 @@ interface MeChar { name: string; sex: 'f' | 'm'; skin: number; chose: boolean; s
 /** One of my children, with their needs (0 fine .. 100 desperate): a parent looks after the little ones by hand. */
 interface Kid { id: number; name: string; age: number; stage: string; hunger: number; thirst: number; tired: number; hp: number; held: boolean; near: boolean; carer: string }
 let meChar: MeChar | null = null, askedMine = false;
-const lookDraft = { sex: 'm' as 'f' | 'm', skin: 1 };
 let rp: ReplayPlayer | null = null;
 let rpBackMap = '', rpDist = 24;
 let info: PersonInfo | null = null, infoFor = -1, infoAt = 0;
@@ -217,32 +218,37 @@ let pads = 0;
 
 // ------------------------------------------------------------ people palette (post-apocalypse: worn, muted)
 const C = (h: number) => new Color(h);
-const TUNICS = [0x8b5a3c, 0x6b7d4a, 0x5a6f86, 0x9a7b4f, 0x7a4b4b, 0x5e5e6e, 0xa0683a, 0x4f6b5e, 0x8a7f6a].map(C);
-const SKINS = [0xf1c9a5, 0xe0ac82, 0xc68b5e, 0x9c6a43, 0x6e4a2f].map(C);
-const HAIRS = [0x2b1d14, 0x4a3020, 0x7a5230, 0xc9a46a, 0x1a1a1a, 0x8a8a8a].map(C);
-const PANTS = [0x3b3a40, 0x4a3d30, 0x2f3b4a, 0x50483d].map(C);
 /** Zombies: grey-green skin, torn dark clothes, arms out (drawn by People.add with reach). */
 const ZOMBIE: PersonLook = { tunic: C(0x6b6650), skin: C(0x9fbf7f), hair: C(0x56604a), pants: C(0x3e4436) };
 const ME: PersonLook = { tunic: C(0x2fa36b), skin: C(0xe8b890), hair: C(0x3a2416), pants: C(0x3a3f5a) };
-const OTHER_PLAYER: PersonLook = { tunic: C(0xd9822b), skin: C(0xd8a27a), hair: C(0x2b1d14), pants: C(0x40404a) };
 const GOLD = C(0xffd166), WHITE = C(0xffffff), NPC_RING = C(0x5ad1ff);
-/** A player's character: their skin tone (1 + tone, + 8 = woman: the trousers match the top, like a dress). Made once each. */
-const playerLooks = new Map<number, PersonLook>();
-function playerLook(mine: boolean, code: number): PersonLook {
-  const k = (mine ? 64 : 0) + code;
-  let l = playerLooks.get(k);
+/** Until the server says how someone looks (Notice `looks`): a look from their id. */
+function lookFor(id: number): PersonLook {
+  const c = looksById.get(id);
+  return lookOfCode(c ?? packLook(defaultLook(id, hash2(id & 0xffff, 5) < 0.5, 30)));
+}
+/** How each person looks (entity id -> packed look, protocol look.ts), from Notice `looks`; one PersonLook per code. */
+const looksById = new Map<number, number>(), lookCache = new Map<number, PersonLook>();
+function lookOfCode(code: number): PersonLook {
+  let l = lookCache.get(code);
   if (!l) {
-    const base = mine ? ME : OTHER_PLAYER, f = (code & 8) !== 0;
-    l = { tunic: base.tunic, skin: SKINS[Math.min(SKINS.length - 1, ((code - 1) & 7))]!, hair: f ? C(0x5a3420) : base.hair, pants: f ? base.tunic : base.pants };
-    playerLooks.set(k, l);
+    const p = unpackLook(code);
+    l = { tunic: C(TOP_COLOURS[p.top] ?? 0x8b5a3c), skin: C(SKIN_TONES[p.skin] ?? 0xe0ac82), hair: C(HAIR_COLOURS[p.hairColour] ?? 0x3b2619), pants: C(PANTS_COLOURS[p.pants] ?? 0x3b3a40),
+      woman: p.woman, hairStyle: p.hair, beard: p.beard, build: p.build, elder: p.elder };
+    if (lookCache.size > 4000) lookCache.clear();
+    lookCache.set(code, l);
   }
   return l;
 }
-function lookFor(id: number): PersonLook {
-  const h = (k: number) => hash2(id & 0xffff, k);
-  const pick = (a: Color[], k: number) => a[Math.floor(h(k) * a.length)]!;
-  return { tunic: pick(TUNICS, 1), skin: pick(SKINS, 2), hair: pick(HAIRS, 3), pants: pick(PANTS, 4) };
+/** The look of whoever is in slot s: what the server sent, else the old frame code (skin + woman), else from the id. */
+function slotLook(s: number): PersonLook {
+  const c = looksById.get(eid[s]!);
+  if (c) return lookOfCode(c);
+  if (atype[s]! > 0 && (kind[s] === Kind.Player || kind[s] === Kind.Agent || kind[s] === Kind.Npc)) return lookOfCode(packLook(lookFromOld(atype[s]!, eid[s]!)));
+  return lookOf[s] ?? lookFor(eid[s]!);
 }
+/** Zombies: grey-green skin, torn dark clothes, a few different bodies and hair. */
+const ZOMBIES: PersonLook[] = [0, 1, 2, 3, 4, 5].map((k) => ({ ...ZOMBIE, woman: k % 3 === 1, hairStyle: [0, 4, 7, 3, 5, 1][k]!, build: [1, 0, 2, 3, 1, 0][k]!, beard: k === 2 ? 3 : 0 }));
 
 // ------------------------------------------------------------ screens
 function show(m: typeof mode, extra = ''): void {
@@ -444,6 +450,7 @@ function onMsg(m: ServerMsg): void {
         if (d && d.id === infoFor) { info = d; drawCard(); if (menu.open && menu.page === 'person') menu.refresh(); }
       }
       if (m.kind === 'names') names.add(m.data as [number, string][]);
+      if (m.kind === 'looks') for (const [id, c] of m.data as [number, number][]) looksById.set(id, c);
       if (m.kind === 'boxOpen' && g3) { const [bx, by, secs] = m.data as [number, number, number]; g3.anims.openBox(bx, by, secs, tileName[tileUnder(bx + 0.5, by + 0.5)] === 'fridge', performance.now()); }
       if (m.kind === 'weather') {
         const d = m.data as WeatherInfo, first = !wxInfo;
@@ -1016,6 +1023,7 @@ function wheelButton(pressed: boolean, pad: boolean): void {
   runQuick(wheel.close());
 }
 let seatBounce = 0;
+const seatGait = { g: 0, w: 0, gp: 0, wp: 0 }, NO_GAIT = { g: 0, w: 0, gp: 0, wp: 0 };
 /** Seat height of the horse a rider at (x, y) sits on (the ridden horse nearest to them), with its stride's bounce. */
 function riderSeat(x: number, y: number): number {
   let best = -1, bd = 1.5;
@@ -1026,6 +1034,8 @@ function riderSeat(x: number, y: number): number {
   }
   const sc = best >= 0 ? horseInfo.get(eid[best]!)?.[0] ?? 1 : 1;
   seatBounce = g3 && best >= 0 ? g3.horses.bounce(eid[best]!, sc) : 0; // the rider rises and falls with the horse's stride
+  const gt = g3 && best >= 0 ? g3.horses.strideOf(eid[best]!) : NO_GAIT; // and the body moves with its walk / trot / gallop
+  seatGait.g = gt.g; seatGait.w = gt.w; seatGait.gp = gt.gp; seatGait.wp = gt.wp;
   return (g3 ? g3.horses.seat(sc) : 1.4 * sc) + seatBounce;
 }
 /** The nearest horse within r m of me (slot / -1). */
@@ -1681,7 +1691,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     meChar = dm.me;
     if (menu.open && (menu.page === 'me' || menu.page === 'rules' || menu.page === 'look' || menu.page === 'family')) menu.refresh();
     // First time in the world: choose woman / man and a skin tone.
-    if (!meChar.chose && how === 'play' && mode === 'world' && !menu.open) { lookDraft.sex = meChar.sex; lookDraft.skin = meChar.skin; openMenu('look'); }
+    if (!meChar.chose && how === 'play' && mode === 'world' && !menu.open) { draftFrom(meChar); openMenu('look'); }
   }
   if (d.code === 'mine') return;
   const charCodes: Record<string, Key> = { doorLocked: 'doorLocked', doorSomeone: 'doorSomeone', looked: 'looked', sexPregnant: 'sexPregnant', autoOn: 'autoOn', autoOff: 'autoOff', ruleAdded: 'ruleAdded', ruleRemoved: 'ruleRemoved',
@@ -1965,9 +1975,9 @@ function buildPage(id: string): Page {
     case 'look': {
       rows.push({ id: 'f', label: t('lookWoman'), value: lookDraft.sex === 'f' ? '●' : '' }, { id: 'm', label: t('lookMan'), value: lookDraft.sex === 'm' ? '●' : '' });
       for (let k = 0; k < 5; k++) rows.push({ id: 's' + k, label: `${t('lookSkin')} ${k + 1}`, value: lookDraft.skin === k ? '●' : '' });
-      rows.push({ id: 'save', label: t('lookSave') });
-      const swatch = SKINS.map((c, k) => `<span class="sw${lookDraft.skin === k ? ' on' : ''}" style="background:#${c.getHexString()}"></span>`).join('');
-      return { id, title: t('lookTitle'), rows, html: `<p>${esc(meChar && !meChar.chose ? t('lookHelp') : t('lookSexNote'))}</p><div class="sws">${swatch}</div>` };
+      rows.push(...lookRows(), { id: 'save', label: t('lookSave') });
+      const swatch = SKIN_TONES.map((c, k) => `<span class="sw${lookDraft.skin === k ? ' on' : ''}" style="background:#${c.toString(16).padStart(6, '0')}"></span>`).join('');
+      return { id, title: t('lookTitle'), rows, html: `<p>${esc(meChar && !meChar.chose ? t('lookHelp') : t('lookSexNote'))} ${esc(lookHelp())}</p><div class="sws">${swatch}</div>${lookSwatches()}` };
     }
     case 'rules': {
       (meChar?.rules ?? []).forEach((r, k) => rows.push({ id: 'r' + k, label: r, value: '✕' }));
@@ -2102,7 +2112,7 @@ function pickRow(page: string, row: string): void {
   }
   else if (page === 'me') {
     if (row === 'back') menu.back();
-    else if (row === 'look') { lookDraft.sex = meChar?.sex ?? 'm'; lookDraft.skin = meChar?.skin ?? 1; menu.push('look'); }
+    else if (row === 'look') { draftFrom(meChar); menu.push('look'); }
     else if (row === 'auto') send({ t: Msg.Do, a: 'auto', text: meChar?.auto ? '0' : '1' });
     else if (row === 'rules') menu.push('rules');
     else if (row === 'family') { send({ t: Msg.Do, a: 'mine' }); menu.push('family'); }
@@ -2117,7 +2127,8 @@ function pickRow(page: string, row: string): void {
   }
   else if (page === 'look') {
     if (row === 'f' || row === 'm') { lookDraft.sex = row; menu.refresh(); }
-    else if (row === 'save') send({ t: Msg.Do, a: 'look', text: `${lookDraft.sex}:${lookDraft.skin}` });
+    else if (lookPick(row)) menu.refresh();
+    else if (row === 'save') send({ t: Msg.Do, a: 'look', text: lookText() });
     else if (row.startsWith('s')) { lookDraft.skin = Number(row.slice(1)); menu.refresh(); }
   }
   else if (page === 'rules') {
@@ -2180,7 +2191,7 @@ const invCtx: InvCtx = {
   note: (s, ms) => note(s, ms),
   close: () => menu.close(),
   open: (p) => menu.push(p),
-  look: () => { const s = meSlot(); return s >= 0 && atype[s]! > 0 ? playerLook(true, atype[s]!) : ME; },
+  look: () => { const s = meSlot(); return s >= 0 ? slotLook(s) : ME; },
 };
 const invScreen = new InvScreen(invCtx), gearScreen = new GearScreen(invCtx), bagScreen = new BagScreen(invCtx);
 const menu = new Menu(buildPage, pickRow, () => { capture = null; noteEl.hidden = true; drawCard(); MyPC.back?.(false); });
@@ -2411,11 +2422,11 @@ function draw(now: number, dt: number): void {
       g3.eyeWant = asleep ? 0.55 : seat > 0 ? seat + 0.8 * k : 1.32 * k;
       if (asleep) g3.hands.hide();
       else {
-        g3.hands.update({ look: atype[i]! > 0 ? playerLook(true, atype[i]!) : ME, gear: aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, at: aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000,
+        g3.hands.update({ look: slotLook(i), gear: aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, at: aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000,
           phase: phase[i]!, amp: Math.min(1, spd[i]! / 2.2), riding: seat > 0, bounce: seat > 0 ? seatBounce : 0, dt, fov: g3.camera.fov, aim: aimOn });
         handsOn = true;
       }
-      myLook = atype[i]! > 0 ? playerLook(true, atype[i]!) : ME; myGear = gearOf[i]!;
+      myLook = slotLook(i); myGear = gearOf[i]!;
       continue;
     }
     // Lying down (imad 2026-11-26: "they are not visible, the bed hides them"): asleep next to a bed = climb onto it and lie on top
@@ -2436,11 +2447,12 @@ function draw(now: number, dt: number): void {
     }
     const zed = kind[i] === Kind.Threat;
     const mine = i === me || eid[i] === meId;
-    const look = zed ? ZOMBIE : atype[i]! > 0 && (kind[i] === Kind.Player || kind[i] === Kind.Agent || kind[i] === Kind.Npc) ? playerLook(mine, atype[i]!) : mine ? ME : kind[i] === Kind.Player ? OTHER_PLAYER : lookOf[i]!;
+    const look = zed ? ZOMBIES[eid[i]! % ZOMBIES.length]! : slotLook(i);
     const seat = riding[i] ? riderSeat(x, y) : 0;
     if (i === me) { myLook = look; myGear = gearOf[i]!; }
+    const rg = seat > 0 ? seatGait : NO_GAIT;
     const PP = i === me ? P : g3.peopleFor(x, y); // far away: the simpler set
-    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, size, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat, lift, i === me);
+    PP.add(x, y, face[i]!, phase[i]!, Math.min(1, spd[i]! / (zed ? 1.2 : 2.2)), look, lying, size, zed, zed ? 0 : mine && aimOn ? aimGear(gearOf[i]!) : gearOf[i]!, mine && aimOn ? (now - aimAt) / 1000 : (now - animAt[i]!) / 1000, seat, lift, i === me, eid[i]!, rg.g, rg.gp, rg.w, rg.wp);
     if (kind[i] === Kind.Player && !(i === me && g3.view !== 'top')) PP.marker(x, y, tsec, eid[i] === meId ? GOLD : WHITE);
     else if (kind[i] === Kind.Npc) PP.marker(x, y, tsec, NPC_RING); // the town's teachers: talk to them for quests
     else if (eid[i] === follow) PP.marker(x, y, tsec, GOLD);
@@ -2794,7 +2806,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), sndEnd: () => sound.seekEnd(), sndPlayers: () => sound.players(), amb: () => ({ ...amb }), flash: () => thunder(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, speech: () => [...document.querySelectorAll('#speech .sp')].filter((e) => !(e as HTMLElement).hidden).map((e) => e.textContent), arcs: () => [...arcs.values()], arrowLook: (x: number, y: number) => g3?.debugArrow(x, y), inv: (what?: string) => { if (what) { for (let tb = 0; tb < 8; tb++) { invScreen.tab = tb; const k = invScreen.book().findIndex((r) => r.what === what); if (k >= 0) { invScreen.zone = 'book'; invScreen.i = k; invScreen.ok(); break; } } menu.refresh(); } return { batch: invScreen.batch, cells: [...invScreen.cells], zone: invScreen.zone, res: invScreen.result()?.what ?? '' }; }, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { looks: () => looksById.size, cues: () => [...document.querySelectorAll('#cues .cue')].filter((e) => !(e as HTMLElement).hidden).map((e) => [e.textContent, (e as HTMLElement).style.transform]), asleep: () => (meSlot() >= 0 ? (flags[meSlot()]! & EFlag.Sleeping) !== 0 : null), mapKey: (k: 'me' | 'next' | 'in' | 'out') => mapKey(k), unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), sndEnd: () => sound.seekEnd(), sndPlayers: () => sound.players(), amb: () => ({ ...amb }), flash: () => thunder(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, speech: () => [...document.querySelectorAll('#speech .sp')].filter((e) => !(e as HTMLElement).hidden).map((e) => e.textContent), arcs: () => [...arcs.values()], arrowLook: (x: number, y: number) => g3?.debugArrow(x, y), inv: (what?: string) => { if (what) { for (let tb = 0; tb < 8; tb++) { invScreen.tab = tb; const k = invScreen.book().findIndex((r) => r.what === what); if (k >= 0) { invScreen.zone = 'book'; invScreen.i = k; invScreen.ok(); break; } } menu.refresh(); } return { batch: invScreen.batch, cells: [...invScreen.cells], zone: invScreen.zone, res: invScreen.result()?.what ?? '' }; }, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], gaits: () => g3?.horses.debug() ?? [], beasts: () => g3?.beasts.debug() ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
     MyPC.ready();
   },
   onStart() {

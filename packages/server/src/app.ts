@@ -2,7 +2,7 @@ import { animalKills } from './sim/kills.js';
 import { CALL_MIN } from './sim/influence.js';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, NPCS, WEATHERS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
+import { Kind, EFlag, ANIMAL_NAMES, RECIPES_ALL, PLACEABLE, CONFIRM, QUESTS, unpackLook, NPCS, WEATHERS, type AdminCmd, type ServerStats, type ClockInfo } from '@worldsim/protocol';
 import type { Config, Secrets } from './config.js';
 import { Logger } from './log.js';
 import { Loop } from './loop.js';
@@ -42,6 +42,7 @@ import { Chats } from './ai/chatroom.js';
 import { MapView } from './ops/mapview.js';
 import { Waypoints } from './ops/waypoints.js';
 import { Trades } from './ops/trade.js';
+import { profileLook } from './sim/looks.js';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../../../..');
@@ -1021,8 +1022,12 @@ export class App {
     switch (a) {
       case 'mine': return mine();
       case 'look': { // "f:2" = woman, skin tone 2
-        const [sx, sk] = String(text ?? '').split(':');
+        const [sx, sk, ...more] = String(text ?? '').split(':'); // + hair:hairColour:build:top:pants:beard (protocol look.ts)
         const sex = sx === 'f' ? 'f' : 'm', skin = Math.max(0, Math.min(4, Math.floor(Number(sk) || 0)));
+        if (more.length >= 6) {
+          const n = (v: string | undefined, hi: number) => Math.max(0, Math.min(hi - 1, Math.floor(Number(v) || 0)));
+          p.look = { hair: n(more[0], 8), hairColour: n(more[1], 8), build: n(more[2], 4), top: n(more[3], 16), pants: n(more[4], 8), beard: n(more[5], 4) };
+        }
         if (p.chose && sex !== p.sex) {
           const left = (p.sexAt ?? 0) + SEX_WEEK_MS - Date.now();
           if (left > 0) return { ok: false, code: 'sexWeek', days: Math.ceil(left / 86400_000), me: this.charInfo(player) };
@@ -1127,7 +1132,7 @@ export class App {
     const asks = w.family.asks.filter((x) => x.to === id).map((x) => ({ from: x.from, name: w.profiles.get(x.from)?.name ?? '?', role: x.role }));
     const left = p.chose ? Math.max(0, (p.sexAt ?? 0) + SEX_WEEK_MS - Date.now()) : 0;
     return {
-      name: p.name, sex: p.sex, skin: p.skin ?? 1, chose: !!p.chose, sexDays: Math.ceil(left / 86400_000), auto: !!p.auto,
+      name: p.name, sex: p.sex, skin: p.skin ?? 1, look: unpackLook(profileLook(w, id, p, 3)), chose: !!p.chose, sexDays: Math.ceil(left / 86400_000), auto: !!p.auto,
       rules: (p.rules ?? []).map((r) => r.text), max: MAX_RULES, xp: p.xp ?? 0, level: levelOf(p.xp), influence: w.influence.of(id), influenceLog: w.influence.log(id).slice(0, 5), goal: w.tasks.progress(id),
       goals: (p.goals ?? []).slice(-5).reverse(), partner, children, family, asks, expecting: p.pregnant ? Math.max(0, Math.ceil((p.pregnant.due - now) / 3600)) : -1, expectingPct: p.pregnant ? w.life.pregnancyPct(p) : -1,
       traits: Object.fromEntries(TRAIT_KEYS.filter((k) => k !== 'metabolism').map((k) => [k, Math.round(p.traits[k] * 100)])),

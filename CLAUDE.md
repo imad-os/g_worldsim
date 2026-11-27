@@ -1110,3 +1110,17 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - PvP is a switch (Actions page, How to fight, wheel item `pvp`, old saved wheels' `attackPerson` -> `pvp`). Server: with it on, Do `hit` also
   hits the nearer person in front (`personFront` / `personHit`), Do `shoot` hits a person on the line (players only with their PvP on too);
   off = never a person. Do `hitperson` stays for older TVs. Test server.test "players"; proof `ADMIN_TOKEN=... node tools/interact-proof.mjs <server> <sdk.js> <outdir>`.
+## Bodies, looks, moves (imad 2026-11-27, app 0.15.0)
+- protocol `look.ts`: one packed look per person (skin, woman, 8 hair styles, 8 hair colours, build slim / average / broad / heavy, top 16 / trousers 8
+  colours, beard none / moustache / short / full, elder). Server `sim/looks.ts lookCode` (no dice: id hash + sex, age (beard 18+, grey 55+), strength
+  -> build, parents' skin / hair colour; players' own `Profile.look`), sent by Notice `looks` [[id, code]] once per viewer (`Session.looks`, like names).
+  Do `look` "sex:skin:hair:hairColour:build:top:pants:beard" (old "sex:skin" still works); TV page `look` rows from `lookui.ts`; `me.look`.
+- TV `gfx/people.ts` + `gfx/bodyparts.ts`: jointed instanced bodies (torso man / woman, head with eyes / nose / ears, upper arm, forearm + hand,
+  thigh, shin + shoe; ~9 draw calls for everyone). Hair + beards = ONE mesh whose vertex shader folds away styles not worn (`ilook`, shared cap
+  part 20); `tone` attribute = instance colour / `color2` (hands) / dark. Pose per person on the CPU (`Pose`): idle (breathing, weight shift, looking
+  round), walk / run (knees, arm swing, lean, hips solved so a foot or knee touches the ground), riding by the horse's own stride (`Horses3D.strideOf`:
+  rising trot, gallop half-seat), attack by weapon (sword slashes, axe chops, spear thrust, fists), chop, mine, build on one knee, pick up (squat),
+  talk, bow; `wr` = how the held thing turns in the fist. ~1850 triangles a person near, ~930 far (was ~600), ~3-4 µs CPU a person (cloud).
+- Server: Gather near a rock = mine, rubble / herbs / field = 'use' (pick); every `pickup` event plays 'use' (Gear listener).
+- Proof without a server: `node tools/body-proof/run.mjs <outdir>` (shots.json: looks, faces, walk, run, moves, riding); in game
+  `ADMIN_TOKEN=... node tools/looks-proof.mjs <server> <sdk.js> <outdir>`.
