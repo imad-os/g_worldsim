@@ -55,7 +55,22 @@ interface Duel { a: number; b: number; start: number; hitAt: number; hurt: [numb
  * to the other clan's home, and each duel won counts. It ends with a peace: the side 5 duels behind sues for it, either leader is told
  * to make peace, or both sides are worn out after WAR_DAYS. Zombies stop it for the night (people never quarrel with zombies about).
  */
-export interface War { a: number; b: number; start: number; by: string; why: string; wins: [number, number]; raidAt: number }
+export interface War { a: number; b: number; start: number; by: string; why: string; wins: [number, number]; raidAt: number; /** Its WarRecord. */ hid?: number }
+/** Pairs counted per side: [clan a, clan b] (a < b, as in War). */
+type Pair = [number, number];
+/**
+ * One declared war, kept after it ends (imad 2026-11-27: "a war history so I see each declared war's stats, to check if this works"). Each pair
+ * counts what that side DID: wins = duels won, raids / raiders = war parties sent and how many went, blows / dmg = hits landed and their damage,
+ * warned = intruders warned at their camp, drove = intruders they fought out of it, avoided = times their people walked away from a fight,
+ * lost = members killed by the other side.
+ */
+export interface WarRecord {
+  id: number; a: number; b: number; an: string; bn: string; map: string; size: Pair;
+  start: number; by: string; why: string; end?: number; endBy?: string; endWhy?: string; winner?: string;
+  wins: Pair; duels: number; raids: Pair; raiders: Pair; blows: Pair; dmg: Pair; warned: Pair; drove: Pair; avoided: Pair; lost: Pair;
+}
+export type WarStat = 'raids' | 'raiders' | 'blows' | 'dmg' | 'warned' | 'drove' | 'avoided' | 'lost';
+const HISTORY_MAX = 40;
 /** War words in the 4 languages: 'war' (declare it), 'peace' (end it), '' = neither. */
 export function warWords(text: string): '' | 'war' | 'peace' {
   const t = text.toLowerCase();
@@ -63,7 +78,9 @@ export function warWords(text: string): '' | 'war' | 'peace' {
   if (/\b(war|wars|declare war|attack|raid|invade)\b|guerre|attaqu|guerra|atac|invad|حرب|هاجم|اغز|غزو/.test(t)) return 'war';
   return '';
 }
-const WAR_DAYS = 3, WAR_LEAD = 5;
+/** A war ends by itself after this many game days (admin `clanWar { days }`, 0 = only when a leader makes peace). */
+export const WAR_DAYS = 3;
+const WAR_LEAD = 5;
 /** Tension must stay at 10/10 this long (game seconds) before a leader declares war by themselves. */
 const TOP_HOLD = 3 * 3600;
 
@@ -111,6 +128,10 @@ export class Clans {
   private duels = new Map<number, Duel>(); // by either id
   /** Wars going on (clan ids a < b) and when each pair last made peace (key `lo:hi` -> game seconds). */
   wars: War[] = [];
+  /** Every war declared, newest last (HISTORY_MAX kept), and how many game days a war lasts by itself (0 = until a peace is made). */
+  history: WarRecord[] = [];
+  warDays = WAR_DAYS;
+  private histId = 1;
   private peaceAt = new Map<string, number>();
   /** Leaders start a war by themselves when tension stays at 9.5+ (rare: a few per cent an hour, by the leader's courage). */
   autoWar = true;
@@ -194,7 +215,7 @@ export class Clans {
       const by = Number(ev.data.by), id = Number(ev.data.id);
       if (!Number.isFinite(by) || !Number.isFinite(id)) return;
       const ca = this.of.get(by), cb = this.of.get(id);
-      if (ca !== undefined && cb !== undefined && ca !== cb) this.addTension(ca, cb, 4, 'a killing');
+      if (ca !== undefined && cb !== undefined && ca !== cb) { this.addTension(ca, cb, 4, 'a killing'); this.warStat(cb, ca, 'lost', 1); }
     });
   }
   loyalty(id: number): number { return this.loyal.get(id) ?? 0; }
@@ -568,6 +589,7 @@ export class Clans {
     const [a, b] = c.id < foe.id ? [c, foe] : [foe, c];
     const war: War = { a: a.id, b: b.id, start: w.gameSec, by, why: why || `${c.name} against ${foe.name}`, wins: [0, 0], raidAt: w.gameSec + HOUR };
     this.wars.push(war);
+    this.record(war);
     this.addTension(c.id, foe.id, 10, 'war');
     w.emit('clanWar', { clan: c.name, foe: foe.name, id: c.leader, by, why: war.why });
     const L = e.slot(c.leader);
@@ -591,6 +613,7 @@ export class Clans {
     this.peaceAt.set(k, w.gameSec);
     this.tense.set(k, 3); this.causes.delete(k); this.topSince.delete(k);
     const [wa, wb] = war.wins, winner = wa === wb ? -1 : wa > wb ? war.a : war.b;
+    this.close(war, by, why, winner >= 0 ? this.byId(winner)?.name ?? '' : '');
     w.emit('clanPeace', { clan: c.name, foe: foe.name, by, why, wins: war.wins, winner: winner >= 0 ? this.byId(winner)?.name ?? '' : '', days: Math.round((w.gameSec - war.start) / DAY * 10) / 10 });
     for (const cl of [c, foe]) {
       const won = winner === cl.id, lost = winner >= 0 && !won;
@@ -637,13 +660,13 @@ export class Clans {
     const w = this.w, e = w.e, hour = w.brain.hour();
     for (const war of this.wars.slice()) {
       const A = this.byId(war.a), B = this.byId(war.b);
-      if (!A || !B || !A.members.length || !B.members.length) { this.wars = this.wars.filter((x) => x !== war); w.emit('clanPeace', { clan: A?.name ?? '', foe: B?.name ?? '', why: 'a clan is gone', wins: war.wins, winner: '' }); continue; }
+      if (!A || !B || !A.members.length || !B.members.length) { this.wars = this.wars.filter((x) => x !== war); this.close(war, '', !A || !B ? 'a clan is gone' : `the ${(!A.members.length ? A : B).name} have no members left`, ''); w.emit('clanPeace', { clan: A?.name ?? '', foe: B?.name ?? '', why: 'a clan is gone', wins: war.wins, winner: '' }); continue; }
       this.tense.set(A.id < B.id ? `${A.id}:${B.id}` : `${B.id}:${A.id}`, 10); // a war keeps them at the top
       const [wa, wb] = war.wins;
       // The side far behind sues for peace (an AI leader; a player leader decides on the TV).
       const loser = wa - wb >= WAR_LEAD ? B : wb - wa >= WAR_LEAD ? A : undefined;
-      if (loser && this.auto(e.slot(loser.leader)) && w.rng.chance(0.35)) { this.makePeace(loser, loser === A ? B : A, this.name(loser.leader), 'too many beaten'); continue; }
-      if (w.gameSec - war.start > WAR_DAYS * DAY) { this.makePeace(A, B, 'both', 'worn out by the war'); continue; }
+      if (loser && this.auto(e.slot(loser.leader)) && w.rng.chance(0.35)) { this.makePeace(loser, loser === A ? B : A, this.name(loser.leader), `too many beaten (${Math.max(wa, wb)} duels lost to ${Math.min(wa, wb)}): their leader sued for peace`); continue; }
+      if (this.warDays > 0 && w.gameSec - war.start > this.warDays * DAY) { this.makePeace(A, B, 'both', `worn out by the war (it ends by itself after ${this.warDays} game day${this.warDays === 1 ? '' : 's'})`); continue; }
       // War parties go out by day, not with zombies about.
       if (hour < 8 || hour >= 17 || w.gameSec < war.raidAt || w.zombies.count(A.map) > 0) continue;
       war.raidAt = w.gameSec + 5 * HOUR;
@@ -682,6 +705,7 @@ export class Clans {
       const L = e.slot(c.leader);
       if (L >= 0 && e.kind[L] === Kind.Agent) w.speak(L, `Go, ${n} of you: show the ${foe.name} who we are.`);
       w.emit('clanRaid', { clan: c.name, foe: foe.name, n });
+      this.warStat(c.id, foe.id, 'raids', 1); this.warStat(c.id, foe.id, 'raiders', n);
     }
     return n;
   }
@@ -985,6 +1009,7 @@ export class Clans {
       if (!w.brain.orderOf(i).kind && w.brain.stepAway(i, e.x[b]!, e.y[b]!, 16)) { // a job / an order (a guard at the post) holds its ground
         if (w.rng.chance(0.5)) w.speak(i, foes > near ? 'Too many of them. Back off.' : 'Not worth the blood. Walk on.');
         w.emit('clanAvoid', { id, foe: e.id(b) });
+        const cb = this.of.get(e.id(b)); if (cb !== undefined) this.warStat(c.id, cb, 'avoided', 1);
       }
       return true;
     }
@@ -1002,7 +1027,11 @@ export class Clans {
     this.lastAt.set(ia, w.gameSec); this.lastAt.set(ib, w.gameSec);
     this.feel(ia, ib, -1); this.feel(ib, ia, -1);
     const ca = this.clanOf(ia), cb = this.clanOf(ib);
-    if (ca && cb && ca.id !== cb.id) this.addTension(ca.id, cb.id, 1, 'fights');
+    if (ca && cb && ca.id !== cb.id) {
+      this.addTension(ca.id, cb.id, 1, 'fights');
+      const war = this.warOf(ca.id, cb.id), r = war && this.recOf(war);
+      if (r) { r.duels++; if (why === 'intruder') this.warStat(ca.id, cb.id, 'drove', 1); }
+    }
     w.emit('duel', { a: ia, b: ib, why });
     w.speak(a, why === 'a misunderstanding' ? 'What did you say?!' : why === 'war' ? `For the ${ca?.name ?? 'clan'}!` : why === 'intruder' ? 'You were warned. Out of our camp!' : 'Enough. Back off!');
   }
@@ -1048,6 +1077,8 @@ export class Clans {
     const w = this.w, e = w.e;
     e.hp[victim] = Math.max(e.kind[victim] === Kind.Player ? 5 : 3, e.hp[victim]! - dmg);
     w.emit('pvp', { id: e.id(victim), by: e.id(by), dmg });
+    const cb = this.of.get(e.id(by)), cv = this.of.get(e.id(victim));
+    if (cb !== undefined && cv !== undefined && cb !== cv && this.wars.length) { this.warStat(cb, cv, 'blows', 1); this.warStat(cb, cv, 'dmg', dmg); }
     return dmg;
   }
   private end(d: Duel, why: string, loser = -1): void {
@@ -1060,17 +1091,41 @@ export class Clans {
     w.territory.duelEnded(d.a, d.b, loser);
     // A duel won in a war counts for the winner's clan.
     const cw = win >= 0 ? this.of.get(win) : undefined, cl = win >= 0 ? this.of.get(e.id(loser)) : undefined, war = cw !== undefined && cl !== undefined ? this.warOf(cw, cl) : undefined;
-    if (war) war.wins[war.a === cw ? 0 : 1]++;
+    if (war) { war.wins[war.a === cw ? 0 : 1]++; const r = this.recOf(war); if (r) r.wins = [war.wins[0], war.wins[1]]; }
     else if (cw !== undefined && cl !== undefined && cw !== cl) this.addTension(cw, cl, 0.5, 'a member beaten');
   }
 
   // ------------------------------------------------------------------ saving
-  save(): unknown { return { clans: this.clans, loyal: [...this.loyal], tense: [...this.tense], nextId: this.nextId, pending: [...this.pending], wars: this.wars, peaceAt: [...this.peaceAt], autoWar: this.autoWar, causes: [...this.causes], topSince: [...this.topSince] }; }
+  save(): unknown { return { clans: this.clans, loyal: [...this.loyal], tense: [...this.tense], nextId: this.nextId, pending: [...this.pending], wars: this.wars, peaceAt: [...this.peaceAt], autoWar: this.autoWar, history: this.history, histId: this.histId, warDays: this.warDays, causes: [...this.causes], topSince: [...this.topSince] }; }
   load(s: unknown): void {
-    const d = s as { clans?: Clan[]; loyal?: [number, number][]; tense?: [string, number][]; nextId?: number; pending?: [number, { from: number; friends: number[] }][]; wars?: War[]; peaceAt?: [string, number][]; autoWar?: boolean; causes?: [string, Record<string, number>][]; topSince?: [string, number][] } | undefined;
+    const d = s as { clans?: Clan[]; loyal?: [number, number][]; tense?: [string, number][]; nextId?: number; pending?: [number, { from: number; friends: number[] }][]; wars?: War[]; peaceAt?: [string, number][]; autoWar?: boolean; history?: WarRecord[]; histId?: number; warDays?: number; causes?: [string, Record<string, number>][]; topSince?: [string, number][] } | undefined;
     this.wars = d?.wars ?? []; this.peaceAt = new Map(d?.peaceAt ?? []); this.autoWar = d?.autoWar ?? true; this.causes = new Map(d?.causes ?? []); this.topSince = new Map(d?.topSince ?? []);
+    this.history = d?.history ?? []; this.histId = d?.histId ?? (this.history.reduce((m, r) => Math.max(m, r.id), 0) + 1); this.warDays = d?.warDays ?? WAR_DAYS;
     this.clans = d?.clans ?? []; this.loyal = new Map(d?.loyal ?? []); this.tense = new Map(d?.tense ?? []); this.nextId = d?.nextId ?? 1; this.pending = new Map(d?.pending ?? []);
     this.of.clear(); for (const c of this.clans) for (const id of c.members) this.of.set(id, c.id);
     this.duels.clear(); this.nextHour = 0;
+    for (const war of this.wars) if (!this.recOf(war)) this.record(war); // wars from before the history
+  }
+
+  // ------------------------------------------------------------------ war history
+  private record(war: War): WarRecord {
+    const w = this.w, A = this.byId(war.a), B = this.byId(war.b), z = (): Pair => [0, 0];
+    const r: WarRecord = { id: this.histId++, a: war.a, b: war.b, an: A?.name ?? '?', bn: B?.name ?? '?', map: A ? w.maps[A.map]?.def.id ?? '' : '', size: [A?.members.length ?? 0, B?.members.length ?? 0],
+      start: war.start, by: war.by, why: war.why, wins: [war.wins[0], war.wins[1]], duels: 0, raids: z(), raiders: z(), blows: z(), dmg: z(), warned: z(), drove: z(), avoided: z(), lost: z() };
+    war.hid = r.id;
+    this.history.push(r);
+    if (this.history.length > HISTORY_MAX) this.history.splice(0, this.history.length - HISTORY_MAX);
+    return r;
+  }
+  private recOf(war: War): WarRecord | undefined { return war.hid === undefined ? undefined : this.history.find((r) => r.id === war.hid); }
+  private close(war: War, by: string, why: string, winner: string): void {
+    const r = this.recOf(war);
+    if (!r) return;
+    r.end = this.w.gameSec; r.endBy = by; r.endWhy = why; r.winner = winner; r.wins = [war.wins[0], war.wins[1]];
+  }
+  /** Side `by` (a clan at war with `other`) did one more of `f` (n of them). Nothing when they are not at war. */
+  warStat(by: number, other: number, f: WarStat, n: number): void {
+    const war = this.warOf(by, other), r = war && this.recOf(war);
+    if (r) r[f][r.a === by ? 0 : 1] += n;
   }
 }

@@ -1453,7 +1453,8 @@ export class App {
           result: c.result ? { at: c.result.at, winner: nm(c.result.winner), old: nm(c.result.old), tally: c.result.tally.map(([k, n]) => [nm(k), n]) } : null,
           members: c.members.map((id) => ({ id, name: nm(id), loyalty: Math.round(w.clans.loyalty(id) * 100), respect: Math.round(w.clans.respect(id, c) * 10) / 10, influence: w.influence.of(id) })), callMin: CALL_MIN, rivals: w.clans.rivals(c).map((r) => ({ id: r.clan.id, name: r.clan.name, tension: Math.round(r.tension * 10) / 10, why: r.why })),
           wars: w.clans.wars.filter((x) => x.a === c.id || x.b === c.id).map((x) => { const me = x.a === c.id ? 0 : 1, f = w.clans.byId(me ? x.a : x.b); return { id: f?.id ?? -1, name: f?.name ?? '', won: x.wins[me], lost: x.wins[1 - me], since: x.start, by: x.by === 'owner' ? 'the owner' : x.by, why: x.why }; }) })),
-          now: w.gameSec, autoWar: w.clans.autoWar };
+          now: w.gameSec, autoWar: w.clans.autoWar, warDays: w.clans.warDays, warLead: 5,
+          history: w.clans.history.slice().reverse().map((h) => ({ ...h, by: h.by === 'owner' ? 'the owner' : h.by, endBy: h.endBy === 'owner' ? 'the owner' : h.endBy })) };
       }
       case 'clanVote': { // the owner calls an election in a clan
         const cl = w.clans.byId(fixed(c.id, 0, 1e6, 'id'));
@@ -1463,6 +1464,7 @@ export class App {
       }
       case 'clanWar': { // the owner makes clan a declare war on clan b (on: true) or make peace (on: false); { auto } = leaders may start wars by themselves
         if (typeof c.auto === 'boolean') { w.clans.autoWar = c.auto; if (c.a === undefined) return { ok: true, autoWar: w.clans.autoWar }; }
+        if (c.days !== undefined) { w.clans.warDays = num(c.days, 0, 60, 'days', [0, 1e4]); if (c.a === undefined) return { ok: true, warDays: w.clans.warDays }; }
         const A = w.clans.byId(fixed(c.a, 0, 1e6, 'a')), B = w.clans.byId(fixed(c.b, 0, 1e6, 'b'));
         if (!A || !B) throw new Error('no such clan');
         const r = c.on === false ? w.clans.makePeace(A, B, 'owner', 'the voice from the sky asked for peace') : w.clans.declareWar(A, B, 'owner', 'the voice from the sky ordered it');

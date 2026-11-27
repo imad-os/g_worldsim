@@ -974,6 +974,12 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Changing clan (`Clans.reconsider`, hourly per AI member): partner in another clan (the less loyal one moves, 20 %/h), a clan fitting > 1.2 better at
   loyalty < 0.4 or > 3 better at < 0.7; war against family lowers loyalty. They walk to the other leader and ask (event `clanMove`, then clanSwitch).
   Test clanwar.test.ts.
+- **War history (imad 2026-11-27: "I declare wars and after a while they stopped; what reset it? I need a war history")**: nothing reset them: wars end by
+  peace (words / TV / panel), the side 5 duels behind (AI leader, 35 %/h), a clan emptied, or by themselves after `Clans.warDays` (default 3 game days =
+  ~7 real h at clockScale 10, less with faster clock speeds; admin `clanWar { days }`, 0 = only by a peace; panel select). `Clans.history` (WarRecord,
+  last 40, saved with the clans): sides' names / sizes, declared by / why, end / endBy / endWhy / winner, per side wins, raids / raiders, blows / dmg,
+  warned / drove (territory), avoided, lost (killed by the other side); `warStat(by, other, f, n)`. Admin `clans` returns `history` + `warDays`;
+  panel People > Clans "War history" table. Test clanwar.test "war history"; proof `node tools/warhist-proof.mjs <outdir>` (dark).
 
 ## Short planner prompts (imad 2026-11-27: "prompts got very long, slow, timeouts; make sure they will not make them dumb")
 - `Planner.planPrompt`: shared once on top (time, place, the wild places, `SOURCES` = where materials come from, `knowHowFor(things)` = only the

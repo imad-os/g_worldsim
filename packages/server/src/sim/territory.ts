@@ -204,6 +204,7 @@ export class Territory {
       it.warned = 1; it.at = w.tick; this.count.warned++;
       w.speak(g, war ? `${name}! This is the ${clan?.name ?? 'clan'} camp. Turn back now, or we drive you out.` : `You are not welcome here, ${name}. Please leave.`);
       w.emit('clanWarn', { id, by: it.guard, clan: clan?.name ?? '', map: w.maps[c.m]!.def.id, war });
+      { const ic = w.clans.clanOf(id); if (ic) w.clans.warStat(c.clan, ic.id, 'warned', 1); }
       w.emit('trespass', { id, clan: clan?.name ?? '', map: w.maps[c.m]!.def.id, x: Math.round(c.x), y: Math.round(c.y), r: c.r, war });
       this.react(j, id, c, war, g);
       return;

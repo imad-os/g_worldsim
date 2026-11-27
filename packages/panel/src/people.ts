@@ -137,6 +137,35 @@ type ClanRow = { id: number; name: string; map: string; leader: string; leaderId
   vote: { end: number; why: string; cands: string[]; votes: number } | null; result: { at: number; winner: string; old: string; tally: [string, number][] } | null;
   members: { id: number; name: string; loyalty: number; respect: number; influence?: number }[]; rivals: { name: string; tension: number; why?: [string, number][] }[];
   wars?: { id: number; name: string; won: number; lost: number; since: number; by: string; why: string }[] };
+type P2 = [number, number];
+type WarRec = { id: number; a: number; b: number; an: string; bn: string; map: string; size: P2; start: number; by: string; why: string; end?: number; endBy?: string; endWhy?: string; winner?: string;
+  wins: P2; duels: number; raids: P2; raiders: P2; blows: P2; dmg: P2; warned: P2; drove: P2; avoided: P2; lost: P2 };
+type ClansInfo = { clans: ClanRow[]; now: number; autoWar?: boolean; warDays?: number; warLead?: number; history?: WarRec[] };
+/** Game seconds as "2 d 5 h" / "3 h 20 min". */
+function span(s: number): string { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`; }
+/** The war history card (imad 2026-11-27: "a war history so I see each declared war's stats, to check if this works"). */
+function warHistory(r: ClansInfo): string {
+  const hs = r.history ?? [];
+  const days = r.warDays ?? 3, lead = r.warLead ?? 5;
+  const setting = `<p class="dim">A war ends when a leader makes peace (told in words, a player leader on the TV, or the Make peace button), when one side is ${lead} duels behind (its AI leader sues for peace, 35 % a game hour), when a clan has nobody left, or by itself after the war length below.
+    <label class="nowrap">War length <select id="warDays">${[1, 2, 3, 5, 7, 10, 14, 30, 0].map((d) => `<option value="${d}"${d === days ? ' selected' : ''}>${d ? `${d} game day${d === 1 ? '' : 's'}` : 'until peace is made'}</option>`).join('')}</select></label></p>`;
+  if (!hs.length) return card('War history', setting + '<div class="empty">No war declared yet.</div>');
+  const two = (p: P2) => `${p[0]} : ${p[1]}`;
+  const row = (h: WarRec) => {
+    const on = h.end === undefined, left = on && days ? days * 86400 - (r.now - h.start) : -1;
+    const ended = on ? `<span class="tag bad">going on</span>${left >= 0 ? ` <small class="dim">ends by itself in ${span(Math.max(0, left))}</small>` : ' <small class="dim">until peace</small>'}`
+      : `${esc(h.endWhy ?? '')}${h.endBy && h.endBy !== 'both' ? ` <small class="dim">(${esc(h.endBy)})</small>` : ''}<br><small class="dim">${gameTime(h.end!)}</small>`;
+    return `<tr><td class="nowrap"><b>${esc(h.an)}</b> <small class="dim">(${h.size[0]})</small> vs <b>${esc(h.bn)}</b> <small class="dim">(${h.size[1]})</small><br><small class="dim">${esc(mapName(h.map))}</small></td>
+      <td style="min-width:11em">${gameTime(h.start)}<br><small class="dim">${esc(h.why)}${h.by !== 'the owner' && !h.why.includes(h.by) ? ` (${esc(h.by)})` : ''}</small></td>
+      <td class="nowrap">${span((h.end ?? r.now) - h.start)}</td><td style="min-width:11em">${ended}</td>
+      <td>${on ? '—' : h.winner ? `<b>${esc(h.winner)}</b>` : '<span class="dim">draw</span>'}</td>
+      <td class="nowrap"><b>${two(h.wins)}</b><br><small class="dim">${h.duels} duels</small></td><td class="nowrap">${two(h.raids)}<br><small class="dim">${two(h.raiders)} people</small></td>
+      <td class="nowrap">${two(h.blows)}<br><small class="dim">${two(h.dmg)} hp</small></td><td class="nowrap">${two(h.warned)}<br><small class="dim">${two(h.drove)} driven out</small></td>
+      <td class="nowrap">${two(h.avoided)}</td><td class="nowrap">${two(h.lost)}</td></tr>`;
+  };
+  return card(`War history · ${hs.length}`, setting + `<p class="dim">Every pair of numbers is <b>first clan : second clan</b>, each counting what that side did: duels won, war parties sent (and how many went), blows landed (and the damage), intruders warned at their camp (and fought out of it), times their people walked away from a fight, members killed by the other side.</p>`
+    + paged('warhist', hs, 15, (list) => `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Clans</th><th>Declared</th><th>Lasted</th><th>How it ended</th><th>Winner</th><th>Duels won</th><th>War parties</th><th>Blows</th><th>Camp warnings</th><th>Walked away</th><th>Killed</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>`, () => void loadSection('clans')));
+}
 type PlanRow = { map: string; name: string; people: number; clan: string; leader: string; most: string; lines: { key: string; have: number; want: number }[];
   boxes: { kind: 'fridge' | 'chest'; at: number[]; inv: Record<string, number>; owner: string }[]; working: Record<string, number> };
 const PLAN_WORDS: Record<string, string> = { food: 'Food kept', water: 'Water kept', homes: 'Homes', beds: 'Beds', fridges: 'Fridges', chests: 'Chests', wood: 'Wood in store', stone: 'Stone in store' };
@@ -149,7 +178,7 @@ type QuestsInfo = { npcs: { key: string; name: string; x: number; y: number; map
 async function loadSection(sec: Sec): Promise<void> {
   const el = document.getElementById('pList'); if (!el) return;
   try {
-    const [r, q, pl] = await Promise.all([sec === 'clans' ? cmd<{ clans: ClanRow[]; now: number; autoWar?: boolean }>({ cmd: 'clans' }) : null, sec === 'quests' ? cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null) : null, sec === 'camps' ? cmd<{ plans: PlanRow[] }>({ cmd: 'campPlan' }).catch(() => null) : null]);
+    const [r, q, pl] = await Promise.all([sec === 'clans' ? cmd<ClansInfo>({ cmd: 'clans' }) : null, sec === 'quests' ? cmd<QuestsInfo>({ cmd: 'quests' }).catch(() => null) : null, sec === 'camps' ? cmd<{ plans: PlanRow[] }>({ cmd: 'campPlan' }).catch(() => null) : null]);
     if (tab !== sec) return;
     const plans = pl?.plans.length ? card('Camp plans', `<p class="dim">Each camp keeps food and water for the days to come, a home for every household with beds, a fridge and a chest, and wood and stone in the store. Free people work on the biggest hole first; the leader says it aloud.</p>`
       + pl.plans.map((p) => `<div class="li" style="display:block"><b>${esc(p.name)}</b> <span class="dim">${p.clan ? esc(p.clan) + ' clan · ' : ''}${p.people} people${p.leader ? ' · leader ' + esc(p.leader) : ''}${p.most ? ' · most needed: <b>' + esc(PLAN_WORDS[p.most] ?? p.most) + '</b>' : ' · all stocked'}</span>
@@ -157,7 +186,7 @@ async function loadSection(sec: Sec): Promise<void> {
         ${Object.keys(p.working).length ? `<small class="dim">Working on it now: ${Object.entries(p.working).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)} ${n}`).join(', ')}</small><br>` : ''}
         ${p.boxes.length ? `<small class="dim">Stores at home: ${p.boxes.map((b) => `${b.kind === 'fridge' ? '🧊' : '🧰'} ${esc(b.owner || 'free hut')} (${Object.entries(b.inv).filter(([, v]) => v).map(([k, v]) => `${v} ${esc(k)}`).join(', ') || 'empty'})`).join(' · ')}</small>` : ''}</div>`).join('')) : '';
     const redo = () => void loadSection(sec);
-    const warHead = r?.clans.length && r.autoWar !== undefined ? `<p class="dim">A clan leader starts a war when told to (talk to them: "declare war on the Redhand"), with the buttons below, or by themselves when tension stays at 10/10 for 3 game hours${r.autoWar ? '' : ' (switched off)'}. Tension comes only from real causes, shown next to each rival: fights between members (+1), a member beaten (+0.5), a killing (+4), a split (+3), bad feelings between the members, living close, more so when food and water run short; families across the clans, friendship and time calm it. At war, members fight on sight (nobody dies of it), war parties go out by day, and each duel won counts; the side 5 behind sues for peace, and a war ends after 3 game days anyway. <label class="nowrap"><input type="checkbox" id="autoWar"${r.autoWar ? ' checked' : ''}> Leaders may start wars by themselves</label></p>` : '';
+    const warHead = r?.clans.length && r.autoWar !== undefined ? `<p class="dim">A clan leader starts a war when told to (talk to them: "declare war on the Redhand"), with the buttons below, or by themselves when tension stays at 10/10 for 3 game hours${r.autoWar ? '' : ' (switched off)'}. Tension comes only from real causes, shown next to each rival: fights between members (+1), a member beaten (+0.5), a killing (+4), a split (+3), bad feelings between the members, living close, more so when food and water run short; families across the clans, friendship and time calm it. At war, members fight on sight (nobody dies of it), war parties go out by day, and each duel won counts; how wars end and each war's numbers are in the War history below. <label class="nowrap"><input type="checkbox" id="autoWar"${r.autoWar ? ' checked' : ''}> Leaders may start wars by themselves</label></p>` : '';
     const clans = r?.clans.length ? card(`Clans · ${r.clans.length}`, warHead + paged('clans', r.clans.slice().sort((a, b) => b.members.length - a.members.length || a.name.localeCompare(b.name)), 8, (list) => list.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
       ${((ms) => { const chip = (m: ClanRow['members'][number]) => `<a class="chip" href="#/person/${m.id}" title="influence ${m.influence ?? '?'}, respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.influence !== undefined ? `influence ${m.influence} · ` : ''}loyal ${m.loyalty}%</small></a>`;
         return `<div class="chips">${ms.slice(0, 12).map(chip).join('')}</div>${ms.length > 12 ? `<details class="more" data-keep="cm${c.id}"${openMore.has('cm' + c.id) ? ' open' : ''}><summary>All ${ms.length} members</summary><div class="chips">${ms.slice(12).map(chip).join('')}</div></details>` : ''}`; })(c.members.slice().sort((a, b) => (b.influence ?? 0) - (a.influence ?? 0)))}
@@ -170,10 +199,11 @@ async function loadSection(sec: Sec): Promise<void> {
     const quests = q ? card('Quests', `<p class="dim">Teachers: ${q.npcs.map((n) => `${esc(n.name)} (${esc(mapName(n.map))} ${n.x}, ${n.y})`).join(', ')}. ${q.quests.length} quests in order (Old Town first, then Ridgeford); each lesson stays in the person's prompts.</p>
       ${paged('quests', q.people.sort((a, b) => b.done - a.done || a.name.localeCompare(b.name)), 25, (list) => `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Person</th><th>Done</th><th>Now</th></tr></thead><tbody>${list.map((p) => `<tr class="link" data-id="${p.id}"><td class="nowrap"><b>${esc(p.name)}</b>${p.player ? ' <span class="tag">player</span>' : ''}</td><td class="qdone"><div class="meter good"><i style="width:${Math.max(2, Math.round((p.done / Math.max(1, q.quests.length)) * 100))}%"></i></div><small>${p.done} / ${q.quests.length}</small></td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <span class="tag ok">hand it in</span>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</tbody></table></div>`, redo)}`) : '';
     const none: Record<string, string> = { clans: 'No clans yet: a camp leader founds one at the registrar.', camps: 'No camp yet: the first fire or hut makes one.', quests: 'Quests are not available on this server.' };
-    el.innerHTML = (sec === 'clans' ? clans : sec === 'camps' ? plans : quests) || `<div class="empty">${none[sec] ?? ''}</div>`;
+    el.innerHTML = (sec === 'clans' ? (clans ? clans + (r ? warHistory(r) : '') : '') : sec === 'camps' ? plans : quests) || `<div class="empty">${none[sec] ?? ''}</div>`;
     const warCmd = (a: number, b: number, on: boolean) => void cmd({ cmd: 'clanWar', a, b, on }).then(() => { toast(on ? 'War declared' : 'Peace made'); void loadSection(sec); }, (e) => toast(String(e), 'err'));
     on('[data-war]', 'click', (b) => { const sel = el.querySelector<HTMLSelectElement>(`[data-warpick="${b.dataset.war}"]`); if (sel) warCmd(Number(b.dataset.war), Number(sel.value), true); });
     on('[data-peace]', 'click', (b) => { const [a, f] = String(b.dataset.peace).split(':').map(Number); warCmd(a!, f!, false); });
+    document.getElementById('warDays')?.addEventListener('change', (ev) => { void cmd({ cmd: 'clanWar', days: Number((ev.target as HTMLSelectElement).value) }).then(() => { toast('Saved'); void loadSection(sec); }, (e) => toast(String(e), 'err')); });
     document.getElementById('autoWar')?.addEventListener('change', (ev) => { void cmd({ cmd: 'clanWar', auto: (ev.target as HTMLInputElement).checked }).then(() => toast('Saved'), (e) => toast(String(e), 'err')); });
     on('[data-vote]', 'click', (b) => { void cmd({ cmd: 'clanVote', id: Number(b.dataset.vote) }).then(() => { toast('Election opened (2 game hours)'); void loadSection(sec); }, (e) => toast(String(e), 'err')); });
     bindList();

@@ -1,0 +1,58 @@
+// War history: node tools/warhist-proof.mjs <outdir>
+// Starts a server in-process, splits the town into three clans of 5, has the owner declare two wars, lives a few game hours of one
+// (duels, blows, war parties), makes peace in one, then screenshots (dark) People > Clans with the War history card.
+import { createRequire } from 'node:module';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { App } from '../packages/server/dist/app.js';
+import { DEFAULTS } from '../packages/server/dist/config.js';
+import { Logger } from '../packages/server/dist/log.js';
+import { Kind } from '@worldsim/protocol';
+const { chromium } = createRequire(import.meta.url)('playwright');
+const out = process.argv[2] ?? 'warhist-proof'; mkdirSync(out, { recursive: true });
+const ADMIN = 'admin-token-0123456789abcdef', dir = mkdtempSync(join(tmpdir(), 'ws-war-'));
+const cfg = { ...structuredClone(DEFAULTS), dataDir: dir, port: 0, snapshotEverySec: 3600, capacity: 2048, auth: { projectId: 'none' } };
+cfg.tunnel = { provider: 'none', bin: { ngrok: '/nonexistent/ngrok' } }; cfg.ai = { ...cfg.ai, provider: 'none' };
+const app = new App(cfg, { adminToken: ADMIN, viewers: new Map() }, new Logger('error', undefined, true));
+await app.start();
+app.loop?.stop?.();
+const w = app.world, e = w.e, town = w.mapIndex.get('town');
+const step = (secs) => { for (let k = 0; k < secs * 20; k++) w.step(); };
+step(5);
+for (const c of w.clans.clans.slice()) for (const id of c.members.slice()) w.clans.leave(c, id, 'proof');
+const ids = [];
+for (let n = 0; n < 15; n++) { const s = w.freeSpot(town, 60 + (n % 5) * 2, 60 + Math.floor(n / 5) * 20, 80) ?? { x: 60, y: 60 }; const i = w.spawnAgent(town, s.x, s.y); const p = w.profileOf(i); p.born = w.gameSec - 30 * w.yearSec; p.parents = []; p.partner = -1; p.traits.courage = 0.9; ids.push(e.id(i)); }
+const A = w.clans.found(town, ids[0], ids.slice(1, 5)), B = w.clans.found(town, ids[5], ids.slice(6, 10)), C = w.clans.found(town, ids[10], ids.slice(11, 15));
+w.clans.declareWar(A, B, 'owner', 'the voice from the sky ordered it');
+step(3 * 3600 / w.opt.clockScale);
+w.clans.makePeace(A, B, 'owner', 'the voice from the sky asked for peace');
+w.clans.declareWar(B, C, 'owner', 'the voice from the sky ordered it');
+step(2 * 3600 / w.opt.clockScale);
+console.log(JSON.stringify(w.clans.history, null, 1));
+const port = app.net.http.address().port, server = `http://127.0.0.1:${port}`;
+const b = await chromium.launch();
+const ctx = await b.newContext({ colorScheme: 'dark', viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+const page = await ctx.newPage();
+page.on('pageerror', (er) => console.log('pageerror', er.message));
+await page.goto(server + '/panel/');
+await page.waitForSelector('#sTokBox');
+await page.evaluate(() => { document.getElementById('sTokBox').open = true; });
+await page.fill('#sTokIn', ADMIN);
+if (await page.inputValue('#sAddrIn') === '') await page.fill('#sAddrIn', server);
+await page.click('#sGo');
+await page.waitForSelector('#app:not([hidden])', { timeout: 15000 });
+await page.evaluate(() => { location.hash = '#/people'; });
+await page.waitForSelector('#pTabs button[data-t="clans"]');
+await page.click('#pTabs button[data-t="clans"]');
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${out}/war-history.png`, fullPage: true });
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(800);
+await page.screenshot({ path: `${out}/war-history-phone.png`, fullPage: true });
+const t = await page.textContent('#view'); if (/undefined|NaN|\[object/.test(t)) console.log('bad text', t.match(/.{0,40}(undefined|NaN|\[object).{0,40}/)?.[0]);
+await page.selectOption('#warDays', '0'); await page.waitForTimeout(1200);
+console.log('warDays after select', w.clans.warDays);
+await b.close();
+app.stop(); rmSync(dir, { recursive: true, force: true });
+process.exit(0);

@@ -123,3 +123,30 @@ test('tension comes from real causes (no dice), says why, and a war starts after
   assert.ok(at10 >= 0 && war, `a war was declared (${seen.slice(-8).join(' ')}, ${A.members.length}/${B.members.length})`);
   assert.ok(seen.length - 1 - at10 >= 3, `only after 3 hours at 10/10 (${seen.length - 1 - at10})`);
 });
+
+test('war history: each declared war is kept with what both sides did and why it ended; the war length is a setting', () => {
+  const { w, e, people, A, B } = twoClans('war-history');
+  assert.equal(w.clans.declareWar(A, B, 'owner', 'the voice from the sky ordered it'), true);
+  const h = w.clans.history.at(-1)!;
+  assert.equal(h.an, A.name); assert.equal(h.end, undefined);
+  // A duel won by A, a blow, a raid, a walk-away: counted for the side that did it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cl = w.clans as any;
+  cl.start(people[0]!, people[5]!, 'war');
+  w.clans.damage(people[5]!, 6, people[0]!);
+  cl.end(cl.duels.get(e.id(people[0]!)), 'yield', people[5]!);
+  w.clans.warStat(B.id, A.id, 'avoided', 1);
+  const lo = A.id < B.id ? 0 : 1;
+  assert.equal(h.wins[lo], 1); assert.equal(h.duels, 1); assert.equal(h.blows[lo], 1); assert.equal(h.dmg[lo], 6); assert.equal(h.avoided[1 - lo], 1);
+  // Ends by itself after warDays: the reason says so; 0 = never by itself.
+  w.clans.warDays = 0;
+  w.gameSec += 10 * 86400; hourly(w);
+  assert.ok(w.clans.warOf(A.id, B.id), 'no end by itself with war length 0');
+  w.clans.warDays = 3; hourly(w);
+  assert.equal(w.clans.warOf(A.id, B.id), undefined);
+  assert.match(h.endWhy ?? '', /worn out.*3 game days/);
+  assert.ok(h.end! > h.start); assert.equal(h.winner, A.name);
+  // Saved and loaded with the clans.
+  const copy = mk('war-history-2'); copy.clans.load(JSON.parse(JSON.stringify(w.clans.save())));
+  assert.equal(copy.clans.history.at(-1)!.endWhy, h.endWhy); assert.equal(copy.clans.warDays, 3);
+});
