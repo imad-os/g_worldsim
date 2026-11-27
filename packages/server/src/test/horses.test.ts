@@ -211,9 +211,13 @@ test('horses: a tamed horse lives on its own, comes when called from far (a real
   w.place(pl, m, p.x, p.y); e.stuck[pl] = 0;
   w.step();
   assert.equal(e.map[pl], NO_MAP, 'on the road');
-  const secs = (e.arrive[pl]! - w.gameSec) / w.opt.clockScale;
+  const secs = w.gateLeft(pl)!.secs;
   assert.ok(secs >= 4.9 && secs <= 15.1, `ride ${secs.toFixed(1)} s`);
   assert.ok(Math.abs(secs - w.horses.gateSecs(pi)) < 0.2, 'that gate\'s own time');
+  run(w, 2 * 20);
+  assert.equal(e.map[pl], NO_MAP, 'the road waits for the TV to show the ride');
+  assert.equal(w.gateLeft(pl)!.left, secs, 'nothing counted yet');
+  assert.ok(w.gateShown(pl));
   run(w, Math.ceil(16 * 20));
   assert.equal(e.map[pl], p.dest, 'arrived');
   assert.equal(e.map[a], p.dest, 'the horse came too');

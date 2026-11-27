@@ -808,3 +808,14 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   (world channel lines: `Chats` hook `world` -> `NetServer.toViewers`). `say` no longer uses the #note banner.
 - NPC lines go only to the player who talked (`Quests.onNpcSay(.., to)` -> `noticeTo`); an AI person taking a quest is silent.
   Proof `ADMIN_TOKEN=... node tools/hud-proof.mjs <server> <sdk.js> <outdir>`.
+
+## The road between maps (imad 2026-11-26, app 0.14.5)
+- Every player trip through a gate shows the road (`gfx/ride.ts RideScene`): on horseback a gallop, on foot (or before the horse model loads) a walk;
+  light follows the game hour. Client `trip` in app.ts: out (world fades to black, `#fade` CSS opacity) -> ride (`setMap` to the destination at once,
+  view at the arrival point, so its chunks load during the ride; 2 chunk builds a frame) -> in (arrival: the new map drawn behind black until its
+  ground is in, max 1.5 s, then fades in).
+- Server `World.gate` (entity id -> secs / left / shown): players only, length `Horses.gateSecs(pi)` = 5-15 s per gate (sim s = real at speed 1, no
+  clockScale). The clock runs only after the TV's Do `rideShown` (sent at the ride's first frame), or after `GATE_WAIT` 5 s with no answer.
+  Msg.You carries `secs` / `left` (reconnect resumes). Agents keep `p.travel` / horse gateSecs x clockScale. Not saved (restart = old `arrive`).
+- Tests woods-travel.test "the road between maps", horses.test; proof `ADMIN_TOKEN=... node tools/travel-proof.mjs <server> <sdk.js> <outdir>`
+  (`?dev` `__dev.trip()`).

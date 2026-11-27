@@ -29,6 +29,9 @@ import { Quests } from './quests.js';
 import { Weather } from './weather.js';
 import type { TileMap } from './tilemap.js';
 
+/** Seconds the road between maps waits for a player's TV to show the ride before its clock runs anyway. */
+export const GATE_WAIT = 5;
+
 export interface WMap {
   index: number;
   def: MapDef;
@@ -67,6 +70,13 @@ export class World {
   readonly opt: WorldOptions;
   readonly ai: AiFlags;
   readonly dt: number;
+  /**
+   * Players on the road between maps (imad 2026-11-26: "the timer must be 5-15 s and must not count without the animation"): entity id ->
+   * the ride's length in sim seconds (5-15, fixed per gate), what is left, how long we waited for the TV, and whether the TV shows it.
+   * The clock only runs once the TV says the animation is on screen (`gateShown`), or after `GATE_WAIT` s without an answer (no TV / old TV).
+   * Not saved: after a restart the old `arrive` time counts.
+   */
+  readonly gate = new Map<number, { secs: number; left: number; wait: number; shown: boolean }>();
   readonly maps: WMap[] = [];
   readonly mapIndex = new Map<string, number>();
   readonly portals: (PortalDef & { from: number; dest: number })[];
@@ -470,6 +480,7 @@ export class World {
     if (e.kind[i] === Kind.Agent) this.emit('remove', { id: e.id(i), cause });
     if (this.family) { this.family.carried[i] = -1; this.family.carer[i] = -1; for (let k = 0; k < e.hi; k++) if (this.family.carried[k] === i) this.family.putDown(k); }
     this.dropBody(i);
+    this.gate.delete(e.id(i));
     e.destroy(i);
   }
 
@@ -648,7 +659,11 @@ export class World {
       const k = e.kind[i];
       if (k !== Kind.Agent && k !== Kind.Player) continue;
       if (e.map[i] === NO_MAP) {
-        if (this.gameSec >= e.arrive[i]!) this.arriveAt(i);
+        const g = this.gate.get(e.id(i));
+        if (g) {
+          if (g.shown || (g.wait += this.dt) > GATE_WAIT) g.left -= this.dt;
+          if (g.left <= 0) { this.gate.delete(e.id(i)); this.arriveAt(i); }
+        } else if (this.gameSec >= e.arrive[i]!) this.arriveAt(i);
         continue;
       }
       if (k === Kind.Player) {
@@ -684,10 +699,28 @@ export class World {
     e.toMap[i] = p.dest;
     // On a horse (imad 2026-11-25): the ride takes 5-15 real seconds, its own for each gate (the TV shows the ride).
     e.arrive[i] = this.gameSec + (this.horses.riding[i] === 1 ? this.horses.gateSecs(pi) * this.opt.clockScale : p.travel);
+    if (e.kind[i] === Kind.Player) { // a player: on foot or on horseback, the TV shows the road (5-15 s, counted while it shows)
+      const secs = this.horses.gateSecs(pi);
+      this.gate.set(e.id(i), { secs, left: secs, wait: 0, shown: false });
+      e.arrive[i] = this.gameSec + (secs + GATE_WAIT) * this.opt.clockScale; // only used after a restart
+    }
     e.ax[i] = p.toX; e.ay[i] = p.toY;
     e.vx[i] = 0; e.vy[i] = 0; e.inX[i] = 0; e.inY[i] = 0;
     e.goal[i] = -1;
     this.emit('travel', { id: e.id(i), from: p.map, to: p.to, arrive: e.arrive[i] });
+  }
+
+  /** The TV of player i shows the ride between maps: its clock starts now. */
+  gateShown(i: number): boolean {
+    const g = this.e.alive(i) ? this.gate.get(this.e.id(i)) : undefined;
+    if (!g || g.shown) return false;
+    g.shown = true;
+    return true;
+  }
+  /** Seconds of the ride left for player i (secs = its whole length), or undefined when not on the road. */
+  gateLeft(i: number): { secs: number; left: number; shown: boolean } | undefined {
+    const g = this.e.alive(i) ? this.gate.get(this.e.id(i)) : undefined;
+    return g ? { secs: g.secs, left: Math.max(0, g.left), shown: g.shown } : undefined;
   }
 
   private arriveAt(i: number): void {

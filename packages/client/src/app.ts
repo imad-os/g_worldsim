@@ -132,7 +132,17 @@ let followSeen = 0;
 // Me (play).
 let meId = -1, meTransit = false, meArrive = 0, meTo = '';
 /** On the road between maps on horseback: my horse's look and the ride's length (game s), the riding scene, how I last looked. */
-let rideHorse: { name: string; q: number; coat: number; scale: number } | null = null, rideTotal = 1, ride: RideScene | null = null;
+let rideHorse: { name: string; q: number; coat: number; scale: number } | null = null, ride: RideScene | null = null;
+/**
+ * The road between maps (imad 2026-11-26: "smooth from entering the gate, load the next map while the animation plays, 5-15 s, and the
+ * timer must not count without the animation"), on foot or on horseback. out = the world fades to black; ride = the road scene
+ * (gfx/ride.ts) while the next map's chunks load behind it, its clock started on the server by Do `rideShown` at its first frame,
+ * fading to black just before the end; in = arrived: the new map is drawn behind the black until its ground is in, then fades in.
+ */
+let trip: { phase: 'out' | 'ride' | 'in'; at: number; to: string; x: number; y: number; secs: number; left: number; shownAt: number; frames: number } | null = null;
+const FADE_MS = 450;
+const fadeEl = document.getElementById('fade') as HTMLDivElement | null;
+function fade(on: boolean, ms = FADE_MS): void { if (!fadeEl) return; fadeEl.style.transitionDuration = `${ms}ms`; fadeEl.style.opacity = on ? '1' : '0'; }
 let myLook: PersonLook | null = null, myGear = 0;
 let predX = 0, predY = 0, pvx = 0, pvy = 0, predOk = false;
 let rtt = 150;
@@ -348,11 +358,17 @@ function onMsg(m: ServerMsg): void {
       meId = m.id; meTransit = m.transit; meTo = m.map;
       meArrive = m.arrive ?? 0;
       rideHorse = m.transit ? m.horse ?? null : null;
-      if (rideHorse) rideTotal = Math.max(1, meArrive - (gameSec + ((performance.now() - tickAt) / 1000) * clockScale * simSpeed));
       predOk = false;
+      if (m.transit && how === 'play') { // into the gate: the road between maps (`trip`)
+        const now = performance.now(), gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed;
+        const secs = m.secs ?? Math.max(1, (meArrive - gs) / Math.max(0.01, clockScale * simSpeed)); // an older server: its game-time arrival
+        const left = Math.min(secs, m.left ?? secs);
+        if (!trip) { trip = { phase: 'out', at: now, to: m.map, x: m.x ?? 0, y: m.y ?? 0, secs, left, shownAt: 0, frames: 0 }; fade(true); }
+        else { trip.to = m.map; trip.x = m.x ?? trip.x; trip.y = m.y ?? trip.y; trip.secs = secs; if (trip.shownAt) trip.shownAt = now - (secs - left) * 1000; else trip.left = left; }
+      } else if (trip && !m.transit) { trip.phase = 'in'; trip.at = performance.now(); trip.frames = 0; fade(true, 200); } // arrived: draw the new map behind the black
       if (!m.transit && m.map !== map) setMap(m.map);
       // The camera goes to my character (it may be far from where I was watching), so its frames come in.
-      if (how === 'play' && m.x !== undefined && m.y !== undefined) { camX = m.x; camY = m.y; snapCam = true; follow = -1; sendView(); }
+      if (how === 'play' && !m.transit && m.x !== undefined && m.y !== undefined) { camX = m.x; camY = m.y; snapCam = true; follow = -1; sendView(); }
       if (how === 'play' && !askedMine) { askedMine = true; send({ t: Msg.Do, a: 'mine' }); } // first time: choose how I look
       if (m.transit) note(rideHorse ? tf('hRideTo', rideHorse.name, mapName(m.map)) : tf('travelling', mapName(m.map)), 0);
       else noteEl.hidden = true;
@@ -2100,13 +2116,28 @@ function draw(now: number, dt: number): void {
   buildOne();
   sound.lx = focusX(); sound.ly = focusY(); sound.yaw = yaw; sound.topView = g3.view === 'top';
   sound.tick(dt); ambience(now);
-  if (how === 'play' && meTransit && rideHorse && g3.horses.ready) { // riding through a gate: the ride itself (gfx/ride.ts)
+  if (trip && how !== 'play') { trip = null; fade(false, 0); }
+  if (trip && trip.phase === 'out' && now - trip.at >= FADE_MS) { // black: switch to the next map now, so its ground loads during the ride
+    if (trip.to !== map) setMap(trip.to);
+    camX = trip.x; camY = trip.y; snapCam = true; follow = -1; sendView();
+    trip.phase = 'ride'; trip.at = now;
+  }
+  if (trip && trip.phase === 'ride') { // on the road between maps: the ride itself (gfx/ride.ts), on foot or on horseback
     ride ??= new RideScene(g3.horses);
     const gs = gameSec + ((now - tickAt) / 1000) * clockScale * simSpeed, cv = g3.renderer.domElement;
-    ride.draw(g3.renderer, dt, Math.max(0, Math.min(1, 1 - (meArrive - gs) / rideTotal)), myLook ?? ME, myGear & ~(7 << 15), rideHorse, cv.width / Math.max(1, cv.height));
+    const p = trip.shownAt ? Math.max(0, Math.min(1, (now - trip.shownAt) / (trip.secs * 1000))) : 0;
+    ride.draw(g3.renderer, dt, p, myLook ?? ME, myGear & ~(7 << 15), rideHorse, cv.width / Math.max(1, cv.height), ((gs / 3600 + 8) % 24 + 24) % 24);
+    if (!trip.shownAt) { // first frame on screen: the server's clock starts now (a ride resumed after a reconnect keeps what is left)
+      trip.shownAt = now - (trip.secs - trip.left) * 1000;
+      send({ t: Msg.Do, a: 'rideShown' });
+      fade(false);
+    } else if (now - trip.shownAt > trip.secs * 1000 - FADE_MS) fade(true); // the end of the road: to black, the new map comes in behind it
+    names.hide();
+    buildOne(); buildOne(); // the road is cheap to draw: build the next map's chunks faster meanwhile
     bubbles.hide();
     return;
   }
+  if (trip && trip.phase === 'in' && ++trip.frames >= 3 && now - trip.at >= 250 && ((!buildQ.length && !jobs.size) || now - trip.at > 1500)) { fade(false); trip = null; } // the ground is in: fade in
   if (bindsNews && playing() && predOk) {
     bindsNews = false;
     const parts = (['use', 'talk', 'attack', 'aim', 'build'] as const).map((a) => `${keyName(a)}: ${actionLabel(a).replace(/ \(.*\)$/, '')}`);
@@ -2339,8 +2370,8 @@ function updateHud(now: number): void {
   const txt = `${mapName(map)} · ${t('day')} ${day} ${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}${wx} · ${agentsTotal} ${t('agents')} · ${who}`;
   if (txt !== hudText) { hudText = txt; hudTop.textContent = txt; }
   if (meTransit && how === 'play') {
-    const left = Math.max(0, Math.ceil((meArrive - gs) / Math.max(0.01, clockScale * simSpeed)));
-    noteEl.textContent = `${rideHorse ? tf('hRideTo', rideHorse.name, mapName(meTo)) : tf('travelling', mapName(meTo))} ${left} s`;
+    const left = trip?.shownAt ? ` ${Math.max(0, Math.ceil(trip.secs - (now - trip.shownAt) / 1000))} s` : ''; // counts only while the road shows
+    noteEl.textContent = `${rideHorse ? tf('hRideTo', rideHorse.name, mapName(meTo)) : tf('travelling', mapName(meTo))}${left}`;
     noteEl.hidden = false;
   }
 }
@@ -2504,7 +2535,7 @@ MyPC.init({
     }
     MyPC.buttons?.on?.((name: string, pressed: boolean, repeat: boolean) => onRemote(name, pressed, !!repeat));
     if ((MyPC.apiLevel ?? 0) >= 24 && MyPC.stt?.on) MyPC.stt.on('text', onSttText);
-    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [] };
+    if (q.get('dev') !== null) (window as unknown as { __dev: unknown }).__dev = { unplace: () => stopPlacing(), tile: (x: number, y: number) => tileName[tileUnder(x + 0.5, y + 0.5)] ?? '?', place: (what?: string, dx?: number, dy?: number, turn?: number, ok?: boolean) => { if (what) startPlacing(what); for (let k = 0; k < Math.abs(dx ?? 0); k++) placeMove(Math.sign(dx!), 0); for (let k = 0; k < Math.abs(dy ?? 0); k++) placeMove(0, Math.sign(dy!)); for (let k = 0; k < (turn ?? 0); k++) placeTurn(); if (ok) placeConfirm(); return placing ? { ...placing, check: placeCheck(placing) } : null; }, snd: () => sound.stats(), open: (p: string) => openMenu(p), ui: (v?: number) => { if (v) { uiSize = v; applyUiSize(); } return uiSize; }, act: (a: ActionId, on = true) => doAction(a, on), aim: (to?: number) => { if (to !== undefined) aimAng = to; return { aimOn, aimAng, aimLock, hud: aimEl.hidden ? '' : aimEl.textContent, corpses: corpses.length, fell: corpses.map((c) => [c.x, c.y]) }; }, me: () => [focusX(), focusY(), map], page: (p: string) => openMenu(p), yaw: (v?: number) => { if (v !== undefined) yaw = v; return yaw; }, xhair: () => (xhairEl.hidden ? '' : xhairEl.className + ':' + xhairEl.textContent), map: () => ({ open: menu.open && menu.page, cx: mapScreen.cx, cy: mapScreen.cy, marks: mapScreen.marks.length, zoom: mapScreen.zoom, data: !!mapScreen.data }), hint: () => (hudHint.hidden ? '' : hudHint.textContent), cam: (v: CamView) => nextCamera(v), dbg: () => ({ yaw, camView, how, meId, meTransit, predOk, predX, predY, camX, camY, s: meSlot(), sx: meSlot() >= 0 ? nx[meSlot()] : null }), look: (x: number, y: number) => { follow = -1; camX = x; camY = y; snapCam = true; }, jump: (x: number, y: number) => { predOk = false; follow = -1; camX = x; camY = y; snapCam = true; sendView(); }, ride: () => (autoRide ? { id: autoRide.id, k: autoRide.k, n: autoRide.pts.length, map: autoRide.map } : null), dests: () => rideDests, quick: (id: string) => runQuick(id), names: () => names.names.size, do: (a: string, text?: string) => send({ t: Msg.Do, a, text }), g3: () => g3, res: (on: boolean) => { gfx.res = on; if (dyn) dyn.scale = dyn.start; resize(); return dyn?.scale; }, bench: (n?: number) => g3 ? { ...g3.bench(n), w: g3.renderer.domElement.width, h: g3.renderer.domElement.height, tier, chunks: meshOf.size, q: buildQ.length + jobs.size, worker: !!worker, chunkMs: { ...chunkMs } } : null, ia: () => (iaEl.hidden ? '' : iaEl.textContent), lie: () => (meSlot() >= 0 ? lieK[meSlot()] : -1), falls: () => g3?.anims.debug(performance.now()) ?? [], trip: () => (trip ? { phase: trip.phase, secs: trip.secs, shown: trip.shownAt ? (performance.now() - trip.shownAt) / 1000 : -1, fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, q: buildQ.length + jobs.size, map } : { fade: fadeEl ? +getComputedStyle(fadeEl).opacity : -1, chunks: meshOf.size, map }) };
     MyPC.ready();
   },
   onStart() {

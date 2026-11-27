@@ -265,6 +265,8 @@ export interface ServerStats {
 
 /** x, y: where the character is now (the viewer's camera goes there). */
 export interface You { t: typeof Msg.You; id: number; map: string; transit: boolean; arrive?: number; x?: number; y?: number;
+  /** A player on the road between maps: the ride's length and what is left (real seconds at speed 1); it counts once the TV sends Do `rideShown`. */
+  secs?: number; left?: number;
   /** Riding through a gate: my horse's look (the TV shows the ride). */
   horse?: { name: string; q: number; coat: number; scale: number } }
 

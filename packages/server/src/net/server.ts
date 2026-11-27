@@ -401,7 +401,8 @@ export class NetServer {
     const m = e.map[i]!, transit = m === NO_MAP;
     const mi = transit ? e.toMap[i]! : m;
     s.lastMap = m;
-    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined, horse: transit ? this.world.horses.rideLook(i) : undefined, x: transit ? e.ax[i] : e.x[i], y: transit ? e.ay[i] : e.y[i] });
+    const g = transit ? this.world.gateLeft(i) : undefined;
+    this.send(s, { t: Msg.You, id: s.avatarId, map: this.world.maps[mi]!.def.id, transit, arrive: transit ? e.arrive[i] : undefined, secs: g?.secs, left: g?.left, horse: transit ? this.world.horses.rideLook(i) : undefined, x: transit ? e.ax[i] : e.x[i], y: transit ? e.ay[i] : e.y[i] });
     if (!transit) s.view = { map: m, x: e.x[i]!, y: e.y[i]!, r: s.view?.r ?? 40 };
   }
 
@@ -602,6 +603,7 @@ export class NetServer {
       }
       case Msg.Do: {
         if (s.avatar < 0 || !this.ownsAvatar(s) || typeof m.a !== 'string' || m.a.length > 12) return;
+        if (m.a === 'rideShown') { this.world.gateShown(s.avatar); return; } // the TV shows the road between maps: its clock starts
         if (m.a === 'hold') { // I am typing what to say: the person waits for me
           const j = this.world.nearest(s.avatar, 3);
           if (j >= 0 && this.world.e.kind[j] === Kind.Agent) this.onHold(s.avatar, j);

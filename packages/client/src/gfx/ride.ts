@@ -12,9 +12,12 @@ import { Horses3D } from './horses.js';
  * my horse (the same animated CC0 model, coat and quality glow) galloping along a forest road, me in the saddle, trees,
  * rocks and grass streaming past, dust from the hooves, the camera sweeping slowly round from behind to the side.
  * The world does not move: the props do (three copies of one stretch of road, slid back and wrapped).
+ * On foot (or before the horse model has loaded) it is the same road at a walk, the camera closer. The light follows the game hour.
  */
+const tmp = new Color();
 const L = 90; // one stretch of road, metres
 const SPEED = 9.5; // gallop, m/s
+const WALK = 1.7; // on foot, m/s (imad 2026-11-26: the road shows every time, not only on horseback)
 const ROAD = 3.4; // road half width
 
 export class RideScene {
@@ -27,13 +30,15 @@ export class RideScene {
   private readonly dustAge = new Float32Array(40);
   private readonly dustPos: Float32Array;
   private t = 0;
+  private readonly sky = new Color(0xa8d2ef);
+  private readonly hemi: HemisphereLight;
+  private readonly sun: DirectionalLight;
 
-  constructor(src: Horses3D) {
-    const sky = new Color(0xa8d2ef);
-    this.scene.background = sky;
-    this.scene.fog = new Fog(sky, 30, 85);
-    this.scene.add(new HemisphereLight(0xdcefff, 0x4a6a2e, 1.15));
-    const sun = new DirectionalLight(0xfff1d6, 1.6); sun.position.set(-20, 30, 10); this.scene.add(sun);
+  constructor(private readonly src: Horses3D) {
+    this.scene.background = this.sky;
+    this.scene.fog = new Fog(this.sky, 30, 85);
+    this.hemi = new HemisphereLight(0xdcefff, 0x4a6a2e, 1.15); this.scene.add(this.hemi);
+    const sun = this.sun = new DirectionalLight(0xfff1d6, 1.6); sun.position.set(-20, 30, 10); this.scene.add(sun);
     this.people = new People(this.scene, 2, false);
     this.horses = new Horses3D(this.scene, false, 1);
     this.horses.share(src);
@@ -98,34 +103,49 @@ export class RideScene {
     this.scene.add(this.dust);
   }
 
+  /** Day and night on the road like in the world (hour 0-24): a dark blue night, warm dawn / dusk. */
+  private light(h: number): void {
+    const day = h < 5 || h > 21 ? 0 : h < 8 ? (h - 5) / 3 : h > 18 ? (21 - h) / 3 : 1, warm = day > 0 && day < 1 ? Math.sin(day * Math.PI) : 0;
+    this.sky.setHex(0x0e1a30).lerp(tmp.setHex(0xa8d2ef), day).lerp(tmp.setHex(0xe79a6a), warm * 0.5);
+    (this.scene.fog as Fog).color.copy(this.sky);
+    this.hemi.intensity = 0.45 + 0.7 * day;
+    this.sun.intensity = 0.35 + 1.25 * day;
+    this.sun.color.setHex(0x8ea8ff).lerp(tmp.setHex(0xfff1d6), day).lerp(tmp.setHex(0xffa060), warm * 0.6);
+  }
+
   /**
-   * One frame. p = how far along the ride (0..1), look / gear = my character, horse = my horse's look; aspect = the screen.
+   * One frame. p = how far along the ride (0..1), look / gear = my character, horse = my horse's look (null = on foot);
+   * aspect = the screen, hour = the game hour.
    */
-  draw(r: WebGLRenderer, dt: number, p: number, look: PersonLook, gear: number, horse: { q: number; coat: number; scale: number }, aspect: number): void {
-    this.t += dt;
-    const t = this.t;
-    this.props.position.z = -((t * SPEED) % L);
-    // Horse and rider in the middle of the road, a little bob and sway.
-    const sway = Math.sin(t * 0.7) * 0.35;
+  draw(r: WebGLRenderer, dt: number, p: number, look: PersonLook, gear: number, horse: { q: number; coat: number; scale: number } | null, aspect: number, hour = 12): void {
+    if (!this.horses.ready && this.src.ready) this.horses.share(this.src); // the model came in after the scene was made
+    this.t += Math.min(dt, 0.1); // a long frame never jumps the road
+    const t = this.t, onHorse = !!horse && this.horses.ready, v = onHorse ? SPEED : WALK;
+    this.light(hour);
+    this.props.position.z = -((t * v) % L);
+    // Horse and rider (or me walking) in the middle of the road, a little bob and sway.
+    const sway = Math.sin(t * (onHorse ? 0.7 : 0.35)) * (onHorse ? 0.35 : 0.25);
     this.horses.begin();
-    this.horses.add(1, sway, 0, 0, SPEED, 9, horse.scale, horse.q, horse.coat, true, t, dt);
+    if (onHorse) this.horses.add(1, sway, 0, 0, SPEED, 9, horse!.scale, horse!.q, horse!.coat, true, t, dt);
     this.horses.end();
     this.people.begin();
-    this.people.add(sway, 0, 0, t * 6, 0.2, look, false, 1, false, gear, t, this.horses.seat(horse.scale));
+    if (onHorse) this.people.add(sway, 0, 0, t * 6, 0.2, look, false, 1, false, gear, t, this.horses.seat(horse!.scale));
+    else this.people.add(sway, 0, 0, (t * WALK * 4.2) % (Math.PI * 2), 0.75, look, false, 1, false, gear, t);
     this.people.end();
     // Dust: little puffs from the hooves, drifting back and fading.
     for (let k = 0; k < this.dustAge.length; k++) {
       this.dustAge[k] = this.dustAge[k]! + dt;
-      if (this.dustAge[k]! > 1.1) { this.dustAge[k] = Math.random() * 0.2; this.dustPos[k * 3] = sway + (Math.random() - 0.5) * 0.9; this.dustPos[k * 3 + 1] = 0.08; this.dustPos[k * 3 + 2] = -0.6 + (Math.random() - 0.5) * 1.6; }
+      if (this.dustAge[k]! > 1.1 && onHorse) { this.dustAge[k] = Math.random() * 0.2; this.dustPos[k * 3] = sway + (Math.random() - 0.5) * 0.9; this.dustPos[k * 3 + 1] = 0.08; this.dustPos[k * 3 + 2] = -0.6 + (Math.random() - 0.5) * 1.6; }
       this.dustPos[k * 3 + 1] = this.dustPos[k * 3 + 1]! + dt * 0.55;
       this.dustPos[k * 3 + 2] = this.dustPos[k * 3 + 2]! - dt * SPEED * 0.35;
     }
+    this.dust.visible = onHorse;
     (this.dust.geometry.getAttribute('position') as Float32BufferAttribute).needsUpdate = true;
     // Camera: from behind and above, sweeping round to the side as the ride goes on.
-    const s = p * p * (3 - 2 * p), a = Math.PI * (0.86 - 0.42 * s), d = 7.5 - 1.5 * s, h = 3.4 - 1.1 * s;
-    this.camera.aspect = aspect; this.camera.updateProjectionMatrix();
+    const s = p * p * (3 - 2 * p), a = Math.PI * (0.86 - 0.42 * s), d = (onHorse ? 7.5 : 5) - (onHorse ? 1.5 : 1) * s, h = (onHorse ? 3.4 : 2.4) - (onHorse ? 1.1 : 0.7) * s;
+    if (this.camera.aspect !== aspect) { this.camera.aspect = aspect; this.camera.updateProjectionMatrix(); }
     this.camera.position.set(Math.sin(a) * d + sway * 0.5, h, Math.cos(a) * d);
-    this.camera.lookAt(sway * 0.6, 1.7, 2.2);
+    this.camera.lookAt(sway * 0.6, onHorse ? 1.7 : 1.1, onHorse ? 2.2 : 1.5);
     r.render(this.scene, this.camera);
   }
 }

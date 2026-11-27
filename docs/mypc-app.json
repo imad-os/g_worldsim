@@ -6,7 +6,7 @@
   "type": "game",
   "entry": "index.html",
   "icon": "icon.svg",
-  "version": "0.14.4",
+  "version": "0.14.5",
   "scores": false,
   "config": { "server": "" }
 }
