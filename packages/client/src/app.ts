@@ -151,6 +151,8 @@ let myLook: PersonLook | null = null, myGear = 0;
 let predX = 0, predY = 0, pvx = 0, pvy = 0, predOk = false;
 let rtt = 150;
 let sentMx = 0, sentMy = 0, sentRun = false, sentAt = 0, seq = 0;
+/** The server's word on my moves (frames `ack` / `fix`): the last input it read, the last one whose place it refused (go to its place). */
+let srvAck = -1, srvFix = 0, fixDue = false, farSince = 0;
 let runHeld = false;
 const held = { left: false, right: false, up: false, down: false };
 
@@ -487,6 +489,7 @@ function onMsg(m: ServerMsg): void {
       const now = performance.now();
       frameGap = frameGap * 0.85 + Math.min(400, now - frameAt) * 0.15;
       frameAt = now;
+      if (m.ack !== undefined) { srvAck = m.ack; if ((m.fix ?? 0) > srvFix) { srvFix = m.fix!; fixDue = m.fix === m.ack; } } // a refusal counts only while it is of my latest input (later ones were taken)
       gameSec = m.gameSec; tickAt = now;
       if (m.cs) clockScale = m.cs; // the clock runs faster by night / while everyone sleeps (World > Time)
       for (let i = 0; i < CAP; i++) if (eid[i] !== -1) { px[i] = nx[i]!; py[i] = ny[i]!; }
@@ -1304,11 +1307,29 @@ function updatePlay(dt: number, now: number): void {
   }
   // The server only overrules me when it really disagrees (a portal, a wall it knows, a push): far off = jump there,
   // standing still and a little off = ease there. Small differences while walking are just the network's delay.
-  const lag = Math.min(0.5, (now - frameAt) / 1000 + rtt / 2000);
-  const sx = nx[s]! + vx[s]! * lag, sy = ny[s]! + vy[s]! * lag;
-  const ex = sx - predX, ey = sy - predY, e = Math.hypot(ex, ey);
-  if (e > 3) { predX = sx; predY = sy; pvx = pvy = 0; }
-  else if (!moving && !qx && !qy && e > 0.4 && now - sentAt > 600) { const k = 1 - Math.exp(-dt * 2); predX += ex * k; predY += ey * k; }
+  // imad 2026-11-27 ("it keeps bringing me back to a previous point"): a server that stalls for a second (or a tunnel that holds the
+  // frames back) left its last place of me behind while I walked on, and the old "more than 3 m off = jump there" took me back.
+  // A server that says what it read (`ack`) only overrules me when it refused my place (`fix`), or when it has read my latest
+  // input, its frames are live and it still has me 3 m away for a whole second (a push, a wall it knows): stale frames never do.
+  if (srvAck < 0) { // an older server: the old rule
+    const lag = Math.min(0.5, (now - frameAt) / 1000 + rtt / 2000);
+    const sx = nx[s]! + vx[s]! * lag, sy = ny[s]! + vy[s]! * lag;
+    const ex = sx - predX, ey = sy - predY, e = Math.hypot(ex, ey);
+    if (e > 3) { predX = sx; predY = sy; pvx = pvy = 0; }
+    else if (!moving && !qx && !qy && e > 0.4 && now - sentAt > 600) { const k = 1 - Math.exp(-dt * 2); predX += ex * k; predY += ey * k; }
+    return;
+  }
+  const live = now - frameAt < 350 && srvAck >= seq - 2;
+  const ex = nx[s]! - predX, ey = ny[s]! - predY, e = Math.hypot(ex, ey);
+  if (fixDue) { // it refused my place (a wall, a closed door, too far): its place stands
+    fixDue = false;
+    if (e > 0.6) { predX = nx[s]!; predY = ny[s]!; pvx = pvy = 0; } else { predX += ex * 0.5; predY += ey * 0.5; }
+    farSince = 0;
+    return;
+  }
+  if (live && e > 3) { if (!farSince) farSince = now; else if (now - farSince > 1000) { predX = nx[s]!; predY = ny[s]!; pvx = pvy = 0; farSince = 0; } }
+  else farSince = 0;
+  if (live && !moving && !qx && !qy && e > 0.4 && now - sentAt > 600) { const k = 1 - Math.exp(-dt * 2); predX += ex * k; predY += ey * k; }
 }
 
 // ------------------------------------------------------------ watch

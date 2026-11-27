@@ -1153,3 +1153,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   fist is at -FORE-0.025 and `holdIn` places the item 0.4 down). First person on horseback: `Hands.orient(camera)` (called in
   `World3D.follow` after the camera is placed) keeps the hands on the reins at the horse's heading (`HandsState.heading` = `face[me]`)
   with the camera's tilt, so the right stick turns only the head. `fpv-proof` shots 5b / 5c (head turned), `__dev.close()` closes the menu.
+
+## No snapping back (imad 2026-11-27: "the server looks laggy, it keeps bringing me back to a previous point")
+- Cause: when the server paused for 1-2 s (or the tunnel held frames back), the TV's "server has me 3 m+ away = jump there" took the
+  server's OLD place; at speed > 1 the server also walked players x speed between two reports (4x as far at x4) and, after a pause,
+  a burst of ticks carried them far ahead. Fixes: `World.playerPace` (1 / loop speed) + `playerCoast` (0.35 real s past the TV's last
+  report, set by the App each tick); `trustMove` allows 2.5 m + half a second of the horse's pace. Frames carry `ack` (last Input seq read)
+  and `fix` (last one refused); the TV goes to the server's place only on a refusal of its latest input, or when frames are live, the
+  server has read its latest input and still has it 3 m off for 1 s. Older servers (no ack) keep the old rule.
+- Proof `node tools/lag-proof.mjs [secs] [speed] [stall ms every 5 s] [jitter ms]` (`OLD=1` = the old TV rule): 1.5 s / 2.5 s stalls
+  4 snaps back -> 0, refusals 5-6 -> 0.

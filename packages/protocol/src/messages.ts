@@ -229,7 +229,7 @@ export interface ChunkDrop { t: typeof Msg.ChunkDrop; map: string; keys: number[
  * `del` = ids that left the view or died; `dead` = those of them that were just killed (animals: the viewer shows them fall). A client interpolates between frames using `tick`.
  * `gx` = one packed Int32 per record, same order: people's gear and animation (`packGear` in gear.ts; 0 for the rest).
  */
-export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[]; gx?: Uint8Array; /** game seconds per simulated second now (day / night / sleep speeds) */ cs?: number; dead?: number[] }
+export interface Frame { t: typeof Msg.Frame; tick: number; gameSec: number; map: string; upd: Uint8Array; del: number[]; gx?: Uint8Array; /** game seconds per simulated second now (day / night / sleep speeds) */ cs?: number; dead?: number[]; /** my TV's last Input seq seen, and the last one whose place was refused (go to the server's) */ ack?: number; fix?: number }
 export const ENT_REC = 7;
 
 export interface Stats { t: typeof Msg.Stats; s: ServerStats }

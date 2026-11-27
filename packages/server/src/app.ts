@@ -243,6 +243,9 @@ export class App {
     const w = this.world;
     this.loop = new Loop(() => {
       const t0 = performance.now();
+      // Players walk in real time whatever the speed, and coast at most 0.35 real s past their TV's last report (World.playerPace).
+      const sp = this.loop.speed;
+      w.playerPace = 1 / sp; w.playerCoast = Math.max(2, Math.ceil(0.35 * c.tickRate * sp));
       w.step();
       this.monitor.recordTick(performance.now() - t0);
     }, c.tickRate, c.speed, 25, c.maxSpeed);

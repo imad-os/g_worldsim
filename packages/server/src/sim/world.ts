@@ -92,6 +92,17 @@ export class World {
   readonly rng: Rng;
   tick = 0;
   gameSec = 0;
+  /**
+   * Players' own moves run in REAL time (imad 2026-11-27: "the server keeps bringing me back to a previous point"): their TV moves
+   * them at real walking pace and tells us where they are every 100 ms. Between two reports we carry them on with their stick,
+   * x `playerPace` (= 1 / the loop's speed, set by the App: at x4 the world runs 4 ticks a real tick, a player must not walk 4x as
+   * far) and for at most `playerCoast` ticks after their last report (a stalled server then runs a burst of ticks: without the cap
+   * it carried them far past where the TV has them, and the TV jumped there / back). Tests and experiments keep 1 / no cap.
+   */
+  playerPace = 1;
+  playerCoast = 0;
+  /** Tick of each slot's last position report from its TV (World.trustMove), -1 = none. */
+  private reported: Int32Array;
   /** Listeners for notable events (persistence, clients, highlights). */
   readonly listeners: ((ev: WorldEvent) => void)[] = [];
   private readonly scratch = new Int32Array(256);
@@ -169,6 +180,7 @@ export class World {
     this.rng = new Rng(this.seed + ':world');
     this.e = new Entities(opt.capacity);
     this.bodies = new Array(opt.capacity).fill(null);
+    this.reported = new Int32Array(opt.capacity).fill(-1);
     this.agentR = sc.agents.radius;
     const circles = sc.tiles.filter((t) => t.solid && t.shape === 'circle').map((t) => t.id);
     sc.maps.forEach((def, index) => {
@@ -410,7 +422,10 @@ export class World {
   trustMove(i: number, x: number, y: number): boolean {
     const e = this.e, m = e.map[i]!;
     if (e.kind[i] !== Kind.Player || m === NO_MAP || (e.flags[i]! & EFlag.Sleeping)) return false;
-    if (Math.hypot(x - e.x[i]!, y - e.y[i]!) > 2.5) return false;
+    this.reported[i] = this.tick;
+    // 2.5 m on foot; on a galloping horse the TV is 100 ms + the network's wobble ahead: half a second of its pace more.
+    const pace = this.horses.riding[i] === 1 ? this.horses.rideSpeed(i, this.sc.agents.run) : 0;
+    if (Math.hypot(x - e.x[i]!, y - e.y[i]!) > 2.5 + pace * 0.5) return false;
     const tm = this.maps[m]!.tiles, r = e.radius[i]! * 0.8;
     for (const [dx, dy] of [[-r, -r], [r, -r], [-r, r], [r, r]] as const) {
       const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
@@ -499,6 +514,7 @@ export class World {
   remove(i: number, cause = 'removed'): void {
     const e = this.e;
     if (!e.alive(i)) return;
+    this.reported[i] = -1;
     const p = e.kind[i] === Kind.Agent ? this.profiles.get(e.id(i)) : undefined;
     if (p) { p.died = this.gameSec; p.cause = cause; if (cause === 'population' || cause === 'admin-remove') this.profiles.delete(e.id(i)); }
     if (e.kind[i] === Kind.Agent) this.emit('remove', { id: e.id(i), cause });
@@ -589,7 +605,8 @@ export class World {
       if (k === Kind.Animal && this.horses.riding[i]) continue; // a ridden horse goes where its rider goes (Horses.sync)
       const sp = this.horses.riding[i] === 1 ? this.horses.rideSpeed(i, e.speed[i]!) : e.speed[i]!; // on a horse: its pace
       if (k === Kind.Player) {
-        wx = e.inX[i]! * sp; wy = e.inY[i]! * sp;
+        const r = this.reported[i]!, coast = this.playerCoast > 0 && r >= 0 && this.tick - r > this.playerCoast;
+        if (!coast) { wx = e.inX[i]! * sp * this.playerPace; wy = e.inY[i]! * sp * this.playerPace; }
       } else if (d > 0.15) {
         const s = Math.min(sp, d * 2); // slow down on arrival
         wx = (dx / d) * s; wy = (dy / d) * s;

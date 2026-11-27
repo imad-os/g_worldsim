@@ -67,6 +67,10 @@ interface Session {
   tokens: number;
   tokensAt: number;
   avatar: number; // entity slot of this player's character, -1 none
+  /** Last Input `seq` from this TV (frames say it back as `ack`) and the last one whose position we refused (`fix`: the TV goes to ours). */
+  inSeq?: number;
+  fixSeq?: number;
+  fixSent?: number;
   avatarId: number;
   lastMap: number;
   goneAt: number;
@@ -614,7 +618,8 @@ export class NetServer {
         if (s.avatar < 0 || !this.ownsAvatar(s)) return;
         const mx = isNum(m.mx, -1, 1) ? m.mx : 0, my = isNum(m.my, -1, 1) ? m.my : 0;
         this.world.setInput(s.avatar, mx, my, m.run === true);
-        if (isNum(m.x, 0, 4096) && isNum(m.y, 0, 4096)) this.world.trustMove(s.avatar, m.x, m.y);
+        if (isNum(m.seq, 0, 2 ** 31)) s.inSeq = m.seq;
+        if (isNum(m.x, 0, 4096) && isNum(m.y, 0, 4096) && !this.world.trustMove(s.avatar, m.x, m.y) && s.inSeq) s.fixSeq = s.inSeq;
         if (m.act === true) {
           const j = this.world.nearest(s.avatar, 2.5);
           this.send(s, { t: Msg.Notice, kind: 'interact', data: j >= 0 ? { id: this.world.e.id(j), kind: this.world.e.kind[j] } : null });
@@ -764,9 +769,10 @@ export class NetServer {
     if (del && w.fell.size) for (const id of del) if (w.fell.has(id)) (dead ??= []).push(id);
     for (let k = 0; k < n; k++) { const i = this.scratch[k]!; s.known[i] = -s.known[i]!; s.list[k] = i; }
     s.listN = n;
-    if (rn === 0 && !del && ++s.idle < this.o.netHz) return;
+    if (rn === 0 && !del && s.fixSent === (s.fixSeq ?? 0) && ++s.idle < this.o.netHz) return;
+    s.fixSent = s.fixSeq ?? 0;
     s.idle = 0;
-    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn), cs: w.opt.clockScale, ...(dead ? { dead } : {}) });
+    this.send(s, { t: Msg.Frame, tick: w.tick, gameSec: w.gameSec, map: m.def.id, upd: packI32(rec, rn * ENT_REC), del: del ?? [], gx: packI32(this.gx, rn), cs: w.opt.clockScale, ...(dead ? { dead } : {}), ...(s.inSeq ? { ack: s.inSeq, fix: s.fixSeq ?? 0 } : {}) });
   }
 
   private broadcastStats(): void {
