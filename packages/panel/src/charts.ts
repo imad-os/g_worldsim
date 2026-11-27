@@ -75,7 +75,7 @@ document.addEventListener('pointerdown', hover);
 /** Horizontal bars: [label, value, colour]. */
 export function bars(rows: [string, number, string][], total?: number): string {
   const max = total ?? Math.max(1, ...rows.map((r) => r[1]));
-  return `<div class="hbars">${rows.map(([l, v, c]) => `<div class="hb"><span class="hb-l">${esc(l)}</span><span class="hb-t"><i style="width:${(v / max) * 100}%;background:${c}"></i></span><b>${v}</b></div>`).join('')}</div>`;
+  return `<div class="hbars">${rows.map(([l, v, c]) => `<div class="hb"><span class="hb-l" title="${esc(l)}">${esc(l)}</span><span class="hb-t"><i style="width:${(v / max) * 100}%;background:${c}"></i></span><b>${v}</b></div>`).join('')}</div>`;
 }
 
 /** A ring (donut) gauge, value 0..100. */

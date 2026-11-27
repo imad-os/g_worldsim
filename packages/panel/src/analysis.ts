@@ -37,6 +37,7 @@ const rowsOf = (o: Record<string, number>, n = 12): [string, number, string][] =
   Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v], i) => [k, v, PALETTE[i % PALETTE.length]!]);
 const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
 
+const clanLine = (c: Stats['clans'][number]) => `<p class="small"><b>${esc(c.name)}</b> (${esc(c.map)}) · leader ${esc(c.leader)} · ${c.members} member${c.members === 1 ? '' : 's'}</p>`;
 function statsHtml(s: Stats): string {
   const P = s.population, R = s.reproduction, O = s.objectives;
   const animals = s.maps.reduce((a, m) => a + sum(m.animals), 0), zombies = s.maps.reduce((a, m) => a + m.zombies, 0);
@@ -62,7 +63,7 @@ function statsHtml(s: Stats): string {
   const maps = card('Maps and resources', `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Map</th><th>People</th><th>Leader</th><th>Animals</th><th>Zombies</th><th>Food on the ground</th><th>Trees</th><th>Rocks</th><th>Rubble</th><th>Farms</th><th>Huts</th><th>Doors</th><th>Beds</th></tr></thead><tbody>
     ${s.maps.map((m) => `<tr><td><b>${esc(m.name)}</b></td><td>${m.people}</td><td>${esc(m.leader ?? '-')}</td><td>${Object.entries(m.animals).map(([k, v]) => `${esc(k)} ${v}`).join(', ') || '0'}</td><td>${m.zombies}</td><td>${m.foodItems}</td><td>${m.trees}</td><td>${m.rocks}</td><td>${m.rubble}</td><td>${m.farms}</td><td>${m.huts}</td><td>${m.doors}</td><td>${m.beds}</td></tr>`).join('')}
     </tbody></table></div>`, { cls: 'span2', help: help('anMaps') });
-  const clans = card('Clans and rules', `${s.clans.length ? s.clans.map((c) => `<p class="small"><b>${esc(c.name)}</b> (${esc(c.map)}) · leader ${esc(c.leader)} · ${c.members} members</p>`).join('') : '<p class="dim small">No clans yet.</p>'}
+  const clans = card('Clans and rules', `${s.clans.length ? ((cl) => `<p class="small">${cl.length} clan${cl.length > 1 ? 's' : ''}${cl.filter((c) => c.members <= 1).length ? ` · <b class="warn">${cl.filter((c) => c.members <= 1).length} with one member</b>` : ''}</p>${cl.slice(0, 6).map(clanLine).join('')}${cl.length > 6 ? `<details class="logi"><summary>${cl.length - 6} more</summary>${cl.slice(6).map(clanLine).join('')}</details>` : ''}`)(s.clans.slice().sort((a, b) => b.members - a.members)) : '<p class="dim small">No clans yet.</p>'}
     <h5>Strict rules for everyone</h5>${s.rules.forEveryone.length ? s.rules.forEveryone.map((r) => `<p class="small">“${esc(r)}”</p>`).join('') : '<p class="dim small">None.</p>'}
     ${s.rules.perPerson.length ? `<h5>Rules for one person</h5>${s.rules.perPerson.map((p) => `<p class="small"><b>${esc(p.name)}</b>: ${p.rules.map((r) => '“' + esc(r) + '”').join(', ')}</p>`).join('')}` : ''}`);
   const events = card('What happened lately (last 3000 events)', bars(rowsOf(s.eventsLately, 16)) || '<div class="empty">No events yet.</div>');

@@ -2,8 +2,13 @@ import { cmd } from './api.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, view, type Screen } from './screen.js';
 import { S, people, profiles, describe, who, mapName, overview, goalHtml, killsText, type Person } from './state.js';
-import { esc, gameTime, icon, meter, ACTS, ACT_COLORS, load, save, toast, ruleRow, type Rule, type RulesAns } from './util.js';
+import { esc, gameTime, icon, meter, ACTS, ACT_COLORS, load, save, toast, ruleRow, paged, pageReset, type Rule, type RulesAns } from './util.js';
 
+/** The first n of a list and "and 12 more" (a clan with 90 rivals filled the whole card). */
+/** Fold-outs the reader opened stay open when the list is redrawn by polling. */
+const openMore = new Set<string>();
+document.addEventListener('toggle', (e) => { const d = e.target as HTMLDetailsElement; const k = d.dataset?.keep; if (k) { if (d.open) openMore.add(k); else openMore.delete(k); } }, true);
+const few = (xs: string[], n: number) => xs.length <= n ? xs.join(', ') : `${xs.slice(0, n).join(', ')} <span title="${xs.slice(n).join(', ').replace(/<[^>]+>/g, '')}">and ${xs.length - n} more</span>`;
 const avatar = (name: string, sex?: string, size = '') => `<span class="av ${sex === 'f' ? 'f' : 'm'} ${size}">${esc(name.charAt(0).toUpperCase())}</span>`;
 const invChips = (inv?: Record<string, number>, carry = 0) => {
   const p = Object.entries(inv ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `<span class="chip">${n > 1 || !['axe', 'spear', 'sword', 'bow', 'armor', 'clothes', 'helmet'].includes(k) ? n + ' ' : ''}${esc(k)}</span>`);
@@ -53,28 +58,28 @@ function aliveHtml(): string {
   const chips = `<div class="pfilt" id="pFilt">${FILTERS.map(([key, label, fn]) => { const n = base.filter(fn).length; return key !== 'all' && !n ? '' : `<button data-f="${key}" class="${filt === key ? 'on' : ''}${key === 'needy' && n ? ' alert' : ''}">${label} <b>${n}</b></button>`; }).join('')}</div>`;
   let body: string;
   if (!list.length) body = '<div class="empty">Nobody matches.</div>';
-  else if (layout === 'cards') body = `<div class="pgrid">${list.map((p) => `<a class="pcard" href="#/person/${p.id}">
+  else if (layout === 'cards') body = paged('people', list, 24, (list) => `<div class="pgrid">${list.map((p) => `<a class="pcard" href="#/person/${p.id}">
       <div class="pc-h">${avatar(p.name, p.sex, 'sm')}<div class="pc-n"><b>${esc(p.name)}</b><small>${p.sex === 'f' ? 'Woman' : 'Man'}, ${p.age}${p.partner ? ` · ${icon('heart')} ${esc(p.partner)}` : ''}</small></div>${p.influence !== undefined ? `<span class="pinf" title="influence">${icon('star')}${p.influence}</span>` : ''}</div>
       ${tags(p) ? `<div class="ptags">${tags(p)}</div>` : ''}
       <div class="pc-a">${doing(p)}</div>${objective(p)}
       ${needsHtml(p)}
-      <div class="pc-f">${icon('map')} ${where(p)}${killShort(p) ? ` · <span title="${esc(killsText(p.kills))}">⚔ ${killShort(p)}</span>` : ''}</div></a>`).join('')}</div>`;
+      <div class="pc-f">${icon('map')} ${where(p)}${killShort(p) ? ` · <span title="${esc(killsText(p.kills))}">⚔ ${killShort(p)}</span>` : ''}</div></a>`).join('')}</div>`, drawList);
   else {
     const th = (key: string, label: string, cls = '') => `<th class="${cls}${sort === key ? ' on' : ''}" data-s="${key}">${label}${sort === key ? ' ▾' : ''}</th>`;
-    body = `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl pal"><thead><tr>${th('name', 'Person')}${th('act', 'Doing')}${th('hunger', 'Food', 'nd')}${th('thirst', 'Water', 'nd')}${th('tired', 'Rest', 'nd')}${th('hp', 'Health', 'nd')}${th('map', 'Where', 'hs')}${th('influence', '★', 'num hs')}${th('kills', '⚔', 'num hs')}</tr></thead><tbody>${list.map((p) =>
+    body = paged('people', list, 25, (list) => `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl pal"><thead><tr>${th('name', 'Person')}${th('act', 'Doing')}${th('hunger', 'Food', 'nd')}${th('thirst', 'Water', 'nd')}${th('tired', 'Rest', 'nd')}${th('hp', 'Health', 'nd')}${th('map', 'Where', 'hs')}${th('influence', '★', 'num hs')}${th('kills', '⚔', 'num hs')}</tr></thead><tbody>${list.map((p) =>
       `<tr class="link" data-id="${p.id}"><td class="pn"><div class="pnw">${avatar(p.name, p.sex, 'sm')}<div><b>${esc(p.name)}</b> <small class="dim">${p.sex === 'f' ? 'F' : 'M'} ${p.age}${p.partner ? ` · ♥ ${esc(p.partner)}` : ''}</small>${tags(p) ? `<div class="ptags">${tags(p)}</div>` : ''}</div></div></td>
       <td class="pd">${doing(p)}${objective(p)}</td><td class="nd" data-l="Food">${meter(p.hunger, true, 'Food')}</td><td class="nd" data-l="Water">${meter(p.thirst, true, 'Water')}</td><td class="nd" data-l="Rest">${meter(p.tired, true, 'Rest')}</td><td class="nd" data-l="Health">${meter(p.hp, false, 'Health')}</td>
-      <td class="hs nowrap">${where(p)}</td><td class="num hs">${p.influence ?? ''}</td><td class="num hs" title="${esc(killsText(p.kills))}">${killShort(p) || '<span class="dim">·</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+      <td class="hs nowrap">${where(p)}</td><td class="num hs">${p.influence ?? ''}</td><td class="num hs" title="${esc(killsText(p.kills))}">${killShort(p) || '<span class="dim">·</span>'}</td></tr>`).join('')}</tbody></table></div>`, drawList);
   }
   const players = S.people.filter((p) => p.player && (!q || p.name.toLowerCase().includes(q)));
-  const prow = players.length ? `<h4 class="sub">Players' characters · ${players.length}</h4><div class="prows">${players.map((p) => `<a class="prow" href="#/person/${p.id}">${avatar(p.name, p.sex, 'sm')}<b>${esc(p.name)}</b><span class="tag ${p.online && !p.asleep ? 'ok' : ''}">${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away'}</span><span class="dim">${icon('map')} ${where(p)}</span></a>`).join('')}</div>` : '';
+  const prow = players.length ? `<h4 class="sub">Players' characters · ${players.length}</h4>${paged('players', players, 10, (players) => `<div class="prows">${players.map((p) => `<a class="prow" href="#/person/${p.id}">${avatar(p.name, p.sex, 'sm')}<b>${esc(p.name)}</b><span class="tag ${p.online && !p.asleep ? 'ok' : ''}">${p.online ? (p.asleep ? 'here, asleep' : 'playing now') : 'away'}</span><span class="dim">${icon('map')} ${where(p)}</span></a>`).join('')}</div>`, drawList)}` : '';
   return chips + body + prow;
 }
 function deadHtml(): string {
   const rows = S.profiles.filter((p) => (tab === 'all' || !p.alive) && (!q || p.name.toLowerCase().includes(q))).sort((a, b) => (b.died ?? 1e12) - (a.died ?? 1e12));
   if (!rows.length) return '<div class="empty">Nobody here.</div>';
-  return `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Name</th><th>Age</th><th class="hs">Gen.</th><th class="hs">Parents</th><th>Partner</th><th class="num">Children</th><th class="hs">Kills</th><th>Died</th></tr></thead><tbody>${rows.map((p) =>
-    `<tr class="link" data-id="${p.id}"><td class="pn"><div class="pnw">${avatar(p.name, p.sex, 'sm')}<div><b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</div></td><td>${p.age}</td><td class="hs">${p.generation}</td><td class="hs">${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td class="num">${p.children}</td><td class="hs"><small>${esc(killsText(p.kills) || '-')}</small></td><td>${p.died !== null ? `${gameTime(p.died)}<br><small class="dim">${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`;
+  return paged('dead', rows, 25, (rows) => `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Name</th><th>Age</th><th class="hs">Gen.</th><th class="hs">Parents</th><th>Partner</th><th class="num">Children</th><th class="hs">Kills</th><th>Died</th></tr></thead><tbody>${rows.map((p) =>
+    `<tr class="link" data-id="${p.id}"><td class="pn"><div class="pnw">${avatar(p.name, p.sex, 'sm')}<div><b>${esc(p.name)}</b>${p.alive ? ' <span class="tag ok">alive</span>' : ''}</div></td><td>${p.age}</td><td class="hs">${p.generation}</td><td class="hs">${esc(p.parents.join(', ') || '-')}</td><td>${esc(p.partner ?? '-')}</td><td class="num">${p.children}</td><td class="hs"><small>${esc(killsText(p.kills) || '-')}</small></td><td>${p.died !== null ? `${gameTime(p.died)}<br><small class="dim">${esc(p.cause ?? '')}</small>` : '-'}</td></tr>`).join('')}</tbody></table></div>`, drawList);
 }
 const listHtml = () => tab === 'alive' ? aliveHtml() : tab === 'dead' || tab === 'all' ? deadHtml() : '';
 const isList = () => tab === 'alive' || tab === 'dead' || tab === 'all';
@@ -100,9 +105,9 @@ export const peopleScreen: Screen = {
   },
   async mount() {
     on('#pTabs button', 'click', (b) => { tab = b.dataset.t as Sec; save('pTab', tab); for (const x of view().querySelectorAll('#pTabs button')) x.classList.toggle('on', x === b); toolbarState(); setHtml('pList', '<div class="skel tall"></div>'); void this.refresh!(); });
-    on('#pQ', 'input', (el) => { q = (el as HTMLInputElement).value.trim().toLowerCase(); drawList(); });
+    on('#pQ', 'input', (el) => { q = (el as HTMLInputElement).value.trim().toLowerCase(); pageReset('people'); pageReset('dead'); pageReset('players'); drawList(); });
     on('#pSort', 'change', (el) => { sort = (el as HTMLSelectElement).value; save('pSort', sort); drawList(); });
-    on('#pMapF', 'change', (el) => { mapF = (el as HTMLSelectElement).value; drawList(); });
+    on('#pMapF', 'change', (el) => { mapF = (el as HTMLSelectElement).value; pageReset('people'); drawList(); });
     on('#pLay button', 'click', (b) => { layout = b.dataset.l!; save('pLay', layout); for (const x of view().querySelectorAll('#pLay button')) x.classList.toggle('on', x === b); drawList(); });
     on('#pAdd', 'click', async () => {
       if (!confirm('Add a new person in Old Town? (The world normally grows only by births.)')) return;
@@ -111,7 +116,7 @@ export const peopleScreen: Screen = {
     // Clicks inside the list (filters, sortable headers) are delegated: the list is redrawn every few seconds.
     document.getElementById('pList')?.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
-      const f = t.closest<HTMLElement>('[data-f]'); if (f) { filt = f.dataset.f!; drawList(); return; }
+      const f = t.closest<HTMLElement>('[data-f]'); if (f) { filt = f.dataset.f!; pageReset('people'); drawList(); return; }
       const s = t.closest<HTMLElement>('th[data-s]'); if (s) { sort = s.dataset.s!; save('pSort', sort); (document.getElementById('pSort') as HTMLSelectElement).value = sort; drawList(); }
     });
     (document.getElementById('pSort') as HTMLSelectElement).value = sort;
@@ -150,14 +155,16 @@ async function loadSection(sec: Sec): Promise<void> {
         <div class="plan">${p.lines.filter((l) => l.want > 0).map((l) => { const pc = Math.min(100, Math.round((l.have / l.want) * 100)); return `<div class="pl"><span>${esc(PLAN_WORDS[l.key] ?? l.key)}</span><div class="bar"><i style="width:${pc}%;background:${pc >= 100 ? 'var(--ok)' : pc >= 50 ? 'var(--warn)' : 'var(--bad)'}"></i></div><b>${l.have} / ${l.want}</b></div>`; }).join('')}</div>
         ${Object.keys(p.working).length ? `<small class="dim">Working on it now: ${Object.entries(p.working).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(k)} ${n}`).join(', ')}</small><br>` : ''}
         ${p.boxes.length ? `<small class="dim">Stores at home: ${p.boxes.map((b) => `${b.kind === 'fridge' ? '🧊' : '🧰'} ${esc(b.owner || 'free hut')} (${Object.entries(b.inv).filter(([, v]) => v).map(([k, v]) => `${v} ${esc(k)}`).join(', ') || 'empty'})`).join(' · ')}</small>` : ''}</div>`).join('')) : '';
-    const clans = r?.clans.length ? card('Clans', r.clans.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
-      <div class="chips">${c.members.slice().sort((a, b) => (b.influence ?? 0) - (a.influence ?? 0)).map((m) => `<a class="chip" href="#/person/${m.id}" title="influence ${m.influence ?? '?'}, respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.influence !== undefined ? `influence ${m.influence} · ` : ''}loyal ${m.loyalty}%</small></a>`).join('')}</div>
+    const redo = () => void loadSection(sec);
+    const clans = r?.clans.length ? card(`Clans · ${r.clans.length}`, paged('clans', r.clans.slice().sort((a, b) => b.members.length - a.members.length || a.name.localeCompare(b.name)), 8, (list) => list.map((c) => `<div class="li" style="display:block"><b>${esc(c.name)}</b> <span class="dim">elected leader <a href="#/person/${c.leaderId}">${esc(c.leader)}</a> · approval ${c.approval}% · ${esc(mapName(c.map))} · home (${c.home.join(', ')})${c.founder ? ' · founded by ' + esc(c.founder) : ''}</span>
+      ${((ms) => { const chip = (m: ClanRow['members'][number]) => `<a class="chip" href="#/person/${m.id}" title="influence ${m.influence ?? '?'}, respect ${m.respect}, loyalty ${m.loyalty}%">${esc(m.name)} <small class="dim">${m.influence !== undefined ? `influence ${m.influence} · ` : ''}loyal ${m.loyalty}%</small></a>`;
+        return `<div class="chips">${ms.slice(0, 12).map(chip).join('')}</div>${ms.length > 12 ? `<details class="more" data-keep="cm${c.id}"${openMore.has('cm' + c.id) ? ' open' : ''}><summary>All ${ms.length} members</summary><div class="chips">${ms.slice(12).map(chip).join('')}</div></details>` : ''}`; })(c.members.slice().sort((a, b) => (b.influence ?? 0) - (a.influence ?? 0)))}
       ${c.vote ? `<small><b>Election on</b>: ${esc(c.vote.cands.join(' / '))} (${esc(c.vote.why)}), ${c.vote.votes} votes so far, closes ${gameTime(c.vote.end)}</small><br>` : c.result ? `<small class="dim">Last vote ${gameTime(c.result.at)}: ${esc(c.result.winner)} won${c.result.winner !== c.result.old ? ' (was ' + esc(c.result.old) + ')' : ''} · ${c.result.tally.map(([n, v]) => `${esc(n)} ${v}`).join(', ')}</small><br>` : ''}
       ${c.order ? `<small class="dim">Leader's order: “${esc(c.order)}”</small><br>` : ''}
-      ${c.rivals.length ? `<small class="dim">Rivals: ${c.rivals.map((x) => `${esc(x.name)} (tension ${x.tension}/10)`).join(', ')}</small><br>` : ''}
-      ${c.vote ? '' : `<button class="btn sm" data-vote="${c.id}">Call a vote</button>`}</div>`).join('')) : '';
+      ${c.rivals.length ? `<small class="dim">Rivals: ${few(c.rivals.slice().sort((a, b) => b.tension - a.tension).map((x) => `${esc(x.name)} (tension ${x.tension}/10)`), 5)}</small><br>` : ''}
+      ${c.vote ? '' : `<button class="btn sm" data-vote="${c.id}">Call a vote</button>`}</div>`).join(''), redo)) : '';
     const quests = q ? card('Quests', `<p class="dim">Teachers in ${esc(mapName(q.npcs[0]?.map ?? ''))}: ${q.npcs.map((n) => `${esc(n.name)} (${n.x}, ${n.y})`).join(', ')}. Ten quests in order; each lesson stays in the person's prompts.</p>
-      <div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Person</th><th>Done</th><th>Now</th></tr></thead><tbody>${q.people.sort((a, b) => b.done - a.done || a.name.localeCompare(b.name)).map((p) => `<tr class="link" data-id="${p.id}"><td class="nowrap"><b>${esc(p.name)}</b>${p.player ? ' <span class="tag">player</span>' : ''}</td><td class="qdone"><div class="meter good"><i style="width:${Math.max(2, Math.round((p.done / Math.max(1, q.quests.length)) * 100))}%"></i></div><small>${p.done} / ${q.quests.length}</small></td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <span class="tag ok">hand it in</span>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</tbody></table></div>`) : '';
+      ${paged('quests', q.people.sort((a, b) => b.done - a.done || a.name.localeCompare(b.name)), 25, (list) => `<div class="tbl-wrap ptbl-wrap"><table class="tbl ptbl"><thead><tr><th>Person</th><th>Done</th><th>Now</th></tr></thead><tbody>${list.map((p) => `<tr class="link" data-id="${p.id}"><td class="nowrap"><b>${esc(p.name)}</b>${p.player ? ' <span class="tag">player</span>' : ''}</td><td class="qdone"><div class="meter good"><i style="width:${Math.max(2, Math.round((p.done / Math.max(1, q.quests.length)) * 100))}%"></i></div><small>${p.done} / ${q.quests.length}</small></td><td>${p.cur ? esc(p.cur) + (p.ready ? ' <span class="tag ok">hand it in</span>' : ` <small class="dim">${p.n}/${p.need}</small>`) : '<span class="dim">—</span>'}</td></tr>`).join('')}</tbody></table></div>`, redo)}`) : '';
     const none: Record<string, string> = { clans: 'No clans yet: a camp leader founds one at the registrar.', camps: 'No camp yet: the first fire or hut makes one.', quests: 'Quests are not available on this server.' };
     el.innerHTML = (sec === 'clans' ? clans : sec === 'camps' ? plans : quests) || `<div class="empty">${none[sec] ?? ''}</div>`;
     on('[data-vote]', 'click', (b) => { void cmd({ cmd: 'clanVote', id: Number(b.dataset.vote) }).then(() => { toast('Election opened (2 game hours)'); void loadSection(sec); }, (e) => toast(String(e), 'err')); });
@@ -207,7 +214,7 @@ function personHtml(d: Detail): string {
       ${d.pregnant ? `<p>Expecting a baby: <b>${d.pregnantPct ?? 0}%</b> of the way</p>${meter(d.pregnantPct ?? 0, false, 'Pregnancy')}` : ''}
       ${d.lyingIn ? `<p>Home with the newborn: ${d.lyingIn >= 48 ? `${Math.ceil(d.lyingIn / 24)} game days` : `${d.lyingIn} game hours`} left (goes out only when urgent)</p>` : ''}`)}
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
-    ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${esc(c.rivals.join(', '))}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
+    ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${few(c.rivals.map(esc), 6)}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
     ${((q) => q ? card('Quests', `<p>${q.done} of ${q.all} done${q.cur ? ` · now <b>${esc(q.cur)}</b> ${q.ready ? '(done: hand it in)' : `${q.n}/${q.need}`}` : ''}</p>`) : '')((d as { quests?: { done: number; all: number; cur: string; n: number; need: number; ready: boolean } }).quests)}
     ${(d as { dream?: DreamInfo | null }).dream ? card('Dream in life', dreamHtml((d as { dream: DreamInfo }).dream), { help: help('dream') }) : ''}
     ${card('Influence', influenceHtml(d.influence, d.influenceLog), { help: help('influence') })}

@@ -107,3 +107,39 @@ export function ruleRow(x: Rule, k: number): string {
   }).join('<br>');
   return `<div class="li"><span>“${esc(x.text)}”<br><small class="dim">${tag}${esc(how)}${x.ai ? ' · read by the AI too' : ''}</small>${kept ? `<br><small>${kept}</small>` : ''}</span><button class="btn sm ghost" data-rm="${k}">Remove</button></div>`;
 }
+
+/**
+ * Long lists in pages (imad 2026-11-27: "many places list the whole users list, it makes parts longer and harder to navigate").
+ * `paged(key, items, size, draw, redraw)` = `draw(items of this page)` + a bar (1-25 of 100, previous / next, show all). The page of
+ * each list is kept while the list is redrawn by polling; `pageReset(key)` after a new search / filter. `redraw` draws the list again.
+ */
+const PAGE = new Map<string, number>(), REDRAW = new Map<string, () => void>();
+export function pageReset(key: string): void { PAGE.delete(key); }
+export function paged<T>(key: string, items: T[], size: number, draw: (slice: T[]) => string, redraw: () => void): string {
+  REDRAW.set(key, redraw);
+  const all = PAGE.get(key) === -1, pages = Math.max(1, Math.ceil(items.length / size));
+  let p = all ? 0 : Math.min(PAGE.get(key) ?? 0, pages - 1);
+  if (p < 0) p = 0;
+  const slice = all ? items : items.slice(p * size, p * size + size);
+  if (items.length <= size) return draw(items);
+  const a = all ? 1 : p * size + 1, b = all ? items.length : Math.min(items.length, (p + 1) * size);
+  const bar = `<div class="pager" data-pk="${esc(key)}"><span class="pg-n">${a}–${b} of ${items.length}</span>${all ? '' : `<button class="btn sm ghost" data-pg="${p - 1}" ${p === 0 ? 'disabled' : ''} aria-label="Previous page">‹</button><span class="pg-p">${p + 1} / ${pages}</span><button class="btn sm ghost" data-pg="${p + 1}" ${p >= pages - 1 ? 'disabled' : ''} aria-label="Next page">›</button>`}<button class="btn sm ghost" data-pg="${all ? 0 : -1}">${all ? 'Show in pages' : 'Show all'}</button></div>`;
+  return draw(slice) + bar;
+}
+document.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-pg]'); if (!b) return;
+  const k = b.closest<HTMLElement>('[data-pk]')?.dataset.pk; if (!k) return;
+  e.preventDefault(); e.stopPropagation();
+  PAGE.set(k, Number(b.dataset.pg)); REDRAW.get(k)?.();
+  // The list's top went out of sight (a long page): bring it back.
+  const bar = document.querySelector<HTMLElement>(`[data-pk="${CSS.escape(k)}"]`), top = bar?.parentElement;
+  if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
+/** A search box for a list inside a card: `data-q` = the list's key; screens read `qOf(key)`. */
+const QS = new Map<string, string>();
+export const qOf = (key: string) => QS.get(key) ?? '';
+export const searchBox = (key: string, ph = 'Search a name') => `<label class="search sm">${icon('search')}<input data-q="${esc(key)}" placeholder="${esc(ph)}" value="${esc(qOf(key))}"></label>`;
+document.addEventListener('input', (e) => {
+  const t = e.target as HTMLInputElement; const k = t.dataset?.q; if (!k) return;
+  QS.set(k, t.value.trim().toLowerCase()); PAGE.delete(k); REDRAW.get(k)?.();
+});

@@ -5,7 +5,7 @@ import { lineChart, rangeSeg, chartRange } from './charts.js';
 import { help } from './help.js';
 import { card, on, setHtml, val, type Screen } from './screen.js';
 import { S, overview, people, history, describe, groupOf, KINDS } from './state.js';
-import { esc, gameTime, ago, icon, load, save, toast, ruleRow, type RulesAns } from './util.js';
+import { esc, gameTime, ago, icon, load, save, toast, ruleRow, paged, pageReset, qOf, searchBox, type RulesAns } from './util.js';
 import { WIDGETS, dashOn, setDash } from './dashboard.js';
 import { ctlCards, ctlMount, ctlRefresh, ctlLeave } from './serverctl.js';
 
@@ -227,15 +227,24 @@ export const crafting: Screen = {
     const book = CATEGORIES.map((c) => card(CAT_NAME[c] ?? c, `<div class="recipes">${RECIPES_ALL.filter((r) => r.cat === c).map((r) => `<div class="recipe"><div class="rc-n">${esc(r.what)}${r.n && r.n > 1 ? ` ×${r.n}` : ''}</div><div class="rc-i">${Object.entries(r.need).map(([k, n]) => `<span class="chip">${n} ${esc(k)}</span>`).join('<span class="plus">+</span>')}</div><div class="rc-d">${esc(WHAT_DO[r.what] ?? '')}${PLACEABLE.includes(r.what as never) ? ' · can be put down' : ''}</div></div>`).join('')}</div>`)).join('');
     void WEAPONS; void DEFENCE;
     return `<p class="lead">${icon('craft')} Same ingredients, different category, different thing: <b>1 wood + 1 ore</b> is a <b>sword</b> in Weapons and a <b>door</b> in Furniture. ${help('crafting')}</p>
-      <div class="grid2">${book}${card('Camp stores', `<div id="cStores"></div>`, { help: help('stores') })}${card('Who has what', `<div id="cHold"></div>`, { help: help('holdings') })}</div>`;
+      <div class="grid2">${book}${card('Camp stores', `<div id="cStores"></div>`, { help: help('stores') })}${card('Who has what', `<div id="cHoldSum" class="chips"></div><div id="cHold"></div>`, { help: help('holdings'), tools: searchBox('hold', 'Name or item') })}</div>`;
   },
   async mount() { await this.refresh!(); },
   async refresh() {
     const o = await overview(), ps = await people();
     setHtml('cStores', o.maps.map((m) => `<div class="li"><b>${esc(m.name)}</b><span>${m.store ? Object.entries(m.store).filter(([k, v]) => k !== 't' && v > 0).map(([k, v]) => `<span class="chip">${v} ${esc(k)}</span>`).join('') || '<span class="dim">empty</span>' : '<span class="dim">no camp store yet</span>'}</span></div>`).join(''));
-    setHtml('cHold', ps.filter((p) => !p.player).map((p) => `<div class="li"><a href="#/person/${p.id}"><b>${esc(p.name)}</b></a><span>${[p.carry ? `<span class="chip food">${p.carry} food</span>` : '', ...Object.entries(p.inv ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `<span class="chip">${n} ${esc(k)}</span>`)].join('') || '<span class="dim">nothing</span>'}</span></div>`).join('') || '<div class="empty">Nobody.</div>');
+    drawHold(ps);
   },
 };
+
+/** Crafting > Who has what: what all bags hold together, then each person (search by name or item, in pages). */
+function drawHold(ps: typeof S.people): void {
+  const all = ps.filter((p) => !p.player), tot: Record<string, number> = {};
+  for (const p of all) { if (p.carry) tot.food = (tot.food ?? 0) + p.carry; for (const [k, n] of Object.entries(p.inv ?? {})) if (n > 0) tot[k] = (tot[k] ?? 0) + n; }
+  setHtml('cHoldSum', Object.keys(tot).length ? `<span class="dim small" style="margin-right:6px">All bags:</span>` + Object.entries(tot).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="chip${k === 'food' ? ' food' : ''}">${n} ${esc(k)}</span>`).join('') : '');
+  const q = qOf('hold'), list = all.filter((p) => !q || p.name.toLowerCase().includes(q) || (q === 'food' ? p.carry > 0 : Object.entries(p.inv ?? {}).some(([k, n]) => n > 0 && k.includes(q))));
+  setHtml('cHold', list.length ? paged('hold', list, 12, (l) => l.map((p) => `<div class="li"><a href="#/person/${p.id}"><b>${esc(p.name)}</b></a><span>${[p.carry ? `<span class="chip food">${p.carry} food</span>` : '', ...Object.entries(p.inv ?? {}).filter(([, n]) => n > 0).map(([k, n]) => `<span class="chip">${n} ${esc(k)}</span>`)].join('') || '<span class="dim">nothing</span>'}</span></div>`).join(''), () => drawHold(S.people)) : '<div class="empty">Nobody matches.</div>');
+}
 
 // ------------------------------------------------------------ rules
 let rFor = -1;
@@ -254,7 +263,11 @@ export const rules: Screen = {
   },
   async refresh(given?: RulesAns) {
     const r = given ?? await cmd<RulesAns>({ cmd: 'rules' });
-    setHtml('rWho', [`<button class="who ${rFor < 0 ? 'on' : ''}" data-id="-1">Everyone <small>${r.all.length}/${r.max}</small></button>`, ...r.people.map((p) => `<button class="who ${rFor === p.id ? 'on' : ''}" data-id="${p.id}">${esc(p.name)} <small>${p.rules.length}/${r.max}</small></button>`)].join(''));
+    // Everyone, the people who have rules, and the one picked; anyone else is found by name (100 people = 100 buttons before).
+    const shown = r.people.filter((p) => p.rules.length || p.id === rFor);
+    setHtml('rWho', [`<button class="who ${rFor < 0 ? 'on' : ''}" data-id="-1">Everyone <small>${r.all.length}/${r.max}</small></button>`, ...shown.map((p) => `<button class="who ${rFor === p.id ? 'on' : ''}" data-id="${p.id}">${esc(p.name)} <small>${p.rules.length}/${r.max}</small></button>`)].join('')
+      + `<div class="row rpick"><input id="rPick" list="rNames" placeholder="Someone else: type a name"><datalist id="rNames">${r.people.map((p) => `<option value="${esc(p.name)}">`).join('')}</datalist></div>`);
+    on('#rPick', 'change', (el) => { const n = (el as HTMLInputElement).value.trim().toLowerCase(), p = r.people.find((x) => x.name.toLowerCase() === n); if (p) { rFor = p.id; void this.refresh!(r as never); } });
     const list = rFor < 0 ? r.all : r.people.find((p) => p.id === rFor)?.rules ?? [];
     setHtml('rList', list.length ? list.map((x, k) => ruleRow(x, k)).join('') : '<div class="empty">No rules yet.</div>');
     (document.getElementById('rAdd') as HTMLButtonElement | null)?.toggleAttribute('disabled', list.length >= r.max);
@@ -451,6 +464,11 @@ function autoTxt(on: boolean): void {
 // ------------------------------------------------------------ events
 type Ev = { at: number; kind: string; data: Record<string, unknown> };
 let evGroup = 'all', evQ = '', evLimit = 200;
+let evRows: [Ev, string][] = [];
+/** The timeline, 50 lines a page, a day heading where the day changes (and at the top of each page). */
+function drawEvents(): void {
+  setHtml('eList', evRows.length ? paged('ev', evRows, 50, (rows) => { let day = -1; return rows.map(([e, t]) => { const d = Math.floor((e.at / 3600 + 8) / 24); const head = d !== day ? `<div class="evday">Day ${d + 1}</div>` : ''; day = d; return `${head}<div class="ev"><i class="dotc" style="background:${KINDS[groupOf(e.kind)]![1]}"></i><span class="ev-t">${gameTime(e.at, true)}</span><span>${esc(t)}</span></div>`; }).join(''); }, drawEvents) : '<div class="empty">Nothing matches.</div>');
+}
 export const events: Screen = {
   title: 'Events', icon: 'events', help: 'events', every: 8,
   render() {
@@ -460,8 +478,8 @@ export const events: Screen = {
       <div class="grid2">${card('Timeline', `<div id="eList" class="feed long"></div>`, { cls: 'span2' })}${card('Past events (zombie attacks)', `<div id="eRep"></div>`, { help: help('replays'), cls: 'span2' })}</div>`;
   },
   async mount() {
-    on('#eG button', 'click', (b) => { evGroup = b.dataset.g!; for (const x of document.querySelectorAll('#eG button')) x.classList.toggle('on', x === b); void this.refresh!(); });
-    on('#eQ', 'input', (el) => { evQ = (el as HTMLInputElement).value.trim().toLowerCase(); void this.refresh!(); });
+    on('#eG button', 'click', (b) => { pageReset('ev'); evGroup = b.dataset.g!; for (const x of document.querySelectorAll('#eG button')) x.classList.toggle('on', x === b); void this.refresh!(); });
+    on('#eQ', 'input', (el) => { pageReset('ev'); evQ = (el as HTMLInputElement).value.trim().toLowerCase(); void this.refresh!(); });
     on('#eL', 'change', (el) => { evLimit = Number((el as HTMLSelectElement).value); void this.refresh!(); });
     await people();
     await this.refresh!();
@@ -469,10 +487,10 @@ export const events: Screen = {
   async refresh() {
     const list = (await cmd<Ev[]>({ cmd: 'timeline', limit: evLimit })).filter((e) => e.kind !== 'admin' && (evGroup === 'all' || groupOf(e.kind) === evGroup));
     const rows = list.map((e) => [e, describe(e)] as const).filter(([, t]) => !evQ || t.toLowerCase().includes(evQ));
-    let day = -1;
-    setHtml('eList', rows.map(([e, t]) => { const d = Math.floor((e.at / 3600 + 8) / 24); const head = d !== day ? `<div class="evday">Day ${d + 1}</div>` : ''; day = d; return `${head}<div class="ev"><i class="dotc" style="background:${KINDS[groupOf(e.kind)]![1]}"></i><span class="ev-t">${gameTime(e.at, true)}</span><span>${esc(t)}</span></div>`; }).join('') || '<div class="empty">Nothing matches.</div>');
+    evRows = rows as unknown as [Ev, string][];
+    drawEvents();
     const reps = await cmd<{ id: number; map: string; start: number; secs: number; people: string[]; zombies: number; bites: number; killed: number; deaths: string[] }[]>({ cmd: 'replays' });
-    setHtml('eRep', reps.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Map</th><th>Length</th><th>People</th><th>Zombies</th><th>Bites</th><th>Killed</th><th>Deaths</th></tr></thead><tbody>${reps.map((r) => `<tr><td>${gameTime(r.start)}</td><td>${esc(r.map)}</td><td>${r.secs} s</td><td>${esc(r.people.join(', ') || '-')}</td><td>${r.zombies}</td><td>${r.bites}</td><td>${r.killed}</td><td>${esc(r.deaths.join(', ') || '-')}</td></tr>`).join('')}</tbody></table></div><p class="dim">Watch them on the TV: game menu > Past events.</p>` : '<div class="empty">No zombie attack recorded yet.</div>');
+    setHtml('eRep', reps.length ? `${paged('reps', reps, 10, (reps) => `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>When</th><th>Map</th><th>Length</th><th>People</th><th>Zombies</th><th>Bites</th><th>Killed</th><th>Deaths</th></tr></thead><tbody>${reps.map((r) => `<tr><td>${gameTime(r.start)}</td><td>${esc(r.map)}</td><td>${r.secs} s</td><td>${esc(r.people.join(', ') || '-')}</td><td>${r.zombies}</td><td>${r.bites}</td><td>${r.killed}</td><td>${esc(r.deaths.join(', ') || '-')}</td></tr>`).join('')}</tbody></table></div>`, () => void this.refresh!())}<p class="dim">Watch them on the TV: game menu > Past events.</p>` : '<div class="empty">No zombie attack recorded yet.</div>');
   },
 };
 
