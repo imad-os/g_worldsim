@@ -40,7 +40,7 @@ test('territory: each clan has a camp; at peace a visitor walks in freely and no
   for (let s = 0; s < 20 * 60; s++) { w.step(); fed(); }
   assert.equal(warned, 0, 'a visitor at peace is welcome');
   assert.equal(w.territory.avoidFor(v), null, 'no camp is closed to them');
-  assert.match(w.clans.promptText(v), new RegExp(`${B.name} camp .*open to visit`));
+  assert.match(w.clans.promptText(v), new RegExp(`${B.name} town .*open to visit`));
 });
 
 test('territory: at war an intruder is warned, turns back, is barred and their ways go round the camp', () => {
@@ -94,4 +94,33 @@ test('territory: paths keep out of a closed camp', () => {
   let closest = Infinity;
   for (let s = 0; s < 20 * 60; s++) { w.step(); closest = Math.min(closest, Math.hypot(e.x[v]! - other.x, e.y[v]! - other.y)); if (Math.hypot(e.x[v]! - goal.x, e.y[v]! - goal.y) < 1.5) break; }
   assert.ok(closest > 15, `stayed out of the camp (closest ${closest.toFixed(1)} m)`);
+});
+
+test('territory: a camp is a small town whose edge takes in its people\'s huts; destroying gives back half the ingredients', () => {
+  const { w, e, town, people, B, other } = setup('terr-town');
+  const sv = w.survival, b = people[7]!, tm = w.maps[town]!.tiles;
+  const r0 = w.territory.camps(town).find((c) => c.clan === B.id)!.r;
+  // A hut 24-30 m out from B's centre, built by a B member.
+  sv.add(b, 'wood', 40); sv.add(b, 'stone', 20); sv.add(b, 'leather', 10);
+  let built = '';
+  for (let a = 0; a < 16 && built !== 'built'; a++) {
+    const x0 = Math.floor(other.x + Math.cos(a * 0.4) * 26) - 3, y0 = Math.floor(other.y + Math.sin(a * 0.4) * 26) - 3;
+    w.place(b, town, x0 + 3.5, y0 + 9.5);
+    built = sv.placeAt(b, 'hut', x0, y0, 0);
+  }
+  assert.equal(built, 'built');
+  w.step(); for (let s = 0; s < 21; s++) w.step();
+  const r1 = w.territory.camps(town).find((c) => c.clan === B.id)!.r;
+  assert.ok(r1 > r0 + 8, `the town grew to take in the hut (${r0} -> ${r1.toFixed(0)} m)`);
+  // Recycling: a palisade (2 wood) gives back 1 wood; a door (1 wood + 1 ore) at least 1 wood.
+  const wood0 = sv.inv(b).wood ?? 0;
+  const p = w.freeSpot(town, e.x[b]! + 2, e.y[b]!, 40)!;
+  w.place(b, town, p.x, p.y);
+  sv.add(b, 'palisade', 1);
+  const tx = Math.floor(p.x) + 2, ty = Math.floor(p.y);
+  assert.equal(sv.placeAt(b, 'palisade', tx, ty, 0), 'placed');
+  assert.equal(sv.destroyAt(b, tx, ty), 'destroyed');
+  assert.equal((sv.inv(b).wood ?? 0) - wood0, 1, 'half of 2 wood back');
+  assert.equal(sv.inv(b).palisade ?? 0, 0, 'recycled, not the palisade itself');
+  void tm;
 });

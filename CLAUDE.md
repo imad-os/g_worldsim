@@ -989,3 +989,11 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   never inside a camp (the camp's rules apply). `PVP_MAX` 14 (was 30). Defence: each clan camp has its own night watch (and a day guard at war,
   `Survival.postGuard`); the main watch skips clan-camp members; `Tactics.muster(m, i)` rallies at the person's own camp.
 - TV map: `places.clanCamps` rings (mine green, open grey, closed red dashed + ⚔). Test territory.test.ts.
+- **Destroy = recycling, towns, government (imad 2026-11-27)**: pulling anything down gives back half its recipe (`refundOf`: floor, at least 1 of the
+  biggest; a piece no longer comes back whole; a player gets it as ground piles). TV action `destroy` (unbound; Actions menu, wheel item ⛏) = the
+  aimed pull-down. A camp's edge takes in its people's huts (+6 m; camp up to 28 m, town 42). `sim/towns.ts` (`World.towns`, run from
+  `Territory.hourly`): a clan of more than `TOWN_AT` 10 with a camp becomes a TOWN (AI leader by itself, player Do `clan` `town`, chat skill clan
+  "town"; `Clan.town`). Government `Clan.gov` = `seats(n)`: 11-15 security, 16-24 + resources, 25+ + society; the leader appoints by fit (daily, keeps the
+  holder unless 0.25 worse). Security: first guard / warner, +1 night guard, spears before a zombie night; resources: gives the day chore instead of
+  the leader (`leaderOrder` boss); society: free hut for a homeless member, daily make-up of the worst pair, `Clans.ease` tension with clans at peace.
+  Prompt line `towns.promptText`; TV Clan page shows the government + "Make our camp a town". Test towns.test.ts.

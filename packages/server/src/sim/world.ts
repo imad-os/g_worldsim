@@ -12,6 +12,7 @@ import { Life } from './life.js';
 import { Tasks } from './tasks.js';
 import { Clans } from './clans.js';
 import { Territory } from './territory.js';
+import { Towns } from './towns.js';
 import { Family } from './family.js';
 import { Survival } from './survival.js';
 import { Gear } from './gear.js';
@@ -118,6 +119,8 @@ export class World {
   readonly clans: Clans;
   /** Clan camps as territory: visitors, intruders warned then driven out, enemy camps kept clear of (sim/territory.ts). */
   readonly territory: Territory;
+  /** Camps made towns and their government (sim/towns.ts). */
+  readonly towns: Towns;
   /** Families: who is family, little ones and who looks after them (sim/family.ts). */
   readonly family: Family;
   /** A person says a line aloud (the planner sets it: viewers, memory of those near). */
@@ -181,6 +184,7 @@ export class World {
     this.purpose = new Purpose(this);
     this.clans = new Clans(this);
     this.territory = new Territory(this);
+    this.towns = new Towns(this);
     this.family = new Family(this);
     this.zombies = new Zombies(this);
     this.rules = new Rules(this);

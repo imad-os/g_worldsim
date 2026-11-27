@@ -42,6 +42,10 @@ export interface Clan {
   order?: string; orderAt?: number;
   /** The clan's own camp (imad 2026-11-26: past CLAN_CAMP_AT members): centre in metres, map index, when it was founded. Members build their huts there. */
   camp?: { x: number; y: number; m: number; at: number };
+  /** The camp is a town (sim/towns.ts: the leader made it one past 10 members) and its government: who heads security / resources / society. */
+  town?: { at: number };
+  gov?: { at: number; security?: number; resources?: number; society?: number };
+  secAt?: number; socAt?: number;
 }
 interface Duel { a: number; b: number; start: number; hitAt: number; hurt: [number, number]; /** Tick it began: a duel lasts 40 real (sim) seconds, not 40 game seconds (at clockScale 30 that was 1.3 s: no duel ever got to blows). */ t0?: number }
 /**
@@ -176,6 +180,8 @@ export class Clans {
     }
     if (this.tension(A.id, B.id) >= 10) { if (!this.topSince.has(k)) this.topSince.set(k, w.gameSec); } else this.topSince.delete(k);
   }
+  /** Tension between clans a and b eases by d (sim/towns.ts: the head of society keeps the peace). */
+  ease(a: number, b: number, d: number, cause: string): void { this.addTension(a, b, -Math.abs(d), cause); }
   /** Tension between clan `clan` and person id's clan goes up by d (sim/territory.ts: trespassing). */
   bump(clan: number, id: number, d: number, cause: string): void { const c = this.of.get(id); if (c !== undefined && c !== clan) this.addTension(clan, c, d, cause); }
   /** Event hook: a killing between clans. */
@@ -527,7 +533,9 @@ export class Clans {
       else return;
     } else return;
     c.order = text; c.orderAt = w.gameSec;
-    w.speak(L, `${c.name}! ${text}`);
+    // In a town the head of resources gives the day's chore (sim/towns.ts); the night rally stays the leader's.
+    const rh = danger ? -1 : w.towns.holder(c, 'resources'), R = rh >= 0 ? e.slot(rh) : -1, boss = R >= 0 && e.kind[R] === Kind.Agent ? rh : c.leader;
+    w.speak(boss === c.leader ? L : R, `${c.name}! ${text}`);
     // A day's chore goes to a crew, not the whole clan: with 300 people a clan of 100 all walked to the one store crate and the water's
     // edge at once and jammed there, pushing each other every tick (half the server's work, imad 2026-11-27). The night rally is for all.
     let n = 0;
@@ -535,10 +543,10 @@ export class Clans {
     for (const id of c.members) {
       if (n >= crew) break;
       const i = e.slot(id);
-      if (id === c.leader || i < 0 || e.kind[i] !== Kind.Agent || e.map[i] !== c.map || !this.free(i)) continue;
+      if (id === c.leader || id === boss || i < 0 || e.kind[i] !== Kind.Agent || e.map[i] !== c.map || !this.free(i)) continue;
       if (!w.rng.chance(0.15 + (this.loyal.get(id) ?? 0.5) * 0.6)) continue;
       if (w.profileOf(i)?.mind?.task) w.tasks.stop(i); // their own work waits for the clan's order
-      if (w.tasks.start(i, text.replace(/[.:!].*$/, '').toLowerCase().slice(0, 60) || 'the clan\'s order', this.name(c.leader), steps(i))) n++;
+      if (w.tasks.start(i, text.replace(/[.:!].*$/, '').toLowerCase().slice(0, 60) || 'the clan\'s order', this.name(boss), steps(i))) n++;
     }
     w.emit('clanOrder', { clan: c.name, id: c.leader, text, n });
   }
@@ -757,6 +765,13 @@ export class Clans {
     const q = (s.what ?? '').toLowerCase().trim();
     const ww = warWords(q);
     if (ww) { const r = this.warOrder(i, ww, q, this.name(id)); return r.ok || r.text; }
+    if (/\btown\b|\bville\b|ciudad|pueblo|مدينة|بلدة/.test(q)) { // make our camp a town (the leader)
+      const c = this.clanOf(id);
+      if (!c) return 'I am in no clan';
+      if (c.leader !== id) return `only our leader ${this.name(c.leader)} can make our camp a town`;
+      const why = w.towns.found(c, this.name(id));
+      return why === '' || why === 'already a town' ? true : why;
+    }
     const verb = /quit|leave|quitter|dejar|salir|غادر|انسحب/.test(q) ? 'quit' : /found|create|start|fonder|créer|fundar|crear|أسس|انشئ/.test(q) ? 'found'
       : /vote|élire|elegir|votar|صوت/.test(q) ? 'vote' : /call|election|élection|elección|انتخاب/.test(q) ? 'call' : 'join';
     const near = (j: number, r: number) => j >= 0 && e.map[j] === e.map[i] && Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!) <= r;
@@ -833,6 +848,11 @@ export class Clans {
       return { ok: true, code: 'clanFounded', name: c.name, clan: this.info(i) };
     }
     if (!mine) return { ok: false, code: 'clanNone' };
+    if (verb === 'town') { // a player leader makes the camp a town (sim/towns.ts)
+      if (mine.leader !== id) return { ok: false, code: 'clanNotLeader' };
+      const why = w.towns.found(mine, this.name(id));
+      return why ? { ok: false, code: 'clanTownNo', why, clan: this.info(i) } : { ok: true, code: 'clanTown', name: mine.name, clan: this.info(i) };
+    }
     if (verb === 'vote') {
       if (!mine.vote) return { ok: false, code: 'clanNoVote' };
       return this.ballot(mine, id, Number(arg)) ? { ok: true, code: 'clanVoted', name: this.name(Number(arg)), clan: this.info(i) } : { ok: false, code: 'clanNoVote' };
@@ -871,7 +891,7 @@ export class Clans {
         influence: this.inf(id), callMin: CALL_MIN,
         vote: c.vote ? { end: c.vote.end, why: c.vote.why, cands: c.vote.cands.map((k) => ({ id: k, name: this.name(k) })), my: c.vote.ballots.find(([v]) => v === id)?.[1] ?? -1 } : null,
         result: c.result ? { winner: this.name(c.result.winner), old: this.name(c.result.old), tally: c.result.tally.map(([k, n]) => [this.name(k), n]) } : null,
-        order: c.order ?? '', camp: c.camp ? { x: Math.round(c.camp.x), y: Math.round(c.camp.y) } : null, rivals: this.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension) })), now: w.gameSec,
+        town: w.towns.info(c), order: c.order ?? '', camp: c.camp ? { x: Math.round(c.camp.x), y: Math.round(c.camp.y) } : null, rivals: this.rivals(c).map((r) => ({ name: r.clan.name, tension: Math.round(r.tension) })), now: w.gameSec,
       }, others, nearReg,
     };
   }
@@ -884,7 +904,7 @@ export class Clans {
     return `Clan: ${c.name}, ${lead ? 'you are its elected leader (your members follow your orders)' : `led by ${this.name(c.leader)} (elected; approval ${this.approval(c)}%)`}, ${c.members.length} members; your loyalty ${Math.round(this.loyalty(id) * 100)}%.`
       + (c.order ? ` The leader's order: "${c.order}".` : '') + (c.vote ? ` An election is on: ${c.vote.cands.map((k) => this.name(k)).join(' or ')}.` : '')
       + (c.camp ? ` Your clan has its own camp at (${Math.round(c.camp.x)}, ${Math.round(c.camp.y)}): your home and huts belong there.` : c.members.length > CLAN_CAMP_AT - 4 ? ` Past ${CLAN_CAMP_AT} members a clan gets a camp of its own.` : '')
-      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + this.warText(c, lead) + w.territory.promptText(i) + ' You may change clan (skill clan), but everyone must belong to one.';
+      + (r.length ? ' Rivals: ' + r.join(', ') + '.' : '') + this.warText(c, lead) + w.towns.promptText(id) + w.territory.promptText(i) + ' You may change clan (skill clan), but everyone must belong to one.';
   }
   private warText(c: Clan, lead: boolean): string {
     const ws = this.wars.filter((x) => x.a === c.id || x.b === c.id).map((x) => { const mine = x.a === c.id ? 0 : 1, f = this.byId(x.a === c.id ? x.b : x.a); return `${f?.name ?? '?'} (duels won ${x.wins[mine]} to ${x.wins[1 - mine]})`; });

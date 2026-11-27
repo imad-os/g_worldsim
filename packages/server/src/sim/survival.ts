@@ -23,6 +23,14 @@ export interface Drop { what: string; n: number; at: number }
 /** Things made from a recipe (crafting, shared with the viewer: @worldsim/protocol craft.ts) plus the hut. */
 export const RECIPES: Record<string, Inv> = { hut: { ...HUT_NEED } };
 for (const r of RECIPES_ALL) RECIPES[r.what] ??= r.need;
+/** What pulling down `what` gives back: half of each ingredient (rounded down), at least 1 of the biggest. A field gives back its seeds' worth of nothing. */
+export function refundOf(what: string): [string, number][] {
+  const need = RECIPES[what];
+  if (!need) return [];
+  const out = Object.entries(need).map(([k, n]) => [k, Math.floor((n ?? 0) / 2)] as [string, number]).filter(([, n]) => n > 0);
+  if (!out.length) { const big = Object.entries(need).sort((x, y) => (y[1] ?? 0) - (x[1] ?? 0))[0]; if (big) out.push([big[0], 1]); }
+  return out;
+}
 /** Kept in the inventory (not put down): weapons, arrows and clothes. */
 const KEEP = new Set(['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor', 'helmet']);
 /** Game seconds of work. */
@@ -881,8 +889,10 @@ export class Survival {
       if (p) delete p.home;
       h.owner = -1;
       this.homes.sync();
-      this.add(i, 'wood', Math.floor((HUT_NEED.wood ?? 0) / 2)); this.add(i, 'stone', Math.floor((HUT_NEED.stone ?? 0) / 2)); this.add(i, 'leather', Math.floor((HUT_NEED.leather ?? 0) / 2));
-    } else if (what !== 'campfire' && what !== 'field' && this.placeTile.has(what)) this.add(i, what, 1);
+    }
+    // Recycling (imad 2026-11-27: "on destruction it should drop half of the ingredients needed to build"): every built thing gives back half
+    // of what it cost, rounded down, and at least one of its main material (a door of 1 wood + 1 ore gives 1 wood).
+    for (const [k, n] of refundOf(what === 'door' ? 'door' : what)) this.add(i, k, n);
     for (const c of cells) this.emptyBox(i, m, c); // what was kept in a fridge / chest goes into the bag (the rest is lost)
     w.brain.resetShelters(m);
     w.emit('destroy', { id: w.e.id(i), what, map: w.maps[m]!.def.id, tx: k % W, ty: (k / W) | 0 });

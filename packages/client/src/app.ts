@@ -900,12 +900,12 @@ const VSTICK: [number, number] = [0, 0];
 // ------------------------------------------------------------ quick action wheel
 const wheel = new Wheel(document.getElementById('wheel')!);
 /** Everything the wheel can hold; the player picks which and in what order (Settings > Quick action wheel, `MyPC.save('wheel')`). */
-const WHEEL_ALL = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson', 'gear', 'me', 'talk', 'attack', 'pickup', 'thoughts'] as const;
+const WHEEL_ALL = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson', 'gear', 'me', 'talk', 'attack', 'pickup', 'thoughts', 'destroy'] as const;
 const WHEEL_DEFAULT: string[] = ['map', 'use', 'horse', 'eat', 'drink', 'sleep', 'heal', 'build', 'place', 'bag', 'camera', 'attackPerson'];
 const WHEEL_MAX = 12;
 let wheelIds: string[] = [...WHEEL_DEFAULT];
-const WHEEL_ICON: Record<string, string> = { map: '🗺', horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️', heal: '✚', gear: '🛡', me: '🙂', talk: '💬', attack: '🗡', pickup: '👐', thoughts: '💭' };
-const WHEEL_KEY: Record<string, Key> = { map: 'qMap', horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson', heal: 'qHeal', gear: 'qGear', me: 'qMe', talk: 'qTalk', attack: 'qAttack', pickup: 'qPickup', thoughts: 'qThoughts' };
+const WHEEL_ICON: Record<string, string> = { map: '🗺', horse: '🐎', use: '✋', eat: '🍖', drink: '💧', sleep: '🛏', build: '🔨', place: '🧱', bag: '🎒', camera: '🎥', attackPerson: '⚔️', heal: '✚', gear: '🛡', me: '🙂', talk: '💬', attack: '🗡', pickup: '👐', thoughts: '💭', destroy: '⛏' };
+const WHEEL_KEY: Record<string, Key> = { map: 'qMap', horse: 'qHorse', use: 'qUse', eat: 'qEat', drink: 'qDrink', sleep: 'qSleep', build: 'aBuild', place: 'qPlace', bag: 'qBag', camera: 'qCamera', attackPerson: 'aAttackPerson', heal: 'qHeal', gear: 'qGear', me: 'qMe', talk: 'qTalk', attack: 'qAttack', pickup: 'qPickup', thoughts: 'qThoughts', destroy: 'qDestroy' };
 function loadWheel(): void {
   const v = MyPC.load('wheel', null) as unknown;
   if (Array.isArray(v)) { const ok = v.filter((x): x is string => typeof x === 'string' && (WHEEL_ALL as readonly string[]).includes(x)); if (ok.length >= 2) wheelIds = [...new Set(ok)].slice(0, WHEEL_MAX); }
@@ -1429,6 +1429,7 @@ function doAction(a: ActionId, pressed: boolean): void {
     return;
   }
   if (a === 'attack') { attack(); return; }
+  if (a === 'destroy') { if (!placing) startPlacing('destroy'); return; } // aim at what to pull down (own or a dead owner's)
   if (a === 'horse') { send({ t: Msg.Do, a: 'horse' }); return; } // off when riding, on my horse, tame a wild one, or call mine
   if (a === 'attackPerson') { // a person, never by mistake: PvP must be on first
     if (!meNeeds?.pvp) { note(t('pvpNeed'), 3000); return; }

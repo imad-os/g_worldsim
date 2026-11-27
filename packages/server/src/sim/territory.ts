@@ -33,10 +33,12 @@ export const GRACE = 15;
 export const BAR_HOURS = 3;
 /** Radius of a clan's own camp (metres); the map's first camp uses its wall circle. Paths keep MARGIN more off it. */
 const CLAN_R = 18, MARGIN = 3;
+/** A town's edge reaches its farthest hut + HUT_PAD (a hut is 7 x 7), up to TOWN_MAX metres from the centre; farther huts are strays. */
+const TOWN_MAX = 42, CAMP_MAX = 28, HUT_PAD = 6;
 const HOUR = 3600;
 
 export class Territory {
-  private campCache: { tick: number; list: Camp[] }[] = [];
+  private campCache: { tick: number; list: Camp[]; sig: string }[] = [];
   private masks = new Map<string, Uint8Array>();
   private intr = new Map<number, Intruder>(); // by intruder entity id
   /** Entity id -> barred camps: clan id -> until (game seconds). */
@@ -49,15 +51,32 @@ export class Territory {
 
   // ------------------------------------------------------------------ the camps
   camps(m: number): Camp[] {
-    const w = this.w, c = this.campCache[m];
-    if (c && c.tick === w.tick) return c.list;
-    const list: Camp[] = [], main = w.survival.campOf(m);
+    const w = this.w, c = this.campCache[m], main = w.survival.campOf(m);
+    let sig = main ? `${main.x},${main.y}` : '-';
+    for (const k of w.clans.clans) if (k.camp && k.camp.m === m) sig += `|${k.id}:${k.camp.x},${k.camp.y}:${k.members.length ? 1 : 0}`;
+    if (c && c.sig === sig && w.tick - c.tick < 20) return c.list; // the towns' edges are worked out once a sim second
+    const list: Camp[] = [];
     if (main) {
       const mc = w.clans.mainClan(m), per = w.survival.perimeter(m);
       list.push({ clan: mc ? mc.id : -1, m, x: main.x, y: main.y, r: Math.max(14, Math.min(30, per ? per.r : CLAN_R)), main: true });
     }
     for (const k of w.clans.clans) if (k.camp && k.camp.m === m && k.members.length) list.push({ clan: k.id, m, x: k.camp.x, y: k.camp.y, r: CLAN_R, main: false });
-    this.campCache[m] = { tick: w.tick, list };
+    // A camp is a small town (imad 2026-11-27): its edge takes in every hut of its people standing near it.
+    if (list.length) {
+      const H = w.survival.homes;
+      for (const h of H.list) {
+        if (h.m !== m) continue;
+        const o = h.owner >= 0 ? h.owner : h.by, oc = o >= 0 ? w.clans.clanOf(o)?.id : undefined, mid = H.middle(h);
+        let best: Camp | undefined, bd = TOWN_MAX;
+        for (const cp of list) {
+          const d = Math.hypot(mid.x - cp.x, mid.y - cp.y);
+          const theirs = cp.clan >= 0 && oc === cp.clan || cp.main && (oc === undefined || !list.some((x) => x.clan === oc));
+          if (theirs && d < bd) { bd = d; best = cp; }
+        }
+        if (best) { const k = w.clans.byId(best.clan); best.r = Math.max(best.r, Math.min(k?.town ? TOWN_MAX : CAMP_MAX, bd + HUT_PAD)); }
+      }
+    }
+    this.campCache[m] = { tick: w.tick, list, sig };
     return list;
   }
   /** The camp (x, y) on map m is in, if any. */
@@ -166,7 +185,7 @@ export class Territory {
       if (w.family.ageOf(g) < 16 || e.hp[g]! < 35) continue;
       const d = Math.hypot(e.x[g]! - x, e.y[g]! - y);
       if (d > r + 14) continue;
-      const s = d - (w.survival.guarding(id) ? 20 : 0) - (w.profiles.get(id)?.traits.courage ?? 0.5) * 6;
+      const s = d - (w.survival.guarding(id) ? 20 : 0) - (c.gov?.security === id ? 25 : 0) - (w.profiles.get(id)?.traits.courage ?? 0.5) * 6;
       if (s < bs) { bs = s; best = g; }
     }
     return best;
@@ -261,6 +280,7 @@ export class Territory {
   // ------------------------------------------------------------------ hourly: each clan camp's watch
   private hourly(): void {
     const w = this.w, e = w.e, hour = w.brain.hour(), night = hour >= 20 || hour < 5;
+    this.w.towns.hourly();
     for (const b of [...this.barred]) { for (const [k, t] of b[1]) if (t <= w.gameSec) b[1].delete(k); if (!b[1].size) this.barred.delete(b[0]); }
     for (let m = 0; m < w.maps.length; m++) for (const c of this.camps(m)) {
       const clan = w.clans.byId(c.clan);
@@ -271,12 +291,12 @@ export class Territory {
       const people = clan.members.map((id) => e.slot(id)).filter((i) => i >= 0 && e.kind[i] === Kind.Agent && e.map[i] === m && !(e.flags[i]! & 32));
       if (people.length < 3) continue;
       const zomb = w.zombies.perNight > 0 || w.zombies.count(m) > 0;
-      const want = night ? ((atWar || zomb) && people.length >= 6 ? 2 : 1) : 1;
+      const sec = clan.gov?.security, want = (night ? ((atWar || zomb) && people.length >= 6 ? 2 : 1) : 1) + (night && sec !== undefined && people.length >= 8 ? 1 : 0); // a town's head of security keeps one more on the watch
       let have = people.filter((i) => w.survival.guarding(e.id(i))).length;
       if (have >= want) continue;
       const fit = people.filter((i) => !w.survival.busy(e.id(i)) && !w.profileOf(i)?.mind?.task && !w.brain.orderOf(i).kind && e.hp[i]! > 60 && e.hunger[i]! < 60
         && e.thirst[i]! < 60 && e.tired[i]! < 65 && w.family.ageOf(i) >= 16 && !w.family.lyingInHome(i) && !w.rules.forbidden(i, 'fight') && (w.profileOf(i)?.traits.courage ?? 0.5) > 0.4)
-        .sort((a, b) => this.score(b) - this.score(a));
+        .sort((a, b) => this.score(b) + (e.id(b) === sec ? 1 : 0) - this.score(a) - (e.id(a) === sec ? 1 : 0)); // the head of security takes the watch first
       for (const i of fit) {
         if (have >= want) break;
         // Face the way trouble comes from: the nearest enemy camp, else outwards.
@@ -302,12 +322,12 @@ export class Territory {
     for (const c of this.camps(m)) {
       if (c.clan < 0) continue;
       const k = w.clans.byId(c.clan), d = Math.round(Math.hypot(c.x - e.x[i]!, c.y - e.y[i]!));
-      const where = `at (${Math.round(c.x)}, ${Math.round(c.y)}), ${d} m`;
-      if (c.clan === mine) out.push(`your clan's camp ${where} (defend it)`);
-      else if (this.closedTo(id, c)) out.push(`the ${k?.name} camp ${where}: CLOSED to you${mine !== undefined && w.clans.warOf(mine, c.clan) ? ' (at war: their guards warn, then attack)' : ' (you were told to leave)'}, keep out`);
-      else out.push(`the ${k?.name} camp ${where}: open to visit (family, water, trade)`);
+      const where = `at (${Math.round(c.x)}, ${Math.round(c.y)}), ${d} m away, ${Math.round(c.r)} m across`;
+      if (c.clan === mine) out.push(`your clan's town ${where} (build your hut there, near the others; defend it)`);
+      else if (this.closedTo(id, c)) out.push(`the ${k?.name} town ${where}: CLOSED to you${mine !== undefined && w.clans.warOf(mine, c.clan) ? ' (at war: their guards warn, then attack)' : ' (you were told to leave)'}, keep out`);
+      else out.push(`the ${k?.name} town ${where}: open to visit (family, water, trade)`);
     }
-    return out.length ? ` Camps: ${out.join('; ')}.` : '';
+    return out.length ? ` Towns (camps): ${out.join('; ')}.` : '';
   }
 
   // ------------------------------------------------------------------ saving
