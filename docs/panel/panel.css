@@ -66,7 +66,7 @@ input[type=checkbox]{accent-color:var(--acc);width:18px;height:18px;min-height:a
 .app{display:flex;min-height:100vh}
 .side{position:sticky;top:0;height:100vh;width:var(--side);flex:none;background:var(--bg2);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column}
 .nav{display:flex;flex-direction:column;gap:2px;overflow:auto}
-.nav a{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:10px;color:var(--soft);font-weight:550;text-decoration:none!important;position:relative}
+.nav a{display:flex;align-items:center;gap:12px;padding:7px 12px;border-radius:10px;color:var(--soft);font-weight:550;text-decoration:none!important;position:relative}
 .nav a:hover{background:var(--card)}.nav a.on{background:color-mix(in srgb,var(--acc) 16%,transparent);color:var(--acc)}
 .badge{margin-left:auto;background:var(--bad);color:#fff;font-size:11px;font-weight:700;border-radius:99px;padding:1px 7px;min-width:20px;text-align:center}
 .side-f{margin-top:auto;padding:12px 8px 0;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px}
