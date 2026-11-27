@@ -1,10 +1,11 @@
 import {
-  AnimationMixer, Box3, Group, LoopOnce, MeshLambertMaterial, Sphere, SkinnedMesh, Vector3, type AnimationAction, type AnimationClip,
+  AnimationMixer, Box3, BufferAttribute, BufferGeometry, Color, Group, LoopOnce, MeshLambertMaterial, Sphere, SkinnedMesh, Vector3, type AnimationAction, type AnimationClip,
   type Frustum, type Material, type Object3D, type Scene,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { DEATH_SECS } from './animals.js';
+import { COATS, coatOf } from './coats.js';
 
 /**
  * Wild animals as animated models (imad 2026-11-27: "the bears, wolves, rabbits and deer are bad 3D models"): CC0 models prepared
@@ -14,7 +15,8 @@ import { DEATH_SECS } from './animals.js';
  * animal plays its death (the bear has none: it rolls over), lies still and sinks. The boar keeps the low-poly set (no fitting
  * model yet), as does any kind whose model has not loaded.
  */
-interface Variant { url: string; scale: number }
+/** `fur` = the model's own fur colours [main, light] (linear, as in the file) that a coat recolours. */
+interface Variant { url: string; scale: number; fur?: [number[], number[]] }
 interface Def {
   variants: Variant[];
   /** Height of the first variant in metres (to the top of the ears; animals are drawn bigger than life, like people). */
@@ -26,15 +28,19 @@ interface Def {
   idles: [string, number][];
 }
 const DEFS: (Def | null)[] = [
-  { variants: [{ url: 'rabbit.glb', scale: 1 }], h: 0.5, walkAt: 1.3, runAt: 3.0, runIn: 0.15, run: 'Run', idles: [['Idle', 3], ['Idle_2', 2]] },
-  { variants: [{ url: 'deer.glb', scale: 1 }, { url: 'stag.glb', scale: 1.12 }], h: 2.05, walkAt: 1.1, runAt: 3.4, runIn: 2.0, run: 'Gallop', idles: [['Idle', 3], ['Idle_2', 1], ['Eating', 3]] },
+  { variants: [{ url: 'rabbit.glb', scale: 1, fur: [[0.2, 0.13, 0.07], [0.69, 0.6, 0.45]] }], h: 0.5, walkAt: 1.3, runAt: 3.0, runIn: 0.15, run: 'Run', idles: [['Idle', 3], ['Idle_2', 2]] },
+  { variants: [{ url: 'deer.glb', scale: 1, fur: [[0.3, 0.13, 0.06], [0.48, 0.4, 0.29]] }, { url: 'stag.glb', scale: 1.12, fur: [[0.24, 0.14, 0.06], [0.48, 0.4, 0.29]] }], h: 2.05, walkAt: 1.1, runAt: 3.4, runIn: 2.0, run: 'Gallop', idles: [['Idle', 3], ['Idle_2', 1], ['Eating', 3]] },
   null, // boar: the low-poly set
-  { variants: [{ url: 'wolf.glb', scale: 1 }], h: 1.25, walkAt: 1.1, runAt: 3.6, runIn: 2.0, run: 'Gallop', idles: [['Idle', 3], ['Idle_2', 2], ['Eating', 1]] },
+  { variants: [{ url: 'wolf.glb', scale: 1, fur: [[0.18, 0.19, 0.17], [0.36, 0.38, 0.33]] }], h: 1.25, walkAt: 1.1, runAt: 3.6, runIn: 2.0, run: 'Gallop', idles: [['Idle', 3], ['Idle_2', 2], ['Eating', 1]] },
   { variants: [{ url: 'bear.glb', scale: 1 }], h: 1.7, walkAt: 0.9, runAt: 3.3, runIn: 1.9, run: 'Gallop', idles: [['Idle', 4], ['Eating', 1]] },
 ];
 const FIGHT = 13;
 
-interface Model { template: Object3D; clips: AnimationClip[]; unit: number; yaw: number; radius: number; height: number }
+interface Model {
+  template: Object3D; clips: AnimationClip[]; unit: number; yaw: number; radius: number; height: number;
+  /** Per coat: its own geometry (recoloured fur; null = the model's) or material (tinted texture). Made once at load. */
+  geos: (BufferGeometry | null)[]; mats: (Material | null)[];
+}
 interface Inst {
   type: number; v: number; root: Group; body: Object3D; mesh: SkinnedMesh; mixer: AnimationMixer; acts: Record<string, AnimationAction>;
   cur: string; seen: number; lag: number; sp: number; ts: number; idleLeft: number; dead: boolean;
@@ -58,14 +64,14 @@ export class Beasts3D {
       void (async () => { // the first variant first: the others take its unit
         for (let k = 0; k < d.variants.length; k++) {
           const v = d.variants[k]!;
-          try { this.models[type]![k] = await this.load(new URL(v.url, base).href, d.h * v.scale, k === 0 ? 0 : (this.models[type]![0]?.unit ?? 0) * v.scale); }
+          try { this.models[type]![k] = await this.load(new URL(v.url, base).href, d.h * v.scale, k === 0 ? 0 : (this.models[type]![0]?.unit ?? 0) * v.scale, type, v); }
           catch (err) { console.warn('animal model', v.url, err); }
         }
       })();
     });
   }
 
-  private async load(url: string, h: number, unitHint: number): Promise<Model> {
+  private async load(url: string, h: number, unitHint: number, type: number, v: Variant): Promise<Model> {
     const g = await new GLTFLoader().loadAsync(url);
     let mesh: SkinnedMesh | null = null;
     g.scene.traverse((o) => { if ((o as SkinnedMesh).isSkinnedMesh && !mesh) mesh = o as SkinnedMesh; });
@@ -77,7 +83,42 @@ export class Beasts3D {
     const box = new Box3().setFromObject(g.scene, true), size = box.getSize(new Vector3());
     // Variants of one kind share the first one's unit (a stag's antlers must not shrink its body).
     const unit = unitHint > 0 ? unitHint : h / Math.max(0.001, size.y);
-    return { template: g.scene, clips: g.animations, unit, yaw: size.x > size.z ? -Math.PI / 2 : 0, radius: Math.max(size.x, size.y, size.z) * unit * 0.6, height: size.y * unit };
+    const { geos, mats } = this.coats(type, v, sk, mat);
+    return { template: g.scene, clips: g.animations, unit, yaw: size.x > size.z ? -Math.PI / 2 : 0, radius: Math.max(size.x, size.y, size.z) * unit * 0.6, height: size.y * unit, geos, mats };
+  }
+
+  /**
+   * The coats of one model: a vertex-coloured model gets a geometry per coat that shares every buffer but the colours (the fur's main
+   * and light colours swapped, shading kept: each vertex keeps its brightness relative to the fur colour it was); a textured one gets
+   * a material per coat with a tint. Eyes, nose, hooves, antlers keep their colours.
+   */
+  private coats(type: number, v: Variant, sk: SkinnedMesh, mat: MeshLambertMaterial): { geos: (BufferGeometry | null)[]; mats: (Material | null)[] } {
+    const list = COATS[type] ?? [], geos: (BufferGeometry | null)[] = [], mats: (Material | null)[] = [];
+    const src = sk.geometry, col = src.getAttribute('color');
+    const tmp = new Color();
+    for (const coat of list) {
+      let g: BufferGeometry | null = null, m: Material | null = null;
+      if (coat.main !== undefined && col && v.fur) {
+        const n = col.count, out = new Float32Array(n * 3);
+        const targets = [tmp.setHex(coat.main).toArray() as number[], new Color(coat.light ?? coat.main).toArray() as number[]];
+        for (let k = 0; k < n; k++) {
+          const r = col.getX(k), gg = col.getY(k), b = col.getZ(k);
+          let hit = -1;
+          for (let f = 0; f < 2 && hit < 0; f++) { const F = v.fur[f]!; if (Math.abs(r - F[0]!) + Math.abs(gg - F[1]!) + Math.abs(b - F[2]!) < 0.05) hit = f; }
+          if (hit < 0) { out[k * 3] = r; out[k * 3 + 1] = gg; out[k * 3 + 2] = b; continue; }
+          const F = v.fur[hit]!, T = targets[hit]!, lum = (r + gg + b) / Math.max(1e-4, F[0]! + F[1]! + F[2]!);
+          out[k * 3] = T[0]! * lum; out[k * 3 + 1] = T[1]! * lum; out[k * 3 + 2] = T[2]! * lum;
+        }
+        g = new BufferGeometry();
+        for (const [name, a] of Object.entries(src.attributes)) g.setAttribute(name, name === 'color' ? new BufferAttribute(out, 3) : a);
+        g.setIndex(src.index); for (const gr of src.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+        g.boundingBox = src.boundingBox; g.boundingSphere = src.boundingSphere;
+      } else if (coat.tint !== undefined) {
+        const mm = mat.clone(); mm.color.setHex(coat.tint); m = mm; this.mats.push(mm);
+      }
+      geos.push(g); mats.push(m);
+    }
+    return { geos, mats };
   }
 
   private model(type: number, id: number): Model | null {
@@ -190,6 +231,8 @@ export class Beasts3D {
     body.traverse((o) => { if ((o as SkinnedMesh).isSkinnedMesh && !mesh) mesh = o as SkinnedMesh; });
     const sk = mesh as unknown as SkinnedMesh;
     sk.castShadow = this.shadows; sk.frustumCulled = false;
+    const coat = coatOf(type, id); // its own coat (fur recoloured or texture tinted)
+    if (coat >= 0) { const g = m.geos[coat], mt = m.mats[coat]; if (g) sk.geometry = g; if (mt) sk.material = mt; }
     const mixer = new AnimationMixer(body), acts: Record<string, AnimationAction> = {};
     for (const c of m.clips) acts[c.name] = mixer.clipAction(c);
     const d = DEFS[type]!, first = pick(d.idles, acts);

@@ -250,10 +250,12 @@ test('horses: a history per horse; an owner is told what happened to a horse tha
   h.born = w.gameSec - 40 * w.yearSec;
   for (let k = 0; k < 60 && w.horses.h.has(hid); k++) run(w, 20 * 60 * 2);
   assert.ok(!w.horses.h.has(hid), 'died of old age');
-  const nr = w.horses.playerAct(pl) as { code: string; hist: { lost: { name: string; why: string; log: [number, string, string?][] }[] } };
-  assert.equal(nr.code, 'noHorse');
-  assert.equal(nr.hist.lost[0]!.name, h.name); assert.equal(nr.hist.lost[0]!.why, 'old');
-  assert.deepEqual(nr.hist.lost[0]!.log.map((l) => l[1]), ['tamed', 'mount', 'left', 'old']);
+  const nr = w.horses.playerAct(pl) as { code: string; hist?: unknown };
+  assert.equal(nr.code, 'noHorse'); // the TV says "you have no horse yet" (imad 2026-11-27: no history text when calling)
+  assert.equal(nr.hist, undefined);
+  const lost = w.horses.history(pl).lost;
+  assert.equal(lost[0]!.name, h.name); assert.equal(lost[0]!.why, 'old');
+  assert.deepEqual(lost[0]!.log.map((l) => l[1]), ['tamed', 'mount', 'left', 'old']);
   // Kept across a restart too.
   const w3 = mk('horse-history'); restore(w3, serialize(w));
   assert.equal(w3.horses.lost.get(e.id(pl))![0]!.why, 'old');

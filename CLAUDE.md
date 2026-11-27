@@ -1047,3 +1047,18 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
   autopilot (check every 2 s). Notice `trade` (TradeView or invite), event `trade`. TV `client/src/tradeui.ts` (pages tradeWho / tradeInvite /
   trade / tradeAdd, 4 languages): game menu > Trade with a player, Talk (Y) next to a player with no person near, person page row.
   Test trade.test.ts; proof `ADMIN_TOKEN=... node tools/trade-proof.mjs <server> <sdk.js> <outdir>` (two TVs).
+
+## Stables, horse fields, animal coats (imad 2026-11-27, app 0.14.24)
+- `sim/stables.ts` (`Horses.stables`, run at the end of `Land.setup`): every non-wild map (town, ridge, farms) gets ONE paddock laid once on run-time
+  tiles: `fence` (28, solid, post and rails) round `paddock` (29, pasture ground: not buildable, nothing regrows there), a 2-tile gate facing the camp
+  (else the map's middle), a stable at the back = `stablewall` (31) on 3 sides + `stall` (30, straw floor under a lean-to roof, manger, posts). Not saved:
+  read back from the tiles every start (`read`), so cloud restores keep it; no hp = can't be pulled down; resetBuildings leaves it.
+- Horses (`Horses.kept` / `trip`): a tamed horse nobody rides on such a map goes there by a real path 10 s after its rider gets off (`STABLE_AFTER`; a
+  called horse's 90 s wait ends early once its owner is 12 m+ away), grazes and roams inside the fence by day, stands under the roof at night and in
+  rain / snow; calling still brings it out through the gate. 3 min without getting there = lives where it is for a minute (`tripFail`). Wild maps unchanged.
+  Prompt: "in the stable's field". Admin `horses` returns `stables`; `horseSpawn { owner }` = already tamed (`Horses.give`); `animalSpawn { map, x, y, type, n }`.
+- Horse button answers carry no history any more (imad: "remove the history text; dead = I don't have a horse yet"): TV shows hNoHorseYet for noHorse.
+- Coats (`client/src/gfx/coats.ts` COATS, picked by a hash of the entity id, same on every TV): rabbit brown / agouti / sandy / dark / white, deer red-brown /
+  grey-brown / tawny / greyish, wolf greys only (grey, light, charcoal, black, white, grey-brown: never red), bear brown / dark / black / cinnamon / pale
+  (texture tint, one material per coat), boar tints on the low-poly set. Vertex-coloured models get one geometry per coat (only the colour buffer is new;
+  `Variant.fur` = the model's two fur colours). Tests stables.test.ts; proof `ADMIN_TOKEN=... [COATS_ONLY=1] node tools/stable-proof.mjs <server> <sdk.js> <outdir>`.

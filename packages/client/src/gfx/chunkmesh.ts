@@ -3,7 +3,7 @@ import {
   IcosahedronGeometry, CylinderGeometry, ConeGeometry, BoxGeometry, CircleGeometry,
 } from 'three';
 import { CHUNK_TILES } from '@worldsim/protocol';
-import { Shape, hash2, noise2, type Look } from './look.js';
+import { PASTURE, Shape, hash2, noise2, type Look } from './look.js';
 
 /**
  * Builds the meshes of one 32 x 32 m chunk, once, when it arrives:
@@ -437,7 +437,77 @@ export function buildChunk(cx: number, cy: number, at: TileAt, looks: Look[], hi
         colOf(k % 2 ? L.side : 0xf2efe6, c);
         addTpl(on, t.rock, place(px + 0.03, sz * 1.5, pz - 0.02, a, 0, 0, 0.07, 0.06, 0.07), c, 1);
       }
-    } else if (L.shape === Shape.Ground && L.ground === 0x76a955 && r1 < 0.2) {
+    } else if (L.shape === Shape.Fence) {
+      // Post and rails (the horse paddock): a post on every tile, two rails to the next fence (or stable wall) east and south,
+      // and to a stable wall west / north (walls draw no rails of their own).
+      const kind = (x: number, y: number) => { const id2 = at(x, y); return id2 < 0 ? 0 : looks[id2]!.shape === Shape.Fence ? 1 : looks[id2]!.shape === Shape.Wall ? 2 : 0; };
+      const px = wx + 0.5, pz = wy + 0.5;
+      colOf(L.side, c).multiplyScalar(0.88 + r1 * 0.2);
+      addTpl(o, t.box, place(px, 0, pz, 0, r2 * 0.3, 0, 0.16, 1.3 + r3 * 0.08, 0.16), c, 0.55);
+      colOf(L.top, c).multiplyScalar(0.9 + r2 * 0.15);
+      const rails = (dx: number, dy: number) => {
+        for (const h of [0.55, 1.05]) addTpl(o, t.box, place(px + dx * 0.5, h, pz + dy * 0.5, 0, 0, (r1 - 0.5) * 0.04, dx ? 1.02 : 0.07, 0.11, dy ? 1.02 : 0.07), c, 0.75);
+      };
+      if (kind(lx + 1, ly)) rails(1, 0);
+      if (kind(lx, ly + 1)) rails(0, 1);
+      if (kind(lx - 1, ly) === 2) rails(-1, 0);
+      if (kind(lx, ly - 1) === 2) rails(0, -1);
+    } else if (L.shape === Shape.Stall) {
+      // The stable: a straw floor under a lean-to roof that rises from the open front to the back wall, posts along the front, a
+      // manger against the back wall. The front is the side whose run of stall tiles ends in the open (the shorter way across).
+      const isS = (x: number, y: number) => { const id2 = at(x, y); return id2 >= 0 && looks[id2]!.shape === Shape.Stall; };
+      const isW = (x: number, y: number) => { const id2 = at(x, y); return id2 >= 0 && looks[id2]!.shape === Shape.Wall; };
+      const run = (dx: number, dy: number) => { let k = 1; while (k < 12 && isS(lx + dx * k, ly + dy * k)) k++; return k; };
+      let fx = 0, fz = 1, best = 99;
+      for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+        const f = run(dx, dy), b = run(-dx, -dy);
+        if (isW(lx + dx * f, ly + dy * f) || !isW(lx - dx * b, ly - dy * b)) continue;
+        if (f + b < best) { best = f + b; fx = dx; fz = dy; }
+      }
+      const f = run(fx, fz); // 1 = the front row
+      // Roof height at s metres in from the front edge; corners of this tile's roof (with overhangs at the front and the sides).
+      const H0 = 2.45, SL = 0.17, sNear = f - 1, sFar = f;
+      const ux = fz ? 1 : 0, uz = fx ? 1 : 0; // along the front
+      const sideA = isS(lx - ux, ly - uz) ? 0 : 0.3, sideB = isS(lx + ux, ly + uz) ? 0 : 0.3;
+      const cx0 = wx + 0.5, cz0 = wy + 0.5;
+      const pt = (s: number, a: number): [number, number, number] => { // s from the front edge (in), a along (-0.5 .. 0.5 + overhang)
+        const dIn = (f - 0.5) - s; // metres from the tile centre towards the front
+        return [cx0 + fx * dIn + ux * a, H0 + SL * Math.max(0, s), cz0 + fz * dIn + uz * a];
+      };
+      const s0 = sNear === 0 ? -0.45 : sNear, a0 = -0.5 - sideA, a1 = 0.5 + sideB;
+      const P1 = pt(s0, a0), P2 = pt(s0, a1), P3 = pt(sFar + (isW(lx - fx * 1, ly - fz * 1) ? 0.3 : 0), a1), P4 = pt(sFar + (isW(lx - fx, ly - fz) ? 0.3 : 0), a0);
+      colOf(L.top, c).multiplyScalar(0.9 + r1 * 0.12);
+      const up = (A: number[], B: number[], C: number[], D: number[]) => {
+        // Winding: counter-clockwise from above for the top face.
+        const cr = (B[0]! - A[0]!) * (D[2]! - A[2]!) - (B[2]! - A[2]!) * (D[0]! - A[0]!);
+        if (cr > 0) quad(o, A[0]!, A[1]!, A[2]!, D[0]!, D[1]!, D[2]!, C[0]!, C[1]!, C[2]!, B[0]!, B[1]!, B[2]!, 0, 1, 0, c, 1, 1);
+        else quad(o, A[0]!, A[1]!, A[2]!, B[0]!, B[1]!, B[2]!, C[0]!, C[1]!, C[2]!, D[0]!, D[1]!, D[2]!, 0, 1, 0, c, 1, 1);
+        const lo = (P: number[]) => [P[0]!, P[1]! - 0.08, P[2]!];
+        colOf(0x5e4330, c);
+        const [a, b, cc, d] = [lo(A), lo(B), lo(C), lo(D)];
+        if (cr > 0) quad(o, a[0]!, a[1]!, a[2]!, b[0]!, b[1]!, b[2]!, cc[0]!, cc[1]!, cc[2]!, d[0]!, d[1]!, d[2]!, 0, -1, 0, c, 0.6, 0.6);
+        else quad(o, a[0]!, a[1]!, a[2]!, d[0]!, d[1]!, d[2]!, cc[0]!, cc[1]!, cc[2]!, b[0]!, b[1]!, b[2]!, 0, -1, 0, c, 0.6, 0.6);
+      };
+      up(P1, P2, P3, P4);
+      colOf(L.side, c);
+      if (f === 1) { // posts along the front (every other tile and at the ends) and a beam under the roof's edge
+        const along = fz ? wx : wy;
+        const post = (a: number) => { const [x, , z] = pt(0, a); addTpl(o, t.box, place(x, 0, z, 0, 0, 0, 0.18, H0 - 0.05, 0.18), c, 0.55); };
+        if (along % 2 === 0 || sideA) post(-0.45);
+        if (sideB) post(0.45);
+        const [bx, , bz] = pt(0, 0);
+        addTpl(o, t.box, place(bx, H0 - 0.22, bz, 0, 0, 0, ux ? 1.02 : 0.14, 0.16, uz ? 1.02 : 0.14), c, 0.7);
+      }
+      if (f >= 2 && isW(lx - fx, ly - fz)) { // back row: a manger with hay
+        const [mx, , mz] = pt(f - 0.3, 0);
+        addTpl(o, t.box, place(mx, 0, mz, 0, 0, 0, ux ? 0.9 : 0.42, 0.62, uz ? 0.9 : 0.42), c, 0.6);
+        colOf(0xd8b85e, c).multiplyScalar(0.9 + r2 * 0.15);
+        addTpl(o, t.box, place(mx, 0.62, mz, 0, 0, 0, ux ? 0.8 : 0.34, 0.12 + r3 * 0.06, uz ? 0.8 : 0.34), c, 0.9);
+      } else if (r1 < 0.12) { // a bale of straw now and then
+        colOf(0xd2b25a, c);
+        addTpl(o, t.box, place(wx + 0.3 + r2 * 0.4, 0, wy + 0.3 + r3 * 0.4, 0, r1 * 20, 0, 0.7, 0.4, 0.45), c, 0.7);
+      }
+    } else if (L.shape === Shape.Ground && (L.ground === 0x76a955 || L.ground === PASTURE) && r1 < 0.2) {
       // Grass tuft (3 blades), sometimes with a flower.
       const px = wx + 0.2 + r2 * 0.6, pz = wy + 0.2 + r3 * 0.6;
       colOf(0x5f9a45, c).multiplyScalar(0.85 + r2 * 0.3);

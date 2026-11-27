@@ -4,10 +4,13 @@ import type { TileTypeInfo } from '@worldsim/protocol';
  * How each tile type looks in 3D. The scenario only gives a name and a flat colour; the viewer picks a softer
  * palette and a shape by name (unknown names: solid = a wall block, else flat ground in the scenario's colour).
  */
-export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14, Herbs = 15, Fridge = 16, Chest = 17 }
+export const enum Shape { Ground = 0, Water = 1, Wall = 2, Tree = 3, Rubble = 4, Fire = 5, Ashes = 6, Rock = 7, Wreck = 8, Palisade = 9, Spikes = 10, Door = 11, Window = 12, Bed = 13, Lamp = 14, Herbs = 15, Fridge = 16, Chest = 17, Fence = 18, Stall = 19 }
 
 /** `even`: built walls stay whole (no ruined tops); `planks`: draw boards on the sides. */
 export interface Look { shape: Shape; ground: number; top: number; side: number; height: number; even?: boolean; planks?: boolean; open?: boolean }
+
+/** Ground of the horse field (grass tufts like grass, no dry patches). */
+export const PASTURE = 0x80b45a;
 
 const BY_NAME: Record<string, Look> = {
   grass: { shape: Shape.Ground, ground: 0x76a955, top: 0, side: 0, height: 0 },
@@ -37,6 +40,11 @@ const BY_NAME: Record<string, Look> = {
   lamp: { shape: Shape.Lamp, ground: 0x8d7a62, top: 0xffe08a, side: 0x4a4440, height: 0 },
   fridge: { shape: Shape.Fridge, ground: 0xb08a5f, top: 0xdfe6e8, side: 0x8f9aa0, height: 0 },
   chest: { shape: Shape.Chest, ground: 0xb08a5f, top: 0x9b6a3a, side: 0x5a5550, height: 0 },
+  // The horse paddock and stable (sim/stables.ts): post-and-rail fence, pasture, a straw floor under a roof, plank walls.
+  fence: { shape: Shape.Fence, ground: 0x7fae58, top: 0xa47a4c, side: 0x7a5636, height: 0 },
+  paddock: { shape: Shape.Ground, ground: PASTURE, top: 0, side: 0, height: 0 },
+  stall: { shape: Shape.Stall, ground: 0xc9a65a, top: 0x8a5a3a, side: 0x6e4b2c, height: 0 },
+  stablewall: { shape: Shape.Wall, ground: 0x8a6a48, top: 0x8b6239, side: 0x845c38, height: 2.3, even: true, planks: true },
 };
 
 export function looksFor(tiles: TileTypeInfo[]): Look[] {

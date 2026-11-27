@@ -1467,18 +1467,6 @@ function doAction(a: ActionId, pressed: boolean): void {
 }
 
 /** A horse's history from the server (Horses.history): my horses and the ones I lost. */
-type HorseNote = [number, string, string?];
-type HorseHist = { horses: { name: string; q: number; map: string; log: HorseNote[] }[]; lost: { name: string; q: number; at: number; why: string; log: HorseNote[] }[] };
-const HIST_KEY: Record<string, Key> = { tamed: 'hhTamed', mount: 'hhMount', left: 'hhLeft', road: 'hhRoad', called: 'hhCalled', came: 'hhCame', gaveUp: 'hhGaveUp', wild: 'hhWild', old: 'hhOld', gone: 'hhGone' };
-function histLines(log: HorseNote[], n: number): string {
-  return log.slice(-n).reverse().map(([at, code, arg]) => `${gameTime(at, t('day'))} · ${HIST_KEY[code] ? tf(HIST_KEY[code]!, arg ? mapName(arg) : '') : code}`).join('\n');
-}
-/** The last lines of that horse's history under a horse message. */
-function horseHist(h: HorseHist | undefined, name: string | undefined, n: number): string {
-  const log = h?.horses.find((x) => x.name === name)?.log?.filter((x, k, l) => !(k === l.length - 1 && x[1] === 'called')); // "is coming" already says it was called
-  return log?.length ? '\n' + histLines(log, n) : '';
-}
-
 /** Attack: always a hit with the melee weapon (or fists) on what is in front. The bow shoots only when the Aim button is let go
  *  (imad 2026-11-27: "after a bow shot, Attack shot an arrow again: wrong, Attack uses the sword, the bow only on Aim release"). */
 function attack(): void {
@@ -1687,16 +1675,11 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
     if (d.code === 'tamed') { note(tf('hTamed', d.name ?? ''), 6000); sound.play('ui_ok'); return; }
     if (d.code === 'tameFail' || d.code === 'kicked') { note(tf(d.code === 'kicked' ? 'hKicked' : 'hFail', d.name ?? '', String(hd.trust ?? 0)), 3500); if (d.code === 'kicked') sound.play('hurt'); return; }
     const hx = d as typeof d & { dist?: number; map?: string };
-    const hist = (d as { hist?: HorseHist }).hist;
-    if (d.code === 'walkOver') { note(tf('hWalkOver', d.name ?? '', String(hx.dist ?? '')) + horseHist(hist, d.name, 2), 6000); return; }
-    if (d.code === 'otherMap') { note(tf('hOtherMap', d.name ?? '', mapName(hx.map ?? '')) + horseHist(hist, d.name, 3), 7000); return; }
-    if (d.code === 'called') { note(tf('hCalled', d.name ?? '') + horseHist(hist, d.name, 2), 6000); return; }
-    if (d.code === 'noHorse' && hist) { // no horse near and none to call: what happened to mine (imad 2026-11-27)
-      const lost = hist.lost[hist.lost.length - 1];
-      if (lost) note(tf(lost.why === 'old' ? 'hLostOld' : lost.why === 'wild' ? 'hLostWild' : 'hLostGone', lost.name, gameTime(lost.at, t('day'))) + '\n' + t('hHistory') + '\n' + histLines(lost.log, 4), 12000);
-      else note(t('hNoHorseYet'), 3500);
-      return;
-    }
+    // No history under these (imad 2026-11-27: "when calling the horse remove the history text; dead = I don't have a horse yet").
+    if (d.code === 'walkOver') { note(tf('hWalkOver', d.name ?? '', String(hx.dist ?? '')), 4000); return; }
+    if (d.code === 'otherMap') { note(tf('hOtherMap', d.name ?? '', mapName(hx.map ?? '')), 5000); return; }
+    if (d.code === 'called') { note(tf('hCalled', d.name ?? ''), 4000); return; }
+    if (d.code === 'noHorse' && d.a === 'horse') { note(t('hNoHorseYet'), 3500); return; }
     if (d.code === 'came') { note(tf('hCame', d.name ?? ''), 3500); sound.play('ui_ok'); return; }
     if ((d.a === 'horse' || d.a === 'take' || d.a === 'use') && HC[d.code]) { note(tf(HC[d.code]!, d.name ?? ''), d.code === 'mounted' ? 4500 : 2500); return; }
   }
@@ -2374,7 +2357,7 @@ function draw(now: number, dt: number): void {
       continue;
     }
     if (kind[i] === Kind.Animal) { // the animated model when it has loaded (not the boar yet), else the low-poly set
-      if (!g3.beasts.add(atype[i]!, eid[i]!, x, y, face[i]!, spd[i]!, sub[i]!, dt)) g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6));
+      if (!g3.beasts.add(atype[i]!, eid[i]!, x, y, face[i]!, spd[i]!, sub[i]!, dt)) g3.animals.add(atype[i]!, x, y, face[i]!, phase[i]! * 1.4, Math.min(1, spd[i]! / 1.6), -1, eid[i]!);
       continue;
     }
     if (i === me && aimOn) face[i] = Math.PI / 2 - (aimLock >= 0 && eid[aimLock] !== -1 ? Math.atan2(ny[aimLock]! - y, nx[aimLock]! - x) : aimAng); // I turn to my aim
@@ -2424,7 +2407,7 @@ function draw(now: number, dt: number): void {
   for (let k = corpses.length - 1; k >= 0; k--) { // animals just killed: falling over, then sinking
     const c = corpses[k]!, age = (now - c.at) / 1000;
     if (age > DEATH_SECS) { corpses.splice(k, 1); continue; }
-    if (!g3.beasts.add(c.type, c.id, c.x, c.y, c.f, 0, 0, dt, age)) g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age);
+    if (!g3.beasts.add(c.type, c.id, c.x, c.y, c.f, 0, 0, dt, age)) g3.animals.add(c.type, c.x, c.y, c.f, 0, 0, age, c.id);
   }
   if (!handsOn) g3.hands.hide();
   if (me >= 0) g3.myBowAt(aimOn, aimOn ? aimGear(gearOf[me]!) : gearOf[me]!, aimOn ? (now - aimAt) / 1000 : (now - animAt[me]!) / 1000, dt);

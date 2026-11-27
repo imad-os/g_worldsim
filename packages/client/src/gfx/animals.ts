@@ -1,3 +1,4 @@
+import { coatTint } from './coats.js';
 import {
   InstancedMesh, MeshLambertMaterial, SphereGeometry, CylinderGeometry, ConeGeometry, Matrix4, Quaternion, Euler, Vector3, Color,
   DynamicDrawUsage, type Scene, type BufferGeometry,
@@ -28,6 +29,7 @@ export class Animals3D {
   private base = new Matrix4(); private m = new Matrix4(); private part = new Matrix4();
   private q = new Quaternion(); private e = new Euler(); private eb = new Euler(0, 0, 0, 'YXZ'); private v = new Vector3(); private s = new Vector3();
   private cols: { body: Color; head: Color; ear: Color }[];
+  private tint = new Color(); private cb = new Color(); private ch = new Color();
 
   constructor(scene: Scene, private cap: number, shadows: boolean) {
     const mk = (g: BufferGeometry, count: number) => {
@@ -47,9 +49,12 @@ export class Animals3D {
   begin(): void { this.n = 0; }
 
   /** One animal at (x, z) facing `facing` (0 = +z), walk phase / amp (0..1); `dead` >= 0 = seconds since it was killed. */
-  add(type: number, x: number, z: number, facing: number, phase: number, amp: number, dead = -1): void {
+  add(type: number, x: number, z: number, facing: number, phase: number, amp: number, dead = -1, id = -1): void {
     if (this.n >= this.cap) return;
-    const K = KINDS[type] ?? KINDS[0]!, C = this.cols[type] ?? this.cols[0]!, i = this.n++;
+    const K = KINDS[type] ?? KINDS[0]!, C0 = this.cols[type] ?? this.cols[0]!, i = this.n++;
+    // Its own coat (sim's entity id -> one of the kind's real colours, gfx/beasts.ts COATS).
+    const tn = id >= 0 && type !== 5 ? coatTint(type, id, this.tint) : null;
+    const C = tn ? { body: this.cb.copy(C0.body).multiply(tn), head: this.ch.copy(C0.head).multiply(tn), ear: C0.ear } : C0;
     let roll = 0, sink = 0, kick = 0, pitch = 0;
     if (dead >= 0) { // stagger (0.15 s), fall on the side (0.45 s, a small bounce), legs kick and go still, sink at the end
       amp = 0;

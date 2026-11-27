@@ -65,6 +65,7 @@ export class Land {
     }
     this.tracks();
     this.block(!w.travelOpen);
+    w.horses.stables.setup(); // a paddock + stable on every town map (sim/stables.ts), laid once, read back from the tiles every start
   }
 
   /**

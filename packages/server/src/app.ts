@@ -1698,13 +1698,23 @@ export class App {
       case 'horses': {
         const list: unknown[] = [];
         for (const [id] of w.horses.h) { const i = w.e.slot(id); if (i < 0 || (c.map !== undefined && w.e.map[i] !== mapOf(c.map))) continue; list.push({ ...w.horses.info(i), map: w.e.map[i] === NO_MAP ? '' : w.maps[w.e.map[i]!]!.def.id, x: Math.round(w.e.x[i]! * 10) / 10, y: Math.round(w.e.y[i]! * 10) / 10, herd: w.horses.h.get(id)!.herd }); }
-        return { list, herds: w.horses.herds.size, wild: w.horses.count(-1, true), tamed: list.filter((h) => !(h as { wild: boolean }).wild).length };
+        const stables = w.maps.map((mp, m) => { const p = w.horses.stables.of(m); return p ? { map: mp.def.id, x0: p.x0, y0: p.y0, x1: p.x1, y1: p.y1, gate: [p.ox, p.oy], stall: [p.sx0, p.sy0, p.sx1, p.sy1] } : null; }).filter(Boolean);
+        return { list, herds: w.horses.herds.size, wild: w.horses.count(-1, true), tamed: list.filter((h) => !(h as { wild: boolean }).wild).length, stables };
+      }
+      case 'animalSpawn': { // n animals of one kind (0 rabbit .. 4 bear) in a row from (x, y), 1.6 m apart (proofs, the panel)
+        const m = mapOf(c.map), def = w.maps[m]!.def, type = fixed(c.type, 0, 4, 'type') | 0, n = fixed(c.n ?? 1, 1, 12, 'n') | 0;
+        w.makeRoom(n);
+        const ids: number[] = [];
+        for (let k = 0; k < n; k++) { const i = w.animals.spawn(m, Math.min(def.w - 2, fixed(c.x, 0, def.w, 'x') + k * 1.6), fixed(c.y, 0, def.h, 'y'), type, w.rng); if (i >= 0) ids.push(w.e.id(i)); }
+        return { ok: true, ids };
       }
       case 'horseSpawn': {
         const m = mapOf(c.map), near = c.near !== undefined ? w.e.slot(fixed(c.near, 0, 2 ** 31, 'near')) : -1, def = w.maps[m]!.def;
         const x = near >= 0 ? w.e.x[near]! + 6 : c.x !== undefined ? fixed(c.x, 0, def.w, 'x') : def.w / 2, y = near >= 0 ? w.e.y[near]! : c.y !== undefined ? fixed(c.y, 0, def.h, 'y') : def.h / 2;
         const n = fixed(c.n ?? 4, 1, 12, 'n') | 0, q = c.q !== undefined ? fixed(c.q, 0, 2, 'q') | 0 : undefined;
         const got = w.horses.spawnHerd(m, x, y, n, q);
+        const own = c.owner !== undefined ? w.e.slot(fixed(c.owner, 0, 2 ** 31, 'owner')) : -1; // already tamed by that person (entity id)
+        if (own >= 0) for (const i of got) w.horses.give(i, own);
         return { ok: true, n: got.length, ids: got.map((i) => w.e.id(i)) };
       }
       case 'animals': {

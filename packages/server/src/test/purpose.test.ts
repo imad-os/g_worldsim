@@ -58,8 +58,10 @@ test('purpose: with the roads open, a brave explorer goes into the woods by day 
   w.zombies.perNight = 0;
   let ev: Record<string, unknown> | null = null, inWoods = false;
   w.listeners.push((x) => { if (x.kind === 'explore' && x.data.id === A) ev = x.data; });
-  assert.ok(w.tasks.start(a, 'explore the Pine Woods', 'myself', [{ do: 'explore', what: 'woods', times: 2 }]));
-  // (a clan to join may put the expedition aside for a while: it goes on after)
+  // Given by the owner: a clan leader's day chore (store food...) replaces a person's own task, and when that lands mid-trip depends
+  // on everything else on the map (the stables, 2026-11-27, moved it onto this trip); the expedition itself is what is tested here.
+  assert.ok(w.tasks.start(a, 'explore the Pine Woods', 'owner', [{ do: 'explore', what: 'woods', times: 2 }]));
+  // (joining a clan may put the expedition aside for a while: it goes on after)
   assert.ok(until(w, () => { if (e.map[a] === woods) inWoods = true; return ev !== null; }, 12));
   assert.ok(inWoods, 'went into the woods');
   assert.ok(ev, `came back with a tale (${JSON.stringify(p.goals?.at(-1))})`);

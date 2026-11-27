@@ -3,6 +3,7 @@ import { NO_MAP } from './entities.js';
 import { Rng } from './rng.js';
 import { Pathfinder } from './pathfind.js';
 import type { World } from './world.js';
+import { Stables } from './stables.js';
 
 /**
  * Horses (imad 2026-11-25: "cool, smart like real horses, in herds, tamed, ridden, stats, common / rare / legendary").
@@ -58,7 +59,7 @@ export interface Horse {
   /** Fear 0..1 and where the danger is. */
   fear: number; fx: number; fy: number;
   /** What it is doing and until when (sim seconds since start). */
-  mode: 'graze' | 'walk' | 'rest' | 'flee' | 'follow' | 'alert' | 'come' | 'wait';
+  mode: 'graze' | 'walk' | 'rest' | 'flee' | 'follow' | 'alert' | 'come' | 'wait' | 'stable';
   until: number;
   /** Tamed: where it lives now (it roams round here); set where it was left or where it came to its owner. */
   hx?: number; hy?: number;
@@ -81,6 +82,8 @@ const TROT = 3.1, CANTER = 4.2;
 /** A called horse comes only from farther than this (closer: walk over to it). Roaming range round its home. */
 export const CALL_NEAR = 10;
 const RANGE = 28;
+/** Seconds a horse left on a map with a stable waits before it goes there. */
+const STABLE_AFTER = 10;
 /** Taming level from points: 0 .. 10. */
 export function tameLevel(xp = 0): number { return Math.min(10, Math.floor(Math.sqrt(Math.max(0, xp) / 12))); }
 
@@ -102,12 +105,17 @@ export class Horses {
   readonly lost = new Map<number, LostHorse[]>();
   /** Who tried to tame which horse last (cooldown, real sim seconds). */
   private readonly tryAt = new Map<number, number>();
+  /** Each town map's paddock + stable (sim/stables.ts). */
+  readonly stables: Stables;
+  /** A horse on its way to the paddock / stable (not saved). */
+  private tripFail = new Map<number, number>();
+  private trips = new Map<number, { pts: number[]; k: number; tx: number; ty: number; at: number; since: number }>();
 
   /** Per slot: 1 = on a horse, 2 = a horse being ridden (frames: bit 7 of the kind byte). Rebuilt every tick from the riders. */
   readonly riding: Uint8Array;
   /** Their own random numbers: horses never change the rest of the world's dice. */
   private readonly rng: Rng;
-  constructor(private w: World) { this.rng = new Rng(w.seed + ':horses'); this.riding = new Uint8Array(w.e.cap); }
+  constructor(private w: World) { this.rng = new Rng(w.seed + ':horses'); this.riding = new Uint8Array(w.e.cap); this.stables = new Stables(w); }
 
   // ------------------------------------------------------------------ reading
   of(i: number): Horse | undefined { return this.w.e.kind[i] === Kind.Animal && this.w.e.sub[i] === HORSE ? this.h.get(this.w.e.id(i)) : undefined; }
@@ -259,6 +267,14 @@ export class Horses {
     }
     return { code: 'tameFail', chance: ch, trust: h.trust[k], name: h.name };
   }
+  /** Admin: horse a is tamed by person i at once (it leaves its herd and lives where it stands). */
+  give(a: number, i: number): void {
+    const h = this.of(a), e = this.w.e;
+    if (!h || h.rider >= 0) return;
+    this.leaveHerd(e.id(a), h);
+    h.owner = e.id(i); h.trust['#' + e.id(i)] = 1; h.fear = 0; h.mode = 'graze'; h.until = this.t; h.hx = e.x[a]!; h.hy = e.y[a]!;
+    this.note(h, 'tamed', this.mapId(a));
+  }
   /** A line in the horse's history. */
   private note(h: Horse, code: string, arg?: string): void {
     const l = h.log ??= [];
@@ -324,7 +340,7 @@ export class Horses {
   /** The horse is let go of by its rider: on the ground next to where they are. */
   private drop(a: number, h: Horse): void {
     const w = this.w, e = w.e, r = h.rider >= 0 ? e.slot(h.rider) : -1;
-    h.rider = -1; h.mode = 'wait'; h.until = this.t + 30;
+    h.rider = -1; h.mode = 'wait'; h.until = this.t + (this.stables.has(r >= 0 && e.map[r] !== NO_MAP ? e.map[r]! : e.map[a]!) ? STABLE_AFTER : 30);
     e.flags[a] = e.flags[a]! & ~EFlag.Transit; this.riding[a] = 0;
     if (r >= 0) this.riding[r] = 0;
     const m = r >= 0 && e.map[r] !== NO_MAP ? e.map[r]! : e.map[a]!;
@@ -370,13 +386,13 @@ export class Horses {
     for (const s of free) { if (e.map[s] !== m) continue; const d = Math.hypot(e.x[s]! - x, e.y[s]! - y); if (d < hd) { hd = d; here = s; } }
     if (here >= 0) {
       const h = this.h.get(e.id(here))!;
-      if (hd <= CALL_NEAR) return { ok: false, code: 'walkOver', name: h.name, dist: Math.round(hd), hist: this.history(i) };
+      if (hd <= CALL_NEAR) return { ok: false, code: 'walkOver', name: h.name, dist: Math.round(hd) };
       this.call(here, i);
-      return { ok: true, code: 'called', name: h.name, dist: Math.round(hd), hist: this.history(i) };
+      return { ok: true, code: 'called', name: h.name, dist: Math.round(hd) };
     }
     const away = free.find((s) => e.map[s] !== NO_MAP);
-    if (away !== undefined) return { ok: false, code: 'otherMap', name: this.h.get(e.id(away))!.name, map: this.w.maps[e.map[away]!]!.def.id, hist: this.history(i) };
-    return { ok: false, code: 'noHorse', hist: this.history(i) };
+    if (away !== undefined) return { ok: false, code: 'otherMap', name: this.h.get(e.id(away))!.name, map: this.w.maps[e.map[away]!]!.def.id };
+    return { ok: false, code: 'noHorse'};
   }
   /** Horse a is called by its owner i: it runs to them by a real path (`come`). */
   call(a: number, i: number): void {
@@ -409,7 +425,8 @@ export class Horses {
     if (this.riding[i] === 1) { const a = this.ridden(i), h = a >= 0 ? this.of(a) : undefined; return `You are riding your horse${h ? ' ' + h.name : ''}: it carries you fast, also through the gates.`; }
     if (mine.length) {
       const a = mine[0]!, h = this.of(a)!, q = ['common', 'rare', 'legendary'][h.q];
-      const where = e.map[a] === m ? `${Math.round(Math.hypot(e.x[a]! - e.x[i]!, e.y[a]! - e.y[i]!))} m away` : e.map[a] === NO_MAP ? 'on the road' : `in ${w.maps[e.map[a]!]!.def.name}`;
+      let where = e.map[a] === m ? `${Math.round(Math.hypot(e.x[a]! - e.x[i]!, e.y[a]! - e.y[i]!))} m away` : e.map[a] === NO_MAP ? 'on the road' : `in ${w.maps[e.map[a]!]!.def.name}`;
+      if (e.map[a] !== NO_MAP && this.stables.inside(e.map[a]!, e.x[a]!, e.y[a]!)) where += ', in the stable\'s field (it goes there when nobody rides it)';
       return `Your horse: ${h.name} (${q}, gallops ${h.speed.toFixed(1)} m/s), ${where}. Ride it for any long way and to other places (skill ride): you get on by yourself when it is near, it comes when you whistle.`;
     }
     const wild = w.maps.filter((x) => this.count(x.index, true) > 0).map((x) => x.def.name);
@@ -560,17 +577,29 @@ export class Horses {
       if (h.hx === undefined || h.hy === undefined) { h.hx = x; h.hy = y; }
       if (h.mode === 'come') { if (this.come(i, h, o)) return; }
       if (h.mode === 'follow') h.mode = 'graze'; // old saves: no more following
+      const kept = this.stables.has(e.map[i]!);
+      if (h.mode === 'wait' && kept && now < h.until && h.until - now < 80) { // a stable here: not needed (owner walked off) = off it goes after a few seconds
+        if (o < 0 || e.map[o] !== e.map[i] || Math.hypot(e.x[o]! - x, e.y[o]! - y) > 12) h.until = Math.min(h.until, now);
+      }
       if (h.mode === 'wait') { // came to its owner (or was just left): stands there a while, then lives there
         if (now < h.until) { gait(0); at(x, y); e.act[i] = Act.Idle; if (o >= 0 && e.map[o] === e.map[i] && Math.hypot(e.x[o]! - x, e.y[o]! - y) < 8) e.angle[i] = Math.atan2(e.y[o]! - y, e.x[o]! - x); return; }
         h.mode = 'graze'; h.until = now; h.hx = x; h.hy = y;
       }
+      if (kept && this.kept(i, h, night)) return;
       if (h.mode === 'walk') { // on its way somewhere near home (more grass, a look round)
         if (Math.hypot(e.tx[i]! - x, e.ty[i]! - y) > 1 && now < h.until) return;
         h.mode = 'graze'; h.until = now;
       }
       if (now >= h.until && !night && this.rng.chance(0.3)) { // now and then it walks on: within its range of home
         const mp = w.maps[e.map[i]!]!;
-        for (let t = 0; t < 8; t++) {
+        if (kept) { // in the paddock: somewhere else in the field (or under the roof in bad weather)
+          const sp = this.stables.spot(e.map[i]!, this.shelter(night), () => this.rng.next());
+          if (sp && Math.hypot(sp.x - x, sp.y - y) > 2 && this.finder(e.map[i]!).clear(x, y, sp.x, sp.y)) {
+            h.mode = 'walk'; h.until = now + 30; at(sp.x, sp.y); gait(1.1 + h.size * 0.1); e.act[i] = Act.Wander;
+            return;
+          }
+        }
+        for (let t = 0; t < 8 && !kept; t++) {
           const an = this.rng.next() * Math.PI * 2, dd = this.rng.range(5, 16);
           let tx = x + Math.cos(an) * dd, ty = y + Math.sin(an) * dd;
           const hd = Math.hypot(tx - h.hx, ty - h.hy);
@@ -614,6 +643,45 @@ export class Horses {
     }
     if (far > 1.2) { h.mode = 'walk'; at(gx, gy); gait(far > 12 ? TROT : 1.1 + h.size * 0.1); e.act[i] = Act.Wander; return; }
     this.graze(i, h, x, y, night);
+  }
+  /** Under a roof wanted: night, rain, storm, snow. */
+  private shelter(night: boolean): boolean { const k = this.w.weather.kind; return night || k === 'rain' || k === 'storm' || k === 'snow' || k === 'blizzard'; }
+  /**
+   * A tamed horse nobody rides on a map with a stable (sim/stables.ts): it goes there by a real path and stays inside the fence,
+   * in the field by day, under the stable's roof at night and in rain / snow. True = handled this pass (on its way).
+   */
+  private kept(i: number, h: Horse, night: boolean): boolean {
+    const e = this.w.e, id = e.id(i), m = e.map[i]!, x = e.x[i]!, y = e.y[i]!, now = this.t;
+    if (this.trips.has(id)) { if (this.trip(i, h)) return true; }
+    if ((this.tripFail.get(id) ?? -1e9) > now - 60) return false; // could not get there lately: lives where it is for a while
+    const roof = this.shelter(night), inside = this.stables.inside(m, x, y);
+    let go = !inside;
+    if (inside && roof && !this.stables.inStall(m, x, y) && h.mode !== 'walk' && this.rng.chance(0.25)) go = true;
+    if (!go) return false;
+    const sp = this.stables.spot(m, roof || !inside && this.rng.chance(0.3), () => this.rng.next());
+    if (!sp) return false;
+    this.trips.set(id, { pts: [], k: 0, tx: sp.x, ty: sp.y, at: -1e9, since: now });
+    h.mode = 'stable'; h.until = now;
+    if (!inside) this.note(h, 'stable', this.mapId(i));
+    return this.trip(i, h);
+  }
+  /** On its way to the stable / field: follows a path (found again every few seconds); gives up after 3 minutes. */
+  private trip(i: number, h: Horse): boolean {
+    const w = this.w, e = w.e, id = e.id(i), x = e.x[i]!, y = e.y[i]!, now = this.t, r = this.trips.get(id);
+    if (!r || h.mode !== 'stable') { this.trips.delete(id); return false; }
+    const d = Math.hypot(r.tx - x, r.ty - y);
+    if (d < 1.2) { this.trips.delete(id); h.mode = 'graze'; h.until = now; h.hx = x; h.hy = y; e.speed[i] = 0; e.tx[i] = x; e.ty[i] = y; return false; }
+    if (now - r.since > 180) { this.trips.delete(id); this.tripFail.set(id, now); h.mode = 'graze'; h.until = now; h.hx = x; h.hy = y; return false; }
+    if (now - r.at > 6 || (r.pts.length && r.k >= r.pts.length)) {
+      const pf = this.finder(e.map[i]!), res = pf.find(x, y, r.tx, r.ty);
+      r.pts = []; r.k = 0; r.at = now;
+      if (res !== 'none') { const W = w.maps[e.map[i]!]!.tiles.w; for (let k = 0; k < pf.outN; k++) { const t = pf.out[k]!; r.pts.push((t % W) + 0.5, ((t / W) | 0) + 0.5); } }
+    }
+    while (r.k < r.pts.length - 2 && Math.hypot(r.pts[r.k]! - x, r.pts[r.k + 1]! - y) < 1.2) r.k += 2;
+    if (!r.pts.length || r.k >= r.pts.length - 2) { e.tx[i] = r.tx; e.ty[i] = r.ty; } else { e.tx[i] = r.pts[r.k]!; e.ty[i] = r.pts[r.k + 1]!; }
+    e.speed[i] = d > 40 ? TROT : d > 4 ? 1.5 + h.size * 0.1 : 1.1;
+    e.act[i] = Act.Go;
+    return true;
   }
   private finder(m: number): Pathfinder { return this.finders[m] ??= new Pathfinder(this.w.maps[m]!.tiles, 4000); }
   /** A called horse runs to its owner along a real path. False when it is no longer coming (then it lives on as usual). */
@@ -733,6 +801,7 @@ export class Horses {
 
   /** A horse that is gone (hunted, removed): forget it, its rider gets off. */
   private forget(id: number, h: Horse): void {
+    this.trips.delete(id); this.tripFail.delete(id);
     if (h.rider >= 0) { const r = this.w.e.slot(h.rider); if (r >= 0) this.riding[r] = 0; }
     if (h.owner >= 0) { this.note(h, 'gone'); this.loseIt(h.owner, h, 'gone'); } // its owner is told
     this.h.delete(id);

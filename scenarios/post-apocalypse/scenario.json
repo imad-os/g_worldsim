@@ -210,6 +210,31 @@
       "hp": 60,
       "breaksTo": 4,
       "color": 9132587
+    },
+    {
+      "id": 28,
+      "name": "fence",
+      "solid": true,
+      "color": 9071936
+    },
+    {
+      "id": 29,
+      "name": "paddock",
+      "solid": false,
+      "color": 7055433
+    },
+    {
+      "id": 30,
+      "name": "stall",
+      "solid": false,
+      "cost": 1,
+      "color": 13215834
+    },
+    {
+      "id": 31,
+      "name": "stablewall",
+      "solid": true,
+      "color": 8607029
     }
   ],
   "maps": [
