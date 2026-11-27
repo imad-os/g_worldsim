@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Kind, Act, unpackGear, packGear, levelCost, qualityCost, gearMul } from '@worldsim/protocol';
+import { Kind, Act, unpackGear, packGear, levelCost, qualityCost, gearMul, MAX_LEVEL, shownLevel, defenceOf } from '@worldsim/protocol';
 import { scenario } from './helpers.js';
 import { World } from '../sim/world.js';
 
@@ -37,12 +37,15 @@ test('gear: the best weapon is used unless one is chosen; levels and quality rai
   assert.deepEqual(g.up(i, 'sword'), [2, 0]);
   assert.equal(sv.inv(i).ore, 20 - 1 - 1);
   assert.ok(Math.abs(sv.weapon(i)[1] - 34 * 1.1) < 1e-9, '+2 = +10 %');
-  // Quality: needs the level first (fine at +2), then rare things.
+  // Quality: needs the level first (fine at level 5), then rare things.
   sv.add(i, 'claw', 5); sv.add(i, 'scrap', 5);
+  assert.equal(g.upgrade(i, 'sword:q').code, 'needLevel', 'fine needs level 5');
+  for (let k = 0; k < 2; k++) assert.equal(g.upgrade(i, 'sword:lv').code, 'upgraded');
+  assert.equal(shownLevel(g.up(i, 'sword')[0]), 5);
   assert.equal(g.upgrade(i, 'sword:q').code, 'upgraded');
-  assert.deepEqual(g.up(i, 'sword'), [2, 1]);
-  assert.equal(g.upgrade(i, 'sword:q').code, 'needLevel', 'superior needs +4');
-  assert.ok(Math.abs(sv.weapon(i)[1] - 34 * gearMul(2, 1)) < 1e-9);
+  assert.deepEqual(g.up(i, 'sword'), [4, 1]);
+  assert.equal(g.upgrade(i, 'sword:q').code, 'needLevel', 'rare needs level 15');
+  assert.ok(Math.abs(sv.weapon(i)[1] - 34 * gearMul(4, 1)) < 1e-9);
   assert.deepEqual(qualityCost('sword', 0), { claw: 1, ore: 2, scrap: 1 });
   // Zombies feel it: damageOf grows with the weapon.
   assert.ok(w.zombies.damageOf(i) > 34 * 0.8);
@@ -59,7 +62,37 @@ test('gear: the best weapon is used unless one is chosen; levels and quality rai
   const all = { held: 'bow', hq: 4, helmet: true, headQ: 3, body: 'clothes' as const, bodyQ: 2, anim: 'shoot' as const, seq: 9, back: false, aim: true };
   assert.deepEqual(unpackGear(packGear(all)), all);
   // Saved with the profile.
-  assert.deepEqual(w.profileOf(i)!.gear!.up!.sword, [2, 1]);
+  assert.deepEqual(w.profileOf(i)!.gear!.up!.sword, [4, 1]);
+});
+
+test('gear: levels 1 to 50 and quality up to legendary; every level counts, costs fit a bag; AI people level up and raise quality by themselves', () => {
+  assert.equal(MAX_LEVEL, 49);
+  assert.equal(shownLevel(0), 1); assert.equal(shownLevel(MAX_LEVEL), 50);
+  for (let lv = 1; lv <= MAX_LEVEL; lv++) assert.ok(gearMul(lv, 0) > gearMul(lv - 1, 0), 'each level stronger');
+  assert.ok(Math.abs(gearMul(10, 0) - 1.5) < 1e-9, 'old +10 unchanged');
+  assert.ok(gearMul(MAX_LEVEL, 4) > 4, 'level 50 legendary');
+  for (const item of ['sword', 'axe', 'spear', 'bow', 'helmet', 'armor', 'clothes'])
+    for (let lv = 0; lv < MAX_LEVEL; lv++) for (const n of Object.values(levelCost(item, lv))) assert.ok(n! >= 1 && n! <= 20, `${item} ${lv}: ${n}`);
+  for (let q = 0; q < 4; q++) for (const n of Object.values(qualityCost('bow', q))) assert.ok(n! <= 20);
+  assert.ok(defenceOf(0.5) === 0.5 && defenceOf(1) > defenceOf(0.9) && defenceOf(5) < 0.8, 'defence keeps growing, capped');
+  const w = mk('gear-ai');
+  w.populate();
+  const e = w.e, sv = w.survival, g = w.gear;
+  let i = -1;
+  for (let k = 0; k < e.hi; k++) if (e.kind[k] === Kind.Agent && w.profileOf(k)) { i = k; break; }
+  for (const k of Object.keys(sv.inv(i))) delete sv.inv(i)[k];
+  sv.add(i, 'bow', 1); sv.add(i, 'wood', 20); sv.add(i, 'leather', 20); sv.add(i, 'claw', 10); sv.add(i, 'scrap', 10);
+  for (let h = 0; h < 12; h++) { w.gameSec += 3600; g.update(); }
+  const [lv, q] = g.up(i, 'bow');
+  assert.ok(shownLevel(lv) >= 5, `levelled up by themselves (Lv ${shownLevel(lv)})`);
+  assert.ok(q >= 1, 'and raised the quality when the level allowed it');
+  assert.match(g.gearText(i), /bow Lv \d+ fine/);
+  // A task step: "upgrade my bow" (materials there) -> done, proved by the upgrade event.
+  const before = g.up(i, 'bow')[0];
+  sv.add(i, 'wood', 20); sv.add(i, 'leather', 20);
+  w.tasks.start(i, 'level up my bow', 'owner', [{ do: 'upgrade', what: 'bow' }]);
+  for (let k = 0; k < 200 && w.tasks.describe(e.id(i)); k++) w.step();
+  assert.ok(g.up(i, 'bow')[0] > before, 'the task levelled the bow');
 });
 
 test('aiming: a player holding the aim with a bow is sent drawing it; a killed animal is marked for viewers to show it fall', () => {

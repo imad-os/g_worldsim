@@ -1729,7 +1729,7 @@ function onDid(d: { a: string; ok: boolean; code: string; item?: string; rec?: u
   if (d.code === 'healed') { note(tf('dHealed', String((dd as { hp?: number }).hp ?? '')), 2500); bagScreen.fix(); menu.refresh(); return; }
   if (d.code === 'noMedkit' || d.code === 'fullHp') { note(t(d.code === 'noMedkit' ? 'dNoMedkit' : 'dFullHp'), 2500); return; }
   if (d.code === 'equipped') { note(t('dEquipped'), 1500); return; }
-  if (d.code === 'upgraded') { note(tf('dUpgraded', cap1(thing(dd.item ?? '')), `+${dd.lv ?? 0} ${t(('qual' + (dd.q ?? 0)) as Key)}`), 3000); return; }
+  if (d.code === 'upgraded') { note(tf('dUpgraded', cap1(thing(dd.item ?? '')), `${tf('gLv', String((dd.lv ?? 0) + 1))} ${t(('qual' + (dd.q ?? 0)) as Key)}`), 3000); return; }
   if (d.code === 'upNeed') { note(tf('dUpNeed', needText(dd.need ?? {})), 3500); return; }
   if (d.code === 'needLevel') { note(tf('dNeedLevel', String(dd.need?.level ?? '')), 3000); return; }
   if (d.code === 'maxLevel' || d.code === 'maxQuality' || d.code === 'notCarried') { note(t(d.code === 'maxLevel' ? 'dMaxLevel' : d.code === 'maxQuality' ? 'dMaxQuality' : 'dNotCarried'), 2500); return; }

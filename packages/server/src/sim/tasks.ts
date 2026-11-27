@@ -1,4 +1,4 @@
-import { Act, Kind } from '@worldsim/protocol';
+import { Act, Kind, SLOT_OF } from '@worldsim/protocol';
 import { CAP } from './survival.js';
 import { NO_MAP } from './entities.js';
 import { ageOf, levelOf, TRAIT_KEYS } from './people.js';
@@ -37,6 +37,7 @@ import { Quests } from './quests.js';
  *                      none on this map = take the road to the woods first (travel open, by day)
  *  explore {what times} go and see places nobody has seen much of (what 'woods' = an expedition into the wild, 'near' = round
  *                      the camp; times = places to look at), look round, come home and tell what is out there (sim/purpose.ts)
+ *  upgrade {what}      level up a weapon / armour carried (1..50; 'quality' in what = raise its quality), gathering what is missing
  *  ride {what}         get on my horse (call it when far) and ride to a place: 'home' / '' = my home's map, or a map by name
  */
 /** Food, wood, stone, scrap from free words (4 languages). */
@@ -74,7 +75,7 @@ export interface Step { gx?: number; gy?: number; key?: string; units?: number; 
 export interface Task { text: string; from: string; steps: Step[]; k: number; started: number; status?: string; goal?: string; tries?: number; /** Started by a strict rule (its words, sim/rules.ts). */ rule?: string }
 
 export const SKILLS = ['goto', 'find', 'follow', 'talk', 'court', 'marry', 'divorce', 'child', 'bring', 'give', 'stay', 'drink', 'eat', 'forage', 'sleep', 'rest', 'wander', 'say', 'gather', 'craft', 'build', 'tend',
-  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore', 'settle', 'visit'] as const;
+  'collect', 'store', 'take', 'loot', 'farm', 'repair', 'heal', 'trade', 'hunt', 'npc', 'clan', 'tame', 'ride', 'destroy', 'explore', 'settle', 'visit', 'upgrade'] as const;
 const ACTS: Record<string, number> = { drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, rest: Act.Rest, wander: Act.Wander };
 const MAX_STEP_SEC = 3 * 3600; // a step that takes more than 3 game hours is given up
 
@@ -104,7 +105,7 @@ export class Tasks {
         case 'hunt': keys.push('hunt'); break;
         case 'build': keys.push('build', `build:${String(d.what)}`); break;
         case 'craft': keys.push(`craft:${String(d.what)}`); break;
-        case 'pickup': case 'store': case 'take': case 'loot': case 'repair': case 'heal': case 'tend': case 'drink': case 'eat': case 'sleep': case 'give': case 'destroy':
+        case 'pickup': case 'store': case 'take': case 'loot': case 'repair': case 'heal': case 'tend': case 'drink': case 'eat': case 'sleep': case 'give': case 'destroy': case 'upgrade':
           keys.push(ev.kind); break;
         default: return;
       }
@@ -126,6 +127,7 @@ export class Tasks {
       case 'craft': return [`craft:${thingOf(what, 'craft')}`, 1];
       case 'farm': return ['build:field', 1];
       case 'tend': case 'store': case 'take': case 'loot': case 'repair': case 'heal': case 'drink': case 'eat': case 'destroy': return [s.do, 1];
+      case 'upgrade': return ['upgrade', 1];
       case 'bring': return ['give', 1];
       case 'forage': case 'collect': return ['pickup', 1];
       default: return null;
@@ -612,6 +614,31 @@ export class Tasks {
         if (sv.busy(id)) return false;
         const end = sv.ended.get(id); sv.ended.delete(id);
         return end ?? true;
+      }
+      case 'upgrade': {
+        // Level up / raise the quality of something carried (imad 2026-11-27): the materials are gathered first, as for crafting.
+        const g = w.gear, sv = w.survival, inv = sv.inv(i), raw = (s.what ?? '').toLowerCase();
+        const named = /\b(sword|épée|espada|axe|hache|hacha|spear|lance|lanza|bow|arc|arco|armou?r|armure|armadura|clothes|vêtements|ropa|helmet|casque|casco)\b|سيف|فأس|رمح|قوس|درع|ملابس|خوذة/.test(raw);
+        const item = named ? thingOf(raw, 'craft') : g.equipped(i, 'weapon') || g.equipped(i, 'ranged') || g.equipped(i, 'body') || g.equipped(i, 'head');
+        if (!item || !(item in SLOT_OF)) return 'I have nothing to make better';
+        if ((inv[item] ?? 0) < 1) return `I have no ${item}`;
+        const wantQ = /qual|legend|epic|rare|calidad|جودة|أسطوري/.test(raw);
+        const kind = wantQ ? 'q' : g.next(i, item) || 'lv';
+        if (first) {
+          s.phase = 1;
+          const lack = g.lacks(i, item, kind);
+          if (Object.keys(lack).length && t.steps.length < 12) {
+            t.steps.splice(t.k, 0, ...Object.entries(lack).map(([res, n]) => ({ do: 'gather', what: res, times: n } as Step)));
+            s.t0 = undefined;
+            return false;
+          }
+        }
+        const r = g.upgrade(i, `${item}:${kind}`);
+        if (r.ok) return true;
+        if (r.code === 'maxLevel') return `my ${item} is at level 50 already`;
+        if (r.code === 'maxQuality') return `my ${item} is legendary already`;
+        if (r.code === 'needLevel') return `my ${item} must reach level ${r.need?.level ?? '?'} before its quality can go up`;
+        return `I could not get ${Object.entries(r.need ?? {}).map(([k, n]) => `${n} ${k}`).join(', ') || 'the materials'} to make my ${item} better`;
       }
       case 'tend': {
         const sv = w.survival, id = e.id(i);

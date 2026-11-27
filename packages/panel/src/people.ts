@@ -224,6 +224,7 @@ function personHtml(d: Detail): string {
     ${card('Objectives', `<p><b>Level ${d.level ?? 0}</b> · ${d.xp ?? 0} points <small class="dim">(orders give more)</small></p>${(d.goals ?? []).length ? `<div class="feed">${d.goals!.map((g) => `<div class="ev"><span class="tag ${g.ok ? 'ok' : ''}">${g.ok ? '+' + g.xp : 'failed'}</span> <span>${esc(g.text)}${g.from !== 'myself' ? ` <small class="dim">(${g.from === 'owner' ? 'your order' : esc(g.from)})</small>` : ''}</span></div>`).join('')}</div>` : '<div class="empty">No objective finished yet.</div>'}`, { help: help('objectives') })}
     ${(d as { clan?: { name: string; leader: string; loyalty: number; rivals: string[] } | null }).clan ? card('Clan', ((c) => `<p><b>${esc(c.name)}</b> · elected leader ${esc(c.leader)}${c.approval !== undefined ? ` (approval ${c.approval}%)` : ''}</p><p>Loyalty ${c.loyalty}%${c.respect !== undefined ? ` · respect ★${c.respect}` : ''}</p>${c.rivals.length ? `<p class="dim">Rivals: ${few(c.rivals.map(esc), 6)}</p>` : ''}`)((d as unknown as { clan: { name: string; leader: string; loyalty: number; approval?: number; respect?: number; rivals: string[] } }).clan)) : ''}
     ${((q) => q ? card('Quests', `<p>${q.done} of ${q.all} done${q.cur ? ` · now <b>${esc(q.cur)}</b> ${q.ready ? '(done: hand it in)' : `${q.n}/${q.need}`}` : ''}</p>`) : '')((d as { quests?: { done: number; all: number; cur: string; n: number; need: number; ready: boolean } }).quests)}
+    ${gearCard((d as { gear?: GearRow[] }).gear)}
     ${(d as { dream?: DreamInfo | null }).dream ? card('Dream in life', dreamHtml((d as { dream: DreamInfo }).dream), { help: help('dream') }) : ''}
     ${card('Influence', influenceHtml(d.influence, d.influenceLog), { help: help('influence') })}
     ${card('Kills and fights', killsHtml(p.kills), { help: help('kills') })}
@@ -374,6 +375,13 @@ export const personScreen: Screen = {
 /** The person page's kill counts: animals by kind, zombies, people killed, duels won. */
 interface DreamInfo { kind: string; text: string; pct: number; trips: number; wild: number; past: string[]; seen: { map: string; pct: number }[] }
 const DREAM_ICON: Record<string, string> = { explorer: '🧭', hunter: '🏹', builder: '🔨', provider: '🧺', healer: '🌿', leader: '👑', family: '👪', sage: '📜' };
+interface GearRow { slot: string; item: string; lv: number; q: number }
+const Q_NAMES = ['normal', 'fine', 'rare', 'epic', 'legendary'], Q_COLORS = ['#b9b3a8', '#62c95a', '#4aa3ff', '#b36cff', '#ffb02e'];
+/** What they hold and wear: level 1-50 and quality (the TV's gear screen, sim/gear.ts). */
+function gearCard(g: GearRow[] | undefined): string {
+  if (!g?.length) return '';
+  return card('Gear', `<div class="kv">${g.map((r) => `<span>${esc(r.slot)}</span><b>${esc(r.item)} · Lv ${r.lv} <span style="color:${Q_COLORS[r.q] ?? ''}">${Q_NAMES[r.q] ?? ''}</span></b>`).join('')}</div>`);
+}
 function dreamHtml(d: DreamInfo): string {
   const seen = d.seen.map((s) => `<span class="chip">${esc(s.map)} ${s.pct}% seen</span>`).join('');
   return `<p>${DREAM_ICON[d.kind] ?? ''} <b>${esc(d.kind[0]!.toUpperCase() + d.kind.slice(1))}</b>: ${esc(d.text)}</p>${meter(d.pct, false, 'Dream')}<p><b>${d.pct}%</b> of the way${d.trips ? ` · ${d.trips} expedition${d.trips > 1 ? 's' : ''}${d.wild ? `, ${d.wild} into the wild` : ''}` : ''}</p>

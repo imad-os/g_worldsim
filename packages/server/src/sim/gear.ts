@@ -1,11 +1,11 @@
 import { WARMTH,
-  Act, Kind, SLOT_OF, SLOTS, UPGRADABLE, MAX_LEVEL, WEAPONS, DEFENCE, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear,
+  Act, Kind, SLOT_OF, SLOTS, UPGRADABLE, MAX_LEVEL, MAX_QUALITY, WEAPONS, DEFENCE, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, qualityReady, defenceOf, shownLevel, packGear,
   type Anim, type GearState, type Slot,
 } from '@worldsim/protocol';
 import type { World } from './world.js';
 
 /**
- * Gear (imad 2026-11-25): which weapon / clothes a person uses, upgrades (level +0..+10, quality normal .. elite), and what
+ * Gear (imad 2026-11-25): which weapon / clothes a person uses, upgrades (level 1..50 kept as 0..49, quality normal .. legendary), and what
  * the viewers see them doing (the animation sent in frames). Kept in `Profile.gear` (players' characters have profiles
  * too), so it is saved with the world. The bag itself stays in Survival (counts per item).
  *
@@ -58,11 +58,10 @@ export class Gear {
   }
   /** A bow shot's damage multiplier (level / quality of the bow). */
   bowMul(i: number): number { const [lv, q] = this.up(i, 'bow'); return gearMul(lv, q); }
-  /** What worn things take off a bite (0..0.7). */
+  /** What worn things take off a bite (0..0.8, `defenceOf`: levels keep counting, more and more slowly). */
   defence(i: number): number {
     const b = this.equipped(i, 'body'), h = this.equipped(i, 'head');
-    const v = (b && DEFENCE[b] ? this.power(i, b) : 0) + (h && DEFENCE[h] ? this.power(i, h) : 0);
-    return Math.min(0.7, v);
+    return defenceOf((b && DEFENCE[b] ? this.power(i, b) : 0) + (h && DEFENCE[h] ? this.power(i, h) : 0));
   }
 
   /** How much of the cold worn things keep off (0..0.8; WARMTH x level / quality). */
@@ -93,8 +92,8 @@ export class Gear {
     const [lv, q] = this.up(i, item);
     let cost: Record<string, number>;
     if (kind === 'q') {
-      if (q >= 4) return { ok: false, code: 'maxQuality', item, lv, q };
-      if (lv < qualityNeedsLevel(q)) return { ok: false, code: 'needLevel', item, lv, q, need: { level: qualityNeedsLevel(q) } };
+      if (q >= MAX_QUALITY) return { ok: false, code: 'maxQuality', item, lv, q };
+      if (!qualityReady(lv, q)) return { ok: false, code: 'needLevel', item, lv, q, need: { level: qualityNeedsLevel(q) } };
       cost = qualityCost(item, q) as Record<string, number>;
     } else {
       if (lv >= MAX_LEVEL) return { ok: false, code: 'maxLevel', item, lv, q };
@@ -152,21 +151,62 @@ export class Gear {
     return false;
   }
 
-  /** Hourly: people (not players) with plenty of spare materials level up what they use (up to +3 on their own). */
+  /** The next upgrade worth working for on this item: quality when the level allows it, else a level ('' = at its best). */
+  next(i: number, item: string): '' | 'lv' | 'q' {
+    const [lv, q] = this.up(i, item);
+    if (qualityReady(lv, q)) return 'q';
+    return lv < MAX_LEVEL ? 'lv' : '';
+  }
+  /** What that next upgrade still lacks (materials -> how many more). */
+  lacks(i: number, item: string, kind: 'lv' | 'q'): Record<string, number> {
+    const [lv, q] = this.up(i, item), inv = this.w.survival.inv(i), cost = (kind === 'q' ? qualityCost(item, q) : levelCost(item, lv)) as Record<string, number>;
+    const lack: Record<string, number> = {};
+    for (const [k, n] of Object.entries(cost)) if ((inv[k] ?? 0) < n) lack[k] = n - (inv[k] ?? 0);
+    return lack;
+  }
+  /** The bow and what is worn, with levels, and what the next upgrade still lacks (prompts). */
+  gearText(i: number): string {
+    const out: string[] = [];
+    for (const slot of ['ranged', 'head', 'body'] as const) { const k = this.equipped(i, slot); if (k) out.push(this.label(i, k)); }
+    const wp = this.equipped(i, 'weapon') || this.equipped(i, 'ranged');
+    let next = '';
+    if (wp) {
+      const kind = this.next(i, wp);
+      if (kind) {
+        const lack = Object.entries(this.lacks(i, wp, kind)).map(([k, n]) => `${n} ${k}`).join(', ');
+        next = ` Next for the ${wp}: ${kind === 'q' ? 'higher quality' : 'a level'}${lack ? `, needs ${lack} more` : ', you have what it takes (upgrade)'}.`;
+      }
+    }
+    return (out.length ? ` Also: ${out.join(', ')}.` : '') + next;
+  }
+  /** "sword Lv 12 rare" for prompts and the panel. */
+  label(i: number, item: string): string {
+    const [lv, q] = this.up(i, item);
+    return `${item} Lv ${shownLevel(lv)}${q ? ' ' + ['normal', 'fine', 'rare', 'epic', 'legendary'][q] : ''}`;
+  }
+
+  /**
+   * Hourly: people (not players) improve what they use with what they carry, as a player would on the gear screen
+   * (imad 2026-11-27: "AI people use the system too"): quality first when the level allows it, else a level, one step per
+   * slot an hour; they keep a little back of what the camp needs most (leather for huts while homeless, some wood and stone).
+   */
   update(): void {
     const w = this.w, h = Math.floor(w.gameSec / 3600);
     if (h === this.lastHour) return;
     this.lastHour = h;
-    const e = w.e;
+    const e = w.e, sv = w.survival;
     for (let i = 0; i < e.hi; i++) {
       if (e.kind[i] !== Kind.Agent || e.hp[i]! <= 0 || w.profileOf(i)?.player) continue;
-      for (const slot of ['weapon', 'body'] as const) {
+      const homeless = !sv.homes.homeOf(e.id(i));
+      const keep: Record<string, number> = { leather: homeless ? 6 : 1, wood: 3, stone: 2 };
+      for (const slot of SLOTS) {
         const item = this.equipped(i, slot);
         if (!item) continue;
-        const [lv] = this.up(i, item);
-        if (lv >= 3) continue;
-        const inv = w.survival.inv(i), cost = levelCost(item, lv);
-        if (Object.entries(cost).every(([k, n]) => (inv[k] ?? 0) >= 2 * n! + 2)) this.upgrade(i, `${item}:lv`);
+        const kind = this.next(i, item);
+        if (!kind) continue;
+        const [lv, q] = this.up(i, item), inv = sv.inv(i);
+        const cost = (kind === 'q' ? qualityCost(item, q) : levelCost(item, lv)) as Record<string, number>;
+        if (Object.entries(cost).every(([k, n]) => (inv[k] ?? 0) >= n + (keep[k] ?? 0))) this.upgrade(i, `${item}:${kind}`);
       }
     }
   }

@@ -7,7 +7,7 @@
  */
 import { WebGLRenderer, Scene, PerspectiveCamera, HemisphereLight, DirectionalLight, Mesh, CircleGeometry, MeshLambertMaterial, NeutralToneMapping } from 'three';
 import {
-  RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, MEDKIT_HEAL, WEAPONS, DEFENCE, BOW_DAMAGE, SLOT_OF, QUALITY_COLOR, MAX_LEVEL, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear, matchRecipe,
+  RESOURCES, CATEGORIES, RECIPES_ALL, PLACEABLE, MEDKIT_HEAL, WEAPONS, DEFENCE, BOW_DAMAGE, SLOT_OF, QUALITY_COLOR, MAX_LEVEL, MAX_QUALITY, TOP_LEVEL, shownLevel, qualityReady, defenceOf, baseOf, gearMul, levelCost, qualityCost, qualityNeedsLevel, packGear, matchRecipe,
   type Recipe, type GearState, type Slot, type Anim,
   itemText,
 } from '@worldsim/protocol';
@@ -33,6 +33,8 @@ const GEAR_ITEMS = ['sword', 'axe', 'spear', 'bow', 'arrows', 'clothes', 'armor'
 const ORDER = [...RESOURCES, ...GEAR_ITEMS, ...PLACEABLE] as string[];
 const CAT_ICON: Record<string, string> = { weapon: 'sword', clothing: 'armor', defence: 'palisade', furniture: 'bed', healing: 'medkit' };
 const qName = (q: number) => t(('qual' + q) as Key);
+/** "Lv 12" (levels are kept 0..49, shown 1..50). */
+const lvName = (lv: number) => tf('gLv', String(shownLevel(lv)));
 /** Icon size of the bag & crafting screen's slots (.inv .sl i = 4.8vw). */
 const IK = 0.048;
 /** Icon size in px: k = the icon's CSS width in vw / 100 (.sl i 3.6vw; crafting 4.8vw; big bag 6.6vw). The menu size setting scales the drawing, not these. */
@@ -209,8 +211,8 @@ export class BagScreen {
     const up = this.c.gear()?.up?.[k] ?? [0, 0];
     if (k === 'medkit') return [tf('dsHeal', String(MEDKIT_HEAL)), tf('invHintHeal', String(MEDKIT_HEAL))];
     if (k === 'arrows') return [t('dsArrows'), ''];
-    if (WEAPONS[k] || k === 'bow') return [`${t('gDamage')} ${((WEAPONS[k] ?? BOW_DAMAGE) * gearMul(up[0], up[1])).toFixed(1)}${up[0] || up[1] ? ` · +${up[0]} ${qName(up[1])}` : ''}`, t('invHintGear')];
-    if (DEFENCE[k]) return [`${t('gDefence')} ${Math.round(DEFENCE[k]! * gearMul(up[0], up[1]) * 100)} %${up[0] || up[1] ? ` · +${up[0]} ${qName(up[1])}` : ''}`, t('invHintGear')];
+    if (WEAPONS[k] || k === 'bow') return [`${t('gDamage')} ${((WEAPONS[k] ?? BOW_DAMAGE) * gearMul(up[0], up[1])).toFixed(1)}${` · ${lvName(up[0])} ${qName(up[1])}`}`, t('invHintGear')];
+    if (DEFENCE[k]) return [`${t('gDefence')} ${Math.round(DEFENCE[k]! * gearMul(up[0], up[1]) * 100)} %${` · ${lvName(up[0])} ${qName(up[1])}`}`, t('invHintGear')];
     if ((PLACEABLE as readonly string[]).includes(k)) return [t('dsPlace'), t('invHintPlace')];
     if ((RESOURCES as readonly string[]).includes(k)) return [k === 'herb' ? t('dsHerb') : t('dsMat'), t('bagHintCraft')];
     return ['', ''];
@@ -278,7 +280,7 @@ export class GearScreen {
     const slots = SLOTS.map((k, i) => {
       const it = this.used(k), [lv, q] = it ? this.up(it) : [0, 0];
       const on = this.col === 0 && this.row0 === i, cur = this.row0 === i;
-      return `<div class="gs${on ? ' on' : ''}${cur ? ' cur' : ''}">${slot(it || SLOT_ICON[k], 0, false, it ? '' : ' ghost', it ? q : -1)}<div><div class="gl">${esc(t(SLOT_KEY[k]))}</div><div class="gv">${it ? `${esc(c.thing(it))} <span style="color:${QUALITY_COLOR[q]}">+${lv} ${esc(qName(q))}</span>` : esc(k === 'weapon' ? t('gHands') : t('gNone'))}</div></div></div>`;
+      return `<div class="gs${on ? ' on' : ''}${cur ? ' cur' : ''}">${slot(it || SLOT_ICON[k], 0, false, it ? '' : ' ghost', it ? q : -1)}<div><div class="gl">${esc(t(SLOT_KEY[k]))}</div><div class="gv">${it ? `${esc(c.thing(it))} <span style="color:${QUALITY_COLOR[q]}">${esc(lvName(lv))} ${esc(qName(q))}</span>` : esc(k === 'weapon' ? t('gHands') : t('gNone'))}</div></div></div>`;
     }).join('');
     const opts = this.options(s), want = c.gear()?.[s] ?? '';
     const orow = opts.map((k, i) => {
@@ -292,17 +294,19 @@ export class GearScreen {
     if (it) {
       const lvOn = this.col === 1 && this.row === 1, qOn = this.col === 1 && this.row === 2;
       const lvTxt = lv >= MAX_LEVEL ? t('gMax') : `${this.stat(it, lv, q)} ➜ ${this.stat(it, lv + 1, q)}`;
-      const needLv = qualityNeedsLevel(q);
-      const qTxt = q >= 4 ? t('gMax') : lv < needLv ? tf('gNeedLv', String(needLv)) : `${qName(q)} ➜ <span style="color:${QUALITY_COLOR[q + 1]}">${esc(qName(q + 1))}</span>`;
-      detail = `<div class="gd"><div class="gbig">${slot(it, 0, false, ' big', q)}<div><b style="color:${QUALITY_COLOR[q]}">${esc(c.thing(it))} +${lv}</b><div>${esc(qName(q))} · ${esc(this.stat(it, lv, q))}</div>
-<div class="qbar">${[0, 1, 2, 3, 4].map((k) => `<i style="background:${k <= q ? QUALITY_COLOR[k] : 'rgba(255,255,255,.12)'}"></i>`).join('')}</div><div class="lbar">${Array.from({ length: MAX_LEVEL }, (_, k) => `<i class="${k < lv ? 'f' : ''}"></i>`).join('')}</div></div></div>
-<div class="gb${lvOn ? ' on' : ''}${lv >= MAX_LEVEL ? ' off' : ''}"><b>${esc(t('gLevelUp'))}</b><span>${esc(lvTxt)}</span><div>${lv < MAX_LEVEL ? costHtml(levelCost(it, lv), inv, c.thing) : ''}</div></div>
-<div class="gb${qOn ? ' on' : ''}${q >= 4 || lv < needLv ? ' off' : ''}"><b>${esc(t('gQualityUp'))}</b><span>${qTxt}</span><div>${q < 4 ? costHtml(qualityCost(it, q), inv, c.thing) : ''}</div></div></div>`;
+      const needLv = qualityNeedsLevel(q), qOk = qualityReady(lv, q);
+      const qTxt = q >= MAX_QUALITY ? t('gMax') : !qOk ? tf('gNeedLv', String(needLv)) : `${qName(q)} ➜ <span style="color:${QUALITY_COLOR[q + 1]}">${esc(qName(q + 1))}</span>`;
+      // Level 1..50: one bar (50 pips would not fit) with the next quality's level marked on it.
+      const pct = (shownLevel(lv) / TOP_LEVEL) * 100, mark = q < MAX_QUALITY ? (needLv / TOP_LEVEL) * 100 : -1;
+      detail = `<div class="gd"><div class="gbig">${slot(it, 0, false, ' big', q)}<div><b style="color:${QUALITY_COLOR[q]}">${esc(c.thing(it))} · ${esc(lvName(lv))}</b><div>${esc(qName(q))} · ${esc(this.stat(it, lv, q))}</div>
+<div class="qbar">${[0, 1, 2, 3, 4].map((k) => `<i style="background:${k <= q ? QUALITY_COLOR[k] : 'rgba(255,255,255,.12)'}"></i>`).join('')}</div><div class="lvbar"><i style="width:${pct.toFixed(1)}%;background:${QUALITY_COLOR[q]}"></i>${mark >= 0 ? `<u style="left:${mark.toFixed(1)}%;border-color:${QUALITY_COLOR[q + 1]}"></u>` : ''}<span>${shownLevel(lv)} / ${TOP_LEVEL}</span></div></div></div>
+<div class="gb${lvOn ? ' on' : ''}${lv >= MAX_LEVEL ? ' off' : ''}"><b>${esc(t('gLevelUp'))}${lv < MAX_LEVEL ? ` ${shownLevel(lv)} ➜ ${shownLevel(lv + 1)}` : ''}</b><span>${esc(lvTxt)}</span><div>${lv < MAX_LEVEL ? costHtml(levelCost(it, lv), inv, c.thing) : ''}</div></div>
+<div class="gb${qOn ? ' on' : ''}${q >= MAX_QUALITY || !qOk ? ' off' : ''}"><b>${esc(t('gQualityUp'))}</b><span>${qTxt}</span><div>${q < MAX_QUALITY ? costHtml(qualityCost(it, q), inv, c.thing) : ''}</div></div></div>`;
     }
     // Totals.
     const w = this.used('weapon'), b = this.used('body'), h = this.used('head');
     const dmg = w ? baseOf(w) * gearMul(...this.up(w)) : 15;
-    const def = Math.min(0.7, (b ? baseOf(b) * gearMul(...this.up(b)) : 0) + (h ? baseOf(h) * gearMul(...this.up(h)) : 0));
+    const def = defenceOf((b ? baseOf(b) * gearMul(...this.up(b)) : 0) + (h ? baseOf(h) * gearMul(...this.up(h)) : 0));
     return `<div class="gear"><div class="gp"><div id="gprev"></div><div class="gt"><span>⚔ ${dmg.toFixed(0)}</span><span>🛡 ${Math.round(def * 100)} %</span></div></div>
 <div class="gsl">${slots}</div><div class="gr"><div class="gor">${orow}</div>${detail}</div></div><div class="nv">${esc(t('gNav'))}</div>`;
   }

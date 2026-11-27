@@ -16,7 +16,7 @@ const SCALE = 1.25; // a bit bigger than life, so people read well from the tilt
 
 export interface PersonLook { tunic: Color; skin: Color; hair: Color; pants: Color }
 
-/** Quality tints (normal, fine, superior, epic, elite) and glows. */
+/** Quality tints (normal, fine, rare, epic, legendary) and glows. */
 const Q_TINT = [new Color(1, 1, 1), new Color(0.95, 1.08, 0.95), new Color(0.88, 0.97, 1.18), new Color(1.06, 0.86, 1.22), new Color(1.35, 1.08, 0.55)];
 const Q_GLOW = [new Color(0), new Color(0), new Color(0x2a6bff), new Color(0x9b3cff), new Color(0xffa31a)];
 const ARMOR = new Color(0x7f8793), LEATHER = new Color(0x8b5a35);
@@ -195,7 +195,7 @@ export class People {
     this.m.multiplyMatrices(arm, this.part);
     const j = this.gn[k]++;
     im.setMatrixAt(j, this.m); im.setColorAt(j, Q_TINT[q] ?? Q_TINT[0]!);
-    if (q >= 2 && this.nGlow < this.gcap) { // superior and up shine
+    if (q >= 2 && this.nGlow < this.gcap) { // rare and up shine
       const len = LEN[k] ?? 0.6, pulse = 1 + 0.08 * Math.sin(performance.now() / 180);
       this.part.compose(this.v.set(0, k === 'bow' ? 0 : len * 0.62, 0), this.q.identity(), this.s.set(0.1 * pulse, len * 0.45 * pulse, 0.1 * pulse));
       this.m.multiply(this.part);

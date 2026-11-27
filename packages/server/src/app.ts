@@ -1167,7 +1167,7 @@ export class App {
       id, alive: true, name: p?.name ?? `#${i}`, sex: p?.sex, age: p ? Math.floor(ageOf(p, w.gameSec, w.yearSec)) : 0,
       map: e.map[i] === NO_MAP ? null : w.maps[e.map[i]!]!.def.id, x: r1(e.x[i]!), y: r1(e.y[i]!), act: e.act[i],
       hunger: r1(e.hunger[i]!), thirst: r1(e.thirst[i]!), tired: r1(e.tired[i]!), lonely: r1(e.lonely[i]!), hp: r1(e.hp[i]!),
-      task: w.tasks.describe(id) || null, kills: killsOf(p), influence: w.influence.of(id), influenceLog: w.influence.log(id), dream: w.purpose.info(id),
+      task: w.tasks.describe(id) || null, kills: killsOf(p), influence: w.influence.of(id), influenceLog: w.influence.log(id), dream: w.purpose.info(id), gear: (['weapon', 'ranged', 'head', 'body'] as const).map((slot) => { const k = w.gear.equipped(i, slot); return k ? { slot, item: k, lv: w.gear.up(i, k)[0] + 1, q: w.gear.up(i, k)[1] } : null; }).filter(Boolean),
       goal: w.tasks.progress(id), xp: p?.xp ?? 0, level: levelOf(p?.xp), goals: (p?.goals ?? []).slice(-5).reverse(),
       order: (() => { const o = w.brain.orderOf(i); return o.kind ? (o.kind === 'come' || o.kind === 'follow' || o.kind === 'bring' ? `${o.kind === 'come' ? 'go to' : o.kind === 'bring' ? 'bring food to' : 'follow'} ${this.planner.whoName(o.who)}` : o.kind === 'job' ? null : o.kind === 'act' ? ['stand', 'wander', 'drink', 'eat', 'forage', 'sleep', 'talk', 'travel', 'rest'][o.act] ?? 'act' : 'wait here') : null; })(),
       player: p?.player ?? null, auto: !!p?.auto, manual: e.kind[i] === Kind.Player, online: p?.player ? this.net.online(p.player) : false,

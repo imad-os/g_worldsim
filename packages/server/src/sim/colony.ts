@@ -60,6 +60,8 @@ export class Colony {
   private readonly culture: Know[];
   /** Plans made / failed to find (stats for experiments and the panel). */
   private readonly explored: number[][] = [];
+  /** When each person last set out to better their gear (entity id -> game s): once a game day at most. */
+  private readonly upgraded = new Map<number, number>();
   private readonly backoff = new Map<string, { n: number; until: number }>();
   stats = { plans: 0, noPlan: 0, nodes: 0, replans: 0, ms: 0 };
 
@@ -409,6 +411,21 @@ export class Colony {
         else if ((v.bow ?? 0) && (v.arrows ?? 0) < 5) gs.push({ name: 'arrows', text: 'make arrows', want: [{ arrows: (v.arrows ?? 0) + 5 }], value: 0.22, trait: 'intelligence', crew: 1, only: i });
       }
       if ((((v.leather ?? 0) >= 1 && (sv.homes.homeOf(w.e.id(i)) || (v.leather ?? 0) >= 6)) || chilly) && !(v.clothes ?? 0) && !(v.armor ?? 0)) gs.push({ name: 'clothes', text: chilly ? 'make warm clothes for the cold' : 'make clothes', want: [{ clothes: 1 }, { armor: 1 }], value: chilly ? 0.62 : 0.3, trait: 'intelligence', crew: 1, only: i });
+      // Better gear (imad 2026-11-27: levels 1-50, quality up to legendary, AI people use it too): the weapon / bow / armour
+      // in use goes up a step when the step is near (a few materials short); fighters and hunters care more, more so under threat.
+      // Here only when zombies are coming (quiet days: a pastime, sim/purpose.ts), at most once a game day each, only a couple of materials short.
+      if (threat && tq && (armed || (v.bow ?? 0) > 0) && w.gameSec - (this.upgraded.get(w.e.id(i)) ?? -1e9) > 24 * HOUR) {
+        for (const slot of ['weapon', 'ranged', 'body', 'head'] as const) {
+          const item = w.gear.equipped(i, slot), kind = item ? w.gear.next(i, item) : '';
+          if (!item || !kind) continue;
+          const short = Object.values(w.gear.lacks(i, item, kind)).reduce((a, b) => a + b, 0);
+          if (short > 2) continue;
+          const keen = slot === 'head' || slot === 'body' ? tq.strength : slot === 'ranged' ? tq.speed : tq.courage;
+          gs.push({ name: 'upgrade', text: `${kind === 'q' ? 'raise the quality of' : 'level up'} my ${item}`, want: [], value: 0.3 + keen * 0.08, trait: slot === 'ranged' ? 'speed' : 'strength',
+            crew: 1, only: i, steps: [{ do: 'upgrade', what: item + (kind === 'q' ? ' quality' : ''), key: 'upgrade' }] });
+          break;
+        }
+      }
       if (fire >= 0 && (v.wood ?? 0) < 3) gs.push({ name: 'firewood', text: 'gather firewood', want: [{ wood: (v.wood ?? 0) + 4 }], value: 0.18, trait: 'strength', crew: 1, only: i });
     }
     // Offspring (instinct): a single adult looks for a partner among the single adults they know best (the rules of
@@ -487,6 +504,7 @@ export class Colony {
         const t = w.profileOf(bi)!.mind!.task as { goal?: string };
         t.goal = g.only !== undefined ? `${g.name}@${e.id(bi)}` : g.name;
         if (g.name === 'explore') (this.explored[m] ??= []).push(w.gameSec);
+        if (g.name === 'upgrade') this.upgraded.set(e.id(bi), w.gameSec);
         free.splice(free.indexOf(bi), 1);
         started++;
       }

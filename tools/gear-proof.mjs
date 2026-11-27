@@ -59,11 +59,11 @@ await key('Enter'); await key('ArrowRight', 2); await key('Enter');
 console.log('3 by hand:', await desc());
 await page.screenshot({ path: `${out}/3-grid-by-hand.png` });
 await key('Escape'); await page.waitForTimeout(300);
-// 4. Gear: level the sword up twice and raise its quality.
+// 4. Gear: level the sword up to level 5 and raise its quality.
 await goRow('Gear'); await key('Enter'); await page.waitForTimeout(1200);
 await page.screenshot({ path: `${out}/4-gear.png` });
 await key('ArrowRight'); await key('ArrowDown');
-for (let k = 0; k < 2; k++) { did.length = 0; await key('Enter'); await page.waitForTimeout(700); console.log('4 level up:', JSON.stringify(did.find((d) => d.a === 'upgrade')), '|', await note()); }
+for (let k = 0; k < 4; k++) { did.length = 0; await key('Enter'); await page.waitForTimeout(700); console.log('4 level up:', JSON.stringify(did.find((d) => d.a === 'upgrade')), '|', await note()); }
 await key('ArrowDown'); did.length = 0; await key('Enter'); await page.waitForTimeout(700);
 console.log('4 quality:', JSON.stringify(did.find((d) => d.a === 'upgrade')), '|', await note());
 await page.waitForTimeout(1500);

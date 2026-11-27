@@ -1,20 +1,36 @@
 /**
- * Gear (imad 2026-11-25): what a person wears and holds, its level (+0..+10) and its quality (normal .. elite), shared
- * by the server (sim/gear.ts: damage, defence, upgrades) and the viewer (gear screen, models in hands, icons).
+ * Gear (imad 2026-11-25, levels 1-50 and legendary 2026-11-27): what a person wears and holds, its level (1..50, kept as
+ * 0..49) and its quality (normal, fine, rare, epic, legendary), shared by the server (sim/gear.ts: damage, defence,
+ * upgrades) and the viewer (gear screen, models in hands, icons).
  */
 import { WEAPONS, DEFENCE, type Resource } from './craft.js';
 
-export const QUALITIES = ['normal', 'fine', 'superior', 'epic', 'elite'] as const;
+export const QUALITIES = ['normal', 'fine', 'rare', 'epic', 'legendary'] as const;
 export type Quality = 0 | 1 | 2 | 3 | 4;
+export const MAX_QUALITY = 4;
 /** Frame / icon colour of each quality. */
 export const QUALITY_COLOR = ['#b9b3a8', '#62c95a', '#4aa3ff', '#b36cff', '#ffb02e'];
 /** Damage / defence multiplier of each quality. */
-export const QUALITY_MUL = [1, 1.12, 1.25, 1.42, 1.65];
-export const MAX_LEVEL = 10;
-/** Each level adds 5 % on top of the quality. */
-export function gearMul(lv: number, q: number): number { return (QUALITY_MUL[q] ?? 1) * (1 + 0.05 * Math.max(0, Math.min(MAX_LEVEL, lv))); }
-/** Quality q -> q + 1 needs this level first (fine +2, superior +4, epic +6, elite +8). */
-export function qualityNeedsLevel(q: number): number { return 2 + 2 * q; }
+export const QUALITY_MUL = [1, 1.12, 1.25, 1.42, 1.8];
+/** Levels shown 1..50; stored as 0..49 (an item never levelled = level 1; worlds from before keep their +n as level n + 1). */
+export const TOP_LEVEL = 50;
+/** The highest STORED level (49 = level 50). */
+export const MAX_LEVEL = TOP_LEVEL - 1;
+/** The level a player reads (stored + 1). */
+export function shownLevel(lv: number): number { return Math.max(0, Math.min(MAX_LEVEL, lv)) + 1; }
+/** Levels 2-11 add 5 % each (as before), then 2.5 % each: level 50 = x2.475 (x4.46 when legendary). */
+export function levelMul(lv: number): number { const l = Math.max(0, Math.min(MAX_LEVEL, lv)); return 1 + 0.05 * Math.min(10, l) + 0.025 * Math.max(0, l - 10); }
+export function gearMul(lv: number, q: number): number { return (QUALITY_MUL[q] ?? 1) * levelMul(lv); }
+/** Quality q -> q + 1 needs this SHOWN level first: fine 5, rare 15, epic 25, legendary 40. */
+export const QUALITY_LEVEL = [5, 15, 25, 40];
+export function qualityNeedsLevel(q: number): number { return QUALITY_LEVEL[q] ?? TOP_LEVEL; }
+/** May the quality go up from q at this stored level? */
+export function qualityReady(lv: number, q: number): boolean { return q < MAX_QUALITY && shownLevel(lv) >= qualityNeedsLevel(q); }
+/**
+ * What worn things really take off a bite (0..0.8) from their summed power: up to 0.5 as it is (old worlds unchanged), above
+ * that it keeps growing more and more slowly, so levels 1 to 50 always count.
+ */
+export function defenceOf(v: number): number { return v <= 0.5 ? Math.max(0, v) : 0.5 + 0.3 * (1 - Math.exp(-(v - 0.5) / 0.6)); }
 
 export const SLOTS = ['weapon', 'ranged', 'head', 'body'] as const;
 export type Slot = (typeof SLOTS)[number];
@@ -30,20 +46,29 @@ export interface GearState { weapon?: string; ranged?: string; head?: string; bo
 
 type Cost = Partial<Record<Resource, number>>;
 const METAL = new Set(['sword', 'axe', 'helmet', 'armor']);
-/** Materials to take an item from level lv to lv + 1. */
+/**
+ * Materials to take an item from stored level lv to lv + 1. The main material grows by 1 every 5 levels (1..10, so a bag
+ * holds it); from level 11 scrap, from 26 claws, from 41 bricks too.
+ */
 export function levelCost(item: string, lv: number): Cost {
-  const n = Math.ceil((lv + 1) / 2);
-  if (item === 'clothes') return { leather: n };
-  if (item === 'bow') return { wood: 1, leather: Math.ceil((lv + 1) / 3) };
-  if (item === 'spear') return { wood: 1, stone: n };
-  if (METAL.has(item)) return item === 'helmet' || item === 'armor' ? { ore: n, leather: 1 } : { ore: n, stone: 1 };
-  return {};
+  const n = 1 + Math.floor(Math.max(0, lv) / 5);
+  let c: Cost;
+  if (item === 'clothes') c = { leather: n };
+  else if (item === 'bow') c = { wood: 1 + Math.floor(lv / 10), leather: Math.ceil((lv + 1) / 5) };
+  else if (item === 'spear') c = { wood: 1, stone: n };
+  else if (METAL.has(item)) c = item === 'helmet' || item === 'armor' ? { ore: n, leather: 1 + Math.floor(lv / 15) } : { ore: n, stone: 1 + Math.floor(lv / 15) };
+  else return {};
+  if (lv >= 10) c.scrap = 1 + Math.floor((lv - 10) / 15);
+  if (lv >= 25) c.claw = 1 + Math.floor((lv - 25) / 15);
+  if (lv >= 40) c.brick = 1;
+  return c;
 }
-/** Materials to raise the quality from q to q + 1 (rare things: claws, ore, scrap, then bricks). */
+/** Materials to raise the quality from q to q + 1 (rare things: claws, ore / leather, scrap, then bricks; legendary the most). */
 export function qualityCost(item: string, q: number): Cost {
   const k = q + 1;
   const c: Cost = item === 'clothes' || item === 'bow' ? { claw: k, leather: 2 * k, scrap: k } : { claw: k, ore: 2 * k, scrap: k };
   if (q >= 2) c.brick = q - 1;
+  if (q >= 3) { c.claw = 6; c.scrap = 6; c.brick = 4; }
   return c;
 }
 

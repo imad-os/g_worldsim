@@ -385,6 +385,8 @@ export class Purpose {
       [0.5 + t.empathy * 0.5, () => { const k = this.childOf(i); return k >= 0 ? { text: `play with ${w.profileOf(k)?.name ?? 'my child'}`, steps: [{ do: 'talk', who: e.id(k), times: 2 }] } : null; }],
       [t.courage * 1.2, () => (this.mapShare(e.id(i), m) < 0.98 ? { text: 'look round the camp', steps: [{ do: 'explore', what: 'near', times: 1 }] } : null)],
       [w.survival.T.herbs >= 0 ? 0.2 + t.empathy * 0.4 : 0, () => ({ text: 'pick herbs', steps: [{ do: 'gather', what: 'herb', times: 2 }] })],
+      // Better gear (imad 2026-11-27: levels 1-50, quality up to legendary): the weapon / bow / armour in use a step up, gathering the few materials it lacks.
+      [0.15 + t.courage * 0.25, () => this.betterGear(i)],
       [0.25 + t.strength * 0.4, () => (w.survival.campOf(m) ? { text: 'cut some wood', steps: [{ do: 'gather', what: 'wood', times: 2 }, { do: 'store', what: 'wood' }] } : null)],
     ];
     for (let tries = 0; tries < 3; tries++) {
@@ -416,6 +418,17 @@ export class Purpose {
     return best;
   }
   private awakeOn(j: number, m: number): boolean { const e = this.w.e; return e.map[j] === m && !(e.flags[j]! & EFlag.Sleeping) && (e.kind[j] === Kind.Agent || e.kind[j] === Kind.Player); }
+  /** A step up for the weapon / bow / armour in use when it is near (3 materials short at most). */
+  private betterGear(i: number): { text: string; steps: Step[] } | null {
+    const g = this.w.gear;
+    for (const slot of ['weapon', 'ranged', 'body', 'head'] as const) {
+      const item = g.equipped(i, slot), kind = item ? g.next(i, item) : '';
+      if (!item || !kind) continue;
+      if (Object.values(g.lacks(i, item, kind)).reduce((a, b) => a + b, 0) > 3) continue;
+      return { text: `${kind === 'q' ? 'raise the quality of' : 'level up'} my ${item}`, steps: [{ do: 'upgrade', what: item + (kind === 'q' ? ' quality' : '') }] };
+    }
+    return null;
+  }
   /** The awake person on my map I like most (not my partner: that is another pastime). */
   private friend(i: number): number {
     const w = this.w, e = w.e, p = w.profileOf(i)!, m = e.map[i]!;

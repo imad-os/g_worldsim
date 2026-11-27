@@ -543,6 +543,13 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - **Screens** (`invui.ts`, Menu pages with a `grid` = own cursor, `big`): "Bag & crafting" (category tabs, 3x3 grid -> result, recipe book fills the grid,
   9x4 bag; A on a material = into the grid, on gear = equip, on a placeable = put down) and "Gear" (3D preview = a second small WebGLRenderer only while open,
   4 slots, choices Best / Nothing / items, Level up / Raise quality with costs). Strings `i18ng.ts` (TG). Proof: `ADMIN_TOKEN=... node tools/gear-proof.mjs <server> <sdk.js> <outdir>`.
+- **Levels 1-50, quality up to legendary (imad 2026-11-27)**: protocol gear.ts `TOP_LEVEL` 50, stored 0..49 (`MAX_LEVEL` 49, `shownLevel` = +1, old +n = Lv n+1),
+  `levelMul` 5 % a level to 11 then 2.5 % (Lv 50 x2.475), qualities normal / fine / rare / epic / legendary (`QUALITY_MUL` legendary 1.8), quality needs Lv 5 / 15 / 25 / 40
+  (`qualityReady`), `levelCost` main material 1 + lv/5 (bag-sized) + scrap from 11, claws from 26, bricks from 41; `defenceOf` soft cap 0.8 (up to 0.5 unchanged).
+  AI: `Gear.update` hourly levels / raises quality of every slot with spare materials (keeps leather for a hut, some wood / stone); task skill `upgrade { what }`
+  (missing materials become gather steps, proof = event `upgrade`), purpose pastime `betterGear`, colony goal 'upgrade' only under threat (once a game day each),
+  chat net "upgrade / improve / legendary + sword..." (4 languages); prompts say `gear.label` + what the next step lacks (`gearText`). Panel person card Gear.
+  TV gear screen: "Lv N" + a 1-50 bar with the next quality's level marked. Test gear.test.ts.
 - **Bow aiming, animal deaths (imad 2026-11-25, app 0.12.1)**: holding Aim sends Do `aim` 1 (`Gear.aiming`, frame gx bit 23 = bow drawn and held,
   anim shoot); letting go of Aim SHOOTS (Do `shoot` at the locked target / aim angle, then `aim` 0); Attack while aiming does nothing. My own character
   shows the drawn bow at once (`aimGear`). `#aimhud` = arrows icon + count while aiming. Player arrows fly at `ARROW_SPEED` 100 m/s (`World.shoot(.., speed)`),
