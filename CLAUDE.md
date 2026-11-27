@@ -951,3 +951,15 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Changing clan (`Clans.reconsider`, hourly per AI member): partner in another clan (the less loyal one moves, 20 %/h), a clan fitting > 1.2 better at
   loyalty < 0.4 or > 3 better at < 0.7; war against family lowers loyalty. They walk to the other leader and ask (event `clanMove`, then clanSwitch).
   Test clanwar.test.ts.
+
+## Short planner prompts (imad 2026-11-27: "prompts got very long, slow, timeouts; make sure they will not make them dumb")
+- `Planner.planPrompt`: shared once on top (time, place, the wild places, `SOURCES` = where materials come from, `knowHowFor(things)` = only the
+  things the batch's goals make / use or they carry, with their cost), then per person `describe(i, true)` + `Goals now:` (`Planner.goalsFor`:
+  under 10 = needs only, 10-15 `LIGHT_WORK`, nothing they own already, no hut with a home, bed only when the home lacks one, fire feeding only
+  near a fire, horse goals by owning / wild horses, craft / build only when `Colony.planTo` finds a way) + `Not possible now:` (the reason, and
+  goals that failed in the last `FAILED_FOR` 6 game h: no plan / fail / re-plan loop) + "leave memory empty" when nothing new. The full
+  `KNOW_HOW` is no longer sent (chat: SOURCES + knowHowFor(named + carried + goal things)). Huts list: free / mine / family + 3 nearest; family:
+  the dead as a count; Near: 6 nearest; Recent: 6, repeats as (xN).
+- `Planner.nothingToDecide` (no call): under 7, asleep 21-05, in a task, desperate thirst / hunger, fleeing / fighting; never when urgent or
+  3 plan intervals past. Slow model: `batchNow` -1 after a > 60 s answer, halves on a timeout, +1 after < 20 s; a failed batch retries in ~30 game min.
+- E12 in research/EXPERIMENTS.md (`experiment-prompts.ts`, fake model): 20.2k -> 8.9k chars a call, tokens -64 %, planned tasks ok 1 % -> 74 %. Test prompts.test.ts.

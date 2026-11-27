@@ -276,8 +276,13 @@ export class Homes {
     const all = this.where(m);
     if (!all.length) return 'Huts on this map: none yet.';
     const fam = (o: number) => o !== id && o >= 0 && this.family(id, o);
-    const rows = all.slice(0, 14).map((h) => `(${Math.floor(h.x)}, ${Math.floor(h.y)}) ${h.owner === id ? 'yours' : h.free ? 'FREE: anyone without a home can move in' : `${h.ownerName}'s${fam(h.owner) ? ' (your family)' : ''}`}`);
-    return `Huts on this map (${all.length}; huts are dear to build, so move into a free one before building): ${rows.join('; ')}${all.length > 14 ? '; ...' : ''}.`;
+    // imad 2026-11-27 (prompts too long): every free hut, mine and my family's, then the 3 nearest others; the rest as a count.
+    const s = this.w.e.slot(id), x = s >= 0 ? this.w.e.x[s]! : 0, y = s >= 0 ? this.w.e.y[s]! : 0;
+    const key = (h: (typeof all)[number]) => (h.owner === id || h.free || fam(h.owner) ? -1e9 : 0) + Math.hypot(h.x - x, h.y - y);
+    const shown = [...all].sort((a, b) => key(a) - key(b)).filter((h, k) => k < 3 || h.owner === id || h.free || fam(h.owner)).slice(0, 8);
+    const rows = shown.map((h) => `(${Math.floor(h.x)}, ${Math.floor(h.y)}) ${h.owner === id ? 'yours' : h.free ? 'FREE: anyone without a home can move in' : `${h.ownerName}'s${fam(h.owner) ? ' (your family)' : ''}`}`);
+    const free = all.filter((h) => h.free).length;
+    return `Huts on this map: ${all.length} (${free ? `${free} free` : 'none free'}; huts are dear to build, so move into a free one before building): ${rows.join('; ')}${all.length > shown.length ? `; and ${all.length - shown.length} more, all lived in` : ''}.`;
   }
   // ------------------------------------------------------------------ beds (imad 2026-11-26: "4 beds in his hut and he builds a new one")
   /** Who sleeps in hut h: the owner, their partner and the children of 3+ who live there (little ones sleep by a parent). */

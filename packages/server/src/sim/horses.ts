@@ -414,7 +414,7 @@ export class Horses {
     }
     const wild = w.maps.filter((x) => this.count(x.index, true) > 0).map((x) => x.def.name);
     if (!wild.length) return 'You have no horse, and there are no wild horses about.';
-    return `You have no horse. Wild horses live in ${wild.join(', ')}${this.count(m, true) ? ' (some here)' : ''}: tame one (skill tame: walk up calmly, brave and clever people do it best) and ride it everywhere, 3-5 times faster than walking.`;
+    return `You have no horse. Wild horses live in ${wild.join(', ')}${this.count(m, true) ? ' (some here)' : ''}: tame one (skill tame; brave, clever people do it best) to ride 3-5 times faster than walking.`;
   }
   /** The nearest wild horse to person i within r m (slot / -1). */
   nearestWild(i: number, r: number): number {

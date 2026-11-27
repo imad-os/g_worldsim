@@ -80,7 +80,7 @@ test('planner: one batched request plans for everyone on the map, wishes steer t
     assert.match(pr.mind!.summary, /long winter/);
   }
   assert.equal(said.length, people.length);
-  assert.match(prompts[0]!, /Possible goals: .*forage/);
+  assert.match(prompts[0]!, /Goals now: .*forage/);
   assert.ok(!/travel \(/.test(prompts[0]!), 'travel is not offered while closed');
   // Nobody is due again right away; the gap between requests holds too.
   await p.tick();

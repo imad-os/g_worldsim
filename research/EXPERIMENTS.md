@@ -235,3 +235,28 @@ imad: "they stand still in the camp all day, only eating, drinking and resting".
 The idle share that is left is mostly children (who stay by a parent) and new mothers' week at home, plus walking legs of tasks
 counted as Wander. With travel open (scratch run, seed exp-a): 3 expeditions into the Pine Woods in 4 days, each back with
 "plenty of trees, rocks to mine, water, wild horses, wolves (danger)..."; no deaths.
+
+## E12. Shorter planner prompts, goals that can work (2026-11-27)
+
+imad: "the prompts for persons planning got very long, slow, even timeouts ... make sure they will not make them dumb". No LLM in the
+cloud, so `experiment-prompts.ts` plans with a FAKE model that reads only the prompt text (urgent needs from the need words, a hut /
+bed when the prompt says one is missing, else a work goal from the goals offered; or "random" = any offered goal). 16 people, travel
+open, 3 game days, seeds pr-a/b/c, one batch per 20 real s (as the server). Before = the code at 8cf9a18.
+
+| sensible fake model | before | after |
+|---|---|---|
+| AI calls | 388 | 318 |
+| people planned | 1353 | 608 |
+| prompt characters per call (avg) | 20,244 | 8,948 |
+| tokens sent in 3 days (chars / 4) | 1.97 M | 0.71 M |
+| planned tasks done / failed | 8 / 899 (1 %) | 222 / 78 (74 %) |
+| deaths | 0 | 0 |
+| store stock | 444 | 459 |
+| lonely / idle | 19.3 / 0.42 | 13.2 / 0.34 |
+| talks | 203 | 411 |
+
+Random fake model: tasks ok rate 64 % -> 85 %, calls 397 -> 347, tokens 1.58 M -> 0.80 M, no deaths either way.
+Before, the prompt said "No home yet" and offered "build a hut" while no leather could be had in town: 888 failed hut tasks, each
+failure marked the person urgent and planned them again (the loop that made the calls). Now that goal shows under "Not possible now"
+with the engine's reason. Huts finished by planned tasks: 2.3 -> 0.7 (the 2 came out of ~900 tries; the camp's own hut plans are
+unchanged). `npm run build && node packages/server/dist/experiment-prompts.js --days 3 --policy sensible`.

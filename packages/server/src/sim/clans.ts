@@ -874,7 +874,7 @@ export class Clans {
   /** The clan line of every prompt about a person. */
   promptText(i: number): string {
     const w = this.w, id = w.e.id(i), c = this.clanOf(id);
-    if (!c) { const n = this.clans.filter((x) => x.map === w.e.map[i]).map((x) => x.name); return n.length ? `You are in no clan, and everyone must belong to one: choose now. Clans here: ${n.join(', ')} (skill clan {"what":"join <name>"}).` : 'There is no clan here yet, and everyone must belong to one: Odile the registrar in town founds them (skill clan {"what":"found"}).'; }
+    if (!c) { const n = this.clans.filter((x) => x.map === w.e.map[i]).map((x) => x.name); return n.length ? `You are in no clan, and everyone must belong to one: choose now. Clans here: ${n.join(', ')} (to join one, use the skill clan with what = join and the clan's name).` : 'There is no clan here yet, and everyone must belong to one: Odile the registrar in town founds them (the skill clan with what = found).'; }
     const r = this.rivals(c).map((x) => `${x.clan.name} (tension ${Math.round(x.tension)}/10)`);
     const lead = c.leader === id;
     return `Clan: ${c.name}, ${lead ? 'you are its elected leader (your members follow your orders)' : `led by ${this.name(c.leader)} (elected; approval ${this.approval(c)}%)`}, ${c.members.length} members; your loyalty ${Math.round(this.loyalty(id) * 100)}%.`

@@ -14,11 +14,11 @@
  */
 import { Convo, smallTalk } from './convo.js';
 import { kidTalk, kidVoice } from '../sim/family.js';
-import { Act, EFlag, Kind, RECIPES_ALL, CONFIRM, HUT_NEED } from '@worldsim/protocol';
+import { Act, EFlag, Kind, CONFIRM } from '@worldsim/protocol';
 import { warWords } from '../sim/clans.js';
-import { KNOW_HOW, ownText } from '../sim/knowhow.js';
+import { SOURCES, knowHowFor, mentioned, ownText } from '../sim/knowhow.js';
 import type { Ai } from './llm.js';
-import { parseJsonReply } from './llm.js';
+import { AiError, parseJsonReply } from './llm.js';
 import type { Logger } from '../log.js';
 import type { World, WorldEvent } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
@@ -42,8 +42,6 @@ export interface Exchange { at: number; kind: 'plan' | 'chat' | 'rule'; who: str
 const GOALS: Record<string, number> = {
   drink: Act.Drink, eat: Act.Eat, forage: Act.Forage, sleep: Act.Sleep, talk: Act.Talk, wander: Act.Wander, rest: Act.Rest, travel: Act.Travel,
 };
-const RECIPE_TEXT = RECIPES_ALL.map((r) => `${r.what} = ${Object.entries(r.need).map(([k, n]) => `${n} ${k}`).join(' + ')}`).join(', ');
-const HUT_TEXT = Object.entries(HUT_NEED).map(([k, n]) => `${n} ${k}`).join(' + ');
 const ACT_TEXT = ['standing', 'walking around', 'going for water', 'eating', 'looking for food', 'sleeping', 'talking', 'travelling', 'resting', 'running away', 'going to someone', 'gathering', 'building'];
 /** Goals of the batch planner that are work (milestone 8): they start a task. */
 const WORK_GOALS: Record<string, Step[]> = {
@@ -57,6 +55,16 @@ const WORK_GOALS: Record<string, Step[]> = {
   'put a bed in a hut': [{ do: 'build', what: 'bed' }], 'put up a palisade': [{ do: 'build', what: 'palisade' }],
   'search the ruins': [{ do: 'loot', times: 3 }], 'plant a field': [{ do: 'farm' }], 'repair the huts': [{ do: 'repair' }],
 };
+/** The thing a work goal makes or uses: the prompt's short know-how covers only these (imad 2026-11-27: prompts too long). */
+const GOAL_THING: Record<string, string> = Object.fromEntries(Object.entries(WORK_GOALS).map(([g, st]) => {
+  const s = st[0]!;
+  return [g, s.do === 'craft' || s.do === 'build' ? s.what! : g === 'feed the fire' ? 'campfire' : g === 'collect food and store it' ? 'crate'
+    : g === 'plant a field' ? 'farm' : g === 'tame a horse' || g === 'ride my horse home' ? 'horse' : g === 'repair the huts' ? 'hut' : ''];
+}));
+/** Work a child of 10-15 may take up by themselves (younger children only play, drink, eat, rest and sleep). */
+const LIGHT_WORK = new Set(['gather wood', 'gather stone', 'collect food and store it', 'explore around', 'feed the fire', 'plant a field', 'make arrows']);
+/** A work goal that failed is not offered again for this long (it is shown with its reason instead). */
+const FAILED_FOR = 6 * 3600;
 const NOTES_MAX = 12;
 const HOUR = 3600;
 
@@ -160,9 +168,13 @@ export class Planner {
   cfg: PlannerConfig;
   readonly log: Exchange[] = [];
   readonly convo = new Convo();
-  readonly counts = { batches: 0, plans: 0, chats: 0, failures: 0, builtIn: 0 };
+  readonly counts = { batches: 0, plans: 0, chats: 0, failures: 0, builtIn: 0, skipped: 0, timeouts: 0 };
   private busy = false;
   private lastRunAt = 0;
+  /** Work goals that failed lately, per person: goal -> until when it is not offered, and why. */
+  private failed = new Map<number, Map<string, { until: number; why: string }>>();
+  /** People per request now: halves when the model times out, grows back after quick answers (<= cfg.batch). */
+  private batchNow = 0;
   /** Lines said, for the viewers and the panel (App forwards them). */
   onSay: (i: number, text: string) => void = () => {};
 
@@ -183,7 +195,12 @@ export class Planner {
     };
     w.tasks.onEnd = (id, t, ok, why) => {
       this.onTaskEnd(id, t.from, t.text, ok, why);
-      this.note(id, ok ? `I did what ${t.from === 'owner' ? 'the voice from the sky' : t.from} asked: ${t.text}.` : `I could not ${t.text}: ${why}.`, true);
+      if (!ok && WORK_GOALS[t.text]) { // the same goal is not offered again for a while: no plan / fail / plan loop
+        let f = this.failed.get(id);
+        if (!f) this.failed.set(id, (f = new Map()));
+        f.set(t.text, { until: w.gameSec + FAILED_FOR, why: why.slice(0, 90) });
+      }
+      this.note(id, ok ? (t.from === 'myself' ? `I did it: ${t.text}.` : `I did what ${t.from === 'owner' ? 'the voice from the sky' : t.from} asked: ${t.text}.`) : `I could not ${t.text}: ${why}.`, true);
       const i = w.e.slot(id);
       if (!ok && i >= 0) this.say(i, cleanLine(`I couldn't ${t.text.replace(/^(to )?/, '')}: ${why}.`, ''));
     };
@@ -215,7 +232,7 @@ export class Planner {
     return c;
   }
 
-  status(): Record<string, unknown> { return { ...this.cfg, busy: this.busy, counts: { ...this.counts } }; }
+  status(): Record<string, unknown> { return { ...this.cfg, busy: this.busy, batchNow: this.batchSize(), counts: { ...this.counts } }; }
 
   // ------------------------------------------------------------------ memory
   mind(id: number): Mind | undefined {
@@ -289,17 +306,41 @@ export class Planner {
     const w = this.w, e = w.e, due = w.gameSec - this.cfg.everyGameHours * HOUR;
     // Who is due, by map: urgent first, then the longest waiting.
     const cand: { i: number; m: number; urgent: boolean; last: number }[] = [];
+    let skipped = 0;
     for (let i = 0; i < e.hi; i++) {
       if (e.kind[i] !== Kind.Agent || e.map[i] === NO_MAP || w.family.dependent(i)) continue; // babies make no plans
       const mind = this.mind(e.id(i));
       if (!mind) continue;
-      if (mind.urgent || mind.lastPlan <= due) cand.push({ i, m: e.map[i]!, urgent: !!mind.urgent, last: mind.lastPlan });
+      if (!(mind.urgent || mind.lastPlan <= due)) continue;
+      if (this.nothingToDecide(i, mind)) { skipped++; continue; }
+      cand.push({ i, m: e.map[i]!, urgent: !!mind.urgent, last: mind.lastPlan });
     }
+    this.counts.skipped += skipped && !cand.length ? 1 : 0; // passes where everyone due had nothing to decide (no call made)
     if (!cand.length) return;
     cand.sort((a, b) => (a.urgent === b.urgent ? a.last - b.last : a.urgent ? -1 : 1));
     const m = cand[0]!.m;
-    const batch = cand.filter((c) => c.m === m).slice(0, this.cfg.batch).map((c) => c.i);
+    const batch = cand.filter((c) => c.m === m).slice(0, this.batchSize()).map((c) => c.i);
     await this.plan(batch);
+  }
+
+  /** People per request now (cfg.batch, fewer while the model is slow). */
+  batchSize(): number { if (this.batchNow <= 0 || this.batchNow > this.cfg.batch) this.batchNow = this.cfg.batch; return this.batchNow; }
+
+  /**
+   * A person due for a plan whose plan would change nothing now (imad 2026-11-27: "skip the call when nothing needs deciding"); they
+   * keep going on the built-in brain and are asked a little later. Never longer than twice the planning interval past due, and
+   * never when something big happened (urgent).
+   *  - children under 7 (they say two or three words; play, family and needs are the built-in brain's),
+   *  - asleep at night, in the middle of a task, or with a pressing need (the brain's desperate needs win over any wish anyway).
+   */
+  private nothingToDecide(i: number, mind: Mind): boolean {
+    const w = this.w, e = w.e;
+    if (w.family.ageOf(i) < 7) return true;
+    if (mind.urgent || mind.lastPlan <= w.gameSec - 3 * this.cfg.everyGameHours * HOUR) return false;
+    const hh = (((w.gameSec / HOUR + 8) % 24) + 24) % 24;
+    if (e.act[i] === Act.Sleep && (hh >= 21 || hh < 5)) return true;
+    if (mind.task) return true;
+    return e.thirst[i]! > 85 || e.hunger[i]! > 88 || e.act[i] === Act.Flee || e.act[i] === Act.Fight;
   }
 
   /** One request for these people (slots on one map). */
@@ -307,12 +348,13 @@ export class Planner {
     const w = this.w, e = w.e;
     this.busy = true; this.lastRunAt = Date.now();
     const ids = slots.map((i) => e.id(i));
+    const before = ids.map((id) => this.mind(id)!.lastPlan);
     for (const id of ids) { const m = this.mind(id)!; m.lastPlan = w.gameSec; m.urgent = false; }
-    const prompt = this.planPrompt(slots);
+    const prompt = this.planPrompt(slots, before);
     const system = 'You decide what survivors in a post-apocalyptic world want to do next. Stay in character, be practical, '
       + 'keep lines short and natural. Answer ONLY with JSON: {"people":[{"name":"...","goal":"...","with":"name or empty",'
       + '"why":"short reason","say":"one short line they say aloud, or empty","mood":"one word","memory":"their updated long-term memory, '
-      + 'at most 300 characters"}]}';
+      + 'at most 300 characters, or empty when nothing new happened to them"}]}. Pick each goal from that person\'s own "Goals now" list.';
     const ex: Exchange = { at: Date.now(), kind: 'plan', who: ids.map((id) => this.name(id)).join(', '), prompt, reply: '', ms: 0 };
     let applied = 0;
     try {
@@ -323,11 +365,17 @@ export class Planner {
       if (!list) throw new Error('the answer had no "people" list');
       applied = this.applyPlans(ids, list);
       this.counts.batches++; this.counts.plans += applied;
+      // A slow model: fewer people per request (a shorter prompt and answer), more again once it answers quickly.
+      if (r.ms > 60_000) this.batchNow = Math.max(1, this.batchSize() - 1);
+      else if (r.ms < 20_000 && this.batchSize() < this.cfg.batch) this.batchNow++;
       if (!applied) throw new Error('no usable plan in the answer');
     } catch (err) {
       ex.err = err instanceof Error ? err.message : String(err);
       this.counts.failures++;
       this.logger.debug('planner failed', { err: ex.err });
+      if (err instanceof AiError && err.code === 'timeout') { this.counts.timeouts++; this.batchNow = Math.max(1, Math.floor(this.batchSize() / 2)); }
+      // Nobody waits on a failed request: they live on the built-in brain and are asked again in about half an hour.
+      if (!applied) for (const id of ids) { const m = this.mind(id); if (m) m.lastPlan = Math.min(m.lastPlan, w.gameSec - this.cfg.everyGameHours * HOUR + 1800); }
     } finally {
       this.busy = false;
       this.keep(ex);
@@ -369,28 +417,96 @@ export class Planner {
     return n;
   }
 
-  private planPrompt(slots: number[]): string {
+  /**
+   * The batch prompt (imad 2026-11-27: "the prompts got very long, slow, even timeouts"): what is the same for everyone once on top
+   * (time, place, the dangerous places, where materials come from, what the things in play are for and cost), then per person
+   * only the goals they can take up NOW (and why some cannot), so the model never picks a sword for a sleeping three-year-old.
+   */
+  private planPrompt(slots: number[], before: number[] = []): string {
     const w = this.w, e = w.e, m = e.map[slots[0]!]!, place = w.maps[m]!.def.name;
-    const goals = ['drink', 'eat (only when carrying food)', 'forage', 'sleep', 'talk (say with whom)', 'wander', 'rest', ...(w.travelOpen ? ['travel (to another place)'] : []),
-      ...(w.survival.enabled ? Object.keys(WORK_GOALS) : [])];
-    const lines = [`Time: ${this.clock()}. Place: ${place}. Travel to other places is ${w.travelOpen ? 'open' : 'closed'}.`, `Possible goals: ${goals.join(', ')}.`, KNOW_HOW, ''];
-    for (const i of slots) lines.push(this.describe(i), '');
+    const sets = slots.map((i) => this.goalsFor(i)), things = new Set<string>();
+    sets.forEach((g, k) => { for (const x of g.goals) if (GOAL_THING[x]) things.add(GOAL_THING[x]!); for (const x of this.carried(slots[k]!)) things.add(x); });
+    const wild = this.placeText(-1);
+    const lines = [`Time: ${this.clock()}. Place: ${place}. Travel to other places is ${w.travelOpen ? 'open' : 'closed'}.`,
+      ...(wild ? [wild] : []), ...(w.survival.enabled ? [SOURCES] : []), ...(knowHowFor(things) ? [knowHowFor(things)] : []), ''];
+    slots.forEach((i, k) => {
+      const g = sets[k]!, mind = this.mind(e.id(i))!, quiet = before[k] !== undefined && !mind.notes.some((n) => n.at > before[k]!);
+      lines.push(this.describe(i, true), `Goals now: ${g.goals.join(', ')}.`, ...(g.cant.length ? [`Not possible now: ${g.cant.join('; ')}.`] : []),
+        ...(quiet ? ['Nothing new since the last plan: leave "memory" empty.'] : []), '');
+    });
     lines.push('For each person above, give one entry in "people".');
     return lines.join('\n');
   }
 
+  /** Things person i carries that are more than materials (their know-how goes in the prompt). */
+  private carried(i: number): string[] {
+    return Object.entries(this.w.survival.inv(i)).filter(([, n]) => (n ?? 0) > 0).map(([k]) => k);
+  }
+
+  /**
+   * The goals person i can really take up now, and why some cannot (imad 2026-11-27: shorter prompts, "but make sure they will not
+   * get dumb"): only what the engine would carry out. Children under 10 only live (drink, eat, play, rest, sleep), 10-15 light work;
+   * no axe for someone who has one, no hut for someone with a home, no bed for a home with enough, no fire feeding without a fire;
+   * a thing to make or build is offered only when there is a way to get its materials from here (sim/colony.ts planTo), else it is
+   * listed under "Not possible now" with the reason; a work goal that failed lately waits FAILED_FOR, shown with why it failed.
+   */
+  goalsFor(i: number): { goals: string[]; cant: string[] } {
+    const w = this.w, e = w.e, id = e.id(i), m = e.map[i]!, s = w.survival, age = w.family.ageOf(i), v = s.inv(i);
+    const hh = (((w.gameSec / HOUR + 8) % 24) + 24) % 24, day = hh >= 6 && hh < 14;
+    const goals = ['drink', ...(s.foodOf(i) > 0 ? ['eat'] : []), 'forage', 'sleep', 'talk (say with whom)', 'wander', 'rest', ...(w.travelOpen && age >= 16 ? ['travel (to another place)'] : [])];
+    const cant: string[] = [];
+    if (!s.enabled || age < 10) return { goals, cant };
+    const failed = this.failed.get(id), home = s.homes.homeOf(id), camp = s.campOf(m), horses = w.horses.mine(i);
+    for (const [g, steps] of Object.entries(WORK_GOALS)) {
+      if (age < 16 && !LIGHT_WORK.has(g)) continue;
+      const f = failed?.get(g);
+      if (f && f.until > w.gameSec) { cant.push(`${g} (tried lately: ${f.why})`); continue; }
+      const st = steps[0]!;
+      let ok = true;
+      switch (g) {
+        case 'make an axe': case 'make a spear': case 'make a bow': case 'make armour': case 'make clothes': case 'make a sword': ok = (v[st.what!] ?? 0) <= 0; break;
+        case 'make arrows': ok = (v.bow ?? 0) > 0 && (v.arrows ?? 0) < 15; break;
+        case 'make a first-aid kit': ok = (v.medkit ?? 0) < 2; break;
+        case 'build a campfire': ok = s.nearestFire(i, 40) < 0; break;
+        case 'feed the fire': ok = s.nearestFire(i, 60) >= 0; break;
+        case 'build a hut': ok = !home && s.homes.builtBy(id, m) < 2; break;
+        case 'put a bed in a hut': ok = !!home && home.m === m && s.homes.bedsMissing(home) > 0; break;
+        case 'put up a palisade': case 'plant a field': ok = !!camp; break;
+        case 'collect food and store it': ok = !!s.stash[m]; break;
+        case 'repair the huts': ok = (s.huts[m]?.length ?? 0) > 0; break;
+        case 'go hunting': ok = w.animals.count(m) > 0 || w.travelOpen; break;
+        case 'explore the woods': ok = w.travelOpen && day; break;
+        case 'tame a horse': ok = !horses.length && (w.horses.count(m, true) > 0 || (w.travelOpen && day && w.horses.count(-1, true) > 0)); break;
+        case 'ride my horse home': {
+          const c = home ? s.homes.middle(home) : null;
+          ok = horses.length > 0 && !!home && (home.m !== m || Math.hypot(c!.x - e.x[i]!, c!.y - e.y[i]!) > 60);
+          break;
+        }
+      }
+      if (!ok) continue;
+      if ((st.do === 'craft' || st.do === 'build') && w.ai.goap && s.missing(i, st.what!).length) {
+        const p = w.colony.planTo(i, st.do, st.what!);
+        if (typeof p === 'string') { cant.push(`${g} (${p})`); continue; }
+      }
+      goals.push(g);
+    }
+    return { goals, cant: cant.slice(0, 4) };
+  }
+
   /** A person as the model sees them. */
-  private describe(i: number): string {
+  private describe(i: number, inBatch = false): string {
     const w = this.w, e = w.e, id = e.id(i), p = w.profileOf(i)!, mind = this.mind(id)!;
-    const near: string[] = [];
+    const near: [number, string][] = [];
     for (let j = 0; j < e.hi; j++) {
       if (j === i || e.map[j] !== e.map[i] || (e.kind[j] !== Kind.Agent && e.kind[j] !== Kind.Player)) continue;
       const d = Math.hypot(e.x[j]! - e.x[i]!, e.y[j]! - e.y[i]!);
       if (d > 80) continue;
       const rl = w.family.relation(id, e.id(j));
       const nm = (e.kind[j] === Kind.Player ? `${this.nameOfId(e.id(j))} (a player)` : this.name(e.id(j))) + (rl ? `, your ${rl}` : '');
-      near.push(`${nm} (${Math.round(d)} m, ${ACT_TEXT[e.act[j]!] ?? 'standing'})`);
+      near.push([d, `${nm} (${Math.round(d)} m, ${ACT_TEXT[e.act[j]!] ?? 'standing'})`]);
     }
+    near.sort((a, b) => a[0] - b[0]);
+    const nearText = near.slice(0, 6).map((x) => x[1]).join('; ') + (near.length > 6 ? `; and ${near.length - 6} more farther off` : '');
     const rel = Object.entries(mind.rel).filter(([, v]) => Math.abs(v) >= 1).map(([k, v]) => `${k[0] === '#' ? this.name(Number(k.slice(1))) : k.slice(1)} ${v > 0 ? '+' : ''}${Math.round(v)}`);
     const wish = mind.plan && mind.plan.until > w.gameSec ? `${mind.plan.act}${mind.plan.with !== undefined ? ' with ' + this.name(mind.plan.with) : ''}` : 'none';
     return [
@@ -405,28 +521,39 @@ export class Planner {
       ...(w.plan.text(e.map[i]!) ? [w.plan.text(e.map[i]!) + ' Help with what is most needed when you are free.'] : []),
       ...(ownText(w, i) ? [ownText(w, i)] : []),
       w.horses.promptText(i),
-      ...(this.placeText(i) ? [this.placeText(i)] : []),
+      ...(this.placeText(i, inBatch) ? [this.placeText(i, inBatch)] : []),
       w.weather.promptText(e.map[i]!),
       ...(w.lore.promptText(i) ? [w.lore.promptText(i)] : []),
-      `Near: ${near.length ? near.join('; ') : 'nobody'}.`,
+      `Near: ${near.length ? nearText : 'nobody'}.`,
       ...(rel.length ? [`Feelings: ${rel.join(', ')}.`] : []),
       ...((() => { const l = w.survival.leader[e.map[i]!] ?? -1; return l < 0 ? [] : l === id ? ['You are the leader of this place: people do the work you give them; keep everyone fed, safe and together.'] : [`Leader here: ${this.name(l)} (people usually do what the leader asks).`]; })()),
       ...(w.rules.text(i) ? [w.rules.text(i)] : []),
       `Memory: ${mind.summary || 'nothing yet'}`,
       ...(w.ai.instinct ? [w.memory.story(i)].filter(Boolean) : []),
-      `Recent: ${mind.notes.length ? mind.notes.slice(-8).map((n) => `${this.clock(n.at)} ${n.text}`).join(' | ') : 'nothing'}`,
+      `Recent: ${mind.notes.length ? this.recent(mind) : 'nothing'}`,
     ].join('\n');
+  }
+
+  /** The newest notes, the same words said once with a count ("x3"), at most 6. */
+  private recent(mind: Mind): string {
+    const out: { at: number; text: string; n: number }[] = [];
+    for (const n of mind.notes.slice(-10)) {
+      const same = out.find((o) => o.text === n.text);
+      if (same) { same.n++; same.at = n.at; } else out.push({ at: n.at, text: n.text, n: 1 });
+    }
+    return out.sort((a, b) => a.at - b.at).slice(-6).map((o) => `${this.clock(o.at)} ${o.text}${o.n > 1 ? ` (x${o.n})` : ''}`).join(' | ');
   }
 
   /**
    * What everyone knows about the dangerous places (imad 2026-11-26: "the forest is very dangerous, kids are not allowed, they die a
    * lot there"): the wild maps by name, and what to do when you are in one.
    */
-  private placeText(i: number): string {
-    const w = this.w, m = w.e.map[i]!, wild = w.maps.filter((x) => w.wild(x.index)).map((x) => x.def.name);
+  private placeText(i: number, inBatch = false): string {
+    const w = this.w, wild = w.maps.filter((x) => w.wild(x.index)).map((x) => x.def.name);
     if (!wild.length) return '';
-    const kid = (w.e.flags[i]! & EFlag.Child) !== 0;
-    if (w.wild(m)) return `DANGER: you are in ${w.maps[m]!.def.name}, a very dangerous wild place (wolves, bears, boars and zombies; many have died here).`
+    const m = i >= 0 ? w.e.map[i]! : -1, kid = i >= 0 && (w.e.flags[i]! & EFlag.Child) !== 0;
+    if (i >= 0 && !w.wild(m) && inBatch) return ''; // said once on top of the batch prompt
+    if (i >= 0 && w.wild(m)) return `DANGER: you are in ${w.maps[m]!.def.name}, a very dangerous wild place (wolves, bears, boars and zombies; many have died here).`
       + (kid ? ' Children are not allowed here: go back to safety now.' : ' Stay close to the others, carry a weapon, help anyone attacked, never bring children, and leave before dark.');
     return `${wild.join(', ')}: very dangerous wild place${wild.length > 1 ? 's' : ''} (wolves, bears, zombies; many die there). Only adults go, armed and together, by day; children are never allowed.`;
   }
@@ -445,14 +572,16 @@ export class Planner {
     const live = (pid: number) => { const q = w.profiles.get(pid); return !!q && q.died === undefined; };
     const nameAge = (pid: number) => { const q = w.profiles.get(pid); return q ? `${q.name} (${Math.floor(ageOf(q, q.died ?? now, y))}${q.died !== undefined ? ', died' : ''})` : 'someone'; };
     const kids = w.family.childrenOf(id), sibs = w.family.siblingsOf(id), parents = w.family.parentsOf(id);
+    // The living by name and age, the dead as a count (imad 2026-11-27: a list of every brother and sister who died made prompts long).
+    const people = (ids: number[]) => { const alive = ids.filter(live), dead = ids.length - alive.length; return [...alive.map(nameAge), ...(dead ? [`${alive.length ? 'and ' : ''}${dead} who died`] : [])].join(', '); };
     const partner = p.partner >= 0 ? w.profiles.get(p.partner) : undefined;
     const parts = [
       partner ? `Married to ${partner.name}${live(p.partner) ? '' : ' (dead)'}.` : 'Single: no partner.',
-      kids.length ? `Children: ${kids.map(nameAge).join(', ')}.` : 'No children.',
+      kids.length ? `Children: ${people(kids)}.` : 'No children.',
       parents.length ? `Parents: ${parents.map(nameAge).join(' and ')}.` : 'Parents: unknown (born before the town).',
       ...(Object.keys(p.kin ?? {}).length ? ['(Some of this family was chosen, not born: it is just as real. Never court or marry your family.)'] : []),
       ...((() => { const little = kids.filter((c) => { const s = e.slot(c); return s >= 0 && w.family.dependent(s); }); return little.length ? [`You look after your little one${little.length > 1 ? 's' : ''} (${little.map(nameAge).join(', ')}): they cannot feed themselves; keep them fed, watered and safe.`] : []; })()),
-      ...(sibs.length ? [`Brothers and sisters: ${sibs.map(nameAge).join(', ')}.`] : []),
+      ...(sibs.length ? [`Brothers and sisters: ${people(sibs)}.`] : []),
       ...(p.pregnant ? [`You are expecting a baby (${w.life.pregnancyPct(p)} % of the way).`] : []),
       ...(partner?.pregnant && p.sex === 'm' ? [`${partner.name} is expecting your baby (${w.life.pregnancyPct(partner)} % of the way).`] : []),
       ...(w.family.lyingInLeft(id) >= 0 ? [`You just gave birth: you stay home with your newborn for ${Math.ceil(w.family.lyingInLeft(id) / 24)} more game days and go out only when it is urgent; your family fills the fridge.`] : []),
@@ -472,7 +601,7 @@ export class Planner {
     const f = s.nearestFire(i, 60), camp = s.campOf(m);
     const fire = f >= 0 ? ` A campfire burns ${Math.round(Math.hypot((f % w.maps[m]!.tiles.w) + 0.5 - e.x[i]!, ((f / w.maps[m]!.tiles.w) | 0) + 0.5 - e.y[i]!))} m away (${Math.round(s.fuel(m, f))} h of wood left).` : ' No fire nearby.';
     const st = s.stash[m];
-    return `${fire} Huts here: ${s.huts[m]!.length}. Fields: ${[...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length}.${st ? ` The camp's store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap.` : ' No store yet.'}${w.zombies.count(m) ? ` ${w.zombies.count(m)} zombies are out.` : ''}${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} Recipes: ${RECIPE_TEXT}, hut = ${HUT_TEXT}.${w.animals.count(m) ? ` ${w.animals.count(m)} animals roam this map.` : ''}`;
+    return `${fire} Huts here: ${s.huts[m]!.length}. Fields: ${[...s.farms.keys()].filter((k) => k.startsWith(m + ':')).length}.${st ? ` The camp's store has ${st.food} food, ${st.wood} wood, ${st.stone} stone, ${st.scrap} scrap.` : ' No store yet.'}${w.zombies.count(m) ? ` ${w.zombies.count(m)} zombies are out.` : ''}${camp ? ` Camp ${Math.round(Math.hypot(camp.x - e.x[i]!, camp.y - e.y[i]!))} m away.` : ''} ${w.animals.count(m) ? ` ${w.animals.count(m)} animals roam this map.` : ''}`;
   }
 
   /** "day 2 14:30 (afternoon)" — the day starts at 08:00 like the viewers show. */
@@ -559,7 +688,9 @@ export class Planner {
     const st = this.ai.status();
     if (st.ready && (e.act[i] !== Act.Sleep || owner)) {
       const present = this.presentNames(i);
-      const prompt = [this.describe(i), `People you can name: ${present.join(', ') || 'nobody'}.`, KNOW_HOW, '',
+      // Know-how only for what is in play: the things named, the ones they carry and the ones their goals now make or use.
+      const things = new Set([...mentioned(text ?? ''), ...this.carried(i), ...this.goalsFor(i).goals.map((g) => GOAL_THING[g] ?? '')]);
+      const prompt = [this.describe(i), `People you can name: ${present.join(', ') || 'nobody'}.`, ...(w.survival.enabled ? [SOURCES] : []), knowHowFor(things), '',
         ...(via ? [via === 'dm' ? 'This is a written message only to you (you are not next to them: "come" means walk to where they are).'
           : `This is written in the ${via === 'world' ? 'world channel, which everyone reads' : 'clan channel, which your clan reads'}; answer for yourself, briefly.`] : []),
         text ? `${who} says to you: "${text.slice(0, 300)}"` : `${who} walks up to you.`,

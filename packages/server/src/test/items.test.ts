@@ -4,7 +4,7 @@ import { ITEM_INFO, itemText, RECIPES_ALL, PLACEABLE, RESOURCES, Kind, EFlag } f
 import { Ai, AI_DEFAULTS } from '../ai/llm.js';
 import { Planner } from '../ai/planner.js';
 import { Logger } from '../log.js';
-import { KNOW_HOW, ownText } from '../sim/knowhow.js';
+import { KNOW_HOW, SOURCES, ownText } from '../sim/knowhow.js';
 import { World } from '../sim/world.js';
 import { NO_MAP } from '../sim/entities.js';
 import { scenario } from './helpers.js';
@@ -31,7 +31,10 @@ test('items: prompts tell people what things are for, what they own and where th
   for (let j = 0; j < w.e.hi; j++) if (w.e.kind[j] === Kind.Agent) { i = j; break; }
   w.survival.add(i, 'axe', 1); w.survival.add(i, 'medkit', 1);
   const pr = (p as unknown as { planPrompt(s: number[]): string }).planPrompt([i]);
-  assert.ok(pr.includes(KNOW_HOW), 'the know-how list');
+  assert.ok(!pr.includes(KNOW_HOW), 'not the whole know-how list any more (imad 2026-11-27: prompts too long)');
+  assert.ok(pr.includes(SOURCES), 'where materials come from');
+  assert.ok(/axe \(1 wood \+ 1 stone\): chops trees/.test(pr) && /medkit \(3 herb \+ 1 leather\): gives back 45 health/.test(pr), 'what the things in play are for and cost');
+  assert.ok(!/stonewall \(/.test(pr), 'nothing about things nobody here can make or use');
   assert.ok(/Your things: axe \(chops trees/.test(pr) && /medkit \(gives back 45 health/.test(pr), 'what they own, with what it does');
   assert.ok(/You have no horse\. Wild horses live in/.test(pr), 'where the wild horses are');
   assert.ok(!/hut = 12 wood/.test(pr), 'the real hut cost');
