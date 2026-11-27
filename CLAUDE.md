@@ -1144,3 +1144,7 @@ simulator" (milestones 1-8). Milestones 1-3, 5, 6, 7 done 2026-11-20 (4 first ve
 - Server: Gather near a rock = mine, rubble / herbs / field = 'use' (pick); every `pickup` event plays 'use' (Gear listener).
 - Proof without a server: `node tools/body-proof/run.mjs <outdir>` (shots.json: looks, faces, walk, run, moves, riding); in game
   `ADMIN_TOKEN=... node tools/looks-proof.mjs <server> <sdk.js> <outdir>`.
+- **Fixes (imad 2026-11-27, app 0.15.3)**: held things sat 35 cm past the fist (`people.ts` hand matrix translated -GRIP instead of +GRIP; the
+  fist is at -FORE-0.025 and `holdIn` places the item 0.4 down). First person on horseback: `Hands.orient(camera)` (called in
+  `World3D.follow` after the camera is placed) keeps the hands on the reins at the horse's heading (`HandsState.heading` = `face[me]`)
+  with the camera's tilt, so the right stick turns only the head. `fpv-proof` shots 5b / 5c (head turned), `__dev.close()` closes the menu.

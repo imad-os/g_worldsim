@@ -10,6 +10,7 @@ const list = (Array.isArray(ppl) ? ppl : ppl?.people ?? ppl?.list ?? []).filter(
 console.log('people', list.length, JSON.stringify(list[0] ?? {}).slice(0, 200));
 const a = list.find((p) => !p.player) ?? list[0];
 if (a) for (let k = 0; k < 6; k++) { await t.adm({ cmd: 'agentMove', id: t.me, map: 'town', x: (a.x ?? 96) + 2.5, y: (a.y ?? 96) + 2 }); await t.wait(700); }
+await t.adm({ cmd: 'agentSet', id: t.me, set: { 'bag.sword': 1 } });
 await t.wait(1500);
 const looks = await t.dev(() => window.__dev.looks?.());
 console.log('looks known', JSON.stringify(looks));

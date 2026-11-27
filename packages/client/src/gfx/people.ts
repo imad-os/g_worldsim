@@ -218,7 +218,7 @@ export class People {
       this.seg.copy(this.m);
       this.put(this.fore, j, this.seg, bl, tunic);
       this.c2.fore.setXYZ(j, look.skin.r, look.skin.g, look.skin.b);
-      (kk === 0 ? this.hand : this.lhand).multiplyMatrices(this.seg, this.part.makeTranslation(0, -GRIP, 0));
+      (kk === 0 ? this.hand : this.lhand).multiplyMatrices(this.seg, this.part.makeTranslation(0, GRIP, 0));
     }
     // In the hands: the tool the move needs (axe to chop, a heavy hammer to mine, a hammer to build), else the weapon.
     if (lie < 0.3 && !reach) {

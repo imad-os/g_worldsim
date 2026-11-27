@@ -495,6 +495,7 @@ export class World3D {
         const eh = this.eyeH;
         this.camera.position.set(this.look.x + fx * 0.18, eh, this.look.z + fz * 0.18);
         this.camera.lookAt(this.look.x + fx * 10, eh - 0.65 + 0.35 * ak, this.look.z + fz * 10);
+        this.hands.orient(this.camera);
       }
       this.fogAt(this.sight * 0.35, this.sight);
       d = this.sight * 0.4;

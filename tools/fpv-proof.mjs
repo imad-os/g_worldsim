@@ -89,9 +89,16 @@ for (let k = 0; k < 6; k++) {
   const n = await note(); console.log('mount:', n);
   if (/riding/i.test(n)) break;
 }
+await dev('close');
 await dev('cam', 'first'); await dev('yaw', 0.6); await page.waitForTimeout(2500);
 console.log('riding eye', JSON.stringify(await eye()));
 await shot('5-first-person-riding-reins-horse-head');
+// Turning the head (right stick) on horseback: the hands stay on the reins over the horse's neck (imad 2026-11-27).
+await dev('yaw', 0.6 + 0.9); await page.waitForTimeout(1200);
+await shot('5b-first-person-riding-head-turned-right');
+await dev('yaw', 0.6 - 0.9); await page.waitForTimeout(1200);
+await shot('5c-first-person-riding-head-turned-left');
+await dev('yaw', 0.6); await page.waitForTimeout(800);
 // Ride by itself to a mark 80 m away, at a gallop: watch the gait.
 const pm = await dev('me');
 await dev('do', 'mark', `add:${town}:${Math.round(pm[0] + 60)}:${Math.round(pm[1] - 50)}:star:Far`);
@@ -106,7 +113,7 @@ for (let k = 0; k < 24; k++) {
   const g = await dev('gaits');
   const e = await eye();
   gaits.push({ t: k * 0.5, eye: e, horses: g.map((h) => ({ id: h.id, cur: h.cur, sp: +h.sp.toFixed(2), ts: +h.ts.toFixed(2), sw: h.sw })) });
-  if (k === 6) await shot('6-first-person-galloping');
+  if (k === 6) { await dev('close'); await page.waitForTimeout(300); } if (k === 6) await shot('6-first-person-galloping');
   if (k === 10) { await dev('cam', 'third'); }
   if (k === 13) await shot('7-third-person-galloping');
 }

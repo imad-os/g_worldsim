@@ -42,6 +42,8 @@ export interface HandsState {
   fov: number;
   /** Aim held on this TV (known at once; the server's copy comes a frame or more later). */
   aim?: boolean;
+  /** On horseback: where the horse (and my body in the saddle) faces, as People / Horses3D `facing` (rotation.y, forward = +z). */
+  heading?: number;
 }
 
 export class Hands {
@@ -91,6 +93,22 @@ export class Hands {
 
   hide(): void { this.root.visible = false; this.k = 0; }
 
+  /** Horse heading while riding (NaN = on foot: the hands turn with the camera, as the body does). */
+  private heading = NaN;
+  private qw = new Quaternion();
+  /**
+   * After the camera is placed (World3D.follow): on horseback the hands stay on the reins over the horse's neck and only the head
+   * (the camera) turns (imad 2026-11-27: "when I turn the camera with the right stick the hand turns with the head, it should turn
+   * the head only"). The hands' frame = the horse's heading with the camera's own up / down tilt, undone from the camera's turn.
+   */
+  orient(camera: Camera): void {
+    if (!this.root.visible || Number.isNaN(this.heading)) { this.root.quaternion.identity(); return; }
+    camera.getWorldDirection(this.v);
+    const pitch = Math.asin(Math.max(-1, Math.min(1, this.v.y)));
+    this.qw.setFromEuler(this.e.set(pitch, this.heading + Math.PI, 0, 'YXZ'));
+    this.root.quaternion.copy(camera.quaternion).invert().multiply(this.qw);
+  }
+
   private tool(k: Tool): Mesh | null {
     const have = this.tools[k];
     if (have) return have;
@@ -111,6 +129,7 @@ export class Hands {
 
   update(s: HandsState): void {
     this.root.visible = true;
+    this.heading = s.riding && s.heading !== undefined ? s.heading : NaN;
     const f = Math.tan((s.fov * Math.PI) / 360) / Math.tan((62 * Math.PI) / 360);
     this.root.scale.set(f, f, 1);
     this.k = Math.min(1, this.k + s.dt * 3.5);
